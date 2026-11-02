@@ -391,6 +391,18 @@
           </VueFlow>
         </div>
 
+        <div v-show="viewMode === 'office'" class="graph-panel office-panel">
+          <OfficeView
+            ref="officeRef"
+            :graph="officeGraph"
+            :sprite-map="nodeSpriteMap"
+            :active-nodes="activeNodes"
+            :status="status"
+            :workflow-name="selectedFile ? selectedFile.replace(/\.yaml$/i, '') : ''"
+            :visible="viewMode === 'office'"
+          />
+        </div>
+
         <!-- Right panel floating toggle (bottom-right of canvas) -->
         <button v-show="viewMode !== 'chat'" class="right-panel-fab" @click="isRightPanelOpen = !isRightPanelOpen" :title="isRightPanelOpen ? $t('launch.collapse_panel') : $t('launch.expand_panel')">
           <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -407,12 +419,12 @@
       <div
         class="right-panel"
         :class="{
-          'right-panel-overlay': viewMode === 'graph',
-          'right-panel-collapsed': viewMode === 'graph' && !isRightPanelOpen
+          'right-panel-overlay': viewMode !== 'chat',
+          'right-panel-collapsed': viewMode !== 'chat' && !isRightPanelOpen
         }"
       >
 
-        <div v-show="viewMode !== 'graph' || isRightPanelOpen" class="control-section">
+        <div v-show="viewMode === 'chat' || isRightPanelOpen" class="control-section">
           <label class="section-label">{{ $t('launch.workflow_selection') }}</label>
       <div
         class="select-wrapper custom-file-selector"
@@ -481,6 +493,13 @@
             >
               {{ $t('launch.graph') }}
             </button>
+            <button
+              class="toggle-button"
+              :class="{ active: viewMode === 'office' }"
+              @click="viewMode = 'office'"
+            >
+              {{ $t('launch.office.view') }}
+            </button>
           </div>
 
           <!-- Button area -->
@@ -545,6 +564,7 @@ import { projectsFromDirectoryInput, collectDroppedItems, supportsDirectoryPicke
 import { toast } from '@/utils/toast.js'
 import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
+import OfficeView from '@/components/office/OfficeView.vue'
 import yaml from 'js-yaml'
 import MarkdownIt from 'markdown-it'
 import SettingsModal from '@/components/common/SettingsModal.vue'
@@ -929,8 +949,11 @@ let audioStream = null
 const isConnectionReady = ref(false)
 const showSettingsModal = ref(false)
 
-// View mode
+// View mode: 'chat' | 'graph' | 'office'
 const viewMode = ref('chat')
+// 2D office view: agents of the selected workflow, driven by the run events below
+const officeRef = ref(null)
+const officeGraph = computed(() => workflowYaml.value?.graph || {})
 const isChatPanelOpen = ref(true)
 const isRightPanelOpen = ref(true)
 
@@ -994,6 +1017,7 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
     nodesLoadingMessagesMap.clear()
     nameToSpriteMap.clear()
     nodeSpriteMap.value.clear()
+    officeRef.value?.reset()
   }
 
   if (attachmentHoverTimeout) {
@@ -2297,6 +2321,9 @@ const handleEdgeConditionMessage = (message) => {
   const sourceNode = edgeMatch[1].trim()
   const targetNode = edgeMatch[2].trim()
 
+  // Office view: the source agent walks over to hand its result to the target
+  officeRef.value?.handoff(sourceNode, targetNode)
+
   // Find the edge in the VueFlow edges
   const edge = edges.value.find(e => e.source === sourceNode && e.target === targetNode)
   if (!edge) {
@@ -2650,6 +2677,7 @@ const processMessage = async (msg) => {
       .filter((part) => part !== null && part !== undefined && String(part).trim())
       .join('\n\n')
     addDialogue(msg.data?.node_id || t('launch.unknown_node'), fullMessage || t('launch.input_required'))
+    officeRef.value?.waitingInput(msg.data?.node_id)
 
     status.value = "Waiting for input..."
     shouldGlow.value = true
@@ -2749,12 +2777,14 @@ const processMessage = async (msg) => {
       if (msg.data.details.stage === "before") {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
         addLoadingEntry(nodeId, baseKey, t('launch.loading_model', { name: msg.data.details.model_name || t('launch.unknown_name') }))
+        officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', true)
       }
 
       // Model call ended
       if (msg.data.details.stage === "after") {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
         finishLoadingEntry(nodeId, baseKey)
+        officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', false)
       }
     }
 
@@ -2764,12 +2794,14 @@ const processMessage = async (msg) => {
       if (msg.data.details.stage === "before") {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
         addLoadingEntry(nodeId, baseKey, t('launch.loading_tool', { name: msg.data.details.tool_name || t('launch.unknown_name') }))
+        officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', true)
       }
 
       // Tool call ended
       if (msg.data.details.stage === "after") {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
         finishLoadingEntry(nodeId, baseKey)
+        officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', false)
       }
     }
 
@@ -2793,6 +2825,7 @@ const processMessage = async (msg) => {
       }
 
       addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output)
+      if (nodeId) officeRef.value?.nodeEnd(nodeId, msg.data.details?.output)
     }
 
     // Edge condition met - trigger sprite animation

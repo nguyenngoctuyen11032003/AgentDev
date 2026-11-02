@@ -277,7 +277,85 @@
     "status_waiting_file": "等待选择文件...",
     "project_uploaded": "项目“{name}”已上传",
     "project_uploaded_partial": "项目“{name}”已上传，{count} 个文件未能保存",
-    "project_uploaded_detail": "{count} 个文件 · 已跳过 {skipped} 项（node_modules、.git、build 等）"
+    "project_uploaded_detail": "{count} 个文件 · 已跳过 {skipped} 项（node_modules、.git、build 等）",
+    "office": {
+      "view": "办公室",
+      "title": "2D 办公室",
+      "empty": "选择一个工作流，查看智能体工作情况",
+      "staff_count": "{n} 名员工 = {n} 个步骤",
+      "roster": "团队 ({n})",
+      "states": {
+        "working": "工作中",
+        "waiting": "等待回复",
+        "done": "已完成",
+        "idle": "休息中"
+      },
+      "bubble": {
+        "working": "处理中",
+        "thinking": "思考中",
+        "tool": "正在使用 {name}",
+        "waiting": "等待你的回复",
+        "done": "完成！",
+        "handoff": "发送给 {name}",
+        "receive": "收到 {name} 的任务"
+      },
+      "activity": {
+        "walking": "移动中",
+        "break": "茶歇中",
+        "no_task": "暂无任务，休息中",
+        "finished": "任务完成，休息中",
+        "standby": "在前台待命",
+        "model": "正在调用 {name}"
+      },
+      "card": {
+        "step": "第 {n}/{total} 步",
+        "department": "部门",
+        "model": "模型",
+        "location": "位置",
+        "activity": "活动",
+        "role": "角色",
+        "last_output": "最新输出"
+      },
+      "rooms": {
+        "mgmt": "管理层",
+        "eng": "研发部",
+        "design": "设计与内容",
+        "qa": "测试实验室",
+        "rnd": "研究与数据",
+        "ops": "运维与基础设施",
+        "meeting": "会议室",
+        "lobby": "接待大厅",
+        "pantry": "茶水间与休息区",
+        "corridor": "走廊",
+        "corridor_moving": "移动中"
+      },
+      "dept_short": {
+        "mgmt": "管理",
+        "eng": "研发",
+        "design": "设计",
+        "qa": "测试",
+        "rnd": "研究",
+        "ops": "运维",
+        "meeting": "小组",
+        "lobby": "用户"
+      },
+      "types": {
+        "agent": "AI 智能体",
+        "human": "人类（你）",
+        "python": "Python 执行",
+        "subgraph": "子团队",
+        "memory": "记忆",
+        "literal": "提示模板",
+        "passthrough": "路由",
+        "loop_counter": "循环计数",
+        "loop_timer": "循环计时",
+        "thinking": "思考",
+        "tooling": "工具",
+        "skills": "技能"
+      },
+      "hud_collapse": "收起状态栏",
+      "hud_expand": "展开状态栏"
+    }
   },
   "components": {
     "workflow_edge": {

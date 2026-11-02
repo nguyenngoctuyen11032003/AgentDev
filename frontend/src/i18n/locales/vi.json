@@ -313,7 +313,85 @@
     "status_waiting_file": "Đang chờ chọn tệp...",
     "project_uploaded": "Đã tải lên dự án \"{name}\"",
     "project_uploaded_partial": "Đã tải lên dự án \"{name}\", {count} tệp không lưu được",
-    "project_uploaded_detail": "{count} tệp · đã bỏ qua {skipped} mục (node_modules, .git, build...)"
+    "project_uploaded_detail": "{count} tệp · đã bỏ qua {skipped} mục (node_modules, .git, build...)",
+    "office": {
+      "view": "Văn phòng",
+      "title": "Văn phòng 2D",
+      "empty": "Chọn một quy trình để xem các agent làm việc",
+      "staff_count": "{n} nhân sự = {n} bước",
+      "roster": "Nhân sự ({n})",
+      "states": {
+        "working": "Đang làm",
+        "waiting": "Chờ phản hồi",
+        "done": "Hoàn thành",
+        "idle": "Đang nghỉ"
+      },
+      "bubble": {
+        "working": "Đang xử lý",
+        "thinking": "Đang suy nghĩ",
+        "tool": "Đang dùng {name}",
+        "waiting": "Chờ bạn phản hồi",
+        "done": "Xong việc!",
+        "handoff": "Gửi cho {name}",
+        "receive": "Nhận việc từ {name}"
+      },
+      "activity": {
+        "walking": "Đang di chuyển",
+        "break": "Đang giải lao",
+        "no_task": "Chưa có việc, đang nghỉ",
+        "finished": "Đã xong việc, đang nghỉ",
+        "standby": "Chờ tại sảnh",
+        "model": "Đang gọi {name}"
+      },
+      "card": {
+        "step": "Bước {n}/{total}",
+        "department": "Phòng ban",
+        "model": "Mô hình",
+        "location": "Vị trí",
+        "activity": "Hoạt động",
+        "role": "Vai trò",
+        "last_output": "Kết quả gần nhất"
+      },
+      "rooms": {
+        "mgmt": "Ban điều hành",
+        "eng": "Phòng Kỹ thuật",
+        "design": "Thiết kế & Nội dung",
+        "qa": "Phòng Kiểm thử",
+        "rnd": "Nghiên cứu & Dữ liệu",
+        "ops": "Vận hành & Hạ tầng",
+        "meeting": "Phòng họp",
+        "lobby": "Sảnh tiếp khách",
+        "pantry": "Pantry & Thư giãn",
+        "corridor": "Hành lang",
+        "corridor_moving": "Đang di chuyển"
+      },
+      "dept_short": {
+        "mgmt": "ĐIỀU HÀNH",
+        "eng": "KỸ THUẬT",
+        "design": "THIẾT KẾ",
+        "qa": "KIỂM THỬ",
+        "rnd": "R&D",
+        "ops": "VẬN HÀNH",
+        "meeting": "NHÓM",
+        "lobby": "NGƯỜI DÙNG"
+      },
+      "types": {
+        "agent": "Agent AI",
+        "human": "Con người (bạn)",
+        "python": "Chạy Python",
+        "subgraph": "Nhóm con",
+        "memory": "Bộ nhớ",
+        "literal": "Mẫu lời nhắc",
+        "passthrough": "Bộ định tuyến",
+        "loop_counter": "Bộ đếm vòng lặp",
+        "loop_timer": "Hẹn giờ vòng lặp",
+        "thinking": "Suy luận",
+        "tooling": "Công cụ",
+        "skills": "Kỹ năng"
+      },
+      "hud_collapse": "Thu gọn thanh trạng thái",
+      "hud_expand": "Mở rộng thanh trạng thái"
+    }
   },
   "form_generator": {
     "advanced_settings": "Cài đặt nâng cao",

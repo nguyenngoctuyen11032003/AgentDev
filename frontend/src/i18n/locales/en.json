@@ -302,7 +302,85 @@
     "status_waiting_file": "Waiting for file selection...",
     "project_uploaded": "Project \"{name}\" uploaded",
     "project_uploaded_partial": "Project \"{name}\" uploaded, {count} file(s) could not be saved",
-    "project_uploaded_detail": "{count} files · skipped {skipped} items (node_modules, .git, build...)"
+    "project_uploaded_detail": "{count} files · skipped {skipped} items (node_modules, .git, build...)",
+    "office": {
+      "view": "Office",
+      "title": "2D Office",
+      "empty": "Select a workflow to see its agents at work",
+      "staff_count": "{n} staff = {n} steps",
+      "roster": "Team ({n})",
+      "states": {
+        "working": "Working",
+        "waiting": "Waiting",
+        "done": "Done",
+        "idle": "Resting"
+      },
+      "bubble": {
+        "working": "Working",
+        "thinking": "Thinking",
+        "tool": "Using {name}",
+        "waiting": "Waiting for your reply",
+        "done": "Done!",
+        "handoff": "Sending to {name}",
+        "receive": "Got work from {name}"
+      },
+      "activity": {
+        "walking": "Walking",
+        "break": "Coffee break",
+        "no_task": "No task yet, resting",
+        "finished": "Task done, resting",
+        "standby": "Standing by at reception",
+        "model": "Calling {name}"
+      },
+      "card": {
+        "step": "Step {n}/{total}",
+        "department": "Department",
+        "model": "Model",
+        "location": "Location",
+        "activity": "Activity",
+        "role": "Role",
+        "last_output": "Latest output"
+      },
+      "rooms": {
+        "mgmt": "Leadership",
+        "eng": "Engineering",
+        "design": "Design & Content",
+        "qa": "QA Lab",
+        "rnd": "R&D · Data",
+        "ops": "Ops & Infra",
+        "meeting": "Meeting room",
+        "lobby": "Reception",
+        "pantry": "Pantry & Lounge",
+        "corridor": "Hallway",
+        "corridor_moving": "On the move"
+      },
+      "dept_short": {
+        "mgmt": "LEAD",
+        "eng": "ENG",
+        "design": "DESIGN",
+        "qa": "QA",
+        "rnd": "R&D",
+        "ops": "OPS",
+        "meeting": "TEAM",
+        "lobby": "USER"
+      },
+      "types": {
+        "agent": "AI agent",
+        "human": "Human (you)",
+        "python": "Python runner",
+        "subgraph": "Sub-team",
+        "memory": "Memory",
+        "literal": "Prompt template",
+        "passthrough": "Router",
+        "loop_counter": "Loop counter",
+        "loop_timer": "Loop timer",
+        "thinking": "Thinker",
+        "tooling": "Tooling",
+        "skills": "Skills"
+      },
+      "hud_collapse": "Collapse status bar",
+      "hud_expand": "Expand status bar"
+    }
   },
   "form_generator": {
     "advanced_settings": "Advanced Settings",
