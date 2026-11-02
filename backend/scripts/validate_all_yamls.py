@@ -19,7 +19,6 @@ Usage (from backend/):
 
 import sys
 import subprocess
-from pathlib import Path
 
 from agentdev.paths import BACKEND_ROOT, PROJECT_ROOT, WORKFLOWS_DIR
 

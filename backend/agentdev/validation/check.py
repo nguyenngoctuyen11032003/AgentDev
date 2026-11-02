@@ -96,6 +96,47 @@ def load_config(
     return design
 
 
+def _stub_missing_env_placeholders(config_path: Path) -> Dict[str, Any]:
+    """Return dummy values for ``${VAR}`` placeholders that only exist at runtime.
+
+    API keys, model names, etc. come from the environment when a workflow runs;
+    static validation (CI has no ``.env``) must not fail just because they are unset.
+    """
+    import os
+    import re
+
+    from agentdev.utils.env_loader import load_dotenv_file
+
+    load_dotenv_file()
+    raw = read_yaml(config_path)
+    declared = set((raw.get("vars") or {}).keys()) if isinstance(raw, dict) else set()
+    names = set(re.findall(r"\$\{([A-Za-z0-9_]+)\}", config_path.read_text(encoding="utf-8")))
+    return {name: f"<{name}>" for name in sorted(names - declared) if name not in os.environ}
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    """CLI entry: ``python -m agentdev.validation.check --path <workflow.yaml>``.
+
+    Exits 0 when the workflow loads cleanly, 1 otherwise (used by
+    ``scripts/validate_all_yamls.py`` and CI).
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Validate a workflow YAML file.")
+    parser.add_argument("--path", required=True, type=Path, help="Workflow YAML file to validate")
+    args = parser.parse_args(argv)
+
+    if not args.path.is_file():
+        print(f"Design file not found: {args.path}")
+        return 1
+    try:
+        load_config(args.path, vars_override=_stub_missing_env_placeholders(args.path))
+    except Exception as exc:  # report any load/validation failure, not only DesignError
+        print(f"{type(exc).__name__}: {exc}")
+        return 1
+    return 0
+
+
 def check_config(yaml_content: Any) -> str:
     if not isinstance(yaml_content, dict):
         return "YAML root must be a mapping"
@@ -119,3 +160,6 @@ def check_config(yaml_content: Any) -> str:
         return str(e)
 
     return ""
+
+if __name__ == "__main__":
+    raise SystemExit(main())
