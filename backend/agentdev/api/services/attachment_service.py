@@ -14,7 +14,37 @@ from agentdev.paths import WAREHOUSE_DIR
 from agentdev.entity.messages import MessageBlock, MessageBlockType
 from agentdev.utils.attachments import AttachmentStore, AttachmentRecord
 from agentdev.utils.exceptions import SecurityError, ValidationError
-from agentdev.utils.workspace_paths import resolve_workspace_path, session_directory_name
+from agentdev.utils.workspace_paths import (
+    resolve_workspace_path,
+    session_directory_name,
+    validate_path_component,
+)
+
+# Uploaded project folders live in ``<session>/code_workspace/projects/<project_id>/``
+# so agents can read *and* edit them with the regular file tools (unlike
+# ``attachments/``, which is read-only for tools).
+PROJECTS_DIRNAME = "projects"
+
+# Dependency / build / VCS folders that are never worth sending to an agent.
+# The web UI filters these before uploading; the backend enforces it again.
+IGNORED_PROJECT_DIRS = frozenset(
+    {
+        ".git", ".hg", ".svn", "node_modules", "bower_components", ".venv", "venv",
+        "env", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox",
+        "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
+        ".cache", "coverage", ".gradle", ".idea", "target", "Pods", "DerivedData",
+    }
+)
+IGNORED_PROJECT_FILES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
+
+_PROJECT_TREE_LINE_LIMIT = 400
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
 
 
 class AttachmentService:
@@ -28,6 +58,8 @@ class AttachmentService:
         self.attachments_root.mkdir(parents=True, exist_ok=True)
         env_flag = os.environ.get("MAC_AUTO_CLEAN_ATTACHMENTS", "0").strip().lower()
         self.clean_on_cleanup = env_flag in {"1", "true", "yes"}
+        self.max_project_files = _env_int("MAC_PROJECT_MAX_FILES", 5000)
+        self.max_project_bytes = _env_int("MAC_PROJECT_MAX_MB", 300) * 1024 * 1024
 
     def prepare_session_workspace(self, session_id: str) -> Path:
         return self._session_attachments_path(session_id, create=True)
@@ -163,6 +195,223 @@ class AttachmentService:
             except (OSError, RuntimeError, ValueError) as exc:
                 raise SecurityError("Invalid uploaded attachment source") from exc
         return paths
+
+    # ------------------------------------------------------------------
+    # Project (folder) uploads
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _safe_project_name(raw: Optional[str]) -> str:
+        """Turn a client folder name into one safe directory name."""
+        name = os.path.basename((raw or "").replace("\\", "/").rstrip("/")).strip()
+        name = "-".join(name.split())  # no spaces: easier paths for agents and tools
+        name = "".join(ch if (ch.isalnum() or ch in "-_.") else "_" for ch in name).strip(".")
+        return (name or "project")[:80]
+
+    @staticmethod
+    def _safe_project_relative_path(raw: Optional[str]) -> Optional[Path]:
+        """Validate a client-supplied relative path inside a project.
+
+        Returns ``None`` for entries that should be skipped (ignored folders /
+        OS junk). Raises ``ValidationError`` for anything that could escape the
+        project root (absolute paths, drive prefixes, ``..``).
+        """
+        normalized = (raw or "").replace("\\", "/").strip()
+        if not normalized or normalized.startswith("/"):
+            raise ValidationError("Project file path must be relative", field="paths")
+        parts = [part for part in normalized.split("/") if part not in {"", "."}]
+        if not parts:
+            raise ValidationError("Project file path is empty", field="paths")
+        for part in parts:
+            if part == ".." or ":" in part or any(ord(ch) < 32 for ch in part):
+                raise ValidationError(f"Invalid project file path: {raw}", field="paths")
+        if any(part in IGNORED_PROJECT_DIRS for part in parts[:-1]) or parts[-1] in IGNORED_PROJECT_FILES:
+            return None
+        return Path(*parts)
+
+    def _session_workspace_path(self, session_id: str) -> Path:
+        session_dir_name = session_directory_name(session_id)
+        current = self.attachments_root
+        for part in (session_dir_name, "code_workspace"):
+            current = current / part
+            if current.is_symlink():
+                raise ValidationError("Upload session paths must not contain symbolic links", field="session_id")
+        path = resolve_workspace_path(self.attachments_root, session_dir_name, "code_workspace")
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _projects_root(self, session_id: str) -> Path:
+        root = self._session_workspace_path(session_id) / PROJECTS_DIRNAME
+        if root.is_symlink():
+            raise ValidationError("Projects directory must not be a symbolic link", field="project_id")
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _project_root(self, session_id: str, project_id: str) -> Path:
+        validate_path_component(project_id, field="project_id")
+        projects_root = self._projects_root(session_id)
+        path = projects_root / project_id
+        if path.is_symlink() or not path.is_dir():
+            raise ValidationError("Unknown project upload", field="project_id")
+        return path
+
+    def create_project(self, session_id: str, name: Optional[str]) -> Dict[str, Any]:
+        """Reserve a fresh ``projects/<id>/`` folder for an upload."""
+        projects_root = self._projects_root(session_id)
+        base = self._safe_project_name(name)
+        candidate, counter = base, 2
+        while (projects_root / candidate).exists():
+            candidate = f"{base}_{counter}"
+            counter += 1
+        (projects_root / candidate).mkdir()
+        return {"project_id": candidate, "workspace_path": f"{PROJECTS_DIRNAME}/{candidate}"}
+
+    @staticmethod
+    def _project_usage(project_root: Path) -> tuple[int, int]:
+        count = size = 0
+        for path in project_root.rglob("*"):
+            if path.is_file() and not path.is_symlink():
+                count += 1
+                size += path.stat().st_size
+        return count, size
+
+    async def save_project_files(
+        self,
+        session_id: str,
+        project_id: str,
+        files: List[UploadFile],
+        paths: List[str],
+    ) -> Dict[str, Any]:
+        """Store one batch of files, keeping their folder structure."""
+        if len(files) != len(paths):
+            raise ValidationError("Each uploaded file needs exactly one relative path", field="paths")
+        project_root = self._project_root(session_id, project_id)
+        resolved_root = project_root.resolve()
+        file_count, total_size = self._project_usage(project_root)
+
+        saved = skipped = 0
+        for upload, raw_path in zip(files, paths):
+            relative = self._safe_project_relative_path(raw_path)
+            if relative is None:
+                skipped += 1
+                continue
+            if file_count + 1 > self.max_project_files:
+                raise ValidationError(
+                    f"Project exceeds the limit of {self.max_project_files} files", field="files"
+                )
+            target = project_root / relative
+            # Every existing ancestor must be a real directory inside the project.
+            for ancestor in [target, *target.parents]:
+                if ancestor == project_root:
+                    break
+                if ancestor.is_symlink():
+                    raise ValidationError("Project paths must not contain symbolic links", field="paths")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.parent.resolve().is_relative_to(resolved_root):
+                raise ValidationError("Project file path escapes the project folder", field="paths")
+
+            written = 0
+            replaced = target.stat().st_size if target.is_file() else 0
+            try:
+                with target.open("wb") as buffer:
+                    while True:
+                        chunk = await upload.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if total_size - replaced + written > self.max_project_bytes:
+                            raise ValidationError(
+                                f"Project exceeds the size limit of {self.max_project_bytes // (1024 * 1024)} MB",
+                                field="files",
+                            )
+                        buffer.write(chunk)
+            except ValidationError:
+                target.unlink(missing_ok=True)
+                raise
+            total_size += written - replaced
+            if not replaced:
+                file_count += 1
+            saved += 1
+
+        return {"saved": saved, "skipped": skipped, "file_count": file_count, "total_size": total_size}
+
+    def finalize_project(self, session_id: str, project_id: str) -> AttachmentRecord:
+        """Register a Markdown overview of the uploaded project as an attachment.
+
+        The agent receives this overview (folder tree + workspace location)
+        instead of every file; it then reads/edits the real files with the file
+        tools under ``projects/<project_id>/``.
+        """
+        project_root = self._project_root(session_id, project_id)
+        workspace_path = f"{PROJECTS_DIRNAME}/{project_id}"
+        file_count, total_size = self._project_usage(project_root)
+        if file_count == 0:
+            raise ValidationError("Project upload contains no files", field="project_id")
+
+        tree_lines: List[str] = []
+        truncated = False
+        for path in sorted(project_root.rglob("*"), key=lambda p: p.relative_to(project_root).as_posix().lower()):
+            if path.is_symlink():
+                continue
+            rel = path.relative_to(project_root)
+            if len(tree_lines) >= _PROJECT_TREE_LINE_LIMIT:
+                truncated = True
+                break
+            indent = "  " * (len(rel.parts) - 1)
+            tree_lines.append(f"{indent}{rel.name}/" if path.is_dir() else f"{indent}{rel.name}")
+        if truncated:
+            tree_lines.append(f"... (tree truncated; {file_count} files in total)")
+
+        size_mb = total_size / (1024 * 1024)
+        overview = "\n".join(
+            [
+                f"# Project: {project_id}",
+                "",
+                "The user attached a whole project folder. It is available in your code workspace at:",
+                "",
+                f"    {workspace_path}/",
+                "",
+                f"- Files: {file_count} ({size_mb:.2f} MB)",
+                "- Use the file tools (list_directory, read_text_file_snippet, read_file_segment, "
+                "save_file, apply_text_edits, ...) with paths relative to the code workspace, "
+                f"e.g. `{workspace_path}/README.md`.",
+                "- Dependency/build folders (node_modules, .git, dist, build, .venv, ...) were not uploaded.",
+                "",
+                "## Folder tree",
+                "",
+                "```",
+                f"{project_id}/",
+                *("  " + line for line in tree_lines),
+                "```",
+                "",
+            ]
+        )
+
+        temp_dir = Path(tempfile.mkdtemp(prefix="mac_project_"))
+        # Short fixed name: the stored copy lives under attachments/<32-hex id>/,
+        # and long names push Windows paths past MAX_PATH (260).
+        temp_path = temp_dir / "PROJECT.md"
+        try:
+            temp_path.write_text(overview, encoding="utf-8")
+            store = self.get_attachment_store(session_id)
+            return store.register_file(
+                temp_path,
+                kind=MessageBlockType.FILE,
+                display_name=f"{project_id}/",
+                mime_type="text/markdown",
+                extra={
+                    "source": "user_upload",
+                    "origin": "web_upload",
+                    "session_id": session_id,
+                    "kind": "project",
+                    "project_id": project_id,
+                    "workspace_path": workspace_path,
+                    "file_count": file_count,
+                    "total_size": total_size,
+                },
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _session_attachments_path(self, session_id: str, *, create: bool = True) -> Optional[Path]:
         session_dir_name = session_directory_name(session_id)

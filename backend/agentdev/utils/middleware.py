@@ -2,8 +2,9 @@
 
 import uuid
 from typing import Callable
-from fastapi import Request, HTTPException, FastAPI
+from fastapi import Request, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import time
 import re
 import os
@@ -46,16 +47,20 @@ async def correlation_id_middleware(request: Request, call_next: Callable):
 
 
 async def security_middleware(request: Request, call_next: Callable):
-    """Security middleware to validate requests."""
+    """Security middleware to validate requests.
+
+    Rejections are *returned* as responses: an ``HTTPException`` raised inside
+    an HTTP middleware bypasses FastAPI's exception handlers and surfaces as 500.
+    """
     # Validate content type for JSON endpoints
     if request.url.path.startswith("/api/") and request.method in ["POST", "PUT", "PATCH"]:
         content_type = request.headers.get("content-type", "").lower()
         if not content_type.startswith("application/json") and request.method != "GET":
             # Skip validation for file uploads
             if not content_type.startswith("multipart/form-data"):
-                raise HTTPException(
+                return JSONResponse(
                     status_code=400,
-                    detail="Content-Type must be application/json for API endpoints"
+                    content={"detail": "Content-Type must be application/json for API endpoints"},
                 )
     
     # Validate file paths to prevent path traversal
@@ -70,7 +75,7 @@ async def security_middleware(request: Request, call_next: Callable):
                 f"Suspicious path detected: {path}",
                 correlation_id=getattr(request.state, 'correlation_id', str(uuid.uuid4()))
             )
-            raise HTTPException(status_code=400, detail="Invalid path")
+            return JSONResponse(status_code=400, content={"detail": "Invalid path"})
     
     response = await call_next(request)
     return response
