@@ -14,10 +14,9 @@ graph:
       description: "Convert 1-line idea into a quantified 3D Design Spec with hard complexity targets."
       context_window: 0
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
-        name: gpt-4o
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
+        name: claude-sonnet-5-5
         role: |
           # Role
           You are a professional **3D Technical Product Manager**.
@@ -70,10 +69,9 @@ graph:
       description: "Deconstruct the spec into a step-by-step plan that guarantees rich scene building."
       context_window: 0
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
-        name: gpt-4o
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
+        name: claude-sonnet-5-5
         role: |
           # Role
           You are the **Technical Planner**.
@@ -114,10 +112,9 @@ graph:
       description: "Write a rich Blender bpy script (TEXT ONLY). No tool calls."
       context_window: 10
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
-        name: gpt-4o
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
+        name: claude-sonnet-5-5
         role: |
           # Identity
           You are a **Procedural Architect** (Blender bpy expert).
@@ -168,10 +165,9 @@ graph:
       description: "Static review focused on richness, completeness, and likely runtime errors."
       context_window: 10
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
-        name: gpt-4o
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
+        name: claude-sonnet-5-5
         role: |
           You are a **Technical Supervisor**.
 
@@ -196,10 +192,9 @@ graph:
       description: "Always output a final runnable script; expand if too simple and fix likely errors."
       context_window: 10
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
-        name: gpt-4o
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
+        name: claude-sonnet-5-5
         role: |
           You receive: Spec + Plan + Script + Reviewer notes.
 
@@ -227,10 +222,9 @@ graph:
       description: "Publish-ready package (spec+plan+final script+run guide)."
       context_window: 10
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
-        name: gpt-4o
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
+        name: claude-sonnet-5-5
         role: |
           Output Markdown with:
           # 3D Case Summary (1 paragraph)

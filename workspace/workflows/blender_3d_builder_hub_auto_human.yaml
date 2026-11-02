@@ -14,7 +14,7 @@ graph:
       description: 'Defines the raw requirements and object manifest.'
       context_window: 0
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Role
           You are a professional **3D Technical Product Manager**.
@@ -59,7 +59,8 @@ graph:
           # Interact with User
           *   You should first do your best to provide a complete design spec.
           *   Afterward, you can call the `call_user` tool to communicate with the user, clarify requirements, or obtain more details until the user is satisfied.
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         tooling:
@@ -74,7 +75,7 @@ graph:
       description: 'Splits the spec into Geometry tasks and Decoration tasks.'
       context_window: 0
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Role
           You are the **Technical Planner**.
@@ -111,7 +112,8 @@ graph:
           1. Apply Materials: 'Ground_Main' -> <PM's Material Look>; 'Cabin_01' -> <PM's Material Look>.
           2. Setup Lighting: Based on PM's 'Main Light' & 'Ambient Light'.
           3. Setup Camera: Based on PM's 'Camera Angle'.
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
 
@@ -120,7 +122,7 @@ graph:
       description: 'The central brain managing state and routing.'
       context_window: 20
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Role
           You are the **Project Orchestrator**.
@@ -174,7 +176,8 @@ graph:
           Analysis: <Current state analysis>
           Instruction: <Specific natural language instruction for the Worker, including necessary parameters>
           ROUTE: <COMMAND>
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         tooling:
@@ -189,7 +192,7 @@ graph:
       description: 'Builds the blockout geometry.'
       context_window: 10
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Role
           You are a **Structure Architect**.
@@ -215,7 +218,8 @@ graph:
 
           # Report
           "Geometry built. Created [X] objects. Ready for review."
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         tooling:
@@ -230,7 +234,7 @@ graph:
       description: 'Checks geometry scale and physics.'
       context_window: 5
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Role
           You are a **Civil Engineer**.
@@ -251,7 +255,8 @@ graph:
 
           # Report
           "Geometry built. Created [X] objects. Ready for review."
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         tooling:
@@ -266,7 +271,7 @@ graph:
       description: 'Applies materials and lighting.'
       context_window: 10
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           You are a **Decorator Architect**.
           You have taken over a verified white model. You need to use tools to execute Blender Python code.
@@ -288,7 +293,8 @@ graph:
           "FATAL_GEO_ERROR: [Specific Reason]", this will trigger a process rollback.
 
           Otherwise report: "Materials and Lighting applied. Ready for review."
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         tooling:
@@ -303,7 +309,7 @@ graph:
       description: 'Checks final visual quality.'
       context_window: 5
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Role
           You are an **Art Director**.
@@ -320,7 +326,8 @@ graph:
           Analysis: <Analysis based on the screenshot>
           Decision: <APPROVE | REJECT | FATAL_GEO_ERROR>
           Critique: <Specific revision suggestions>
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         tooling:

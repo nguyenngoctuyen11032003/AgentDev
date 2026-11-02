@@ -14,10 +14,9 @@ graph:
     type: agent
     description: Normalize user tasks, extract goals and constraints.
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o-mini
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-haiku-5-5
       input_mode: messages
       role: |
         You are a marketing strategy manager. Normalize the user input into:
@@ -31,10 +30,9 @@ graph:
     description: Collect background info, organize key points.
     context_window: -1
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o-mini
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-haiku-5-5
       input_mode: messages
       role: |
         You are a strategy researcher. Based on the JSON from Intake Planner, generate 3-5 background bullets:
@@ -56,10 +54,9 @@ graph:
     description: Wrap the final output of the Reflexion Loop into a client delivery draft.
     context_window: -1
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-sonnet-5-5
       input_mode: messages
       role: |
         You are a Customer Success Manager.

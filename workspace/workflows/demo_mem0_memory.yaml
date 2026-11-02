@@ -8,10 +8,9 @@ graph:
     - id: writer
       type: agent
       config:
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
-        provider: openai
-        name: gpt-5.4
+        api_key: ${ANTHROPIC_API_KEY}
+        provider: anthropic
+        name: claude-opus-5-5
         role: |
           You are a knowledgeable writer. Use your memories to build on past interactions.
           If memory sections are provided (wrapped by ===== Related Memories =====),

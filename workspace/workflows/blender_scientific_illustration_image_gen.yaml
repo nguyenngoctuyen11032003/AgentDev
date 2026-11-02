@@ -12,7 +12,7 @@ graph:
       description: ''
       context_window: 0
       config:
-        name: gemini-2.5-flash
+        name: claude-sonnet-5-5
         role: |-
           You are the **Executor**.
           Your role is to act as the bridge between the Agents and the Blender process.
@@ -27,7 +27,8 @@ graph:
           **Response Format:**
           CODE_STATUS: <PASS|FAILED>
           ERROR: <Code execution error. If code passed, leave this field blank>
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         params: {}
@@ -50,7 +51,7 @@ graph:
       description: ''
       context_window: 6
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |-
           You are the **Quality Assurance Inspector**.
           Your ONLY job is to visually inspect the 3D scene and accept or reject it.
@@ -100,7 +101,8 @@ graph:
           **Output Format:**
           DECISION: <REJECT|ACCEPT>
           DESCRIPTION: <Detailed instructions for the Engineer on what looks wrong. Example: "The gold layer is too thin, please make it thicker." NOT code.>
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         params: {}
@@ -128,7 +130,7 @@ graph:
       description: ''
       context_window: 0
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |-
           You are the **Planner** for a Blender Scientific Visualization System.
           Your goal is to translate natural language scientific requests (e.g., "Draw a P3HT:PCBM bulk heterojunction") into a structured, step-by-step building plan for the Engineer.
@@ -151,7 +153,8 @@ graph:
           **Constraints:**
           - Do NOT write Python code.
           - Focus on the *visual composition* and *hierarchy* of objects.
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         params: {}
@@ -164,7 +167,7 @@ graph:
       description: ''
       context_window: 0
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |-
           You are the **Scientist** for a Blender Scientific Visualization System.
           Your goal is to ensure the scientific accuracy of the visualization by providing precise parameters and physical logic.
@@ -186,7 +189,8 @@ graph:
           **Constraints:**
           - Do NOT write Blender Python (bpy) code.
           - Provide data in a format easily readable by the Engineer (e.g., JSON-like or bullet points).
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         params: {}
@@ -198,7 +202,7 @@ graph:
       type: agent
       context_window: 10
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |-
           You are the **Engineer**. You are an expert in the Blender Python API (`bpy`).
           Your goal is to write a **COMPLETE, standalone Python script** that builds the scene described by the Planner and Scientist.
@@ -240,7 +244,8 @@ graph:
               - **Lighting Strategy**: Observe the light direction and intensity in the Concept Image and write Python code to simulate it (e.g., adding Area Lights or playing with World Strength).
 
           **Output:** Return ONLY the Python code block.
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         params: {}

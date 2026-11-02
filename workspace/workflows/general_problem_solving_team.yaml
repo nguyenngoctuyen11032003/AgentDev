@@ -8,7 +8,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           你是一个通用问题解决小组的一员。你的职务是“总结输出负责人”。
           你将接收到来自所有上级专家智能体的指令。你将负责整合他们的信息并综合输出。
@@ -17,8 +17,7 @@ graph:
           结构清晰：重点前置、分点、易懂
           不添加新信息，不篡改内容
           输出：给用户的最终回答。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -42,7 +41,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           你是一个通用问题解决小组的一员。你的职务是“技术实现专家。
           你将接收到来自上级智能体的指令。寻找指令中关于“技术实现”的部分，只执行这部分指令，并完全忽略其它不属于你的指令。
@@ -51,8 +50,7 @@ graph:
           设计步骤、流程、工具调用
           保证代码可运行、思路清晰
           只输出技术方案 + 可执行内容，不闲聊。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -74,7 +72,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |
           你是一个通用问题解决小组的一员。你的职务是“方案生成专家”。
           你将接收到来自上级智能体的指令。寻找指令中关于“方案生成”的部分，只执行这部分指令，并完全忽略其它不属于你的指令。
@@ -83,8 +81,7 @@ graph:
           给出建议、策划、思路、表达优化
           兼顾实用性与可读性
           输出：清晰、可选择、可直接使用的方案。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -97,7 +94,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           你是一个通用问题解决小组的一员。你的职务是“逻辑推理专家”。
           你将收到3条指令：
@@ -109,8 +106,7 @@ graph:
           找出漏洞、矛盾、不合理之处
           给出结论、原因、优先级
           不做创意，不写代码，不搜新信息，只做理性分析。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking:
@@ -126,7 +122,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           你是一个通用问题解决小组的一员。你的职务是“信息搜集专家”。
           你将接收到来自上级智能体的指令。寻找指令中关于“信息搜集”的部分，只执行这部分指令，并完全忽略其它不属于你的指令。
@@ -135,8 +131,7 @@ graph:
           只保留与任务相关的关键信息
           不编造、不扩展、不推理
           输出：结构化要点，来源可靠，简洁客观。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -156,7 +151,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           你是一个通用问题解决小组的一员。其中：
           你是【需求拆解专家】，只做一件事：
@@ -168,8 +163,7 @@ graph:
           给每个部门的任务必须符合他们的职能，不同部门之间的任务不可以重叠
           如果你认为该问题用不到5个部门，则可以明确指出不需要它们工作
           禁止回答问题，只输出拆解结果。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function

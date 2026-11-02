@@ -10,8 +10,8 @@ graph:
     - id: Planner
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           你是春节新媒体策划。
           用户在 Launch 时输入的内容，就是本次任务的唯一要求。
@@ -22,8 +22,7 @@ graph:
           ## 必须出现的元素
           ## 可选创意梗（2条）
           ## 写作任务总结（一句话）
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.6
         tooling: []
@@ -36,8 +35,8 @@ graph:
     - id: Copywriter
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           你是官号文案作者。根据 Brief 输出一篇可直接发布的春节推文（Markdown）。
           要求：
@@ -45,8 +44,7 @@ graph:
           - 正文 4-6 段（段落短，节奏快）
           - 至少 3 个可传播金句（加粗）
           - 结尾 2 条互动引导（评论区话题/投票/分享）
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.7
         tooling: []
@@ -59,15 +57,14 @@ graph:
     - id: Blessing
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           你是春节祝福语写手。根据 Brief 输出 12 条短祝福（Markdown 列表）：
           - 温情 4 条 / 幽默 4 条 / 国风 4 条
           - 每条不超过 18 字
           - 不要重复表达
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.85
         tooling: []
@@ -80,13 +77,12 @@ graph:
     - id: Storyteller
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           你是短故事写手。根据 Brief 写一个 300-500 字春节小故事（Markdown）。
           要求：有一个记忆点（反转/细节/一句金句）；结尾落到团圆/祝福/新开始。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.85
         tooling: []
@@ -99,15 +95,14 @@ graph:
     - id: PosterPrompt
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           根据“最终发布包”，生成海报用的图像生成提示词（prompt pack），要求：
           - 3 个风格方向（国风/现代极简/手绘插画）
           - 每个方向给：正向提示词、负向提示词、画幅比例建议、主标题/副标题排版建议
           输出 Markdown。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.6
         tooling: []
@@ -120,8 +115,8 @@ graph:
     - id: Editor1
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           你是总编辑。你会收到：Brief + 推文 + 祝福语 + 小故事。
           请整合为一个“官号发布包（初稿）”（Markdown），结构固定为：
@@ -131,8 +126,7 @@ graph:
           # 配图/排版建议（5条）
           # 评论区话题（3条）
           语言风格统一，内容可直接复制发布。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.5
         tooling: []
@@ -155,8 +149,8 @@ graph:
     - id: Editor2
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           你是二次润色编辑。你会收到“发布包初稿 + 人工修改意见”。
           请输出修改后的最终发布包（Markdown），要求：
@@ -164,8 +158,7 @@ graph:
           - 修改意见逐条落实
           - 语言风格统一、可直接发布
           - 若发现初稿结构缺失或不一致，需要补齐并修正
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.45
         tooling: []

@@ -13,10 +13,9 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: You are a critic. Provide brief feedback (1 sentence) to improve the draft.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -29,10 +28,9 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: You are a technical writer. Generate a brief draft (1 sentence).
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -79,4 +77,4 @@ graph:
       keep_message: false
       process: null
 vars:
-  MODEL_NAME: qwen/qwen3-8b
+  MODEL_NAME: claude-sonnet-5-5

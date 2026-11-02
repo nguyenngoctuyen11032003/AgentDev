@@ -15,10 +15,9 @@ graph:
     description: ReAct controller, responsible for thinking, deciding whether to call tools, and providing final answers.
     context_window: -1
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-sonnet-5-5
       input_mode: messages
       role: |
         You are a ReAct controller, needing to make decisions between the toolbox (web_search, read_webpage_content, execute_code, get_city_num, get_weather) and the final answer.
@@ -39,10 +38,9 @@ graph:
     type: agent
     description: Receives control instructions and actually calls function tools, returning Observations.
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-sonnet-5-5
       input_mode: messages
       role: |
         You are the tool executor.
@@ -74,10 +72,9 @@ graph:
     type: agent
     description: Cleans up ReAct formatting and outputs a user-readable final response.
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-sonnet-5-5
       input_mode: messages
       role: |
         You are responsible for receiving the Final Answer from ReAct Brain and combining it with the most recent Observation (if any) to generate a natural language response.
