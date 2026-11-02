@@ -26,6 +26,9 @@ from agentdev.runtime.node.agent import ModelResponse
 from agentdev.utils.token_tracker import TokenUsage
 
 
+OAUTH_BEARER_PREFIX = "oauth-bearer:"
+
+
 class GeminiProvider(ModelProvider):
     """Gemini provider implementation."""
 
@@ -37,15 +40,45 @@ class GeminiProvider(ModelProvider):
         Create and return the Gemini client.
         """
         client_kwargs: Dict[str, Any] = {}
+        base_url = (self.base_url or "").strip()
+        # OAuth mechanism: the connection resolver passes a Google OAuth access
+        # token as ``api_key = "oauth-bearer:<token>"``. In that case we send
+        # ``Authorization: Bearer <token>`` instead of an API key.
+        api_key = self.api_key or ""
+        if isinstance(api_key, str) and api_key.startswith(OAUTH_BEARER_PREFIX):
+            token = api_key[len(OAUTH_BEARER_PREFIX):].strip()
+            client_kwargs["http_options"] = self._build_bearer_http_options(base_url, token)
+            # genai.Client insists on some api_key; give a dummy one and strip the
+            # resulting x-goog-api-key header so only the Bearer token is sent.
+            client = genai.Client(api_key="oauth-placeholder", **client_kwargs)
+            self._strip_api_key_header(client)
+            return client
+
         if self.api_key:
             client_kwargs["api_key"] = self.api_key
 
-        base_url = (self.base_url or "").strip()
         http_options = self._build_http_options(base_url)
         if http_options:
             client_kwargs["http_options"] = http_options
 
         return genai.Client(**client_kwargs)
+
+    @staticmethod
+    def _strip_api_key_header(client: Any) -> None:
+        api_client = getattr(client, "_api_client", None)
+        options = getattr(api_client, "_http_options", None)
+        headers = getattr(options, "headers", None)
+        if isinstance(headers, dict):
+            headers.pop("x-goog-api-key", None)
+
+    def _build_bearer_http_options(self, base_url: str, token: str) -> genai_types.HttpOptions:
+        kwargs: Dict[str, Any] = {
+            "headers": {"Authorization": f"Bearer {token}"},
+            "timeout": 4 * 60 * 1000,
+        }
+        if base_url:
+            kwargs["base_url"] = base_url
+        return genai_types.HttpOptions(**kwargs)
 
     def call_model(
         self,

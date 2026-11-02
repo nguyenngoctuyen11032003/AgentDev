@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from agentdev.connections.autobind import bind_default_connections
 from agentdev.entity.configs import DesignConfig, ConfigError
 from agentdev.utils.env_loader import load_dotenv_file, build_env_var_map
 from agentdev.utils.vars_resolver import resolve_design_placeholders
@@ -14,6 +15,7 @@ def prepare_design_mapping(data: Mapping[str, Any], *, source: str | None = None
     load_dotenv_file()
     env_lookup = build_env_var_map()
     prepared = dict(data)
+    bind_default_connections(prepared, env_lookup)
     resolve_design_placeholders(prepared, env_lookup=env_lookup, path=source or "root")
     return prepared
 

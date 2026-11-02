@@ -650,3 +650,75 @@ export async function uploadProject(sessionId, projectName, entries, onProgress)
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Provider connections (credentials registered once, referenced by nodes)
+// ---------------------------------------------------------------------------
+
+async function connectionsRequest(path, options, errorKey) {
+  const response = await fetch(apiUrl(`/api/connections${path}`), {
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  })
+  if (!response.ok) {
+    throw await responseError(errorKey, response)
+  }
+  return response.json()
+}
+
+export const fetchConnectionVendors = () =>
+  connectionsRequest('/vendors', {}, 'errors.api.connections_failed')
+
+export const fetchConnections = () =>
+  connectionsRequest('', {}, 'errors.api.connections_failed')
+
+export const createConnection = ({ vendor, label, apiKey, baseUrl = '', authType = 'api_key' }) =>
+  connectionsRequest(
+    '',
+    {
+      method: 'POST',
+      body: JSON.stringify({ vendor, label, api_key: apiKey, base_url: baseUrl, auth_type: authType })
+    },
+    'errors.api.connections_failed'
+  )
+
+export const deleteConnection = (id) =>
+  connectionsRequest(`/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'errors.api.connections_failed')
+
+export const checkWorkflowConnections = (yamlContent) =>
+  connectionsRequest(
+    '/check',
+    { method: 'POST', body: JSON.stringify({ yaml_content: yamlContent }) },
+    'errors.api.connections_failed'
+  )
+
+export const fetchCliStatus = (vendor) =>
+  connectionsRequest(`/cli-status/${encodeURIComponent(vendor)}`, {}, 'errors.api.connections_failed')
+
+export const fetchGoogleOAuthStatus = () =>
+  connectionsRequest('/oauth/google/status', {}, 'errors.api.connections_failed')
+
+export const startGoogleOAuth = (label) =>
+  connectionsRequest('/oauth/google/start', { method: 'POST', body: JSON.stringify({ label }) }, 'errors.api.connections_failed')
+
+export const pollGoogleOAuth = (state) =>
+  connectionsRequest(`/oauth/google/poll?state=${encodeURIComponent(state)}`, {}, 'errors.api.connections_failed')
+
+export const startCliLogin = (vendor) =>
+  connectionsRequest('/cli-login/start', { method: 'POST', body: JSON.stringify({ vendor }) }, 'errors.api.connections_failed')
+
+export const pollCliLogin = (sessionId) =>
+  connectionsRequest(`/cli-login/${encodeURIComponent(sessionId)}`, {}, 'errors.api.connections_failed')
+
+export const submitCliLoginCode = (sessionId, code) =>
+  connectionsRequest(
+    `/cli-login/${encodeURIComponent(sessionId)}/code`,
+    { method: 'POST', body: JSON.stringify({ code }) },
+    'errors.api.connections_failed'
+  )
+
+export const cancelCliLogin = (sessionId) =>
+  connectionsRequest(`/cli-login/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }, 'errors.api.connections_failed')
+
+export const testConnection = (id) =>
+  connectionsRequest(`/${encodeURIComponent(id)}/test`, { method: 'POST' }, 'errors.api.connections_failed')
