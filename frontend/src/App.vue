@@ -1,6 +1,7 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import Sidebar from '@/components/common/Sidebar.vue'
 
 const route = useRoute()
@@ -8,13 +9,29 @@ const route = useRoute()
 // Hide the sidebar on LaunchView, BatchRunView and WorkflowWorkbench
 const showSidebar = computed(() => route.path !== '/launch' && route.path !== '/batch-run')
 const isHomeRoute = computed(() => route.path === '/')
+
+// Keep <html lang> in sync with the UI language (accessibility, spell-check, hyphenation)
+const { locale } = useI18n()
+watch(locale, (value) => {
+  document.documentElement.lang = value || 'vi'
+}, { immediate: true })
 </script>
 
 <template>
   <div class="app-container" :class="{ 'home-route': isHomeRoute }">
     <Sidebar v-if="showSidebar" />
     <main class="main-content">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <!--
+          Short, enter-only fade (opacity on the compositor) so route switches feel
+          settled without delaying the new page. Launch/Batch views render multiple
+          root nodes and open in their own tab, so they are mounted directly.
+        -->
+        <Transition v-if="showSidebar" name="route-fade">
+          <component :is="Component" />
+        </Transition>
+        <component :is="Component" v-else />
+      </router-view>
     </main>
   </div>
 </template>
@@ -35,16 +52,20 @@ const isHomeRoute = computed(() => route.path === '/')
 .main-content {
   flex: 1;
   min-height: 0;
-  background-color: white;
+  background-color: var(--bg-base);
 }
 
 .home-route .main-content {
   overflow: hidden;
-  background-color: #1a1a1a;
+  background-color: var(--bg-base);
 }
 
-body {
-  margin: 0;
-  font-family: system-ui, sans-serif;
+/* Route transition: enter-only, opacity only (no leave delay, no layout work) */
+.route-fade-enter-active {
+  transition: opacity 0.15s ease-out;
+}
+
+.route-fade-enter-from {
+  opacity: 0;
 }
 </style>

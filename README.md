@@ -9,9 +9,6 @@
 </p>
 
 <p align="center">
-  【<a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>】
-</p>
-<p align="center">
     【📚 <a href="#developers">Developers</a> | 👤 <a href="#author">Author</a> | ⚖️ <a href="#license">License</a>】
 </p>
 
@@ -66,6 +63,7 @@ Install everything at once with `make install`, or step by step:
     cp .env.example .env
     ```
 *   **Model Keys**: Set `API_KEY` and `BASE_URL` in `.env` for your LLM provider.
+*   **Claude (optional)**: Set `ANTHROPIC_API_KEY` (optionally `ANTHROPIC_BASE_URL`) and use `provider: anthropic` with `api_key: ${ANTHROPIC_API_KEY}` in Claude nodes (see `workspace/workflows/demo_claude.yaml`).
 *   **YAML placeholders**: Use `${VAR}`（e.g., `${API_KEY}`）in configuration files to reference these variables.
 
 ### ⚡️ Run the Application

@@ -34,6 +34,17 @@
                 <div
                   v-for="(message, index) in chatMessages"
                   :key="`message-${index}`"
+                  class="chat-message-item"
+                  v-memo="[
+                    message.rev,
+                    message.isLoading ? now : 0,
+                    message.duration,
+                    message.loading,
+                    message.dataUri,
+                    message.error,
+                    configStore.AUTO_EXPAND_MESSAGES,
+                    i18nLocale
+                  ]"
                 >
               <!-- Notification -->
               <div
@@ -57,11 +68,11 @@
                 :class="{ 'dialogue-right': message.isRight }"
               >
                 <div class="profile-picture">
-                  <img :src="message.avatar" :alt="`Avatar ${index + 1}`" />
+                  <img :src="message.avatar" :alt="$t('launch.avatar_alt', { name: getDisplayName(message) })" />
                 </div>
                 <div class="message-content">
                   <div class="user-name">
-                    {{ message.name }}
+                    {{ getDisplayName(message) }}
                     <span class="message-timestamp">{{ formatTime(message.timestamp) }}</span>
                   </div>
                   <div
@@ -118,7 +129,7 @@
                     <div v-else>
                       <img
                         :src="message.dataUri"
-                        :alt="message.fileName || 'image artifact'"
+                        :alt="message.fileName || $t('launch.image_artifact_alt')"
                         class="artifact-image"
                         role="button"
                         tabindex="0"
@@ -130,7 +141,7 @@
                         <img
                           v-if="getFilePreviewSrc(message)"
                           :src="getFilePreviewSrc(message)"
-                          :alt="`${message.fileName} preview`"
+                          :alt="$t('launch.file_preview_alt', { name: message.fileName || '' })"
                           class="artifact-filename-icon"
                         />
                         <span class="artifact-filename-text">{{ message.fileName }}</span>
@@ -156,7 +167,7 @@
                       <img
                         v-if="getFilePreviewSrc(message)"
                         :src="getFilePreviewSrc(message)"
-                        :alt="`${message.fileName} preview`"
+                        :alt="$t('launch.file_preview_alt', { name: message.fileName || '' })"
                         class="artifact-filename-icon"
                       />
                       <span class="artifact-filename-text">{{ message.fileName }}</span>
@@ -215,7 +226,16 @@
                           :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || (isWorkflowRunning && status !== 'Waiting for input...')"
                           @click="handleAttachmentButtonClick"
                         >
-                          {{ isUploadingAttachment ? $t('launch.uploading') : $t('launch.upload_file') }}
+                          {{ isUploadingAttachment ? (uploadProgressText || $t('launch.uploading')) : $t('launch.upload_file') }}
+                        </button>
+                        <button
+                          type="button"
+                          class="attachment-button folder-button"
+                          :title="$t('launch.upload_folder_hint')"
+                          :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || (isWorkflowRunning && status !== 'Waiting for input...')"
+                          @click="handleFolderButtonClick"
+                        >
+                          {{ $t('launch.upload_folder') }}
                         </button>
                         <span
                           v-if="uploadedAttachments.length"
@@ -227,8 +247,18 @@
                       <input
                         ref="attachmentInputRef"
                         type="file"
+                        multiple
                         class="hidden-file-input"
                         @change="onAttachmentSelected"
+                      />
+                      <input
+                        ref="folderInputRef"
+                        type="file"
+                        webkitdirectory
+                        directory
+                        multiple
+                        class="hidden-file-input"
+                        @change="onFolderSelected"
                       />
                       <Transition name="attachment-popover">
                         <div
@@ -242,10 +272,25 @@
                             :key="attachment.attachmentId"
                             class="attachment-item"
                           >
-                            <span class="attachment-name">{{ attachment.name }}</span>
+                            <span
+                              class="attachment-name"
+                              :title="attachment.kind === 'project' ? attachment.workspacePath : attachment.name"
+                            >
+                              <span
+                                v-if="attachment.kind === 'project'"
+                                class="attachment-kind"
+                              >📁</span>
+                              {{ attachment.name }}
+                              <span
+                                v-if="attachment.kind === 'project'"
+                                class="attachment-meta"
+                              >{{ $t('launch.project_files', { count: attachment.fileCount || 0 }) }}</span>
+                            </span>
                             <button
                               type="button"
                               class="remove-attachment"
+                              :title="$t('launch.remove_attachment')"
+                              :aria-label="$t('launch.remove_attachment')"
                               @click.stop="removeAttachment(attachment.attachmentId)"
                             >
                               ×
@@ -266,6 +311,8 @@
                       class="microphone-button"
                       :class="{ 'recording': isRecording, 'pulsating': isRecording }"
                       :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || (isWorkflowRunning && status !== 'Waiting for input...')"
+                      :title="$t('launch.hold_to_record')"
+                      :aria-label="$t('launch.hold_to_record')"
                       @mousedown.prevent="startRecording"
                       @mouseup.prevent="stopRecording"
                       @mouseleave="handleMicrophoneMouseLeave"
@@ -339,7 +386,7 @@
                 :hovered-node-id="hoveredNodeId"
               />
             </template>
-            <Background pattern-color="#aaa"/>
+            <Background pattern-color="var(--canvas-dot)"/>
             <Controls position="bottom-left"/>
           </VueFlow>
         </div>
@@ -490,10 +537,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph } from '@/api/client.js'
+import { fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, uploadProject, getAttachment, fetchVueGraph } from '@/api/client.js'
+import { projectsFromDirectoryInput, collectDroppedItems } from '@/utils/projectFiles.js'
 import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import yaml from 'js-yaml'
@@ -505,14 +553,41 @@ const md = new MarkdownIt({
   typographer: true
 })
 
+// Memoize markdown output by source text so re-renders never re-parse the same message
+const MARKDOWN_CACHE_LIMIT = 300
+const markdownCache = new Map()
 const renderMarkdown = (text) => {
-  return md.render(text || '')
+  const source = text || ''
+  const cached = markdownCache.get(source)
+  if (cached !== undefined) return cached
+  const html = md.render(source)
+  if (markdownCache.size >= MARKDOWN_CACHE_LIMIT) {
+    markdownCache.delete(markdownCache.keys().next().value)
+  }
+  markdownCache.set(source, html)
+  return html
+}
+
+// Intl.DateTimeFormat is expensive to create; keep one per locale
+const timeFormatterCache = new Map()
+const getTimeFormatter = (dateLocale) => {
+  let formatter = timeFormatterCache.get(dateLocale)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(dateLocale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23'
+    })
+    timeFormatterCache.set(dateLocale, formatter)
+  }
+  return formatter
 }
 
 const formatTime = (timestamp) => {
   if (!timestamp) return ''
-  const date = new Date(timestamp)
-  return date.toLocaleTimeString('en-GB', { hour12: false }) // HH:mm:ss
+  const dateLocale = TIME_LOCALE_MAP[i18nLocale.value] || 'en-GB'
+  return getTimeFormatter(dateLocale).format(new Date(timestamp)) // HH:mm:ss
 }
 import { VueFlow, useVueFlow, MarkerType } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -527,28 +602,135 @@ import CollapsibleMessage from '@/components/common/CollapsibleMessage.vue'
 
 const router = useRouter()
 const route = useRoute()
-const { t } = useI18n()
-const { fromObject, fitView, onPaneReady, onNodesInitialized, setNodes, setEdges, nodes, edges } = useVueFlow()
+const { t, te, locale: i18nLocale } = useI18n()
+
+// Map i18n locale to a date locale for 24h time display
+const TIME_LOCALE_MAP = {
+  vi: 'vi-VN',
+  zh: 'zh-CN',
+  en: 'en-GB'
+}
+
+// Internal name used for messages typed by the user in this view
+const USER_SENDER = 'User'
+
+// Display name for a chat dialogue (localizes the local user's name)
+const getDisplayName = (message) => {
+  if (!message) return ''
+  if (message.isRight && message.name === USER_SENDER) {
+    return t('launch.user_name')
+  }
+  return message.name || ''
+}
+
+// Turn an error detail (string / FastAPI validation list / object / Error) into readable text
+const formatErrorDetail = (detail) => {
+  if (detail === null || detail === undefined || detail === '') return ''
+  if (typeof detail === 'string') return detail
+  if (detail instanceof Error) return detail.message || ''
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (item && typeof item === 'object' && item.msg) {
+          const loc = Array.isArray(item.loc) ? item.loc.join('.') : ''
+          return loc ? `${loc}: ${item.msg}` : String(item.msg)
+        }
+        return formatErrorDetail(item)
+      })
+      .filter(Boolean)
+      .join('; ')
+  }
+  if (typeof detail === 'object') {
+    if (typeof detail.message === 'string') return detail.message
+    if (typeof detail.detail !== 'undefined') return formatErrorDetail(detail.detail)
+    try {
+      return JSON.stringify(detail)
+    } catch {
+      return ''
+    }
+  }
+  return String(detail)
+}
+
+// Build a localized error message, appending backend detail when available
+const errorWithDetail = (key, detail, params = {}) => {
+  const text = formatErrorDetail(detail)
+  return text
+    ? t(`${key}_detail`, { ...params, detail: text })
+    : t(key, params)
+}
+
+// Localize backend log levels / roles with fallback to the raw value
+const localizeOrRaw = (key, raw) => (te(key) ? t(key) : raw)
+
+// Backend INFO log events shown in the chat: localized per event type, raw message otherwise
+const LOG_EVENT_KEYS = {
+  WORKFLOW_START: 'launch.log_events.workflow_start',
+  WORKFLOW_END: 'launch.log_events.workflow_end',
+  HUMAN_INTERACTION: 'launch.log_events.human_interaction',
+  THINKING_PROCESS: 'launch.log_events.thinking_process',
+  MEMORY_OPERATION: 'launch.log_events.memory_operation'
+}
+// Actionable hint for well-known backend/provider failures (appended after the raw detail)
+const ERROR_HINTS = [
+  [/MAC_ALLOW_UNSAFE_CODE_EXECUTION/, 'launch.error_hints.python_disabled'],
+  [/invalid_api_key|incorrect api key|api key not valid|unauthorized|\b401\b/i, 'launch.error_hints.invalid_api_key'],
+  [/rate.?limit|quota|\b429\b/i, 'launch.error_hints.rate_limit'],
+  [/model.{0,40}(not found|does not exist)|\b404\b/i, 'launch.error_hints.model_not_found'],
+  [/connection (error|refused)|timed? ?out|name or service not known|getaddrinfo|failed to establish/i, 'launch.error_hints.connection']
+]
+const withErrorHint = (text) => {
+  if (typeof text !== 'string' || !text) return text
+  const match = ERROR_HINTS.find(([re]) => re.test(text))
+  return match ? `${text}\n\n${t(match[1])}` : text
+}
+
+const localizeLogMessage = (data) => {
+  const key = LOG_EVENT_KEYS[data?.event_type]
+  if (key && te(key)) {
+    return t(key, { node: data?.node_id || t('launch.unknown_node') })
+  }
+  return formatErrorDetail(data?.message)
+}
+
+// The executor prefixes node inputs with "=== INPUT FROM <source> (<role>) ===".
+// Show that header in the UI language (display only; the backend text is unchanged).
+const INPUT_HEADER_RE = /^=== INPUT FROM (.+?) \((\w+)\) ===$/gm
+const localizeInputHeaders = (text) => {
+  if (typeof text !== 'string') return text
+  return text.replace(INPUT_HEADER_RE, (_, source, role) => {
+    const sourceLabel = source === 'TASK' ? t('launch.input_source_task') : source
+    const roleLabel = localizeOrRaw(`launch.roles.${role}`, role)
+    return t('launch.input_from_header', { source: sourceLabel, role: roleLabel })
+  })
+}
+const { fromObject, fitView, onPaneReady, onNodesInitialized, setNodes, setEdges, edges } = useVueFlow()
 
 const getTranslatedStatus = (statusText) => {
   if (!statusText) return ''
-  const statusMap = {
-    'Waiting for workflow selection...': t('launch.status_waiting_workflow'),
-    'Connecting...': t('launch.status_connecting'),
-    'Connected': t('launch.status_connected'),
-    'Connection error': t('launch.status_connection_error'),
-    'Disconnected': t('launch.status_disconnected'),
-    'Pending launch': t('launch.status_pending_launch'),
-    'Launching...': t('launch.status_launching'),
-    'In Progress': t('launch.status_in_progress'),
-    'Completed': t('launch.status_completed'),
-    'Cancelled': t('launch.status_cancelled'),
-    'Failed': t('launch.status_failed'),
-    'Error': t('launch.status_error'),
-    'Pending workflow selection': t('launch.status_waiting_workflow'),
-    'Pending file selection': t('launch.status_waiting_file')
+  // Internal status values (kept in English for logic) -> i18n keys
+  const statusKeyMap = {
+    'Waiting for workflow selection...': 'launch.status_waiting_workflow',
+    'Waiting for file selection...': 'launch.status_waiting_file',
+    'Pending workflow selection': 'launch.status_waiting_workflow',
+    'Pending file selection': 'launch.status_waiting_file',
+    'Connecting...': 'launch.status_connecting',
+    'Connected': 'launch.status_connected',
+    'Connection error': 'launch.status_connection_error',
+    'Disconnected': 'launch.status_disconnected',
+    'Waiting for launch...': 'launch.status_waiting_launch',
+    'Pending launch': 'launch.status_waiting_launch',
+    'Launching...': 'launch.status_launching',
+    'Running...': 'launch.status_running',
+    'In Progress': 'launch.status_running',
+    'Waiting for input...': 'launch.status_waiting_input',
+    'Completed': 'launch.status_completed',
+    'Cancelled': 'launch.status_cancelled',
+    'Failed': 'launch.status_failed',
+    'Error': 'launch.status_error'
   }
-  return statusMap[statusText] || statusText
+  const key = statusKeyMap[statusText]
+  return key ? localizeOrRaw(key, statusText) : statusText
 }
 
 // Task input state
@@ -586,14 +768,16 @@ const addTotalLoadingMessage = (nodeId) => {
   if (nodeState) return nodeState
 
   let avatar
-  if (nameToSpriteMap.value.has(nodeId)) {
-    avatar = nameToSpriteMap.value.get(nodeId)
+  if (nameToSpriteMap.has(nodeId)) {
+    avatar = nameToSpriteMap.get(nodeId)
   } else {
     avatar = spriteFetcher.fetchSprite(nodeId, 'D', 1)
-    nameToSpriteMap.value.set(nodeId, avatar)
+    nameToSpriteMap.set(nodeId, avatar)
   }
 
-  const message = {
+  // Use the reactive proxy (not the raw object) so later mutations from
+  // nodesLoadingMessagesMap are tracked instead of relying on the 1s timer tick
+  const message = reactive({
     type: 'dialogue',
     name: nodeId,
     text: '',
@@ -603,10 +787,12 @@ const addTotalLoadingMessage = (nodeId) => {
     isLoading: true,
     startedAt: Date.now(),
     timestamp: Date.now(),
-    loadingEntries: []
-  }
+    loadingEntries: [],
+    rev: 0
+  })
 
   chatMessages.value.push(message)
+  scheduleScrollToBottom()
 
   nodeState = {
     message,
@@ -639,10 +825,13 @@ const addLoadingEntry = (nodeId, baseKey, label) => {
   nodeState.entryMap.set(key, entry)
   nodeState.baseKeyToKey.set(baseKey, key)
   nodeState.message.loadingEntries.push(entry)
+  nodeState.message.rev += 1
   runningLoadingEntries.value += 1
   if (runningLoadingEntries.value === 1) {
     startLoadingTimer()
   }
+  // The bubble grew; keep the view pinned to the bottom if the user is there
+  scheduleScrollToBottom()
   return entry
 }
 
@@ -659,6 +848,7 @@ const finishLoadingEntry = (nodeId, baseKey) => {
   entry.status = 'done'
   entry.endedAt = Date.now()
   nodeState.baseKeyToKey.delete(baseKey)
+  nodeState.message.rev += 1
   if (wasRunning) {
     runningLoadingEntries.value = Math.max(0, runningLoadingEntries.value - 1)
     if (runningLoadingEntries.value === 0) {
@@ -681,6 +871,7 @@ const finalizeAllLoadingEntries = (nodeState, endedAt = Date.now()) => {
   }
   nodeState.baseKeyToKey.clear()
   if (finishedCount) {
+    nodeState.message.rev += 1
     runningLoadingEntries.value = Math.max(0, runningLoadingEntries.value - finishedCount)
     if (runningLoadingEntries.value === 0) {
       stopLoadingTimer()
@@ -706,8 +897,8 @@ const stopLoadingTimer = () => {
   loadingTimerInterval = null
 }
 
-// Map sprites for different roles
-const nameToSpriteMap = ref(new Map())
+// Map sprites for different roles (script-only lookup table; no reactivity needed)
+const nameToSpriteMap = new Map()
 
 // Map node IDs to sprites for graph display
 const nodeSpriteMap = ref(new Map())
@@ -716,6 +907,8 @@ const nodeSpriteMap = ref(new Map())
 const shouldGlow = ref(false)
 const taskInputRef = ref(null)
 const attachmentInputRef = ref(null)
+const folderInputRef = ref(null)
+const uploadProgressText = ref('')
 const uploadedAttachments = ref([])
 const isDragActive = ref(false)
 const showAttachmentPopover = ref(false)
@@ -797,7 +990,7 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
     clearUploadedAttachments()
     chatMessages.value = []
     nodesLoadingMessagesMap.clear()
-    nameToSpriteMap.value.clear()
+    nameToSpriteMap.clear()
     nodeSpriteMap.value.clear()
   }
 
@@ -819,7 +1012,7 @@ const hoveredNodeId = ref(null)
 const onNodeHover = (nodeId) => {
   hoveredNodeId.value = nodeId || null
 }
-const onNodeLeave = (_nodeId) => {
+const onNodeLeave = () => {
   hoveredNodeId.value = null
 }
 
@@ -863,6 +1056,8 @@ const loadWorkflows = async () => {
     applyWorkflowFromRoute()
   } else {
     console.error('Failed to load workflows:', result.error)
+    // client.js returns a fixed English error text, so show the localized message only
+    addChatNotification(t('launch.errors.load_workflows_failed'), { type: 'error' })
   }
 }
 
@@ -949,19 +1144,31 @@ const addDialogue = (name, message) => {
   if (message === null || message === undefined) {
     return
   }
-  const text = typeof message === 'string' ? message : String(message)
+  let text
+  if (typeof message === 'string') {
+    text = message
+  } else if (typeof message === 'object') {
+    // Avoid showing "[object Object]" for structured outputs
+    try {
+      text = '```json\n' + JSON.stringify(message, null, 2) + '\n```'
+    } catch {
+      text = String(message)
+    }
+  } else {
+    text = String(message)
+  }
   if (!text.trim()) {
     return
   }
   let avatar
-  if (nameToSpriteMap.value.has(name)) {
-    avatar = nameToSpriteMap.value.get(name)
+  if (nameToSpriteMap.has(name)) {
+    avatar = nameToSpriteMap.get(name)
   } else {
     avatar = spriteFetcher.fetchSprite()
-    nameToSpriteMap.value.set(name, avatar)
+    nameToSpriteMap.set(name, avatar)
   }
 
-  const isRight = name === "User"
+  const isRight = name === USER_SENDER
 
   const htmlContent = renderMarkdown(text)
   chatMessages.value.push({
@@ -971,8 +1178,11 @@ const addDialogue = (name, message) => {
     htmlContent,
     avatar: avatar,
     isRight: isRight,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    rev: 0
   })
+  // The user's own message always brings the view back to the bottom
+  scheduleScrollToBottom(isRight)
 }
 
 // Add a notification (supports levels)
@@ -980,8 +1190,10 @@ const addChatNotification = (message, { type = 'notification' } = {}) => {
   chatMessages.value.push({
     type,
     message,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    rev: 0
   })
+  scheduleScrollToBottom()
 }
 
 // Format a millisecond timestamp as mm:ss
@@ -1030,15 +1242,14 @@ const uploadFiles = async (files) => {
         const result = await postFile(sessionId, file)
 
         if (result?.success && result?.attachmentId) {
-          console.log('File uploaded successfully:', result)
           uploadedAttachments.value.push(result)
         } else {
           console.error('File upload failed:', result)
-          alert(result?.message || t('launch.alert_failed_upload'))
+          alert(t('launch.errors.upload_failed', { name: file?.name || '' }))
         }
       } catch (error) {
         console.error('Failed to upload attachment:', error)
-        alert(t('launch.alert_file_upload_failed'))
+        alert(errorWithDetail('launch.errors.upload_error', error, { name: file?.name || '' }))
       }
     }
   } finally {
@@ -1047,16 +1258,69 @@ const uploadFiles = async (files) => {
 }
 
 const onAttachmentSelected = async (event) => {
-  const file = event.target?.files?.[0]
+  const files = Array.from(event.target?.files || [])
   if (event.target) {
     event.target.value = ''
   }
 
-  if (!file) {
+  if (!files.length) {
     return
   }
 
-  await uploadFiles([file])
+  await uploadFiles(files)
+}
+
+const handleFolderButtonClick = () => {
+  if (!isAttachmentUploadAllowed()) {
+    return
+  }
+  folderInputRef.value?.click()
+}
+
+// Upload whole project folders (structure preserved). Each folder becomes one
+// attachment; the agent gets an overview and edits the files in its workspace.
+const uploadProjects = async (projects) => {
+  if (!projects?.length) {
+    return
+  }
+  if (!sessionId) {
+    alert(t('launch.alert_session_not_ready'))
+    return
+  }
+
+  isUploadingAttachment.value = true
+  try {
+    for (const project of projects) {
+      if (!project.entries.length) {
+        alert(t('launch.errors.project_empty', { name: project.name }))
+        continue
+      }
+      const result = await uploadProject(sessionId, project.name, project.entries, ({ uploadedFiles, totalFiles }) => {
+        uploadProgressText.value = t('launch.uploading_progress', {
+          name: project.name,
+          done: uploadedFiles,
+          total: totalFiles
+        })
+      })
+      if (result?.success && result?.attachmentId) {
+        uploadedAttachments.value.push(result)
+      } else {
+        console.error('Project upload failed:', result)
+        alert(t('launch.errors.project_upload_failed', { name: project.name, detail: result?.message || '' }))
+      }
+    }
+  } finally {
+    uploadProgressText.value = ''
+    isUploadingAttachment.value = false
+  }
+}
+
+const onFolderSelected = async (event) => {
+  const projects = projectsFromDirectoryInput(event.target?.files)
+  if (event.target) {
+    event.target.value = ''
+  }
+  await uploadProjects(projects)
 }
 
 const removeAttachment = (attachmentId) => {
@@ -1124,11 +1388,10 @@ const startRecording = async () => {
         const result = await postFile(sessionId, audioFile)
 
         if (result?.success && result?.attachmentId) {
-          console.log('Recording uploaded successfully:', result)
           uploadedAttachments.value.push(result)
         } else {
           console.error('Recording upload failed:', result)
-          alert(result?.message || 'Failed to upload recording')
+          alert(t('launch.alert_recording_upload_failed'))
         }
       } catch (error) {
         console.error('Failed to upload recording:', error)
@@ -1171,7 +1434,7 @@ const removeGlobalListeners = () => {
   window.removeEventListener('touchend', stopRecordingGlobal)
 }
 
-const handleMicrophoneMouseLeave = (event) => {
+const handleMicrophoneMouseLeave = () => {
   // If mouse leaves while recording, don't stop (let global listener handle it)
   // This allows recording to continue if user drags outside button
 }
@@ -1228,7 +1491,7 @@ const openImageModal = (message) => {
   }
   selectedArtifactImage.value = {
     src: message.dataUri,
-    name: message.fileName || 'Artifact image'
+    name: message.fileName || t('launch.image_artifact_alt')
   }
   lockBodyScroll()
 }
@@ -1332,11 +1595,14 @@ const handleDrop = async (event) => {
     return
   }
 
-  const files = Array.from(event.dataTransfer?.files || [])
-  if (files.length === 0) {
-    return
+  // Read the DataTransfer synchronously; folders are walked afterwards.
+  const { files, projects } = await collectDroppedItems(event.dataTransfer)
+  if (files.length) {
+    await uploadFiles(files)
   }
-  await uploadFiles(files)
+  if (projects.length) {
+    await uploadProjects(projects)
+  }
 }
 
 // Handle YAML file selection
@@ -1374,17 +1640,23 @@ const handleYAMLSelection = async (fileName) => {
     // Clear the previous node sprite map
     nodeSpriteMap.value.clear()
 
-    // Fetch a sprite for each node
+    // Fetch a sprite for each node (binding also preloads that character's frames)
     for (const node of yamlNodes) {
       if (node.id) {
         const spritePath = spriteFetcher.fetchSprite(node.id, 'D', 1)
         nodeSpriteMap.value.set(node.id, spritePath)
       }
     }
+
+    // Warm the remaining characters in the background for chat avatars and edge walkers
+    spriteFetcher.preloadAll()
   } catch (error) {
     console.error('Failed to load YAML file:', error)
     workflowYaml.value = {}
-    addChatNotification(t('launch.notif_failed_load_yaml'))
+    addChatNotification(
+      errorWithDetail('launch.errors.load_yaml_failed', error, { name: fileName }),
+      { type: 'error' }
+    )
     nodeSpriteMap.value.clear()
   }
 
@@ -1448,11 +1720,11 @@ const sendHumanInput = () => {
     fullMessage.push(trimmedInput)
   }
   if (attachmentNames.length) {
-    fullMessage.push(`[[Attachments]]:\n ${attachmentNames.join(', ')}`)
+    fullMessage.push(t('launch.attachments_line', { names: attachmentNames.join(', ') }))
   }
 
   if (fullMessage.length) {
-    addDialogue('User', fullMessage.join('\n\n'))
+    addDialogue(USER_SENDER, fullMessage.join('\n\n'))
   }
 
   taskPrompt.value = ''
@@ -1509,22 +1781,27 @@ const establishWebSocketConnection = (options = {}) => {
   socket.onopen = () => {
     // Ignore events from stale sockets
     if (ws !== socket) return
-    console.log('WebSocket connected')
   }
 
   socket.onmessage = (event) => {
     // Ignore messages from sockets that are no longer current
     if (ws !== socket) return
 
-    const msg = JSON.parse(event.data)
+    let msg
+    try {
+      msg = JSON.parse(event.data)
+    } catch (parseError) {
+      console.warn('Ignoring malformed WebSocket message:', parseError)
+      return
+    }
+    if (!msg || typeof msg !== 'object') return
 
     if (msg.type === 'connection') {
       sessionId = msg.data?.session_id || null
-      console.log('Connected with session: ', sessionId)
 
       if (!sessionId) {
         status.value = 'Connection error'
-        alert(t('launch.alert_missing_session'))
+        alert(t('launch.errors.missing_session'))
         resetConnectionState()
         return
       }
@@ -1550,7 +1827,7 @@ const establishWebSocketConnection = (options = {}) => {
 
     console.error('WebSocket error:', error)
     status.value = 'Connection error'
-    alert(t('launch.alert_ws_error'))
+    alert(t('launch.errors.ws_connection'))
     resetConnectionState({ closeSocket: false })
   }
 
@@ -1558,7 +1835,6 @@ const establishWebSocketConnection = (options = {}) => {
     // Ignore close events from sockets that are no longer current
     if (ws !== socket) return
 
-    console.log('WebSocket closed')
     if (status.value === 'Running...') {
       status.value = 'Disconnected'
     } else if (status.value === 'Connecting...' || status.value === 'Waiting for launch...') {
@@ -1611,6 +1887,7 @@ watch(
 onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
+  chatMessagesRef.value?.addEventListener('scroll', handleChatScroll, { passive: true })
   await loadWorkflows()
   // If URL contains a session id, the watch on selectedFile (triggered by
   // applyWorkflowFromRoute inside loadWorkflows) will call establishWebSocketConnection,
@@ -1625,6 +1902,11 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
+  chatMessagesRef.value?.removeEventListener('scroll', handleChatScroll)
+  if (scrollRafId !== null) {
+    cancelAnimationFrame(scrollRafId)
+    scrollRafId = null
+  }
   unlockBodyScroll()
   resetConnectionState()
   cleanupRecording()
@@ -1687,7 +1969,7 @@ const syncNodeAndEdgeData = () => {
               type: MarkerType.Arrow,
               width: 18,
               height: 18,
-              color: '#f2f2f2',
+              color: 'var(--text-1)',
               strokeWidth: 2,
             }
           }
@@ -1729,7 +2011,7 @@ const generateNodesAndEdges = async ({ fit = false } = {}) => {
         type: MarkerType.Arrow,
         width: 18,
         height: 18,
-        color: '#f2f2f2',
+        color: 'var(--text-1)',
         strokeWidth: 2,
       },
       data: edge
@@ -1879,18 +2161,17 @@ const launchWorkflow = async () => {
       // Clear uploaded attachments
       clearUploadedAttachments()
 
-      const result = await response.json()
-      console.log('Workflow launched: ', result)
+      await response.json().catch(() => null)
 
       const fullMessage = []
       if (trimmedPrompt) {
         fullMessage.push(trimmedPrompt)
       }
       if (attachmentNames.length) {
-        fullMessage.push(`Attachments: ${attachmentNames.join(', ')}`)
+        fullMessage.push(t('launch.attachments_line', { names: attachmentNames.join(', ') }))
       }
       if (fullMessage.length) {
-        addDialogue('User', fullMessage.join('\n\n'))
+        addDialogue(USER_SENDER, fullMessage.join('\n\n'))
       }
 
       taskPrompt.value = ''
@@ -1910,7 +2191,7 @@ const launchWorkflow = async () => {
       const error = await response.json().catch(() => ({}))
       console.error('Failed to launch workflow:', error)
       status.value = 'Failed'
-      alert(`${t('launch.alert_failed_launch')}: ${error.detail || t('launch.unknown_error')}`)
+      alert(errorWithDetail('launch.errors.launch_failed', error.detail || (response.status ? `HTTP ${response.status}` : '')))
       shouldGlow.value = true
       if (isConnectionReady.value) {
         status.value = 'Waiting for launch...'
@@ -1919,7 +2200,7 @@ const launchWorkflow = async () => {
   } catch (error) {
     console.error('Error calling execute API:', error)
     status.value = 'Error'
-    alert(`${t('launch.alert_failed_execute')}: ${error.message}`)
+    alert(errorWithDetail('launch.errors.execute_failed', error))
     shouldGlow.value = true
     if (isConnectionReady.value) {
       status.value = 'Waiting for launch...'
@@ -1946,7 +2227,7 @@ const downloadArtifact = async (message) => {
       message.loading = true
       dataUri = await getAttachment(sessionId, message.attachmentId)
       if (!dataUri) {
-        throw new Error('Empty attachment data')
+        throw new Error(t('launch.errors.empty_attachment'))
       }
       // Cache here
       message.dataUri = dataUri
@@ -1960,7 +2241,7 @@ const downloadArtifact = async (message) => {
     document.body.removeChild(link)
   } catch (error) {
     console.error('Failed to download artifact:', error)
-    alert(t('launch.alert_download_failed'))
+    alert(errorWithDetail('launch.errors.download_failed', error, { name: message?.fileName || '' }))
   } finally {
     if (message.loading) {
       message.loading = false
@@ -1980,8 +2261,6 @@ const handleEdgeConditionMessage = (message) => {
   const sourceNode = edgeMatch[1].trim()
   const targetNode = edgeMatch[2].trim()
 
-  console.log('Edge condition met:', { sourceNode, targetNode })
-
   // Find the edge in the VueFlow edges
   const edge = edges.value.find(e => e.source === sourceNode && e.target === targetNode)
   if (!edge) {
@@ -1994,13 +2273,9 @@ const handleEdgeConditionMessage = (message) => {
 
 // Animate a sprite walking along an edge from source to target
 const animateSpriteAlongEdge = (edge) => {
-  // Get sprite for the source node (walking animation)
-  let spriteSrc
-  if (nameToSpriteMap.value.has(edge.source)) {
-    spriteSrc = nameToSpriteMap.value.get(edge.source)
-  } else {
-    spriteSrc = spriteFetcher.fetchSprite(edge.source, 'D', 2) // Start with walking frame 2
-    nameToSpriteMap.value.set(edge.source, spriteSrc)
+  // Make sure the source node has a character bound so chat avatar and walker match
+  if (!nameToSpriteMap.has(edge.source)) {
+    nameToSpriteMap.set(edge.source, spriteFetcher.fetchSprite(edge.source, 'D', 1))
   }
 
   // Find edge path element in DOM
@@ -2026,75 +2301,153 @@ const animateSpriteAlongEdge = (edge) => {
   }
 
   // Get the total length of the path
-  const pathLength = pathElement.getTotalLength()
+  let pathLength = 0
+  try {
+    pathLength = pathElement.getTotalLength()
+  } catch {
+    return
+  }
+  if (!pathLength) return
 
-  // Create an SVG image element for the sprite
-  const spriteImage = document.createElementNS('http://www.w3.org/2000/svg', 'image')
-  spriteImage.setAttribute('width', '32')
-  spriteImage.setAttribute('height', '40')
-  spriteImage.setAttribute('href', spriteSrc)
-  spriteImage.setAttribute('x', '-16') // Center horizontally
-  spriteImage.setAttribute('y', '-20') // Center vertically
-  spriteImage.style.pointerEvents = 'none'
+  // Make sure every direction/frame of this character is cached before we start
+  const character = spriteFetcher.getCharacter(edge.source)
+  if (character) spriteFetcher.preloadCharacter(character)
+
+  // Sprite box: the image keeps its own aspect ratio inside this box (feet bottom-aligned)
+  const SPRITE_H = 48
+  const SPRITE_W = 40
+  const FEET_OVERLAP = 4 // how far the feet dip below the path point
+  const SHADOW_RX = 12
+  const SHADOW_RY = 3.5
+  const WALK_CYCLE = [1, 2, 1, 3]
+  const WALK_STEP_MS = 180
+  const FADE_FRACTION = 0.1 // fade in/out over the first/last 10 % of the walk
+  const SVG_NS = 'http://www.w3.org/2000/svg'
+
+  // Group that moves along the path: ground shadow + character
+  const walker = document.createElementNS(SVG_NS, 'g')
+  walker.setAttribute('class', 'edge-sprite-walker')
+  walker.setAttribute('opacity', '0')
+  walker.style.pointerEvents = 'none'
+
+  const shadow = document.createElementNS(SVG_NS, 'ellipse')
+  shadow.setAttribute('cx', '0')
+  shadow.setAttribute('cy', '0')
+  shadow.setAttribute('rx', String(SHADOW_RX))
+  shadow.setAttribute('ry', String(SHADOW_RY))
+  shadow.setAttribute('fill', 'rgba(0, 0, 0, 0.32)')
+  shadow.style.filter = 'blur(1.5px)'
+
+  const spriteImage = document.createElementNS(SVG_NS, 'image')
+  spriteImage.setAttribute('width', String(SPRITE_W))
+  spriteImage.setAttribute('height', String(SPRITE_H))
+  spriteImage.setAttribute('x', String(-SPRITE_W / 2)) // Center horizontally
+  spriteImage.setAttribute('y', String(-SPRITE_H + FEET_OVERLAP)) // Feet on the path
+  spriteImage.setAttribute('preserveAspectRatio', 'xMidYMax meet')
+  spriteImage.setAttribute('image-rendering', 'optimizeSpeed')
+  spriteImage.style.imageRendering = 'pixelated'
+  spriteImage.style.filter = 'drop-shadow(0 2px 1.5px rgba(0, 0, 0, 0.35))'
+
+  walker.appendChild(shadow)
+  walker.appendChild(spriteImage)
+
+  // Ease-in-out so the character accelerates out of the source and settles into the target
+  const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+
+  // Derive the facing direction from the local tangent of the path
+  const directionAt = (length) => {
+    const eps = Math.min(4, pathLength * 0.02) || 1
+    const a = Math.max(0, Math.min(pathLength, length))
+    const b = a + eps <= pathLength ? a + eps : a - eps
+    const pa = pathElement.getPointAtLength(Math.min(a, b))
+    const pb = pathElement.getPointAtLength(Math.max(a, b))
+    const dx = pb.x - pa.x
+    const dy = pb.y - pa.y
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'R' : 'L'
+    return dy >= 0 ? 'D' : 'U'
+  }
+
+  let direction = directionAt(0)
+  let frame = WALK_CYCLE[0]
+  spriteImage.setAttribute('href', spriteFetcher.fetchSprite(edge.source, direction, frame))
 
   // Add to the same SVG as the path
-  svgElement.appendChild(spriteImage)
-
-  // Determine left/right based on path start and end points
-  const startPoint = pathElement.getPointAtLength(0)
-  const endPoint = pathElement.getPointAtLength(pathLength)
-  const direction = endPoint.x >= startPoint.x ? 'R' : 'L'
+  svgElement.appendChild(walker)
 
   // Animation duration based on path length (longer paths = more time)
-  const duration = Math.min(Math.max(pathLength * 0.02, 2000), 4000) // 2-5 seconds
+  const duration = Math.min(Math.max(pathLength * 0.02, 2000), 4000) // 2-4 seconds
 
   let startTime = null
-  let frame = 1
+  let rafId = null
+
+  const cleanup = () => {
+    if (rafId !== null) cancelAnimationFrame(rafId)
+    rafId = null
+    walker.remove()
+  }
 
   const animate = (timestamp) => {
+    // Guard against the SVG/path being torn down (view switch, graph reload)
+    if (!svgElement.isConnected || !pathElement.isConnected || !walker.isConnected) {
+      cleanup()
+      return
+    }
+
     if (!startTime) startTime = timestamp
 
     const elapsed = timestamp - startTime
     const progress = Math.min(elapsed / duration, 1)
+    const eased = easeInOut(progress)
+    const distance = eased * pathLength
 
-    // Get point along the path in SVG coordinates
-    const point = pathElement.getPointAtLength(progress * pathLength)
-
-    // Position the sprite at the point (SVG coordinates work directly in the SVG element)
-    spriteImage.setAttribute('transform', `translate(${point.x}, ${point.y})`)
-
-    // Update walking animation frame: 1 -> 2 -> 1 -> 3 -> repeat
-    const frameIndex = Math.floor(elapsed / 250) % 4
-    let targetFrame
-    if (frameIndex === 0 || frameIndex === 2) {
-      targetFrame = 1
-    } else if (frameIndex === 1) {
-      targetFrame = 2
-    } else {
-      targetFrame = 3
+    let point
+    try {
+      point = pathElement.getPointAtLength(distance)
+    } catch {
+      cleanup()
+      return
     }
 
-    if (frame !== targetFrame) {
+    // Position the walker at the point (SVG coordinates work directly in the SVG element)
+    walker.setAttribute('transform', `translate(${point.x}, ${point.y})`)
+
+    // Fade in at the start and out at the end
+    let opacity = 1
+    if (progress < FADE_FRACTION) {
+      opacity = progress / FADE_FRACTION
+    } else if (progress > 1 - FADE_FRACTION) {
+      opacity = (1 - progress) / FADE_FRACTION
+    }
+    walker.setAttribute('opacity', opacity.toFixed(3))
+
+    // Walk cycle 1 -> 2 -> 1 -> 3, facing the local tangent of the path
+    const targetFrame = WALK_CYCLE[Math.floor(elapsed / WALK_STEP_MS) % WALK_CYCLE.length]
+    const targetDirection = progress < 1 ? directionAt(distance) : direction
+
+    if (frame !== targetFrame || direction !== targetDirection) {
       frame = targetFrame
-      const newSprite = spriteFetcher.fetchSprite(edge.source, direction, frame)
-      spriteImage.setAttribute('href', newSprite)
+      direction = targetDirection
+      spriteImage.setAttribute('href', spriteFetcher.fetchSprite(edge.source, direction, frame))
     }
+
+    // Tiny step bounce on the contact frames so the gait reads as footsteps
+    const bounce = frame === 1 ? 0 : -1
+    spriteImage.setAttribute('y', String(-SPRITE_H + FEET_OVERLAP + bounce))
+    shadow.setAttribute('rx', String(SHADOW_RX + (frame === 1 ? 0 : -1)))
 
     if (progress < 1) {
-      requestAnimationFrame(animate)
+      rafId = requestAnimationFrame(animate)
     } else {
       // Animation complete
-      svgElement.removeChild(spriteImage)
+      cleanup()
     }
   }
 
   // Start animation
-  requestAnimationFrame(animate)
+  rafId = requestAnimationFrame(animate)
 }
 
 const processMessage = async (msg) => {
-  console.log('Message: ', msg)
-
   // Session resumed after reconnection — sync final UI state
   if (msg.type === 'session_resumed') {
     const data = msg.data
@@ -2159,8 +2512,10 @@ const processMessage = async (msg) => {
 
   // Prompt for human input
   if (msg.type === 'human_input_required') {
-    const fullMessage = msg.data.task_description + '\n\n' + msg.data.input
-    addDialogue(`${msg.data.node_id}`, `${fullMessage}`)
+    const fullMessage = [msg.data?.task_description, localizeInputHeaders(msg.data?.input)]
+      .filter((part) => part !== null && part !== undefined && String(part).trim())
+      .join('\n\n')
+    addDialogue(msg.data?.node_id || t('launch.unknown_node'), fullMessage || t('launch.input_required'))
 
     status.value = "Waiting for input..."
     shouldGlow.value = true
@@ -2171,23 +2526,24 @@ const processMessage = async (msg) => {
     const events = msg?.data?.events
     if (Array.isArray(events)) {
       for (const event of events) {
-        const nodeName = event?.node_id || 'Artifact'
+        const nodeName = event?.node_id || t('launch.artifact_sender')
         const fileName = event?.file_name || 'artifact'
         const mimeType = event?.mime_type || ''
         const attachmentId = event?.attachment_id
 
         // Build the avatar
         let avatar
-        if (nameToSpriteMap.value.has(nodeName)) {
-          avatar = nameToSpriteMap.value.get(nodeName)
+        if (nameToSpriteMap.has(nodeName)) {
+          avatar = nameToSpriteMap.get(nodeName)
         } else {
           avatar = spriteFetcher.fetchSprite()
-          nameToSpriteMap.value.set(nodeName, avatar)
+          nameToSpriteMap.set(nodeName, avatar)
         }
 
         const isRight = false
 
-        const message = {
+        // Reactive proxy so the async dataUri/loading updates below re-render the item
+        const message = reactive({
           // Treat message as dialogue
           type: 'dialogue',
           name: nodeName,
@@ -2204,10 +2560,12 @@ const processMessage = async (msg) => {
           dataUri: null,
           loading: true,
           error: null,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+          rev: 0
+        })
 
         chatMessages.value.push(message)
+        scheduleScrollToBottom()
 
         // Preload image content
         if (message.isImage && sessionId && attachmentId) {
@@ -2216,7 +2574,7 @@ const processMessage = async (msg) => {
             message.dataUri = dataUri
           } catch (error) {
             console.error('Failed to load image artifact:', error)
-            message.error = 'Failed to load image'
+            message.error = t('launch.errors.image_load_failed')
           } finally {
             message.loading = false
           }
@@ -2230,7 +2588,13 @@ const processMessage = async (msg) => {
   // Handle warning/error messages
   if (msg.type === 'log' && (msg.data.level === 'WARNING' || msg.data.level === 'ERROR')) {
     const notificationType = msg.data.level === 'WARNING' ? 'warning' : 'error'
-    addChatNotification(msg.data.message, { type: notificationType })
+    // Backend warning/error text is technical English; give it a localized lead-in
+    const detail = formatErrorDetail(msg.data.message)
+    const fallbackKey = notificationType === 'warning' ? 'launch.unknown_warning' : 'launch.unknown_error'
+    addChatNotification(
+      detail ? withErrorHint(t(`launch.log_events.backend_${notificationType}`, { detail })) : t(fallbackKey),
+      { type: notificationType }
+    )
   }
 
   // Handle log messages
@@ -2250,7 +2614,7 @@ const processMessage = async (msg) => {
       // Model call started
       if (msg.data.details.stage === "before") {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
-        addLoadingEntry(nodeId, baseKey, `Model ${msg.data.details.model_name}`)
+        addLoadingEntry(nodeId, baseKey, t('launch.loading_model', { name: msg.data.details.model_name || t('launch.unknown_name') }))
       }
 
       // Model call ended
@@ -2265,7 +2629,7 @@ const processMessage = async (msg) => {
       // Tool call started
       if (msg.data.details.stage === "before") {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
-        addLoadingEntry(nodeId, baseKey, `Tool ${msg.data.details.tool_name}`)
+        addLoadingEntry(nodeId, baseKey, t('launch.loading_tool', { name: msg.data.details.tool_name || t('launch.unknown_name') }))
       }
 
       // Tool call ended
@@ -2294,7 +2658,7 @@ const processMessage = async (msg) => {
         }
       }
 
-      addDialogue(`${nodeId}`, `${msg.data.details.output}`)
+      addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output)
     }
 
     // Edge condition met - trigger sprite animation
@@ -2303,14 +2667,14 @@ const processMessage = async (msg) => {
     }
 
     // Other log messages
-    else {
-      addChatNotification(msg.data.message)
+    else if (msg.data.message) {
+      addChatNotification(localizeLogMessage(msg.data))
     }
   }
 
   // Workflow completed
   if (msg.type === 'workflow_completed') {
-    addChatNotification(msg.data.summary)
+    addChatNotification(formatErrorDetail(msg.data?.summary) || t('launch.workflow_completed'))
     status.value = 'Completed'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
@@ -2318,7 +2682,7 @@ const processMessage = async (msg) => {
 
   // Workflow cancelled (e.g., from server-side cancellation)
   if (msg.type === 'workflow_cancelled') {
-    addChatNotification(msg.data?.message || t('launch.workflow_cancelled'))
+    addChatNotification(formatErrorDetail(msg.data?.message) || t('launch.workflow_cancelled'))
     status.value = 'Cancelled'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
@@ -2326,7 +2690,7 @@ const processMessage = async (msg) => {
 
   // Handle direct error messages (e.g., workflow execution errors)
   if (msg.type === 'error') {
-    const errorMessage = msg.data?.message || 'Unknown error occurred'
+    const errorMessage = withErrorHint(errorWithDetail('launch.errors.workflow_error', msg.data?.message))
     addChatNotification(errorMessage, { type: 'error' })
     status.value = 'Error'
     isWorkflowRunning.value = false
@@ -2373,7 +2737,7 @@ const downloadLogs = async () => {
     await fetchLogsZip(sessionIdToDownload)
   } catch (error) {
     console.error('Download failed:', error)
-    alert(t('launch.alert_download_logs_failed'))
+    alert(errorWithDetail('launch.errors.download_logs_failed', error))
   }
 }
 
@@ -2387,7 +2751,7 @@ const getFilePreviewSrc = (message) => {
       return message.dataUri
     }
     return getPreviewIconByExt(fileName, mimeType)
-  } catch (e) {
+  } catch {
     return ''
   }
 }
@@ -2421,7 +2785,7 @@ const svgIconDataUri = (label, bgColor) => {
   <svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'>
     <defs>
       <style>
-        .t{font: 700 16px \"Inter, Arial\"; fill: #f2f2f2}
+        .t{font: 700 16px "Inter, Arial"; fill: var(--text-1)}
       </style>
     </defs>
     <rect x='0' y='0' width='48' height='48' rx='8' ry='8' fill='${bgColor}' />
@@ -2430,15 +2794,41 @@ const svgIconDataUri = (label, bgColor) => {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
-// Auto-scroll to bottom
+// Auto-scroll: a single rAF-scheduled scroll, only while the user is near the bottom
+const SCROLL_BOTTOM_THRESHOLD = 120
+let isNearBottom = true
+let scrollRafId = null
+
+const handleChatScroll = () => {
+  const el = chatMessagesRef.value
+  if (!el) return
+  isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD
+}
+
+function scheduleScrollToBottom(force = false) {
+  if (force) {
+    isNearBottom = true
+  }
+  if (!isNearBottom || scrollRafId !== null) return
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = null
+    const el = chatMessagesRef.value
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    }
+  })
+}
+
+// Clearing / replacing the whole list (new session, reconnect) starts pinned to the bottom
 watch(
   () => chatMessages.value.length,
-  async () => {
-    await nextTick()
-    if (chatMessagesRef.value) {
-      chatMessagesRef.value.scrollTop = chatMessagesRef.value.scrollHeight
+  (length) => {
+    if (length === 0) {
+      isNearBottom = true
     }
-  }
+    scheduleScrollToBottom()
+  },
+  { flush: 'post' }
 )
 </script>
 
@@ -2448,8 +2838,8 @@ watch(
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background-color: #1a1a1a;
-  color: #f2f2f2;
+  background-color: var(--bg-base);
+  color: var(--text-1);
   font-family: 'Inter', sans-serif;
   position: relative;
   overflow: hidden;
@@ -2463,9 +2853,9 @@ watch(
   height: 500px;
   background: linear-gradient(
     90deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   filter: blur(120px);
   opacity: 0.15;
@@ -2478,8 +2868,8 @@ watch(
   align-items: center;
   padding: 0 20px;
   height: 40px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border-bottom: 1px solid rgb(var(--ink) / 0.1);
   backdrop-filter: blur(5px);
   flex-shrink: 0;
   position: relative;
@@ -2488,7 +2878,7 @@ watch(
 
 .header h1 {
   margin: 0;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 18px;
   font-weight: 600;
 }
@@ -2497,7 +2887,7 @@ watch(
   padding: 8px;
   margin-right: 16px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   cursor: pointer;
   transition: color 0.2s ease;
   display: flex;
@@ -2508,7 +2898,7 @@ watch(
 }
 
 .back-button:hover {
-  color: #f2f2f2;
+  color: var(--text-1);
 }
 
 .content {
@@ -2559,8 +2949,8 @@ watch(
 }
 
 .chat-panel-fullscreen .chat-panel-content {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.1);
   backdrop-filter: blur(5px);
 }
 
@@ -2576,8 +2966,8 @@ watch(
   min-width: 0;
   min-height: 0;
   pointer-events: auto;
-  background: rgba(26, 26, 26, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--panel-26) / 0.92);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   backdrop-filter: blur(12px);
   overflow: hidden;
@@ -2591,24 +2981,24 @@ watch(
   width: 28px;
   height: 28px;
   border-radius: 0 8px 8px 0;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgb(var(--ink) / 0.15);
   border-left: none;
-  background: rgba(26, 26, 26, 0.92);
+  background: rgb(var(--panel-26) / 0.92);
   backdrop-filter: blur(8px);
-  color: rgba(255, 255, 255, 0.7);
+  color: rgb(var(--ink) / 0.7);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: auto;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
   padding: 0;
   z-index: 11;
 }
 
 .chat-panel-toggle:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f2f2f2;
+  background: rgb(var(--ink) / 0.1);
+  color: var(--text-1);
 }
 
 .chat-panel-toggle svg {
@@ -2641,23 +3031,30 @@ watch(
   background: transparent;
 }
 .chat-messages::-webkit-scrollbar-thumb {
-  background-color: rgba(160, 160, 160, 0.28);
+  background-color: rgb(var(--neutral-160) / 0.28);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .chat-messages::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(160, 160, 160, 0.48);
+  background-color: rgb(var(--neutral-160) / 0.48);
 }
 
 .chat-messages {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
-  color: #e0e0e0;
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
+  color: var(--text-2);
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Each message lays out independently so a growing bubble does not invalidate the whole list */
+.chat-message-item {
+  contain: layout style;
 }
 
 /* Chat Notification */
@@ -2668,8 +3065,8 @@ watch(
 }
 
 .notification-content {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--ink) / 0.08);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 20px;
   padding: 8px 16px;
   max-width: 80%;
@@ -2680,7 +3077,7 @@ watch(
 }
 
 .notification-text {
-  color: rgba(255, 255, 255, 0.8);
+  color: rgb(var(--ink) / 0.8);
   font-size: 13px;
   font-weight: 500;
   text-align: center;
@@ -2694,18 +3091,18 @@ watch(
 }
 
 .chat-notification-warning .notification-text {
-  color: #ffe082;
+  color: var(--warn-soft-2);
 }
 
 .chat-notification-error .notification-content {
   background: rgba(255, 82, 82, 0.12);
   border-color: rgba(255, 82, 82, 0.4);
-  color: #ffcccc;
+  color: var(--danger-soft);
 }
 
 .message-timestamp {
   font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgb(var(--ink) / 0.4);
   margin-left: 8px;
   flex-shrink: 0;
 }
@@ -2713,7 +3110,7 @@ watch(
 .chat-notification .message-timestamp {
   margin-left: 0;
   margin-top: 4px;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgb(var(--ink) / 0.3);
 }
 
 .dialogue-right .message-timestamp {
@@ -2771,7 +3168,7 @@ watch(
 
 .user-name {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgb(var(--ink) / 0.5);
   font-weight: 500;
   margin: 0 4px;
 }
@@ -2780,54 +3177,96 @@ watch(
   text-align: right;
 }
 
+/* Chat avatar: pixel-art chibi inside a soft pastel rounded-square tile */
 .profile-picture {
+  --avatar-size: 44px;
+  --avatar-sprite-size: 40px;
+  --avatar-bg: linear-gradient(145deg, rgb(var(--accent-indigo-rgb) / 0.28), rgba(201, 167, 235, 0.22) 55%, rgba(255, 180, 237, 0.2));
+  --avatar-base: rgb(var(--ink) / 0.06);
+  --avatar-border: rgb(var(--ink) / 0.18);
+  --avatar-shadow: 0 2px 6px rgb(var(--shade) / 0.35);
+
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  position: relative;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 2px;
+  box-sizing: border-box;
+  background: var(--avatar-bg), var(--avatar-base);
+  /* 1px inner border + small outer shadow */
+  box-shadow: inset 0 0 0 1px var(--avatar-border), var(--avatar-shadow);
+}
+
+/* Faint ground spot so the character looks like it stands in the tile */
+.profile-picture::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 1px;
+  width: 60%;
+  height: 7px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgb(var(--shade) / 0.28), transparent 70%);
+  filter: blur(1px);
 }
 
 .profile-picture img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 50% 20%;
+  position: relative;
+  width: var(--avatar-sprite-size);
+  height: var(--avatar-sprite-size);
+  object-fit: contain;
+  object-position: 50% 100%;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px 1px rgb(var(--shade) / 0.3));
+}
+
+@media (prefers-color-scheme: light) {
+  .profile-picture {
+    --avatar-bg: linear-gradient(145deg, rgb(var(--accent-indigo-rgb) / 0.55), rgba(201, 167, 235, 0.45) 55%, rgba(255, 180, 237, 0.45));
+    --avatar-base: rgb(var(--ink) / 0.9);
+    --avatar-border: rgba(30, 30, 50, 0.1);
+    --avatar-shadow: 0 2px 6px rgba(30, 30, 50, 0.12);
+  }
 }
 
 .message-bubble {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   border-top-left-radius: 2px;
   padding: 0 16px;
   position: relative;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .dialogue-right .message-bubble {
-  background: linear-gradient(135deg, rgba(160, 196, 255, 0.15), rgba(189, 178, 255, 0.15));
-  border-color: rgba(160, 196, 255, 0.3);
+  background: linear-gradient(135deg, rgb(var(--accent-indigo-rgb) / 0.15), rgba(189, 178, 255, 0.15));
+  border-color: rgb(var(--accent-indigo-rgb) / 0.3);
   border-top-left-radius: 12px;
   border-top-right-radius: 2px;
 }
 
 .loading-bubble {
-  border-color: #aaffcd;
-  background-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 12px rgba(153, 234, 249, 0.35);
+  border-color: var(--accent-mint);
+  background-color: rgb(var(--ink) / 0.08);
+  box-shadow: 0 0 12px rgb(var(--accent-sky-rgb) / 0.35);
   animation: borderPulse 3s ease-in-out infinite alternate;
   animation: bubbleGlow 3s ease-in-out infinite alternate;
 }
 
 @keyframes bubbleGlow {
   0% {
-    box-shadow: 0 0 6px rgba(153, 234, 249, 0.35);
+    box-shadow: 0 0 6px rgb(var(--accent-sky-rgb) / 0.35);
   }
   50% {
-    box-shadow: 0 0 12px rgba(153, 234, 249, 0.35);
+    box-shadow: 0 0 12px rgb(var(--accent-sky-rgb) / 0.35);
   }
 }
 
@@ -2835,7 +3274,7 @@ watch(
   margin-left: 8px;
   margin-bottom: 10px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgb(var(--ink) / 0.7);
 }
 
 .loading-entries {
@@ -2853,37 +3292,37 @@ watch(
   gap: 6px;
   padding: 6px 10px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.12);
   position: relative;
-  backdrop-filter: blur(4px);
+  /* no backdrop-filter here: it forced a re-blur on every pulse frame of each entry */
 }
 
 .loading-entry-label {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.9);
+  color: rgb(var(--ink) / 0.9);
 }
 
 .loading-entry-duration {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
 }
 
 .entry-running {
-  border-color: #aaffcd;
-  box-shadow: 0 0 8px rgba(153, 234, 249, 0.25);
+  border-color: var(--accent-mint);
+  box-shadow: 0 0 8px rgb(var(--accent-sky-rgb) / 0.25);
   animation: loadingEntryPulse 2.6s ease-in-out infinite;
 }
 
 .entry-done {
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: rgb(var(--ink) / 0.15);
   opacity: 0.8;
 }
 
 /* Fade-slide-in animation for entries */
 .loading-entry-enter-active,
 .loading-entry-leave-active {
-  transition: all 0.22s ease-out;
+  transition: opacity 0.22s ease-out, transform 0.22s ease-out;
 }
 
 .loading-entry-enter-from,
@@ -2900,24 +3339,24 @@ watch(
 
 @keyframes loadingEntryPulse {
   0% {
-    box-shadow: 0 0 4px rgba(153, 234, 249, 0.18);
-    border-color: rgba(153, 234, 249, 0.6);
-    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 4px rgb(var(--accent-sky-rgb) / 0.18);
+    border-color: rgb(var(--accent-sky-rgb) / 0.6);
+    background: rgb(var(--ink) / 0.06);
   }
   50% {
-    box-shadow: 0 0 10px rgba(153, 234, 249, 0.38);
-    border-color: rgba(170, 255, 205, 0.9);
-    background: rgba(255, 255, 255, 0.09);
+    box-shadow: 0 0 10px rgb(var(--accent-sky-rgb) / 0.38);
+    border-color: rgb(var(--accent-mint-rgb) / 0.9);
+    background: rgb(var(--ink) / 0.09);
   }
   100% {
-    box-shadow: 0 0 4px rgba(153, 234, 249, 0.18);
-    border-color: rgba(153, 234, 249, 0.6);
-    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 4px rgb(var(--accent-sky-rgb) / 0.18);
+    border-color: rgb(var(--accent-sky-rgb) / 0.6);
+    background: rgb(var(--ink) / 0.06);
   }
 }
 
 .message-text {
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 14px;
   line-height: 1.5;
   word-wrap: break-word;
@@ -2945,7 +3384,7 @@ watch(
 .artifact-filename {
   margin-top: 4px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgb(var(--ink) / 0.7);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2969,16 +3408,16 @@ watch(
   margin-top: 15px;
   padding: 4px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.06);
-  color: #f2f2f2;
+  border: 1px solid rgb(var(--ink) / 0.3);
+  background: rgb(var(--ink) / 0.06);
+  color: var(--text-1);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease;
 }
 
 .artifact-download-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgb(var(--ink) / 0.12);
 }
 
 .artifact-download-button:disabled {
@@ -2988,11 +3427,11 @@ watch(
 
 .artifact-status {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
 }
 
 .artifact-status.artifact-error {
-  color: #ff8080;
+  color: var(--danger-2);
 }
 
 /* Input Area */
@@ -3005,37 +3444,37 @@ watch(
   height: 100%;
   display: flex;
   flex-direction: row;
-  background-color: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
-  transition: all 0.3s ease;
+  transition: border-color 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
   backdrop-filter: blur(5px);
   position: relative;
 }
 
 .input-shell:focus-within {
-  border-color: rgba(255, 255, 255, 0.3);
-  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgb(var(--ink) / 0.3);
+  background-color: rgb(var(--ink) / 0.05);
 }
 
 .input-shell.glow {
-  border-color: #aaffcd;
-  box-shadow: 0 0 15px rgba(153, 234, 249, 0.3);
+  border-color: var(--accent-mint);
+  box-shadow: 0 0 15px rgb(var(--accent-sky-rgb) / 0.3);
   animation: borderPulse 4s ease-in-out infinite alternate;
 }
 
 .input-shell.drag-active {
-  border-color: rgba(153, 234, 249, 0.9);
-  background-color: rgba(153, 234, 249, 0.08);
-  box-shadow: 0 0 20px rgba(153, 234, 249, 0.35);
+  border-color: rgb(var(--accent-sky-rgb) / 0.9);
+  background-color: rgb(var(--accent-sky-rgb) / 0.08);
+  box-shadow: 0 0 20px rgb(var(--accent-sky-rgb) / 0.35);
 }
 
 .drag-overlay {
   position: absolute;
   inset: 6px;
   border-radius: 10px;
-  border: 1px dashed rgba(153, 234, 249, 0.6);
-  background: rgba(10, 20, 24, 0.55);
+  border: 1px dashed rgb(var(--accent-sky-rgb) / 0.6);
+  background: rgb(var(--panel-20b) / 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3046,13 +3485,13 @@ watch(
   font-size: 12px;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: rgba(153, 234, 249, 0.95);
+  color: rgb(var(--accent-sky-rgb) / 0.95);
 }
 
 @keyframes borderPulse {
-  0% { border-color: #aaffcd; box-shadow: 0 0 0px rgba(170, 255, 205, 0.15); }
-  50% { border-color: #99eaf9; box-shadow: 0 0 8px rgba(153, 234, 249, 0.35); }
-   100% { border-color: #a0c4ff; box-shadow: 0 0 0px rgba(160, 196, 255, 0.2); }
+  0% { border-color: var(--accent-mint); box-shadow: 0 0 0px rgb(var(--accent-mint-rgb) / 0.15); }
+  50% { border-color: var(--accent-sky); box-shadow: 0 0 8px rgb(var(--accent-sky-rgb) / 0.35); }
+   100% { border-color: var(--accent-indigo); box-shadow: 0 0 0px rgb(var(--accent-indigo-rgb) / 0.2); }
 }
 
 .task-input {
@@ -3064,19 +3503,19 @@ watch(
   resize: none;
   outline: none;
   background: transparent;
-  color: #f2f2f2;
+  color: var(--text-1);
   line-height: 1.5;
 }
 
 .task-input::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+  color: rgb(var(--ink) / 0.3);
 }
 
 .input-footer {
   display: flex;
   justify-content: flex-end;
   padding: 10px 12px 10px 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid rgb(var(--ink) / 0.05);
 }
 
 .input-footer-buttons {
@@ -3091,23 +3530,23 @@ watch(
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgb(var(--ink) / 0.2);
+  background: rgb(var(--ink) / 0.05);
+  color: rgb(var(--ink) / 0.8);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   padding: 0;
   outline: none;
   position: relative;
 }
 
 .microphone-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.4);
-  color: #f2f2f2;
+  background: rgb(var(--ink) / 0.1);
+  border-color: rgb(var(--ink) / 0.4);
+  color: var(--text-1);
 }
 
 .microphone-button:disabled {
@@ -3116,9 +3555,9 @@ watch(
 }
 
 .microphone-button.recording {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: #aaffcd;
-  color: #f2f2f2;
+  background: rgb(var(--ink) / 0.1);
+  border-color: var(--accent-mint);
+  color: var(--text-1);
 }
 
 .microphone-button.pulsating {
@@ -3128,21 +3567,21 @@ watch(
 @keyframes microphonePulse {
   0% {
     box-shadow:
-      0 0 0 0 rgba(170, 255, 205, 0.7),
-      0 0 0 0 rgba(153, 234, 249, 0.5);
-    border-color: #aaffcd;
+      0 0 0 0 rgb(var(--accent-mint-rgb) / 0.7),
+      0 0 0 0 rgb(var(--accent-sky-rgb) / 0.5);
+    border-color: var(--accent-mint);
   }
   50% {
     box-shadow:
-      0 0 0 12px rgba(170, 255, 205, 0),
-      0 0 0 6px rgba(153, 234, 249, 0.3);
-    border-color: #99eaf9;
+      0 0 0 12px rgb(var(--accent-mint-rgb) / 0),
+      0 0 0 6px rgb(var(--accent-sky-rgb) / 0.3);
+    border-color: var(--accent-sky);
   }
   100% {
     box-shadow:
-      0 0 0 24px rgba(170, 255, 205, 0),
-      0 0 0 18px rgba(153, 234, 249, 0);
-    border-color: #aaffcd;
+      0 0 0 24px rgb(var(--accent-mint-rgb) / 0),
+      0 0 0 18px rgb(var(--accent-sky-rgb) / 0);
+    border-color: var(--accent-mint);
   }
 }
 
@@ -3152,25 +3591,26 @@ watch(
 
 .attachment-button-wrapper {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  gap: 6px;
 }
 
 .attachment-button {
   padding: 6px 16px;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgb(var(--ink) / 0.2);
+  background: rgb(var(--ink) / 0.05);
+  color: rgb(var(--ink) / 0.8);
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .attachment-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.4);
-  color: #f2f2f2;
+  background: rgb(var(--ink) / 0.1);
+  border-color: rgb(var(--ink) / 0.4);
+  color: var(--text-1);
 }
 
 .attachment-button:disabled {
@@ -3186,8 +3626,8 @@ watch(
   position: absolute;
   top: -8px;
   right: -6px;
-  background: #99eaf9;
-  color: #1a1a1a;
+  background: var(--accent-sky);
+  color: var(--bg-base);
   font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
@@ -3200,11 +3640,11 @@ watch(
   right: 0;
   bottom: calc(100% + 10px);
   width: 240px;
-  background: #252525;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-3);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
   padding: 8px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -3216,22 +3656,32 @@ watch(
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ink) / 0.05);
   border-radius: 4px;
 }
 
 .attachment-name {
   font-size: 12px;
-  color: #e0e0e0;
+  color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.attachment-kind {
+  margin-right: 4px;
+}
+
+.attachment-meta {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-3, rgb(var(--ink) / 0.5));
+}
+
 .remove-attachment {
   border: none;
   background: transparent;
-  color: #99eaf9;
+  color: var(--accent-sky);
   cursor: pointer;
   padding: 0 4px;
 }
@@ -3275,26 +3725,26 @@ watch(
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  border: 1px solid rgba(120, 160, 255, 0.3);
-  background: rgba(26, 26, 26, 0.94);
+  border: 1px solid rgb(var(--periwinkle-2) / 0.3);
+  background: rgb(var(--panel-26) / 0.94);
   backdrop-filter: blur(12px);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(120, 160, 255, 0.08);
-  color: rgba(180, 200, 255, 0.85);
+  box-shadow: 0 3px 12px rgb(var(--shade) / 0.4), 0 0 0 1px rgb(var(--periwinkle-2) / 0.08);
+  color: rgb(var(--periwinkle) / 0.85);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: auto;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   padding: 0;
   z-index: 11;
 }
 
 .right-panel-fab:hover {
-  background: rgba(40, 45, 60, 0.95);
-  color: #c8d8ff;
-  border-color: rgba(120, 160, 255, 0.5);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 12px rgba(120, 160, 255, 0.15);
+  background: rgb(var(--panel-40c) / 0.95);
+  color: var(--accent-indigo-2);
+  border-color: rgb(var(--periwinkle-2) / 0.5);
+  box-shadow: 0 4px 16px rgb(var(--shade) / 0.5), 0 0 12px rgb(var(--periwinkle-2) / 0.15);
   transform: translateY(-2px);
 }
 
@@ -3304,8 +3754,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
-  background-color: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   padding: 20px;
   backdrop-filter: blur(5px);
@@ -3315,7 +3765,7 @@ watch(
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgb(var(--ink) / 0.4);
   font-weight: 600;
   margin-top: 4px;
 }
@@ -3335,13 +3785,13 @@ watch(
   box-sizing: border-box;
   padding: 10px 12px;
   padding-right: 30px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 14px;
   appearance: none;
-  color: #f2f2f2;
+  color: var(--text-1);
 }
 
 .file-selector-input {
@@ -3351,8 +3801,8 @@ watch(
 .file-selector:hover:not(:disabled),
 .file-selector-input:hover:not(:disabled),
 .file-selector-input:focus {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background-color: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--ink) / 0.2);
 }
 
 .file-selector:disabled,
@@ -3366,7 +3816,7 @@ watch(
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  color: rgba(255, 255, 255, 0.3);
+  color: rgb(var(--ink) / 0.3);
   pointer-events: none;
   font-size: 10px;
 }
@@ -3377,10 +3827,10 @@ watch(
   left: 0;
   right: 0;
   margin-top: 1px;
-  background-color: #252525;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: var(--surface-3);
+  border: 1px solid rgb(var(--ink) / 0.12);
   border-radius: 8px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 20px 40px rgb(var(--shade) / 0.45);
   max-height: 260px;
   overflow-y: auto;
   z-index: 5;
@@ -3401,11 +3851,11 @@ watch(
 }
 
 .file-option:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgb(var(--ink) / 0.06);
 }
 
 .file-name {
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 12px;
   font-weight: 500;
   overflow: hidden;
@@ -3414,13 +3864,13 @@ watch(
 }
 
 .file-desc {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgb(var(--ink) / 0.5);
   font-size: 11px;
 }
 
 .file-empty {
   padding: 12px 14px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgb(var(--ink) / 0.4);
   font-size: 13px;
   text-align: center;
 }
@@ -3439,23 +3889,23 @@ watch(
 /* Status Display */
 .status-display {
   padding: 10px;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgb(var(--shade) / 0.2);
   border-radius: 8px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   font-size: 13px;
   text-align: center;
-  transition: all 0.3s ease;
+  transition: color 0.3s ease, background-color 0.3s ease;
 }
 
 .status-active {
-  color: #a0c4ff;
-  background: rgba(160, 196, 255, 0.1);
+  color: var(--accent-indigo);
+  background: rgb(var(--accent-indigo-rgb) / 0.1);
 }
 
 /* View Toggle */
 .view-toggle {
   display: flex;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgb(var(--shade) / 0.2);
   padding: 4px;
   border-radius: 8px;
 }
@@ -3465,23 +3915,23 @@ watch(
   padding: 6px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgb(var(--ink) / 0.5);
   cursor: pointer;
   border-radius: 6px;
   font-size: 13px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .toggle-button.active {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f2f2f2;
+  background: rgb(var(--ink) / 0.1);
+  color: var(--text-1);
   font-weight: 500;
 }
 
 /* Active Nodes */
 .active-nodes-display {
   flex: 1;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgb(var(--shade) / 0.2);
   border-radius: 8px;
   padding: 10px;
   overflow-y: auto;
@@ -3489,7 +3939,7 @@ watch(
 }
 
 .no-active-nodes {
-  color: rgba(255, 255, 255, 0.3);
+  color: rgb(var(--ink) / 0.3);
   font-size: 13px;
   text-align: center;
   margin-top: 10px;
@@ -3501,7 +3951,7 @@ watch(
   gap: 8px;
   padding: 6px 8px;
   margin-bottom: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ink) / 0.05);
   border-radius: 4px;
   font-size: 13px;
 }
@@ -3510,8 +3960,8 @@ watch(
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: #99eaf9;
-  box-shadow: 0 0 6px #99eaf9;
+  background-color: var(--accent-sky);
+  box-shadow: 0 0 6px var(--accent-sky);
 }
 
 /* Button Section */
@@ -3528,7 +3978,7 @@ watch(
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--bg-base);
   background: linear-gradient(
     135deg,
     #e07152,
@@ -3537,19 +3987,19 @@ watch(
   );
   background-size: 200% 100%;
   animation: gradientShift 6s ease-in-out infinite;
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, color 0.3s ease;
   position: relative;
   overflow: hidden;
 }
 
 .cancel-button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
 }
 
 .cancel-button:disabled {
-  background: #3a3a3a;
-  color: rgba(255, 255, 255, 0.3);
+  background: var(--line-2);
+  color: rgb(var(--ink) / 0.3);
   cursor: not-allowed;
 }
 
@@ -3560,28 +4010,28 @@ watch(
   cursor: pointer;
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--bg-base);
   background: linear-gradient(
         135deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   background-size: 200% 100%;
   animation: gradientShift 6s ease-in-out infinite;
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, color 0.3s ease;
   position: relative;
   overflow: hidden;
 }
 
 .launch-button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
 }
 
 .launch-button:disabled {
-  background: #3a3a3a;
-  color: rgba(255, 255, 255, 0.3);
+  background: var(--line-2);
+  color: rgb(var(--ink) / 0.3);
   cursor: not-allowed;
 }
 
@@ -3597,25 +4047,25 @@ watch(
 }
 
 @keyframes glowPulse {
-  0% { box-shadow: 0 0 0 0 rgba(160, 196, 255, 0.4); }
-  50% { box-shadow: 0 0 0 5px rgba(153, 234, 249, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(160, 196, 255, 0); }
+  0% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0.4); }
+  50% { box-shadow: 0 0 0 5px rgb(var(--accent-sky-rgb) / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0); }
 }
 
 .download-button {
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
-  color: #f2f2f2;
+  color: var(--text-1);
   cursor: pointer;
   font-size: 14px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
 .download-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--ink) / 0.2);
   transform: translateY(-1px);
 }
 
@@ -3627,8 +4077,8 @@ watch(
 /* Graph Panel */
 .graph-panel {
   flex: 1;
-  background-color: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   overflow: hidden;
   backdrop-filter: blur(5px);
@@ -3642,7 +4092,7 @@ watch(
 .image-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgb(var(--shade) / 0.8);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3658,15 +4108,15 @@ watch(
   flex-direction: column;
   gap: 12px;
   align-items: center;
-  background: rgba(26, 26, 26, 0.9);
+  background: rgb(var(--panel-26) / 0.9);
   padding: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgb(var(--ink) / 0.1);
 }
 
 .image-modal-content img {
   max-width: 70vw;
   max-height: 65vh;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 40px rgb(var(--shade) / 0.5);
 }
 
 .image-modal-enter-active,
@@ -3689,7 +4139,7 @@ watch(
 .settings-button {
   background: transparent;
   border: none;
-  color: #a0c4ff;
+  color: var(--accent-indigo);
   cursor: pointer;
   padding: 8px;
   border-radius: 4px;
@@ -3700,6 +4150,72 @@ watch(
 }
 
 .settings-button:hover {
-  background-color: rgba(160, 196, 255, 0.1);
+  background-color: rgb(var(--accent-indigo-rgb) / 0.1);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .launch-button,
+  .cancel-button,
+  .launch-button.glow,
+  .input-shell.glow,
+  .loading-bubble,
+  .entry-running,
+  .microphone-button.pulsating,
+  .notification-content {
+    animation: none;
+  }
+
+  .chat-panel,
+  .right-panel-overlay,
+  .chat-panel-toggle svg,
+  .message-bubble,
+  .input-shell,
+  .status-display,
+  .launch-button,
+  .cancel-button,
+  .download-button,
+  .right-panel-fab,
+  .file-dropdown-enter-active,
+  .file-dropdown-leave-active,
+  .loading-entry-enter-active,
+  .loading-entry-leave-active,
+  .image-modal-enter-active,
+  .image-modal-leave-active {
+    transition-duration: 0.01ms;
+  }
+}
+
+/* ---------- Light theme: white glass cards instead of dark tinted panels ---------- */
+:root[data-theme="light"] .header {
+  background-color: rgb(255 255 255 / 0.72);
+  border-bottom-color: rgb(var(--ink) / 0.08);
+}
+:root[data-theme="light"] .chat-panel-content,
+:root[data-theme="light"] .chat-panel-fullscreen .chat-panel-content,
+:root[data-theme="light"] .control-section,
+:root[data-theme="light"] .graph-panel {
+  background: rgb(255 255 255 / 0.82);
+  border-color: rgb(var(--ink) / 0.08);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 30px -14px rgb(15 23 42 / 0.14);
+}
+:root[data-theme="light"] .input-shell {
+  background-color: rgb(255 255 255 / 0.9);
+  border-color: rgb(var(--ink) / 0.1);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+:root[data-theme="light"] .input-shell:focus-within {
+  background-color: #fff;
+  border-color: rgb(var(--accent-sky-rgb) / 0.55);
+  box-shadow: 0 0 0 3px rgb(var(--accent-sky-rgb) / 0.12);
+}
+:root[data-theme="light"] .file-selector-input {
+  background-color: #fff;
+  border-color: rgb(var(--ink) / 0.12);
+}
+:root[data-theme="light"] .file-selector-input:hover:not(:disabled),
+:root[data-theme="light"] .file-selector-input:focus {
+  background-color: #fff;
+  border-color: rgb(var(--accent-sky-rgb) / 0.55);
+}
+
 </style>

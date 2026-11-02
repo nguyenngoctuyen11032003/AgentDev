@@ -11,7 +11,8 @@
         <input 
           type="text" 
           v-model="searchQuery" 
-          :placeholder="$t('common.search')" 
+          :placeholder="$t('common.search')"
+          :aria-label="$t('common.search')"
           class="search-input"
         />
       </div>
@@ -59,7 +60,7 @@
       
       <!-- Empty State -->
       <div v-if="filteredFiles.length === 0" class="empty-state">
-        <p>{{ $t('workflow_list.no_files') }}</p>
+        <p>{{ searchQuery.trim() && yamlFiles.length ? $t('workflow_list.no_search_results') : $t('workflow_list.no_files') }}</p>
       </div>
     </div>
 
@@ -78,14 +79,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fetchWorkflowsWithDesc } from '@/api/client.js'
 import FormGenerator from '@/components/form/FormGenerator.vue'
 
 const router = useRouter()
-const { t } = useI18n()
+const { locale } = useI18n()
 const props = defineProps({
   selected: {
     type: String,
@@ -103,6 +104,31 @@ const error = ref(null)
 
 const showFormGenerator = ref(false)
 const searchQuery = ref('')
+
+// Debounced copy of the search query so filtering/sorting and the list
+// transition don't run on every keystroke
+const debouncedQuery = ref('')
+let searchDebounceTimer = null
+watch(searchQuery, (value) => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  if (!value.trim()) {
+    // Clearing the box should feel instant
+    searchDebounceTimer = null
+    debouncedQuery.value = value
+    return
+  }
+  searchDebounceTimer = setTimeout(() => {
+    searchDebounceTimer = null
+    debouncedQuery.value = value
+  }, 120)
+})
+
+onBeforeUnmount(() => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
+})
 
 const loadWorkflows = async () => {
   loading.value = true
@@ -123,28 +149,31 @@ defineExpose({
   loadWorkflows
 })
 
-const filteredFiles = computed(() => {
+// Sorted once per data/locale change; filtering below only runs on the sorted list
+const sortedFiles = computed(() => {
   const rawList = Array.isArray(yamlFiles.value) ? [...yamlFiles.value] : []
-
-  const query = searchQuery.value.toLowerCase().trim()
-  let result = rawList
-  
-  if (query) {
-    result = rawList.filter(file => {
-      const name = (file?.name ?? '').toString().toLowerCase()
-      const desc = (file?.description ?? '').toString().toLowerCase()
-
-      if (!name && !desc) return false
-
-      return name.includes(query) || desc.includes(query)
-    })
-  }
-
-  // Sort by name using localeCompare for Pinyin support
-  return result.sort((a, b) => {
+  // Sort by name using the current UI locale (vi/en/zh collation)
+  const collator = new Intl.Collator(locale.value || 'vi')
+  return rawList.sort((a, b) => {
     const nameA = a?.name ?? ''
     const nameB = b?.name ?? ''
-    return nameA.localeCompare(nameB, 'zh')
+    return collator.compare(nameA, nameB)
+  })
+})
+
+const filteredFiles = computed(() => {
+  const query = debouncedQuery.value.toLowerCase().trim()
+  if (!query) {
+    return sortedFiles.value
+  }
+
+  return sortedFiles.value.filter(file => {
+    const name = (file?.name ?? '').toString().toLowerCase()
+    const desc = (file?.description ?? '').toString().toLowerCase()
+
+    if (!name && !desc) return false
+
+    return name.includes(query) || desc.includes(query)
   })
 })
 
@@ -201,11 +230,11 @@ const handleFormGeneratorSubmit = async (payload) => {
 .workflow-list {
   width: 100%;
   height: 100%;
-  background-color: #1a1a1a; /* Match HomeView background */
+  background-color: var(--bg-base); /* Match HomeView background */
   padding: 10px;
   box-sizing: border-box;
   font-family: 'Inter', sans-serif;
-  color: #f2f2f2;
+  color: var(--text-1);
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
@@ -224,9 +253,9 @@ const handleFormGeneratorSubmit = async (payload) => {
   height: 500px;
   background: linear-gradient(
     90deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   filter: blur(120px);
   opacity: 0.15;
@@ -256,21 +285,23 @@ const handleFormGeneratorSubmit = async (payload) => {
 .search-container {
   display: flex;
   align-items: center;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 15px;
   padding: 10px 12px;
-  width: 80px;
+  /* Wide enough for longer placeholders such as Vietnamese "Tìm kiếm" */
+  width: 100px;
   min-height: 20px;
-  transition: all 0.3s ease;
+  transition: width 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
   backdrop-filter: blur(5px);
 }
 
-.search-container:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+.search-container:hover,
+.search-container:focus-within {
+  background-color: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--ink) / 0.2);
   width: 160px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.1);
 }
 
 .search-icon {
@@ -278,18 +309,18 @@ const handleFormGeneratorSubmit = async (payload) => {
   align-items: center;
   justify-content: center;
   margin-right: 12px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgb(var(--ink) / 0.4);
   transition: color 0.3s ease;
 }
 
 .search-container:focus-within .search-icon {
-  color: #a0c4ff;
+  color: var(--accent-indigo);
 }
 
 .search-input {
   background: transparent;
   border: none;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 14px;
   font-weight: 500;
   width: 100%;
@@ -298,7 +329,7 @@ const handleFormGeneratorSubmit = async (payload) => {
 }
 
 .search-input::placeholder {
-  color: rgba(235, 235, 235, 0.3);
+  color: rgb(var(--ink-softer) / 0.3);
 }
 
 /* Styled Add Button - Matching HomeView aesthetic */
@@ -313,27 +344,27 @@ const handleFormGeneratorSubmit = async (payload) => {
   font-weight: 600;
   border-radius: 15px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
   text-decoration: none;
-  color: #1a1a1a;
+  color: var(--bg-base);
   
   /* Pastel Rainbow Gradient from HomeView */
   background: linear-gradient(
     90deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   background-size: 200% 100%;
   animation: gradientShift 4s ease-in-out infinite;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
   position: relative;
   overflow: hidden;
 }
 
 .create-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 20px rgb(var(--shade) / 0.3);
 }
 
 @keyframes gradientShift {
@@ -368,7 +399,11 @@ const handleFormGeneratorSubmit = async (payload) => {
 /* Filter animation */
 .file-fade-enter-active,
 .file-fade-leave-active {
-  transition: all 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.file-fade-move {
+  transition: transform 0.2s ease;
 }
 
 /* Enter: fade in from bottom */
@@ -392,30 +427,31 @@ const handleFormGeneratorSubmit = async (payload) => {
   display: flex;
   align-items: center;
   padding: 10px 12px;
-  background-color: rgba(255, 255, 255, 0.03); /* Transparent card */
-  border: 1px solid rgba(255, 255, 255, 0.1); /* Thin border */
+  background-color: rgb(var(--ink) / 0.03); /* Transparent card */
+  border: 1px solid rgb(var(--ink) / 0.1); /* Thin border */
   border-radius: 16px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
   position: relative;
   /* overflow: hidden; */
   z-index: 1;
-  backdrop-filter: blur(5px); /* Optional: adds glassmorphism feel */
+  /* No per-card backdrop-filter: the card sits on a flat surface, and a blur
+     layer per card makes scrolling long lists expensive for no visible gain */
 }
 
 .file-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgb(var(--ink) / 0.05);
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: rgb(var(--ink) / 0.2);
 }
 
 .file-item.active {
-  border-color: rgba(160, 196, 255, 0.5);
-  box-shadow: 0 0 0 1px rgba(160, 196, 255, 0.35);
+  border-color: rgb(var(--accent-indigo-rgb) / 0.5);
+  box-shadow: 0 0 0 1px rgb(var(--accent-indigo-rgb) / 0.35);
 }
 
 .file-item.active .file-arrow {
-  color: #a0c4ff;
+  color: var(--accent-indigo);
 }
 
 .file-item::before {
@@ -427,27 +463,29 @@ const handleFormGeneratorSubmit = async (payload) => {
   padding: 2px;
   background: linear-gradient(
     90deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   -webkit-mask: 
-     linear-gradient(#fff 0 0) content-box, 
-     linear-gradient(#fff 0 0);
+     linear-gradient(var(--text-strong) 0 0) content-box, 
+     linear-gradient(var(--text-strong) 0 0);
   mask: 
-     linear-gradient(#fff 0 0) content-box, 
-     linear-gradient(#fff 0 0);
+     linear-gradient(var(--text-strong) 0 0) content-box, 
+     linear-gradient(var(--text-strong) 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   opacity: 0;
   transition: opacity 0.3s ease;
   background-size: 400% 100%;
-  animation: gradientShift 3s ease-in-out infinite;
   filter: blur(4px);
 }
 
+/* Run the blurred gradient animation only on the hovered card, not on every
+   card in the list (an invisible animation still repaints each frame) */
 .file-item:hover::before {
   opacity: 1;
+  animation: gradientShift 3s ease-in-out infinite;
 }
 
 /* Removed the left border glow ::before pseudo-element */
@@ -459,18 +497,18 @@ const handleFormGeneratorSubmit = async (payload) => {
 .file-name {
   font-size: 13px;
   font-weight: 600;
-  color: #f2f2f2;
+  color: var(--text-1);
   margin-bottom: 4px;
 }
 
 .file-description {
-  color: rgba(235, 235, 235, 0.6);
+  color: rgb(var(--ink-softer) / 0.6);
   font-size: 12px;
   line-height: 1.4;
 }
 
 .file-arrow {
-  color: rgba(235, 235, 235, 0.3);
+  color: rgb(var(--ink-softer) / 0.3);
   font-size: 20px;
   font-weight: 300;
   transition: transform 0.3s ease, color 0.3s ease;
@@ -478,7 +516,7 @@ const handleFormGeneratorSubmit = async (payload) => {
 }
 
 .file-item:hover .file-arrow {
-  color: #a0c4ff;
+  color: var(--accent-indigo);
   transform: translateX(4px);
 }
 
@@ -489,14 +527,14 @@ const handleFormGeneratorSubmit = async (payload) => {
   align-items: center;
   justify-content: center;
   padding: 80px 20px;
-  color: rgba(235, 235, 235, 0.6);
+  color: rgb(var(--ink-softer) / 0.6);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  border-top-color: #a0c4ff;
+  border: 3px solid rgb(var(--ink) / 0.1);
+  border-top-color: var(--accent-indigo);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 20px;
@@ -514,16 +552,30 @@ const handleFormGeneratorSubmit = async (payload) => {
 .retry-button {
   margin-top: 16px;
   padding: 10px 24px;
-  background-color: #3a3a3a;
-  color: #f2f2f2;
+  background-color: var(--line-2);
+  color: var(--text-1);
   border: none;
   border-radius: 50px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s;
   font-weight: 500;
 }
 
 .retry-button:hover {
-  background-color: #4a4a4a;
+  background-color: var(--line-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .create-btn,
+  .file-item:hover::before {
+    animation: none;
+  }
+  .file-fade-enter-active,
+  .file-fade-leave-active,
+  .file-fade-move,
+  .file-item,
+  .create-btn {
+    transition-duration: 0.01s;
+  }
 }
 </style>

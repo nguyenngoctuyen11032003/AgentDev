@@ -8,7 +8,12 @@
     "enable_help_tooltips": "启用帮助提示",
     "enable_help_tooltips_desc": "在整个工作流界面中显示上下文帮助提示。",
     "language": "语言 / Language",
-    "language_desc": "选择您的首选语言。"
+    "language_desc": "选择您的首选语言。",
+    "theme": "外观",
+    "theme_desc": "选择深色、浅色或跟随系统，更改会即时预览。",
+    "theme_dark": "深色",
+    "theme_light": "浅色",
+    "theme_system": "跟随系统"
   },
   "common": {
     "cancel": "取消",
@@ -16,7 +21,18 @@
     "submit": "提交",
     "download": "下载",
     "retry": "重试",
-    "search": "搜索"
+    "search": "搜索",
+    "close": "关闭",
+    "api_success": {
+      "yaml_saved": "工作流文件已保存。",
+      "workflow_updated": "工作流已更新。",
+      "workflow_renamed": "工作流已重命名。",
+      "workflow_copied": "工作流已复制。",
+      "graph_saved": "工作流布局已保存。",
+      "batch_started": "批量运行已开始。",
+      "file_uploaded": "文件已上传。",
+      "project_uploaded": "项目已上传。"
+    }
   },
   "nav": {
     "home": "主页",
@@ -30,9 +46,7 @@
     "copied": "已复制",
     "failed_to_copy": "复制代码失败：",
     "failed_to_fetch": "获取教程 markdown 失败",
-    "failed_to_load": "加载教程失败：",
-    "zh": "中文",
-    "en": "English"
+    "failed_to_load": "加载教程失败："
   },
   "home": {
     "title": "AgentDev",
@@ -42,12 +56,16 @@
   },
   "workbench": {
     "select_workflow": "选择工作流",
-    "choose_workflow": "从列表中选择要查看或编辑的工作流。"
+    "choose_workflow": "从列表中选择要查看或编辑的工作流。",
+    "show_sidebar": "显示工作流列表",
+    "hide_sidebar": "隐藏工作流列表"
   },
   "workflow_list": {
     "create": "创建工作流",
     "loading": "加载工作流中...",
-    "no_files": "未找到工作流文件"
+    "no_files": "未找到工作流文件",
+    "no_description": "暂无描述",
+    "no_search_results": "没有符合搜索条件的工作流"
   },
   "workflow_view": {
     "yaml_parse_error": "YAML 解析错误：",
@@ -66,7 +84,17 @@
     "manage_memories": "管理记忆",
     "create_edge": "创建连线",
     "enter_new_name": "输入新工作流名称",
-    "workflow_name": "工作流名称"
+    "workflow_name": "工作流名称",
+    "yaml_load_failed": "无法加载该工作流的 YAML。请确认后端服务正在运行，然后重新打开该工作流。",
+    "error_with_detail": "{message}\n\n详情：{detail}",
+    "alert_save_failed": "无法保存对工作流的更改。请检查与服务器的连接后重试。",
+    "alert_start_edge_required": "开始节点必须至少保留一条连接。",
+    "confirm_delete_node": "确定要删除此节点吗？",
+    "confirm_delete_edge": "确定要删除此连接吗？",
+    "rename_success": "工作流已重命名为“{name}”。",
+    "rename_failed": "无法重命名工作流。请检查新名称后重试。",
+    "copy_success": "工作流已复制为“{name}”。",
+    "copy_failed": "无法复制工作流。请检查新名称后重试。"
   },
   "batch_run": {
     "title": "实验室",
@@ -104,7 +132,18 @@
     "manual_vars": "包含全局变量键值对的 JSON 对象",
     "manual_attachments": "包含工作流附件绝对文件路径的 JSON 数组",
     "launch": "启动",
-    "relaunch": "重新启动"
+    "relaunch": "重新启动",
+    "error_with_detail": "{message}\n\n详情：{detail}",
+    "alert_invalid_input_file": "请选择有效的输入文件（.xlsx 或 .csv）。",
+    "alert_select_input_file": "请选择输入文件（.xlsx 或 .csv）。",
+    "alert_launch_failed": "无法启动批量运行。请检查工作流和输入文件后重试。",
+    "alert_launch_api_failed": "无法连接服务器以启动批量运行。请确认后端服务正在运行后重试。",
+    "artifact_image": "结果图片",
+    "log_batch_started": "批量处理已开始，共 {total} 行...",
+    "log_batch_completed": "批量处理完成：成功 {succeeded} 个任务，失败 {failed} 个任务",
+    "log_task_started": "[ID {id}，第 {row} 行] 已启动",
+    "log_task_completed": "[ID {id}，第 {row} 行] 已完成，耗时 {duration} 毫秒，共使用 {tokens} 个 token",
+    "log_task_failed": "[ID {id}，第 {row} 行] 失败。错误：{error}"
   },
   "launch": {
     "title": "启动",
@@ -163,7 +202,77 @@
     "alert_download_logs_failed": "下载失败，请稍后重试",
     "no_initial_instructions": "未提供初始说明",
     "workflow_cancelled": "工作流已取消",
-    "reconnected": "已重新连接到现有会话"
+    "reconnected": "已重新连接到现有会话",
+    "avatar_alt": "{name} 的头像",
+    "image_artifact_alt": "图片产物",
+    "file_preview_alt": "{name} 预览",
+    "remove_attachment": "移除附件",
+    "hold_to_record": "按住录音",
+    "user_name": "你",
+    "no_description": "暂无描述",
+    "status_connected": "已连接",
+    "attachments_line": "附件：{names}",
+    "unknown_node": "未知节点",
+    "unknown_name": "未知",
+    "unknown_warning": "未知警告",
+    "input_required": "需要您的输入才能继续。",
+    "artifact_sender": "产物",
+    "loading_model": "模型 {name}",
+    "loading_tool": "工具 {name}",
+    "workflow_completed": "工作流已完成",
+    "errors": {
+      "load_workflows_failed": "无法加载工作流列表。请确认后端服务已启动，然后刷新页面。",
+      "upload_failed": "无法上传“{name}”，请重试。",
+      "upload_error": "无法上传“{name}”。请检查网络连接后重试。",
+      "upload_error_detail": "无法上传“{name}”。请检查网络连接后重试。详情：{detail}",
+      "load_yaml_failed": "无法加载工作流“{name}”。请确认文件存在且为有效的 YAML。",
+      "load_yaml_failed_detail": "无法加载工作流“{name}”。请确认文件存在且为有效的 YAML。详情：{detail}",
+      "missing_session": "服务器未返回会话 ID。请刷新页面后重试。",
+      "ws_connection": "与服务器的连接中断。请确认后端已启动，然后重新选择工作流。",
+      "launch_failed": "无法启动工作流。请检查工作流后重试。",
+      "launch_failed_detail": "无法启动工作流。请检查工作流后重试。详情：{detail}",
+      "execute_failed": "无法连接服务器以启动工作流。请检查网络连接后重试。",
+      "execute_failed_detail": "无法连接服务器以启动工作流。请检查网络连接后重试。详情：{detail}",
+      "download_failed": "无法下载“{name}”，请重试。",
+      "download_failed_detail": "无法下载“{name}”，请重试。详情：{detail}",
+      "image_load_failed": "图片加载失败",
+      "empty_attachment": "文件为空或已不可用",
+      "workflow_error": "工作流因错误而停止。请查看日志后重新启动。",
+      "workflow_error_detail": "工作流因错误而停止：{detail}",
+      "download_logs_failed": "无法下载日志，请稍后重试。",
+      "download_logs_failed_detail": "无法下载日志，请稍后重试。详情：{detail}",
+      "project_empty": "文件夹“{name}”中没有可上传的文件（已跳过 node_modules、.git、构建产物等）。",
+      "project_upload_failed": "无法上传项目“{name}”。{detail}"
+    },
+    "input_from_header": "— 来自 {source} 的输入（{role}）—",
+    "input_source_task": "任务",
+    "roles": {
+      "user": "用户",
+      "assistant": "助手",
+      "system": "系统",
+      "tool": "工具"
+    },
+    "log_events": {
+      "workflow_start": "工作流开始执行",
+      "workflow_end": "工作流执行完成",
+      "human_interaction": "已收到节点 {node} 的输入",
+      "thinking_process": "节点 {node} 正在思考",
+      "memory_operation": "节点 {node} 正在使用记忆",
+      "backend_warning": "服务器警告：{detail}",
+      "backend_error": "服务器错误：{detail}"
+    },
+    "error_hints": {
+      "invalid_api_key": "提示：API 密钥被拒绝。请检查项目根目录 .env 文件中的 API_KEY（以及 BASE_URL），然后重启后端。",
+      "rate_limit": "提示：服务商限流或额度已用完。请稍后重试，或检查套餐/账单。",
+      "model_not_found": "提示：找不到模型或接口。请检查节点配置中的模型名称以及 .env 中的 BASE_URL。",
+      "connection": "提示：无法连接到模型服务商。请检查网络连接以及 .env 中的 BASE_URL。",
+      "python_disabled": "提示：出于安全考虑，Python 代码执行已关闭。如果你信任此工作流，请在 .env 文件中设置 MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 并重启后端（代码不在沙箱中运行）。"
+    },
+    "upload_folder": "上传文件夹",
+    "upload_folder_hint": "上传整个项目文件夹（保留目录结构，自动跳过 node_modules、.git、dist、build 等）。可拖放多个文件夹一次上传多个项目。",
+    "uploading_progress": "{name}：{done}/{total}",
+    "project_files": "{count} 个文件",
+    "status_waiting_file": "等待选择文件..."
   },
   "components": {
     "workflow_edge": {
@@ -185,6 +294,9 @@
       "copy_original": "复制原始内容",
       "show_more": "显示更多",
       "show_less": "显示更少"
+    },
+    "workflow_node": {
+      "sprite_alt": "节点 {id} 的角色形象"
     }
   },
   "form_generator": {
@@ -219,7 +331,10 @@
     "entry_configured_multiple": "{label}: 配置了 {count} 个条目",
     "configured": "{label}: 已配置",
     "invalid_configuration": "配置无效",
-    "error_in": "{key} 中的错误：{error}"
+    "error_in": "{key} 中的错误：{error}",
+    "entity_node": "节点",
+    "entity_edge": "连接",
+    "entity_entry": "条目"
   },
   "dynamic_form_field": {
     "type_to_filter": "输入以筛选选项...",
@@ -300,7 +415,27 @@
     "non_retry_exception_types": "非重试异常类型",
     "retry_on_error_substrings": "基于错误子串的重试",
     "initial_instruction": "初始指令",
-    "organization": "组织"
+    "organization": "组织",
+    "content": "文本内容",
+    "max_iterations": "最大迭代次数",
+    "max_duration": "最长时长",
+    "duration_unit": "时长单位",
+    "message": "释放消息",
+    "reset_on_emit": "触发后重置",
+    "passthrough": "直通模式",
+    "timeout_seconds": "超时（秒）",
+    "interpreter": "Python 路径",
+    "only_last_message": "仅最后一条消息",
+    "keep_message": "保留消息输入",
+    "clear_context": "清除上下文",
+    "clear_kept_context": "清除保留的上下文",
+    "carry_data": "向目标传递数据",
+    "log_output": "记录输出",
+    "process": "负载处理器",
+    "dynamic": "动态展开",
+    "skills": "Agent 技能",
+    "pattern": "正则表达式",
+    "template": "输出模板"
   },
   "schema_desc": {
     "agent_role": "定义智能体的系统级角色、身份或行为准则。",
@@ -365,7 +500,27 @@
     "retry_on_exception_types": "遇指定代码异常类型时才重试。",
     "non_retry_exception_types": "设定不进行徒劳重试的限制类型。",
     "retry_on_error_substrings": "利用关键字正则匹配错误触发重试。",
-    "initial_instruction": "系统维度的初始上下文统领级全局指令声明。"
+    "initial_instruction": "系统维度的初始上下文统领级全局指令声明。",
+    "content": "节点每次执行时输出的纯文本。",
+    "max_iterations": "循环在此节点输出之前可运行的次数。",
+    "max_duration": "循环在此节点输出之前可运行的时长。",
+    "duration_unit": "最长时长的时间单位：秒、分钟或小时。",
+    "message": "达到上限后向下游发送的可选文本。",
+    "reset_on_emit": "达到上限后是否重置内部计数器或计时器。",
+    "passthrough": "启用后，发出上限消息之后的所有输入将原样通过。",
+    "timeout_seconds": "脚本执行超时时间（秒）。",
+    "interpreter": "Python 可执行文件路径，默认使用当前进程的解释器。",
+    "only_last_message": "启用后只传递最后收到的一条消息，否则传递所有消息。",
+    "keep_message": "始终在目标节点中保留此消息输入，不被清除。",
+    "clear_context": "在传递新负载前清除所有传入的上下文消息（保留的消息除外）。",
+    "clear_kept_context": "在传递新负载前清除标记为保留的消息。",
+    "carry_data": "是否将数据传递给目标节点。",
+    "log_output": "是否记录此节点的输出。关闭可避免记录输出内容。",
+    "process": "条件满足后应用的可选负载处理器（正则提取、自定义函数等）。",
+    "dynamic": "连接的动态展开：Map（扇出）或 Tree（扇出 + 归约）模式。",
+    "skills": "Agent 技能白名单及内置技能工具。",
+    "pattern": "用于拆分或提取内容的 Python 正则表达式。",
+    "template": "应用于提取值的可选模板。"
   },
   "help": {
     "startNode": {
@@ -494,7 +649,7 @@
         "description": "在两个节点模型中创建连接桥梁。当然，您更可以直接通过在节点的手柄圆点上拖拽出一条线来直观地构建连线图谱。"
       },
       "manageVariables": {
-        "description": "统一定义全局共享变量 (比如各种 API key 或默认参数)，这样整个工作流所有的节点都能通用 ${变量名} 这一语法来提取并访问利用它们。"
+        "description": "统一定义全局共享变量 (比如各种 API key 或默认参数)，这样整个工作流所有的节点都能通用 {'$'}{'{'}变量名{'}'} 这一语法来提取并访问利用它们。"
       },
       "manageMemories": {
         "description": "跨越多次工作流执行，配置长期的工作记忆模块专门用作存储信息并支持快速的知识检索反馈。"
@@ -505,6 +660,43 @@
       "copyWorkflow": {
         "description": "为此完整的工作流模型资产创建一个同结构副本，它将被赋予一个新的副本名称存储到同目录下。"
       }
+    }
+  },
+  "errors": {
+    "with_detail": "{summary} 详情：{detail}",
+    "api": {
+      "network": "无法连接到服务器。请确认后端正在运行后重试。",
+      "save_yaml_failed": "无法保存工作流文件。",
+      "save_yaml_unknown": "由于未知错误，无法保存工作流文件。",
+      "update_workflow_failed": "无法更新工作流。",
+      "rename_workflow_failed": "无法重命名工作流。",
+      "copy_workflow_failed": "无法复制工作流。",
+      "load_workflows_failed": "无法加载工作流列表。",
+      "load_workflows_unavailable": "无法加载工作流列表。请确认后端（API 服务）正在运行后重试。",
+      "load_workflow_failed": "无法加载工作流文件。",
+      "load_graph_failed": "无法加载工作流布局。",
+      "save_graph_failed": "无法保存工作流布局。",
+      "load_schema_failed": "无法加载配置表单。",
+      "download_logs_failed": "无法下载执行日志。",
+      "load_attachment_failed": "无法加载附件。",
+      "missing_session_id": "缺少会话 ID。",
+      "missing_attachment_id": "缺少附件 ID。",
+      "missing_file": "未选择要上传的文件。",
+      "batch_failed": "无法启动批量运行。",
+      "upload_failed": "无法上传文件。",
+      "project_upload_failed": "无法上传项目。",
+      "empty_project": "所选文件夹中没有可上传的文件。"
+    }
+  },
+  "schema_enum": {
+    "duration_unit": {
+      "seconds": "秒",
+      "minutes": "分钟",
+      "hours": "小时"
+    },
+    "role": {
+      "user": "用户（user）",
+      "assistant": "助手（assistant）"
     }
   }
 }

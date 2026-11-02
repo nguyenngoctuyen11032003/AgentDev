@@ -62,6 +62,22 @@ const PREDEFINED_PALETTES = [
 // Cache for consistent mapping within a session to avoid collisions
 const assignedColors = new Map();
 const usedIndices = new Set();
+// One frozen style object per palette: every node of a type shares the same
+// reference, so Vue's :style patching has nothing to diff on re-render.
+const styleByIndex = new Map();
+
+function getPaletteStyle(index) {
+    let style = styleByIndex.get(index);
+    if (!style) {
+        const palette = PREDEFINED_PALETTES[index];
+        style = Object.freeze({
+            '--node-gradient': palette.gradient,
+            '--node-shadow-color': palette.shadow
+        });
+        styleByIndex.set(index, style);
+    }
+    return style;
+}
 
 /**
  * Generate stable dynamic styles for a node based on its type string.
@@ -76,12 +92,7 @@ export function getNodeStyles(nodeType) {
 
     // Return cached assignment if exists
     if (assignedColors.has(nodeType)) {
-        const cachedIndex = assignedColors.get(nodeType);
-        const cachedPalette = PREDEFINED_PALETTES[cachedIndex];
-        return {
-            '--node-gradient': cachedPalette.gradient,
-            '--node-shadow-color': cachedPalette.shadow
-        };
+        return getPaletteStyle(assignedColors.get(nodeType));
     }
 
     const hash = getHash(nodeType);
@@ -101,9 +112,5 @@ export function getNodeStyles(nodeType) {
     assignedColors.set(nodeType, index);
     usedIndices.add(index);
 
-    const palette = PREDEFINED_PALETTES[index];
-    return {
-        '--node-gradient': palette.gradient,
-        '--node-shadow-color': palette.shadow
-    };
+    return getPaletteStyle(index);
 }

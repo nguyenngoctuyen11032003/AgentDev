@@ -13,7 +13,8 @@
       class="sidebar-toggle-btn" 
       :class="{ 'sidebar-open': isSidebarOpen }"
       @click="handleToggleSidebar" 
-      aria-label="Toggle sidebar"
+      :aria-label="isSidebarOpen ? $t('workbench.hide_sidebar') : $t('workbench.show_sidebar')"
+      :title="isSidebarOpen ? $t('workbench.hide_sidebar') : $t('workbench.show_sidebar')"
     >
       <span v-if="isSidebarOpen">‹</span>
       <span v-else>›</span>
@@ -36,13 +37,11 @@
 <script setup>
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
 import WorkflowList from './WorkflowList.vue'
 import WorkflowView from './WorkflowView.vue'
 
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
 const workflowListRef = ref(null)
 
 const normalizeName = (name) => name?.replace?.('.yaml', '') ?? ''
@@ -98,8 +97,8 @@ const handleRefreshWorkflows = async () => {
   position: relative;
   display: flex;
   height: calc(100vh - 55px);
-  background-color: #1a1a1a;
-  color: #f2f2f2;
+  background-color: var(--bg-base);
+  color: var(--text-1);
   overflow: hidden;
 }
 
@@ -112,11 +111,12 @@ const handleRefreshWorkflows = async () => {
   transform: translateX(calc(-100% + 10px));
   transition: transform 0.35s cubic-bezier(.77,.2,.05,1.0);
   z-index: 3;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  background-color: #161616;
+  border-right: 1px solid rgb(var(--ink) / 0.08);
+  background-color: var(--bg-deep);
   overflow-y: auto;
   overflow-x: hidden;
-  box-shadow: 4px 0 16px rgba(0, 0, 0, 0.35);
+  box-shadow: 4px 0 16px rgb(var(--shade) / 0.35);
+  will-change: transform;
 }
 .workflow-sidebar.open {
   transform: translateX(0);
@@ -131,39 +131,42 @@ const handleRefreshWorkflows = async () => {
   width: 12px;
   height: 72px;
   padding: 12px;
-  background: linear-gradient(180deg, #252525, #1e1e1e);
-  border: 1px solid rgba(160, 196, 255, 0.3);
+  background: linear-gradient(180deg, var(--surface-3), var(--surface-1));
+  border: 1px solid rgb(var(--accent-indigo-rgb) / 0.3);
   border-left: none;
   border-radius: 0 12px 12px 0;
-  color: #a0c4ff;
+  color: var(--accent-indigo);
   font-size: 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 5;
-  transition: left 0.35s cubic-bezier(.77,.2,.05,1.0), 
-              background 0.2s, 
+  /* Slide with transform (compositor only) instead of animating `left`,
+     which would relayout the workbench on every frame */
+  transition: transform 0.35s cubic-bezier(.77,.2,.05,1.0),
               color 0.2s,
-              border-color 0.2s;
-  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.4);
+              border-color 0.2s,
+              box-shadow 0.2s;
+  box-shadow: 4px 0 12px rgb(var(--shade) / 0.4);
+  will-change: transform;
 }
 
 .sidebar-toggle-btn.sidebar-open {
-  left: 400px; /* Follow the sidebar when expanded */
+  transform: translate(390px, -50%); /* Follow the sidebar when expanded (10px + 390px = 400px) */
 }
 
 .sidebar-toggle-btn:hover {
-  background: linear-gradient(180deg, #333, #2a2a2a);
-  color: #c0d8ff;
-  border-color: rgba(160, 196, 255, 0.6);
-  box-shadow: 4px 0 16px rgba(160, 196, 255, 0.15);
+  background: linear-gradient(180deg, var(--line-1), var(--surface-4));
+  color: var(--accent-indigo-3);
+  border-color: rgb(var(--accent-indigo-rgb) / 0.6);
+  box-shadow: 4px 0 16px rgb(var(--accent-indigo-rgb) / 0.15);
 }
 
 .sidebar-toggle-btn span {
   font-weight: 700;
   line-height: 1;
-  text-shadow: 0 0 8px rgba(160, 196, 255, 0.5);
+  text-shadow: 0 0 8px rgb(var(--accent-indigo-rgb) / 0.5);
 }
 
 .workflow-viewer {
@@ -173,7 +176,6 @@ const handleRefreshWorkflows = async () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: margin-left 0.35s cubic-bezier(.77,.2,.05,1.0);
   margin-left: 10px; /* Match the visible width when the sidebar is collapsed */
 }
 
@@ -186,7 +188,7 @@ const handleRefreshWorkflows = async () => {
   position: relative;
   overflow: hidden;
   background: transparent;
-  color: rgba(235, 235, 235, 0.7);
+  color: rgb(var(--ink-softer) / 0.7);
   text-align: center;
   padding: 24px;
 }
@@ -200,9 +202,9 @@ const handleRefreshWorkflows = async () => {
   height: 500px;
   background: linear-gradient(
     90deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   filter: blur(120px);
   opacity: 0.15;
@@ -222,6 +224,13 @@ const handleRefreshWorkflows = async () => {
   position: relative;
   z-index: 1;
   font-size: 14px;
-  color: rgba(235, 235, 235, 0.6);
+  color: rgb(var(--ink-softer) / 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-sidebar,
+  .sidebar-toggle-btn {
+    transition-duration: 0.01s;
+  }
 }
 </style>

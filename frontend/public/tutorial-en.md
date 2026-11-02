@@ -264,7 +264,7 @@ AgentDev provides various node types, each with specific purposes and configurat
 
 ## Agent Node
 
-Agent Nodes are the core node type, used to call large language models (LLMs) for text generation, dialogue, reasoning, etc. They support multiple model providers (OpenAI, Gemini, etc.) and can be configured for tool calling, memory, and other advanced features.
+Agent Nodes are the core node type, used to call large language models (LLMs) for text generation, dialogue, reasoning, etc. They support multiple model providers (OpenAI, Gemini, Anthropic Claude, etc.) and can be configured for tool calling, memory, and other advanced features.
 
 ### Basic Configuration Example
 

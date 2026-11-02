@@ -1,5 +1,5 @@
 <template>
-  <div 
+  <div
     ref="wrapperRef"
     class="tooltip-wrapper"
     @mouseenter="handleMouseEnter"
@@ -11,7 +11,7 @@
     @keydown.escape="handleDismiss"
   >
     <slot></slot>
-    
+
     <teleport to="body">
       <transition name="tooltip-fade">
         <div
@@ -21,7 +21,6 @@
           :class="[`tooltip-${placement}`, { 'tooltip-keyboard-active': keyboardActive }]"
           :style="tooltipStyle"
           role="tooltip"
-          :aria-hidden="!isVisible"
           @mouseenter="handleTooltipMouseEnter"
           @mouseleave="handleTooltipMouseLeave"
         >
@@ -53,7 +52,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onBeforeUnmount, nextTick } from 'vue'
 
 const props = defineProps({
   content: {
@@ -78,23 +77,30 @@ const isVisible = ref(false)
 const tooltipRef = ref(null)
 const wrapperRef = ref(null)
 const tooltipStyle = ref({})
-const hoverTimeout = ref(null)
-const mouseInTooltip = ref(false)
 const keyboardActive = ref(false)
+
+// Plain (non-reactive) bookkeeping: timers and flags never drive rendering.
+let hoverTimeout = null
+let leaveTimeout = null
+let resizeRaf = 0
+let mouseInTooltip = false
+let listenersAttached = false
 
 const handleMouseEnter = () => {
   keyboardActive.value = false
-  clearTimeout(hoverTimeout.value)
-  hoverTimeout.value = setTimeout(() => {
+  clearTimeout(leaveTimeout)
+  clearTimeout(hoverTimeout)
+  hoverTimeout = setTimeout(() => {
     showTooltip()
   }, props.delay)
 }
 
 const handleMouseLeave = () => {
-  clearTimeout(hoverTimeout.value)
+  clearTimeout(hoverTimeout)
   // Delay hiding to allow moving into tooltip
-  setTimeout(() => {
-    if (!mouseInTooltip.value) {
+  clearTimeout(leaveTimeout)
+  leaveTimeout = setTimeout(() => {
+    if (!mouseInTooltip) {
       hideTooltip()
     }
   }, 100)
@@ -122,11 +128,11 @@ const handleDismiss = () => {
 }
 
 const handleTooltipMouseEnter = () => {
-  mouseInTooltip.value = true
+  mouseInTooltip = true
 }
 
 const handleTooltipMouseLeave = () => {
-  mouseInTooltip.value = false
+  mouseInTooltip = false
   hideTooltip()
 }
 
@@ -136,16 +142,22 @@ const handleLearnMore = () => {
 }
 
 const showTooltip = async () => {
+  if (isVisible.value) return
   isVisible.value = true
+  attachListeners()
   await nextTick()
   calculatePosition()
 }
 
 const hideTooltip = () => {
+  if (!isVisible.value) return
   isVisible.value = false
-  tooltipStyle.value = {}
+  detachListeners()
+  // The last computed position is kept so the leave transition fades out in
+  // place instead of jumping to the element's static (end-of-body) position.
 }
 
+// Position is computed once per show (and once per frame on resize), never on mousemove.
 const calculatePosition = () => {
   if (!tooltipRef.value || !wrapperRef.value) return
 
@@ -159,7 +171,6 @@ const calculatePosition = () => {
   const offset = 12 // Distance from target element
   let top = 0
   let left = 0
-  let actualPlacement = props.placement
 
   // Calculate initial position based on preferred placement
   switch (props.placement) {
@@ -192,7 +203,6 @@ const calculatePosition = () => {
     // If it would go above viewport, flip to bottom
     if (props.placement === 'top') {
       top = wrapper.bottom + offset
-      actualPlacement = 'bottom'
     } else {
       top = 10
     }
@@ -200,7 +210,6 @@ const calculatePosition = () => {
     // If it would go below viewport, flip to top
     if (props.placement === 'bottom') {
       top = wrapper.top - tooltip.height - offset
-      actualPlacement = 'top'
     } else {
       top = viewport.height - tooltip.height - 10
     }
@@ -223,22 +232,39 @@ const handleScroll = (event) => {
   }
 }
 
+// Re-position at most once per frame while the window is being resized
 const handleResize = () => {
-  if (isVisible.value) {
-    calculatePosition()
+  if (!isVisible.value || resizeRaf) return
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = 0
+    if (isVisible.value) calculatePosition()
+  })
+}
+
+// Window listeners are only attached while a tooltip is actually shown, so a
+// page with many tooltips does not run N scroll handlers on every scroll event.
+const attachListeners = () => {
+  if (listenersAttached) return
+  listenersAttached = true
+  window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+  window.addEventListener('resize', handleResize, { passive: true })
+}
+
+const detachListeners = () => {
+  if (!listenersAttached) return
+  listenersAttached = false
+  window.removeEventListener('scroll', handleScroll, { capture: true })
+  window.removeEventListener('resize', handleResize)
+  if (resizeRaf) {
+    cancelAnimationFrame(resizeRaf)
+    resizeRaf = 0
   }
 }
 
-onMounted(() => {
-  // wrapperRef is now set via template ref, no need to query for it
-  window.addEventListener('scroll', handleScroll, true)
-  window.addEventListener('resize', handleResize)
-})
-
 onBeforeUnmount(() => {
-  clearTimeout(hoverTimeout.value)
-  window.removeEventListener('scroll', handleScroll, true)
-  window.removeEventListener('resize', handleResize)
+  clearTimeout(hoverTimeout)
+  clearTimeout(leaveTimeout)
+  detachListeners()
 })
 </script>
 
@@ -252,11 +278,11 @@ onBeforeUnmount(() => {
   position: fixed;
   z-index: 10000;
   max-width: 320px;
-  background: rgba(26, 26, 26, 0.95);
-  color: #f2f2f2;
+  background: rgb(var(--panel-26) / 0.95);
+  color: var(--text-1);
   border-radius: 8px;
   padding: 12px 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 20px rgb(var(--shade) / 0.4), 0 0 0 1px rgb(var(--ink) / 0.1);
   backdrop-filter: blur(10px);
   font-size: 13px;
   line-height: 1.5;
@@ -264,7 +290,7 @@ onBeforeUnmount(() => {
 }
 
 .tooltip-keyboard-active {
-  outline: 2px solid #60b7ff;
+  outline: 2px solid var(--accent-blue-2);
   outline-offset: 2px;
 }
 
@@ -276,18 +302,18 @@ onBeforeUnmount(() => {
   margin: 0 0 8px 0;
   font-size: 14px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-strong);
 }
 
 .tooltip-description {
   margin: 0 0 8px 0;
-  color: #e0e0e0;
+  color: var(--text-2);
 }
 
 .tooltip-examples {
   margin: 8px 0;
   padding-left: 20px;
-  color: #c0c0c0;
+  color: var(--text-soft-2);
   font-size: 12px;
 }
 
@@ -298,7 +324,7 @@ onBeforeUnmount(() => {
 .tooltip-learn-more {
   display: inline-block;
   margin-top: 8px;
-  color: #60b7ff;
+  color: var(--accent-blue-2);
   text-decoration: none;
   font-weight: 500;
   font-size: 12px;
@@ -306,7 +332,7 @@ onBeforeUnmount(() => {
 }
 
 .tooltip-learn-more:hover {
-  color: #99ffeb;
+  color: var(--accent-mint-2);
   text-decoration: underline;
 }
 
@@ -342,9 +368,13 @@ onBeforeUnmount(() => {
   transform: translateY(-50%) rotate(45deg);
 }
 
+/* Enter/leave animate only opacity + transform (compositor-only). The backdrop
+   blur is suspended while animating so the compositor does not re-blur the
+   backdrop every frame; it applies once the tooltip has settled. */
 .tooltip-fade-enter-active,
 .tooltip-fade-leave-active {
   transition: opacity 0.2s ease, transform 0.2s ease;
+  backdrop-filter: none;
 }
 
 .tooltip-fade-enter-from {

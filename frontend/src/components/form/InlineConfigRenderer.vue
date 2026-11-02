@@ -105,7 +105,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits([
+defineEmits([
   'open-child-modal',
   'open-conditional-child-modal',
   'handle-enum-change',
@@ -143,14 +143,14 @@ const isFieldReadOnly = (field) => {
   display: flex;
   justify-content: flex-start;
   margin: 10px 0 18px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgb(var(--ink) / 0.08);
   padding-top: 10px;
 }
 
 .advanced-toggle-button {
   background: transparent;
   border: none;
-  color: #a0c4ff;
+  color: var(--accent-indigo);
   font-size: 13px;
   cursor: pointer;
   display: flex;
@@ -174,7 +174,7 @@ const isFieldReadOnly = (field) => {
 
 .inline-separator {
   height: 1px;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.1);
   margin: 16px 0 20px;
 }
 </style>

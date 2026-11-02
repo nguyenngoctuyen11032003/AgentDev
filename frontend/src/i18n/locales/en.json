@@ -19,6 +19,9 @@
       "copy_original": "Copy original content",
       "show_more": "Show More",
       "show_less": "Show Less"
+    },
+    "workflow_node": {
+      "sprite_alt": "Character for node {id}"
     }
   },
   "settings": {
@@ -30,7 +33,12 @@
     "enable_help_tooltips": "Enable help tooltips",
     "enable_help_tooltips_desc": "Show contextual help tooltips throughout the workflow interface.",
     "language": "Language / 语言",
-    "language_desc": "Choose your preferred language."
+    "language_desc": "Choose your preferred language.",
+    "theme": "Appearance",
+    "theme_desc": "Choose dark, light, or follow your system setting. Changes preview instantly.",
+    "theme_dark": "Dark",
+    "theme_light": "Light",
+    "theme_system": "System"
   },
   "common": {
     "cancel": "Cancel",
@@ -38,23 +46,32 @@
     "submit": "Submit",
     "download": "Download",
     "retry": "Retry",
-    "search": "Search"
+    "search": "Search",
+    "close": "Close",
+    "api_success": {
+      "yaml_saved": "Workflow file saved.",
+      "workflow_updated": "Workflow updated.",
+      "workflow_renamed": "Workflow renamed.",
+      "workflow_copied": "Workflow copied.",
+      "graph_saved": "Workflow layout saved.",
+      "batch_started": "Batch run started.",
+      "file_uploaded": "File uploaded.",
+      "project_uploaded": "Project uploaded."
+    }
   },
   "nav": {
     "home": "Home",
     "tutorial": "Tutorial",
     "workflows": "Workflows",
     "launch": "Launch",
-    "laboratory": "Labaratory"
+    "laboratory": "Laboratory"
   },
   "tutorial": {
     "copy": "Copy",
     "copied": "Copied",
     "failed_to_copy": "Failed to copy code: ",
     "failed_to_fetch": "Failed to fetch tutorial markdown",
-    "failed_to_load": "Failed to load tutorial:",
-    "zh": "中文",
-    "en": "English"
+    "failed_to_load": "Failed to load tutorial:"
   },
   "home": {
     "title": "AgentDev",
@@ -64,12 +81,16 @@
   },
   "workbench": {
     "select_workflow": "Select a workflow",
-    "choose_workflow": "Choose a workflow from the list to view or edit."
+    "choose_workflow": "Choose a workflow from the list to view or edit.",
+    "show_sidebar": "Show workflow list",
+    "hide_sidebar": "Hide workflow list"
   },
   "workflow_list": {
     "create": "Create Workflow",
     "loading": "Loading workflows...",
-    "no_files": "No workflow files found"
+    "no_files": "No workflow files found",
+    "no_description": "No description",
+    "no_search_results": "No workflows match your search"
   },
   "workflow_view": {
     "yaml_parse_error": "YAML Parse Error: ",
@@ -88,10 +109,20 @@
     "manage_memories": "Manage Memories",
     "create_edge": "Create Edge",
     "enter_new_name": "Enter new workflow name",
-    "workflow_name": "Workflow Name"
+    "workflow_name": "Workflow Name",
+    "yaml_load_failed": "Could not load this workflow's YAML. Check that the backend server is running, then reopen the workflow.",
+    "error_with_detail": "{message}\n\nDetails: {detail}",
+    "alert_save_failed": "Could not save changes to the workflow. Please check the connection to the server, then try again.",
+    "alert_start_edge_required": "The start node must keep at least one connection.",
+    "confirm_delete_node": "Are you sure you want to delete this node?",
+    "confirm_delete_edge": "Are you sure you want to delete this connection?",
+    "rename_success": "Workflow renamed to \"{name}\".",
+    "rename_failed": "Could not rename the workflow. Please check the new name, then try again.",
+    "copy_success": "Workflow copied as \"{name}\".",
+    "copy_failed": "Could not copy the workflow. Please check the new name, then try again."
   },
   "batch_run": {
-    "title": "Labaratory",
+    "title": "Laboratory",
     "batch_settings": "Batch Settings",
     "logs_placeholder": "Batch processing logs will appear here...",
     "rows_completed": "Rows Completed",
@@ -126,7 +157,18 @@
     "manual_vars": "JSON object containing key-value pairs of global variables",
     "manual_attachments": "JSON array containing absolute file paths of attachments for workflow",
     "launch": "Launch",
-    "relaunch": "Relaunch"
+    "relaunch": "Relaunch",
+    "error_with_detail": "{message}\n\nDetails: {detail}",
+    "alert_invalid_input_file": "Please select a valid input file (.xlsx or .csv).",
+    "alert_select_input_file": "Please select an input file (.xlsx or .csv).",
+    "alert_launch_failed": "Could not start the batch run. Please check the workflow and the input file, then try again.",
+    "alert_launch_api_failed": "Could not reach the server to start the batch run. Please check that the backend is running, then try again.",
+    "artifact_image": "Result image",
+    "log_batch_started": "Batch processing started with {total} rows in total...",
+    "log_batch_completed": "Batch processing finished: {succeeded} tasks succeeded, {failed} tasks failed",
+    "log_task_started": "[ID {id}, row {row}] started",
+    "log_task_completed": "[ID {id}, row {row}] completed in {duration} ms, {tokens} tokens used",
+    "log_task_failed": "[ID {id}, row {row}] failed. Error: {error}"
   },
   "launch": {
     "title": "Launch",
@@ -185,7 +227,77 @@
     "alert_download_logs_failed": "Download failed, please try again later",
     "no_initial_instructions": "No initial instructions provided",
     "workflow_cancelled": "Workflow cancelled",
-    "reconnected": "Reconnected to existing session"
+    "reconnected": "Reconnected to existing session",
+    "avatar_alt": "Avatar of {name}",
+    "image_artifact_alt": "Image artifact",
+    "file_preview_alt": "Preview of {name}",
+    "remove_attachment": "Remove attachment",
+    "hold_to_record": "Hold to record",
+    "user_name": "You",
+    "no_description": "No description",
+    "status_connected": "Connected",
+    "attachments_line": "Attachments: {names}",
+    "unknown_node": "Unknown node",
+    "unknown_name": "unknown",
+    "unknown_warning": "Unknown warning",
+    "input_required": "Your input is required to continue.",
+    "artifact_sender": "Artifact",
+    "loading_model": "Model {name}",
+    "loading_tool": "Tool {name}",
+    "workflow_completed": "Workflow completed",
+    "errors": {
+      "load_workflows_failed": "Could not load the workflow list. Please make sure the backend server is running, then reload the page.",
+      "upload_failed": "Could not upload \"{name}\". Please try again.",
+      "upload_error": "Could not upload \"{name}\". Please check your connection and try again.",
+      "upload_error_detail": "Could not upload \"{name}\". Please check your connection and try again. Details: {detail}",
+      "load_yaml_failed": "Could not load workflow \"{name}\". Please check that the file exists and is valid YAML.",
+      "load_yaml_failed_detail": "Could not load workflow \"{name}\". Please check that the file exists and is valid YAML. Details: {detail}",
+      "missing_session": "The server did not return a session ID. Please reload the page and try again.",
+      "ws_connection": "Lost connection to the server. Please check that the backend is running, then select the workflow again.",
+      "launch_failed": "Could not launch the workflow. Please check the workflow and try again.",
+      "launch_failed_detail": "Could not launch the workflow. Please check the workflow and try again. Details: {detail}",
+      "execute_failed": "Could not reach the server to launch the workflow. Please check your connection and try again.",
+      "execute_failed_detail": "Could not reach the server to launch the workflow. Please check your connection and try again. Details: {detail}",
+      "download_failed": "Could not download \"{name}\". Please try again.",
+      "download_failed_detail": "Could not download \"{name}\". Please try again. Details: {detail}",
+      "image_load_failed": "Could not load image",
+      "empty_attachment": "The file is empty or no longer available",
+      "workflow_error": "The workflow stopped because of an error. Please check the logs, then relaunch.",
+      "workflow_error_detail": "The workflow stopped because of an error: {detail}",
+      "download_logs_failed": "Could not download the logs. Please try again later.",
+      "download_logs_failed_detail": "Could not download the logs. Please try again later. Details: {detail}",
+      "project_empty": "Folder \"{name}\" has no files to upload (node_modules, .git, build output... are skipped).",
+      "project_upload_failed": "Could not upload project \"{name}\". {detail}"
+    },
+    "input_from_header": "— Input from {source} ({role}) —",
+    "input_source_task": "task",
+    "roles": {
+      "user": "user",
+      "assistant": "assistant",
+      "system": "system",
+      "tool": "tool"
+    },
+    "log_events": {
+      "workflow_start": "Workflow execution started",
+      "workflow_end": "Workflow execution completed",
+      "human_interaction": "Received input for node {node}",
+      "thinking_process": "Node {node} is thinking",
+      "memory_operation": "Node {node} is using memory",
+      "backend_warning": "Warning from the server: {detail}",
+      "backend_error": "Error from the server: {detail}"
+    },
+    "error_hints": {
+      "invalid_api_key": "Hint: the API key was rejected. Check API_KEY (and BASE_URL) in the .env file at the project root, then restart the backend.",
+      "rate_limit": "Hint: the provider is rate limiting or your quota is exhausted. Wait a moment and retry, or check your plan/billing.",
+      "model_not_found": "Hint: the model or endpoint was not found. Check the model name in the node configuration and BASE_URL in .env.",
+      "connection": "Hint: could not reach the model provider. Check your network connection and BASE_URL in .env.",
+      "python_disabled": "Hint: running Python code is turned off for safety. If you trust this workflow, set MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 in the .env file and restart the backend (the code is not sandboxed)."
+    },
+    "upload_folder": "Upload folder",
+    "upload_folder_hint": "Upload a whole project folder (structure kept; node_modules, .git, dist, build... are skipped). Drag and drop several folders to upload many projects at once.",
+    "uploading_progress": "{name}: {done}/{total}",
+    "project_files": "{count} files",
+    "status_waiting_file": "Waiting for file selection..."
   },
   "form_generator": {
     "advanced_settings": "Advanced Settings",
@@ -219,7 +331,10 @@
     "entry_configured_multiple": "{label}: {count} entries configured",
     "configured": "{label}: Configured",
     "invalid_configuration": "Invalid configuration",
-    "error_in": "Error in {key}: {error}"
+    "error_in": "Error in {key}: {error}",
+    "entity_node": "node",
+    "entity_edge": "connection",
+    "entity_entry": "entry"
   },
   "dynamic_form_field": {
     "type_to_filter": "Type to filter options...",
@@ -300,7 +415,27 @@
     "non_retry_exception_types": "Non-Retry Exception Types",
     "retry_on_error_substrings": "Retry Error Substrings",
     "initial_instruction": "Initial Instruction",
-    "organization": "Organization"
+    "organization": "Organization",
+    "content": "Literal Content",
+    "max_iterations": "Maximum Iterations",
+    "max_duration": "Maximum Duration",
+    "duration_unit": "Duration Unit",
+    "message": "Release Message",
+    "reset_on_emit": "Reset After Emit",
+    "passthrough": "Passthrough Mode",
+    "timeout_seconds": "Timeout (seconds)",
+    "interpreter": "Python Path",
+    "only_last_message": "Only Last Message",
+    "keep_message": "Keep Message Input",
+    "clear_context": "Clear Context",
+    "clear_kept_context": "Clear Kept Context",
+    "carry_data": "Pass Data to Target",
+    "log_output": "Log Output",
+    "process": "Payload Processor",
+    "dynamic": "Dynamic Expansion",
+    "skills": "Agent Skills",
+    "pattern": "Regex Pattern",
+    "template": "Output Template"
   },
   "schema_desc": {
     "agent_role": "Defines the system-level role, persona, or behavioral guidelines.",
@@ -365,7 +500,27 @@
     "retry_on_exception_types": "Trigger retry mechanisms only if the exception matches.",
     "non_retry_exception_types": "Exceptions mapped as permanently fatal that will never be retried.",
     "retry_on_error_substrings": "Retry triggered by particular error text strings.",
-    "initial_instruction": "Global contextual starter instruction."
+    "initial_instruction": "Global contextual starter instruction.",
+    "content": "Plain text emitted whenever the node executes.",
+    "max_iterations": "How many times the loop can run before this node emits an output.",
+    "max_duration": "How long the loop can run before this node emits an output.",
+    "duration_unit": "Unit of time for the maximum duration: seconds, minutes, or hours.",
+    "message": "Optional text sent downstream once the limit is reached.",
+    "reset_on_emit": "Whether to reset the internal counter or timer after reaching the limit.",
+    "passthrough": "If enabled, after emitting the limit message, all subsequent inputs pass through unchanged.",
+    "timeout_seconds": "Script execution timeout (seconds).",
+    "interpreter": "Python executable path; defaults to the interpreter of the current process.",
+    "only_last_message": "If enabled, only the last received message is passed on; otherwise all messages are passed.",
+    "keep_message": "Always keep this message input in the target node so it is not cleared.",
+    "clear_context": "Clear all incoming context messages (except kept ones) before passing the new payload.",
+    "clear_kept_context": "Clear messages marked as kept before passing the new payload.",
+    "carry_data": "Whether to pass data to the target node.",
+    "log_output": "Whether to log this node's output. Turn off to avoid logging outputs.",
+    "process": "Optional payload processor applied after the condition is met (regex extraction, custom functions, etc.).",
+    "dynamic": "Dynamic expansion for the connection: Map (fan-out) or Tree (fan-out + reduce) mode.",
+    "skills": "Agent Skills allowlist and built-in skill tools.",
+    "pattern": "Python regular expression used to split or extract content.",
+    "template": "Optional template applied to the extracted value."
   },
   "help": {
     "startNode": {
@@ -494,7 +649,7 @@
         "description": "Create a connection between nodes. You can also drag from a node's handle to create connections visually."
       },
       "manageVariables": {
-        "description": "Define global variables (like API keys) that all nodes can access using ${VARIABLE_NAME} syntax."
+        "description": "Define global variables (like API keys) that all nodes can access using {'$'}{'{'}VARIABLE_NAME{'}'} syntax."
       },
       "manageMemories": {
         "description": "Configure memory modules for long-term information storage and retrieval across workflow runs."
@@ -505,6 +660,43 @@
       "copyWorkflow": {
         "description": "Create a duplicate of this entire workflow with a new name."
       }
+    }
+  },
+  "errors": {
+    "with_detail": "{summary} Details: {detail}",
+    "api": {
+      "network": "Cannot reach the server. Please make sure the backend is running and try again.",
+      "save_yaml_failed": "Could not save the workflow file.",
+      "save_yaml_unknown": "Could not save the workflow file due to an unknown error.",
+      "update_workflow_failed": "Could not update the workflow.",
+      "rename_workflow_failed": "Could not rename the workflow.",
+      "copy_workflow_failed": "Could not copy the workflow.",
+      "load_workflows_failed": "Could not load the workflow list.",
+      "load_workflows_unavailable": "Could not load the workflow list. Please make sure the backend (API service) is running, then try again.",
+      "load_workflow_failed": "Could not load the workflow file.",
+      "load_graph_failed": "Could not load the workflow layout.",
+      "save_graph_failed": "Could not save the workflow layout.",
+      "load_schema_failed": "Could not load the configuration form.",
+      "download_logs_failed": "Could not download the execution logs.",
+      "load_attachment_failed": "Could not load the attachment.",
+      "missing_session_id": "Missing session ID.",
+      "missing_attachment_id": "Missing attachment ID.",
+      "missing_file": "No file was selected for upload.",
+      "batch_failed": "Could not start the batch run.",
+      "upload_failed": "Could not upload the file.",
+      "project_upload_failed": "Could not upload the project.",
+      "empty_project": "The selected folder has no files to upload."
+    }
+  },
+  "schema_enum": {
+    "duration_unit": {
+      "seconds": "Seconds",
+      "minutes": "Minutes",
+      "hours": "Hours"
+    },
+    "role": {
+      "user": "user",
+      "assistant": "assistant"
     }
   }
 }

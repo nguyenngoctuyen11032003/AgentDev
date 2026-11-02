@@ -31,16 +31,15 @@ const router = createRouter({
         if (savedPosition) {
             return savedPosition
         }
-        
+
+        // Hash targets live inside views with their own scroll container and are
+        // only rendered after async content loads (e.g. TutorialView), so the view
+        // performs the (smooth) scroll itself. Returning nothing here avoids a
+        // competing window scroll and the "element not found" warning.
         if (to.hash) {
-            return {
-                el: to.hash,
-                behavior: 'smooth',
-                // Add a small delay to ensure the element exists
-                top: 0
-            }
+            return
         }
-        
+
         // Otherwise scroll to top
         return { top: 0 }
     }

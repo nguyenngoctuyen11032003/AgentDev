@@ -14,9 +14,9 @@
       <!-- Left panel -->
       <div class="left-panel">
         <!-- Log area -->
-        <div v-if="viewMode === 'terminal'" class="log-box">
+        <div v-show="viewMode === 'terminal'" class="log-box">
           <div class="log-messages" ref="logMessagesRef">
-            <div v-for="(logMessage, index) in logMessages" :key="index" class="log-message">
+            <div v-for="logMessage in logMessages" :key="logMessage.id" class="log-message">
               <span :class="`log-timestamp log-timestamp-${logMessage.type}`">{{ logMessage.timestamp }}</span> : {{ logMessage.message }}
             </div>
             <div v-if="logMessages.length === 0" class="log-placeholder">
@@ -305,28 +305,29 @@ JSON.stringify(["C:\\a_sheep.png"], null, 2)
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
-import { fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, postBatchWorkflow } from '@/api/client.js'
-import { configStore } from '@/stores/configStore.js'
-import { spriteFetcher } from '@/utils/spriteFetcher.js'
-import yaml from 'js-yaml'
-import MarkdownIt from 'markdown-it'
+const { t, te } = useI18n()
+
+// Extract a readable backend error detail (FastAPI `detail` may be a string, an object or a list)
+const extractErrorDetail = (result) => {
+  const raw = result?.detail ?? result?.error?.message ?? result?.error
+  if (raw === undefined || raw === null || raw === '') return ''
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw)) {
+    return raw
+      .map(item => (typeof item === 'string' ? item : (item?.msg || item?.message || JSON.stringify(item))))
+      .join('; ')
+  }
+  if (typeof raw === 'object') return raw.message || raw.msg || JSON.stringify(raw)
+  return String(raw)
+}
+
+// Localized message, optionally followed by the backend detail
+const withErrorDetail = (message, result) => {
+  const detail = extractErrorDetail(result)
+  return detail ? t('batch_run.error_with_detail', { message, detail }) : message
+}
+import { fetchWorkflowsWithDesc, fetchLogsZip, postBatchWorkflow } from '@/api/client.js'
 import SettingsModal from '@/components/common/SettingsModal.vue'
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  typographer: true
-})
-
-const renderMarkdown = (text) => {
-  return md.render(text || '')
-}
-
-const formatTime = (timestamp) => {
-  if (!timestamp) return ''
-  const date = new Date(timestamp)
-  return date.toLocaleTimeString('en-GB', { hour12: false }) // HH:mm:ss
-}
 
 const formatLogTimestamp = (timestamp) => {
   if (!timestamp) return ''
@@ -339,20 +340,8 @@ const formatLogTimestamp = (timestamp) => {
   const milliseconds = String(date.getMilliseconds()).padStart(3, '0')
   return `${month}/${day} - ${hours}:${minutes}:${seconds}.${milliseconds}`
 }
-import { VueFlow, useVueFlow, MarkerType } from '@vue-flow/core'
-import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
-import '@vue-flow/core/dist/style.css'
-import '@vue-flow/controls/dist/style.css'
-import '@/assets/styles/vueflow.css'
-import WorkflowNode from '@/components/workflow/WorkflowNode.vue'
-import WorkflowEdge from '@/components/workflow/WorkflowEdge.vue'
-import StartNode from '@/components/workflow/StartNode.vue'
-import CollapsibleMessage from '@/components/common/CollapsibleMessage.vue'
-
 const router = useRouter()
 const route = useRoute()
-const { fromObject, fitView, onPaneReady, onNodesInitialized, setNodes, setEdges, nodes, edges } = useVueFlow()
 
 // Log box state
 const logMessages = ref([])
@@ -381,6 +370,18 @@ const fileSelectorInputRef = ref(null)
 const status = ref('Idle')
 const loading = ref(false)
 
+// Internal status value -> i18n key
+const STATUS_LABEL_KEYS = {
+  'Connecting...': 'launch.status_connecting',
+  'Pending launch': 'launch.status_waiting_launch',
+  'Launching...': 'launch.status_launching',
+  'Failed': 'launch.status_failed',
+  'Error': 'launch.status_error',
+  'Disconnected': 'launch.status_disconnected',
+  'Connection error': 'launch.status_connection_error',
+  'Pending file selection': 'batch_run.status_waiting_file'
+}
+
 // Computed status from workflow and input file selection
 const computedStatus = computed(() => {
   if (loading.value) return t('batch_run.loading')
@@ -393,8 +394,10 @@ const computedStatus = computed(() => {
   if (status.value === 'In Progress') return t('batch_run.status_in_progress')
   if (status.value === 'Batch completed') return t('batch_run.status_completed')
   if (status.value === 'Batch cancelled') return t('batch_run.status_cancelled')
-  
-  return status.value
+
+  // Map other internal status values to localized labels, falling back to the raw value
+  const key = STATUS_LABEL_KEYS[status.value]
+  return key && te(key) ? t(key) : status.value
 })
 
 // Session ID for downloads
@@ -403,24 +406,14 @@ let sessionIdToDownload = null
 // Input glow state
 const shouldGlow = ref(false)
 const taskInputRef = ref(null)
-const attachmentInputRef = ref(null)
 const uploadedAttachments = ref([])
-const isDragActive = ref(false)
 const showAttachmentPopover = ref(false)
-const isUploadingAttachment = ref(false)
 let attachmentHoverTimeout = null
 const selectedArtifactImage = ref(null)
-let dragDepth = 0
 
 // Input file selection state
 const selectedInputFile = ref(null)
 const inputFileInputRef = ref(null)
-
-// Recording state
-const isRecording = ref(false)
-let mediaRecorder = null
-let audioChunks = []
-let audioStream = null
 
 // WebSocket readiness state
 const isConnectionReady = ref(false)
@@ -444,22 +437,24 @@ const failedTasks = ref(0)
 const batchStartTime = ref(null)
 const batchEndTime = ref(null)
 
-// Timer update interval
-let timerInterval = null
+// Timer update loop (rAF: one update per rendered frame, automatically paused in background tabs)
+let timerFrame = null
 const currentTime = ref(Date.now())
 
 // Timer functions
 const startTimer = () => {
-  if (timerInterval) return
-  timerInterval = setInterval(() => {
+  if (timerFrame !== null) return
+  const tick = () => {
     currentTime.value = Date.now()
-  }, 10) // Update every 10ms
+    timerFrame = requestAnimationFrame(tick)
+  }
+  timerFrame = requestAnimationFrame(tick)
 }
 
 const stopTimer = () => {
-  if (timerInterval) {
-    clearInterval(timerInterval)
-    timerInterval = null
+  if (timerFrame !== null) {
+    cancelAnimationFrame(timerFrame)
+    timerFrame = null
   }
 }
 
@@ -527,14 +522,6 @@ const isLaunchButtonDisabled = computed(() => {
   if (!selectedYamlFile.value || !selectedInputFile.value) return true
   return false
 })
-
-const clearUploadedAttachments = () => {
-  uploadedAttachments.value = []
-  showAttachmentPopover.value = false
-  if (attachmentInputRef.value) {
-    attachmentInputRef.value.value = ''
-  }
-}
 
 // Reset the WebSocket connection and related state
 const resetConnectionState = ({ closeSocket = true, clearInputFile = true } = {}) => {
@@ -678,8 +665,11 @@ const resetFileSearchQuery = () => {
   isFileSearchDirty.value = false
 }
 
+let fileInputBlurTimeout = null
 const handleFileInputBlur = () => {
-  setTimeout(() => {
+  if (fileInputBlurTimeout) clearTimeout(fileInputBlurTimeout)
+  fileInputBlurTimeout = setTimeout(() => {
+    fileInputBlurTimeout = null
     if (!isFileDropdownOpen.value) {
       resetFileSearchQuery()
     }
@@ -697,20 +687,16 @@ const handleClickOutside = (event) => {
   }
 }
 
-// Add a log entry
+// Add a log entry (stable incremental id so v-for keys never shift)
+let logMessageSeq = 0
 const addLogMessage = (message, type = LOG_TYPES.DEFAULT) => {
   const timestamp = formatLogTimestamp(Date.now())
   logMessages.value.push({
+    id: ++logMessageSeq,
     timestamp,
     message,
     type
   })
-}
-
-const removeAttachment = (attachmentId) => {
-  uploadedAttachments.value = uploadedAttachments.value.filter(
-    (attachment) => attachment.attachmentId !== attachmentId
-  )
 }
 
 // Input file selection methods
@@ -737,7 +723,7 @@ const onInputFileSelected = (event) => {
   const isValidType = allowedExtensions.some(ext => fileName.endsWith(ext))
 
   if (!isValidType) {
-    alert('Please select a valid file (.xlsx or .csv)')
+    alert(t('batch_run.alert_invalid_input_file'))
     return
   }
 
@@ -751,150 +737,10 @@ const removeInputFile = () => {
   }
 }
 
-const startRecording = async () => {
-  if (!isConnectionReady.value || !sessionId || isUploadingAttachment.value || isRecording.value) {
-    return
-  }
-
-  // Add global listeners to ensure recording stops even if mouse leaves button
-  window.addEventListener('mouseup', stopRecordingGlobal)
-  window.addEventListener('touchend', stopRecordingGlobal)
-
-  try {
-    // Request microphone access
-    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-
-    // Check for MP3 support, fallback to webm
-    const mimeTypes = ['audio/mpeg', 'audio/wav', 'audio/webm', 'audio/ogg']
-    let selectedMimeType = 'audio/webm'
-
-    for (const mimeType of mimeTypes) {
-      if (MediaRecorder.isTypeSupported(mimeType)) {
-        selectedMimeType = mimeType
-        break
-      }
-    }
-
-    mediaRecorder = new MediaRecorder(audioStream, {
-      mimeType: selectedMimeType
-    })
-
-    audioChunks = []
-
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        audioChunks.push(event.data)
-      }
-    }
-
-    mediaRecorder.onstop = async () => {
-      if (audioChunks.length === 0) {
-        cleanupRecording()
-        return
-      }
-
-      // Create blob from audio chunks
-      const audioBlob = new Blob(audioChunks, { type: selectedMimeType })
-
-      // Generate filename with current time
-      const now = new Date()
-      const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5)
-      const filename = `recording_${timestamp}.${selectedMimeType.split('/')[1]}`
-
-      // Create File object from blob
-      const audioFile = new File([audioBlob], filename, { type: selectedMimeType })
-
-      // Upload the file
-      try {
-        isUploadingAttachment.value = true
-        const result = await postFile(sessionId, audioFile)
-
-        if (result?.success && result?.attachmentId) {
-          console.log('Recording uploaded successfully:', result)
-          uploadedAttachments.value.push(result)
-        } else {
-          console.error('Recording upload failed:', result)
-          alert(result?.message || 'Failed to upload recording')
-        }
-      } catch (error) {
-        console.error('Failed to upload recording:', error)
-        alert('Recording upload failed, please try again.')
-      } finally {
-        isUploadingAttachment.value = false
-        cleanupRecording()
-      }
-    }
-
-    mediaRecorder.onerror = (event) => {
-      console.error('MediaRecorder error:', event.error)
-      alert('Recording error occurred')
-      cleanupRecording()
-    }
-
-    mediaRecorder.start()
-    isRecording.value = true
-  } catch (error) {
-    console.error('Failed to start recording:', error)
-    alert('Failed to access microphone. Please check permissions.')
-    cleanupRecording()
-  }
-}
-
-const stopRecording = () => {
-  if (mediaRecorder && isRecording.value && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop()
-    isRecording.value = false
-  }
-  removeGlobalListeners()
-}
-
-const stopRecordingGlobal = () => {
-  stopRecording()
-}
-
-const removeGlobalListeners = () => {
-  window.removeEventListener('mouseup', stopRecordingGlobal)
-  window.removeEventListener('touchend', stopRecordingGlobal)
-}
-
-const handleMicrophoneMouseLeave = (event) => {
-  // If mouse leaves while recording, don't stop (let global listener handle it)
-  // This allows recording to continue if user drags outside button
-}
-
-// Cleans up stored recorded audios
-const cleanupRecording = () => {
-  removeGlobalListeners()
-  if (audioStream) {
-    audioStream.getTracks().forEach(track => track.stop())
-    audioStream = null
-  }
-  mediaRecorder = null
-  audioChunks = []
-  isRecording.value = false
-}
-
-const lockBodyScroll = () => {
-  if (typeof document !== 'undefined') {
-    document.body.style.overflow = 'hidden'
-  }
-}
-
 const unlockBodyScroll = () => {
   if (typeof document !== 'undefined') {
     document.body.style.overflow = ''
   }
-}
-
-const openImageModal = (message) => {
-  if (!message || message.loading || !message.dataUri) {
-    return
-  }
-  selectedArtifactImage.value = {
-    src: message.dataUri,
-    name: message.fileName || 'Artifact image'
-  }
-  lockBodyScroll()
 }
 
 const closeImageModal = () => {
@@ -927,9 +773,6 @@ const handleYAMLSelection = async (fileName) => {
   if (!fileName) {
     workflowYaml.value = {}
     logMessages.value = []
-    setNodes([])
-    setEdges([])
-    nodeSpriteMap.value.clear()
 
     // Reset metrics
     totalRowsCount.value = 0
@@ -951,12 +794,12 @@ const handleButtonClick = () => {
   if (status.value === 'Batch completed' || status.value === 'Batch cancelled') {
     // If Relaunch, restart the same workflow and re-enter Launch state
     if (!selectedYamlFile.value) {
-      alert('Please choose a workflow file！')
+      alert(t('launch.alert_choose_workflow'))
       return
     }
 
     if (!selectedInputFile.value) {
-      alert('Please select an input file (.xlsx or .csv)')
+      alert(t('batch_run.alert_select_input_file'))
       return
     }
 
@@ -1018,7 +861,7 @@ const establishWebSocketConnection = () => {
 
       if (!sessionId) {
         status.value = 'Connection error'
-        alert('Missing session information from server.')
+        alert(t('launch.alert_missing_session'))
         resetConnectionState()
         return
       }
@@ -1041,7 +884,7 @@ const establishWebSocketConnection = () => {
 
     console.error('WebSocket error:', error)
     status.value = 'Connection error'
-    alert('WebSocket connection error!')
+    alert(t('launch.alert_ws_error'))
     resetConnectionState({ closeSocket: false })
   }
 
@@ -1104,9 +947,12 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
+  if (fileInputBlurTimeout) {
+    clearTimeout(fileInputBlurTimeout)
+    fileInputBlurTimeout = null
+  }
   unlockBodyScroll()
   resetConnectionState()
-  cleanupRecording()
   stopTimer()
 })
 
@@ -1118,12 +964,12 @@ const switchToDashboard = async () => {
 
 const launchBatchWorkflow = async () => {
   if (!selectedYamlFile.value) {
-    alert('Please choose a workflow file！')
+    alert(t('launch.alert_choose_workflow'))
     return
   }
 
   if (!selectedInputFile.value) {
-    alert('Please select an input file (.xlsx or .csv)')
+    alert(t('batch_run.alert_select_input_file'))
     return
   }
 
@@ -1132,7 +978,7 @@ const launchBatchWorkflow = async () => {
     !isConnectionReady.value ||
     !sessionId
   ) {
-    alert('WebSocket connection is not ready yet.')
+    alert(t('launch.alert_ws_not_ready'))
     return
   }
 
@@ -1155,7 +1001,7 @@ const launchBatchWorkflow = async () => {
     } else {
       console.error('Failed to launch batch workflow:', result)
       status.value = 'Failed'
-      alert(`Failed to launch batch workflow: ${result.detail || result.message || 'Unknown error'}`)
+      alert(withErrorDetail(t('batch_run.alert_launch_failed'), result))
       shouldGlow.value = true
       if (isConnectionReady.value) {
         status.value = 'Pending launch'
@@ -1164,7 +1010,7 @@ const launchBatchWorkflow = async () => {
   } catch (error) {
     console.error('Error calling batch workflow API:', error)
     status.value = 'Error'
-    alert(`Failed to call batch workflow API: ${error.message}`)
+    alert(withErrorDetail(t('batch_run.alert_launch_api_failed'), { detail: error?.message }))
     shouldGlow.value = true
     if (isConnectionReady.value) {
       status.value = 'Pending launch'
@@ -1181,11 +1027,9 @@ watch(status, (newStatus) => {
 
 // Processes different types of messages
 const processBatchMessage = async (msg) => {
-  console.log('Batch Message: ', msg)
-
   // Batch completed
   if (msg.type === 'batch_completed') {
-    const message = `Batch processing finished, ${msg.data.succeeded} tasks succeeded, ${msg.data.failed} tasks failed`
+    const message = t('batch_run.log_batch_completed', { succeeded: msg.data?.succeeded ?? 0, failed: msg.data?.failed ?? 0 })
     addLogMessage(message, LOG_TYPES.DEFAULT)
 
     // Update metrics
@@ -1204,7 +1048,7 @@ const processBatchMessage = async (msg) => {
 
   // Handle batch processing messages
   if (msg.type === 'batch_started') {
-    const message = `Batch processing started with total of ${msg.data.total} rows...`
+    const message = t('batch_run.log_batch_started', { total: msg.data?.total ?? 0 })
     addLogMessage(message, LOG_TYPES.DEFAULT)
 
     // Initialize metrics
@@ -1220,12 +1064,17 @@ const processBatchMessage = async (msg) => {
   }
 
   if (msg.type === 'batch_task_started') {
-    const message = `[ID ${msg.data.task_id}, Row ${msg.data.row_index}] launched`
+    const message = t('batch_run.log_task_started', { id: msg.data?.task_id ?? '-', row: msg.data?.row_index ?? '-' })
     addLogMessage(message, LOG_TYPES.DEFAULT)
   }
 
   if (msg.type === 'batch_task_completed') {
-    const message = `[ID ${msg.data.task_id}, Row ${msg.data.row_index}] completed, ${msg.data.duration_ms}ms spent, total ${msg.data.token_usage.total_usage.total_tokens} tokens used`
+    const message = t('batch_run.log_task_completed', {
+      id: msg.data?.task_id ?? '-',
+      row: msg.data?.row_index ?? '-',
+      duration: msg.data?.duration_ms ?? '-',
+      tokens: msg.data?.token_usage?.total_usage?.total_tokens ?? '-'
+    })
     addLogMessage(message, LOG_TYPES.COMPLETED)
 
     // Update metrics
@@ -1234,7 +1083,11 @@ const processBatchMessage = async (msg) => {
   }
 
   if (msg.type === 'batch_task_failed') {
-    const message = `[ID ${msg.data.task_id}, Row ${msg.data.row_index}] failed, Error: ${msg.data.error}`
+    const message = t('batch_run.log_task_failed', {
+      id: msg.data?.task_id ?? '-',
+      row: msg.data?.row_index ?? '-',
+      error: extractErrorDetail({ detail: msg.data?.error }) || t('launch.unknown_error')
+    })
     addLogMessage(message, LOG_TYPES.FAILED)
 
     // Update metrics
@@ -1248,7 +1101,7 @@ const cancelBatchWorkflow = () => {
   if (!isWorkflowRunning.value || !ws) {
     return
   }
-  addLogMessage('Batch cancelled', LOG_TYPES.DEFAULT)
+  addLogMessage(t('batch_run.status_cancelled'), LOG_TYPES.DEFAULT)
 
   // Finalize metrics
   batchEndTime.value = Date.now()
@@ -1276,20 +1129,37 @@ const downloadLogs = async () => {
     await fetchLogsZip(sessionIdToDownload)
   } catch (error) {
     console.error('Download failed:', error)
-    alert('Download failed, please try again later')
+    alert(t('launch.alert_download_logs_failed'))
   }
 }
 
-// Auto-scroll to bottom
+// Auto-scroll to bottom (coalesced to one scroll per frame when messages arrive in bursts)
+let scrollFrame = null
+const scrollLogsToBottom = () => {
+  if (scrollFrame !== null) return
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = null
+    if (logMessagesRef.value) {
+      logMessagesRef.value.scrollTop = logMessagesRef.value.scrollHeight
+    }
+  })
+}
+
 watch(
   () => logMessages.value.length,
   async () => {
     await nextTick()
-    if (logMessagesRef.value) {
-      logMessagesRef.value.scrollTop = logMessagesRef.value.scrollHeight
-    }
+    scrollLogsToBottom()
   }
 )
+
+// The log panel is kept mounted (v-show); re-sync scroll position when it becomes visible
+watch(viewMode, async (mode) => {
+  if (mode === 'terminal') {
+    await nextTick()
+    scrollLogsToBottom()
+  }
+})
 </script>
 
 <style scoped>
@@ -1298,8 +1168,8 @@ watch(
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background-color: #1a1a1a;
-  color: #f2f2f2;
+  background-color: var(--bg-base);
+  color: var(--text-1);
   font-family: 'Inter', sans-serif;
   position: relative;
   overflow: hidden;
@@ -1313,9 +1183,9 @@ watch(
   height: 500px;
   background: linear-gradient(
     90deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   filter: blur(120px);
   opacity: 0.15;
@@ -1328,8 +1198,8 @@ watch(
   align-items: center;
   padding: 0 20px;
   height: 40px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border-bottom: 1px solid rgb(var(--ink) / 0.1);
   backdrop-filter: blur(5px);
   flex-shrink: 0;
   position: relative;
@@ -1338,7 +1208,7 @@ watch(
 
 .header h1 {
   margin: 0;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 18px;
   font-weight: 600;
 }
@@ -1347,7 +1217,7 @@ watch(
   padding: 8px;
   margin-right: 16px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   cursor: pointer;
   transition: color 0.2s ease;
   display: flex;
@@ -1358,7 +1228,7 @@ watch(
 }
 
 .back-button:hover {
-  color: #f2f2f2;
+  color: var(--text-1);
 }
 
 .content {
@@ -1383,21 +1253,20 @@ watch(
 /* Log Box */
 .log-box {
   flex: 1;
-  background-color: rgba(25, 25, 25, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: rgb(var(--panel-25) / 0.95);
+  border: 1px solid rgb(var(--ink) / 0.2);
   border-radius: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  backdrop-filter: blur(5px);
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 
 /* Dashboard Box */
 .dashboard-box {
   flex: 1;
-  background-color: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   overflow: hidden;
   display: flex;
@@ -1409,7 +1278,7 @@ watch(
   flex: 1;
   padding: 20px;
   overflow-y: auto;
-  color: #e7e7e7;
+  color: var(--text-2b);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -1427,26 +1296,25 @@ watch(
 }
 
 .metric-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  backdrop-filter: blur(2px);
-  transition: all 0.3s ease;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .metric-card.status-active {
-  border-color: #aaffcd;
-  box-shadow: 0 0 15px rgba(153, 234, 249, 0.3);
+  border-color: var(--accent-mint);
+  box-shadow: 0 0 15px rgb(var(--accent-sky-rgb) / 0.3);
   animation: borderPulse 4s ease-in-out infinite alternate;
 }
 
 .metric-title {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -1455,7 +1323,7 @@ watch(
 .metric-value {
   font-size: 16px;
   font-weight: 700;
-  color: #f2f2f2;
+  color: var(--text-1);
 }
 
 /* Progress Section */
@@ -1465,7 +1333,7 @@ watch(
 
 .progress-label {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -1475,7 +1343,7 @@ watch(
 .progress-bar {
   width: 100%;
   height: 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgb(var(--ink) / 0.1);
   border-radius: 4px;
   overflow: hidden;
   margin-bottom: 8px;
@@ -1486,25 +1354,27 @@ watch(
   content: '';
   position: absolute;
   top: 0;
-  left: -100%;
+  left: 0;
   width: 100%;
   height: 100%;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.3) 50%,
-    rgba(255, 255, 255, 0.8) 60%,
-    rgba(255, 255, 255, 0.3) 70%,
+    rgb(var(--ink) / 0.3) 50%,
+    rgb(var(--ink) / 0.8) 60%,
+    rgb(var(--ink) / 0.3) 70%,
     transparent 100%
   );
+  transform: translateX(-100%);
   animation: wavePulse 1.8s ease-in-out infinite;
   border-radius: 4px;
+  will-change: transform, opacity;
 }
 
 .progress-fill {
   position: relative;
   height: 100%;
-  background: linear-gradient(90deg, #aaffcd, #99eaf9, #a0c4ff);
+  background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
   background-size: 200% 100%;
   animation: gradientShift 3s ease-in-out infinite;
   transition: width 0.3s ease;
@@ -1513,7 +1383,7 @@ watch(
 
 .progress-text {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgb(var(--ink) / 0.8);
   text-align: center;
   font-weight: 500;
 }
@@ -1526,20 +1396,20 @@ watch(
   background: transparent;
 }
 .log-messages::-webkit-scrollbar-thumb {
-  background-color: rgba(160, 160, 160, 0.28);
+  background-color: rgb(var(--neutral-160) / 0.28);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .log-messages::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(160, 160, 160, 0.48);
+  background-color: rgb(var(--neutral-160) / 0.48);
 }
 
 .log-messages {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
-  color: #e7e7e7;
+  color: var(--text-2b);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1551,6 +1421,9 @@ watch(
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   white-space: pre-wrap;
   word-break: break-word;
+  /* Skip layout/paint for off-screen rows when the log grows large */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 20px;
 }
 
 .log-timestamp {
@@ -1558,19 +1431,19 @@ watch(
 }
 
 .log-timestamp-completed {
-  color: #6bff75;
+  color: var(--accent-green-2);
 }
 
 .log-timestamp-failed {
-  color: #ff8080;
+  color: var(--danger-2);
 }
 
 .log-timestamp-default {
-  color: #88e4f8;
+  color: var(--accent-sky-4);
 }
 
 .log-placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgb(var(--ink) / 0.4);
   font-style: italic;
   text-align: center;
   margin-top: 20px;
@@ -1616,7 +1489,7 @@ watch(
 
 .user-name {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgb(var(--ink) / 0.5);
   font-weight: 500;
   margin: 0 4px;
 }
@@ -1631,8 +1504,8 @@ watch(
   height: 40px;
   border-radius: 50%;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgb(var(--ink) / 0.2);
+  background: rgb(var(--ink) / 0.05);
 }
 
 .profile-picture img {
@@ -1643,8 +1516,8 @@ watch(
 }
 
 .message-bubble {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   border-top-left-radius: 2px;
   padding: 0 16px;
@@ -1653,26 +1526,26 @@ watch(
 }
 
 .dialogue-right .message-bubble {
-  background: linear-gradient(135deg, rgba(160, 196, 255, 0.15), rgba(189, 178, 255, 0.15));
-  border-color: rgba(160, 196, 255, 0.3);
+  background: linear-gradient(135deg, rgb(var(--accent-indigo-rgb) / 0.15), rgba(189, 178, 255, 0.15));
+  border-color: rgb(var(--accent-indigo-rgb) / 0.3);
   border-top-left-radius: 12px;
   border-top-right-radius: 2px;
 }
 
 .loading-bubble {
-  border-color: #aaffcd;
-  background-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 12px rgba(153, 234, 249, 0.35);
+  border-color: var(--accent-mint);
+  background-color: rgb(var(--ink) / 0.08);
+  box-shadow: 0 0 12px rgb(var(--accent-sky-rgb) / 0.35);
   animation: borderPulse 3s ease-in-out infinite alternate;
   animation: bubbleGlow 3s ease-in-out infinite alternate;
 }
 
 @keyframes bubbleGlow {
   0% {
-    box-shadow: 0 0 6px rgba(153, 234, 249, 0.35);
+    box-shadow: 0 0 6px rgb(var(--accent-sky-rgb) / 0.35);
   }
   50% {
-    box-shadow: 0 0 12px rgba(153, 234, 249, 0.35);
+    box-shadow: 0 0 12px rgb(var(--accent-sky-rgb) / 0.35);
   }
 }
 
@@ -1680,7 +1553,7 @@ watch(
   margin-left: 8px;
   margin-bottom: 10px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgb(var(--ink) / 0.7);
 }
 
 .loading-entries {
@@ -1698,30 +1571,30 @@ watch(
   gap: 6px;
   padding: 6px 10px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.12);
   position: relative;
   backdrop-filter: blur(4px);
 }
 
 .loading-entry-label {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.9);
+  color: rgb(var(--ink) / 0.9);
 }
 
 .loading-entry-duration {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
 }
 
 .entry-running {
-  border-color: #aaffcd;
-  box-shadow: 0 0 8px rgba(153, 234, 249, 0.25);
+  border-color: var(--accent-mint);
+  box-shadow: 0 0 8px rgb(var(--accent-sky-rgb) / 0.25);
   animation: loadingEntryPulse 2.6s ease-in-out infinite;
 }
 
 .entry-done {
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: rgb(var(--ink) / 0.15);
   opacity: 0.8;
 }
 
@@ -1745,24 +1618,24 @@ watch(
 
 @keyframes loadingEntryPulse {
   0% {
-    box-shadow: 0 0 4px rgba(153, 234, 249, 0.18);
-    border-color: rgba(153, 234, 249, 0.6);
-    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 4px rgb(var(--accent-sky-rgb) / 0.18);
+    border-color: rgb(var(--accent-sky-rgb) / 0.6);
+    background: rgb(var(--ink) / 0.06);
   }
   50% {
-    box-shadow: 0 0 10px rgba(153, 234, 249, 0.38);
-    border-color: rgba(170, 255, 205, 0.9);
-    background: rgba(255, 255, 255, 0.09);
+    box-shadow: 0 0 10px rgb(var(--accent-sky-rgb) / 0.38);
+    border-color: rgb(var(--accent-mint-rgb) / 0.9);
+    background: rgb(var(--ink) / 0.09);
   }
   100% {
-    box-shadow: 0 0 4px rgba(153, 234, 249, 0.18);
-    border-color: rgba(153, 234, 249, 0.6);
-    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 4px rgb(var(--accent-sky-rgb) / 0.18);
+    border-color: rgb(var(--accent-sky-rgb) / 0.6);
+    background: rgb(var(--ink) / 0.06);
   }
 }
 
 .message-text {
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 14px;
   line-height: 1.5;
   word-wrap: break-word;
@@ -1790,7 +1663,7 @@ watch(
 .artifact-filename {
   margin-top: 4px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgb(var(--ink) / 0.7);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1814,16 +1687,16 @@ watch(
   margin-top: 15px;
   padding: 4px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.06);
-  color: #f2f2f2;
+  border: 1px solid rgb(var(--ink) / 0.3);
+  background: rgb(var(--ink) / 0.06);
+  color: var(--text-1);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .artifact-download-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgb(var(--ink) / 0.12);
 }
 
 .artifact-download-button:disabled {
@@ -1833,11 +1706,11 @@ watch(
 
 .artifact-status {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
 }
 
 .artifact-status.artifact-error {
-  color: #ff8080;
+  color: var(--danger-2);
 }
 
 
@@ -1845,9 +1718,9 @@ watch(
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgb(var(--ink) / 0.2);
+  background: rgb(var(--ink) / 0.05);
+  color: rgb(var(--ink) / 0.8);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1859,9 +1732,9 @@ watch(
 }
 
 .microphone-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.4);
-  color: #f2f2f2;
+  background: rgb(var(--ink) / 0.1);
+  border-color: rgb(var(--ink) / 0.4);
+  color: var(--text-1);
 }
 
 .microphone-button:disabled {
@@ -1870,9 +1743,9 @@ watch(
 }
 
 .microphone-button.recording {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: #aaffcd;
-  color: #f2f2f2;
+  background: rgb(var(--ink) / 0.1);
+  border-color: var(--accent-mint);
+  color: var(--text-1);
 }
 
 .microphone-button.pulsating {
@@ -1882,21 +1755,21 @@ watch(
 @keyframes microphonePulse {
   0% {
     box-shadow:
-      0 0 0 0 rgba(170, 255, 205, 0.7),
-      0 0 0 0 rgba(153, 234, 249, 0.5);
-    border-color: #aaffcd;
+      0 0 0 0 rgb(var(--accent-mint-rgb) / 0.7),
+      0 0 0 0 rgb(var(--accent-sky-rgb) / 0.5);
+    border-color: var(--accent-mint);
   }
   50% {
     box-shadow:
-      0 0 0 12px rgba(170, 255, 205, 0),
-      0 0 0 6px rgba(153, 234, 249, 0.3);
-    border-color: #99eaf9;
+      0 0 0 12px rgb(var(--accent-mint-rgb) / 0),
+      0 0 0 6px rgb(var(--accent-sky-rgb) / 0.3);
+    border-color: var(--accent-sky);
   }
   100% {
     box-shadow:
-      0 0 0 24px rgba(170, 255, 205, 0),
-      0 0 0 18px rgba(153, 234, 249, 0);
-    border-color: #aaffcd;
+      0 0 0 24px rgb(var(--accent-mint-rgb) / 0),
+      0 0 0 18px rgb(var(--accent-sky-rgb) / 0);
+    border-color: var(--accent-mint);
   }
 }
 
@@ -1912,9 +1785,9 @@ watch(
 .attachment-button {
   padding: 6px 16px;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgb(var(--ink) / 0.2);
+  background: rgb(var(--ink) / 0.05);
+  color: rgb(var(--ink) / 0.8);
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
@@ -1922,9 +1795,9 @@ watch(
 }
 
 .attachment-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.4);
-  color: #f2f2f2;
+  background: rgb(var(--ink) / 0.1);
+  border-color: rgb(var(--ink) / 0.4);
+  color: var(--text-1);
 }
 
 .attachment-button:disabled {
@@ -1940,8 +1813,8 @@ watch(
   position: absolute;
   top: -8px;
   right: -6px;
-  background: #99eaf9;
-  color: #1a1a1a;
+  background: var(--accent-sky);
+  color: var(--bg-base);
   font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
@@ -1960,14 +1833,14 @@ watch(
 .file-upload-button {
   width: 100%;
   padding: 10px 12px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   font-size: 13px;
   font-weight: 400;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1975,8 +1848,8 @@ watch(
 }
 
 .file-upload-button:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background-color: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--ink) / 0.2);
 }
 
 .file-upload-button:disabled {
@@ -1993,7 +1866,7 @@ watch(
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgb(var(--ink) / 0.4);
   font-weight: 600;
   margin-bottom: 8px;
   cursor: pointer;
@@ -2004,7 +1877,7 @@ watch(
 }
 
 .manual-title:hover {
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
 }
 
 .info-icon {
@@ -2017,8 +1890,8 @@ watch(
 }
 
 .manual-content {
-  background-color: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: rgb(var(--ink) / 0.02);
+  border: 1px solid rgb(var(--ink) / 0.08);
   border-radius: 8px;
   padding: 12px;
   font-size: 13px;
@@ -2030,7 +1903,7 @@ watch(
 
 .manual-item {
   margin-bottom: 8px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgb(var(--ink) / 0.7);
 }
 
 .manual-item:last-child {
@@ -2038,12 +1911,12 @@ watch(
 }
 
 .manual-item code {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.1);
   padding: 2px 6px;
   border-radius: 4px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 12px;
-  color: #a0c4ff;
+  color: var(--accent-indigo);
   font-weight: 500;
 }
 
@@ -2053,12 +1926,12 @@ watch(
 }
 
 .manual-example pre {
-  background-color: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--shade) / 0.3);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 6px;
   padding: 8px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgb(var(--ink) / 0.8);
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   overflow-x: auto;
   margin: 4px 0 0 0;
@@ -2066,7 +1939,7 @@ watch(
 
 .file-info-text {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgb(var(--ink) / 0.8);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2076,7 +1949,7 @@ watch(
 .remove-file-button {
   background: transparent;
   border: none;
-  color: #99eaf9;
+  color: var(--accent-sky);
   cursor: pointer;
   padding: 0 6px;
   font-size: 16px;
@@ -2087,7 +1960,7 @@ watch(
 }
 
 .remove-file-button:hover {
-  background: rgba(153, 234, 249, 0.1);
+  background: rgb(var(--accent-sky-rgb) / 0.1);
 }
 
 /* Attachment Modal */
@@ -2096,11 +1969,11 @@ watch(
   right: 0;
   bottom: calc(100% + 10px);
   width: 240px;
-  background: #252525;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-3);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
   padding: 8px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2112,13 +1985,13 @@ watch(
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ink) / 0.05);
   border-radius: 4px;
 }
 
 .attachment-name {
   font-size: 12px;
-  color: #e0e0e0;
+  color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2127,7 +2000,7 @@ watch(
 .remove-attachment {
   border: none;
   background: transparent;
-  color: #99eaf9;
+  color: var(--accent-sky);
   cursor: pointer;
   padding: 0 4px;
 }
@@ -2146,8 +2019,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
-  background-color: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   padding: 20px;
   backdrop-filter: blur(5px);
@@ -2157,7 +2030,7 @@ watch(
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgb(var(--ink) / 0.4);
   font-weight: 600;
   margin-top: 4px;
 }
@@ -2177,13 +2050,13 @@ watch(
   box-sizing: border-box;
   padding: 10px 12px;
   padding-right: 30px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 14px;
   appearance: none;
-  color: #f2f2f2;
+  color: var(--text-1);
 }
 
 .file-selector-input {
@@ -2193,8 +2066,8 @@ watch(
 .file-selector:hover:not(:disabled),
 .file-selector-input:hover:not(:disabled),
 .file-selector-input:focus {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background-color: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--ink) / 0.2);
 }
 
 .file-selector:disabled,
@@ -2208,7 +2081,7 @@ watch(
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  color: rgba(255, 255, 255, 0.3);
+  color: rgb(var(--ink) / 0.3);
   pointer-events: none;
   font-size: 10px;
 }
@@ -2219,10 +2092,10 @@ watch(
   left: 0;
   right: 0;
   margin-top: 1px;
-  background-color: #252525;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: var(--surface-3);
+  border: 1px solid rgb(var(--ink) / 0.12);
   border-radius: 8px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 20px 40px rgb(var(--shade) / 0.45);
   max-height: 260px;
   overflow-y: auto;
   z-index: 5;
@@ -2243,11 +2116,11 @@ watch(
 }
 
 .file-option:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgb(var(--ink) / 0.06);
 }
 
 .file-name {
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 12px;
   font-weight: 500;
   overflow: hidden;
@@ -2256,13 +2129,13 @@ watch(
 }
 
 .file-desc {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgb(var(--ink) / 0.5);
   font-size: 11px;
 }
 
 .file-empty {
   padding: 12px 14px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgb(var(--ink) / 0.4);
   font-size: 13px;
   text-align: center;
 }
@@ -2281,9 +2154,9 @@ watch(
 /* Status Display */
 .status-display {
   padding: 10px;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgb(var(--shade) / 0.2);
   border-radius: 8px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   font-size: 13px;
   text-align: center;
   transition: all 0.3s ease;
@@ -2293,7 +2166,7 @@ watch(
 /* View Toggle */
 .view-toggle {
   display: flex;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgb(var(--shade) / 0.2);
   padding: 4px;
   border-radius: 8px;
 }
@@ -2303,16 +2176,16 @@ watch(
   padding: 6px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgb(var(--ink) / 0.5);
   cursor: pointer;
   border-radius: 6px;
   font-size: 13px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .toggle-button.active {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f2f2f2;
+  background: rgb(var(--ink) / 0.1);
+  color: var(--text-1);
   font-weight: 500;
 }
 
@@ -2320,7 +2193,7 @@ watch(
 /* Active Nodes */
 .active-nodes-display {
   flex: 1;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgb(var(--shade) / 0.2);
   border-radius: 8px;
   padding: 10px;
   overflow-y: auto;
@@ -2328,7 +2201,7 @@ watch(
 }
 
 .no-active-nodes {
-  color: rgba(255, 255, 255, 0.3);
+  color: rgb(var(--ink) / 0.3);
   font-size: 13px;
   text-align: center;
   margin-top: 10px;
@@ -2340,7 +2213,7 @@ watch(
   gap: 8px;
   padding: 6px 8px;
   margin-bottom: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ink) / 0.05);
   border-radius: 4px;
   font-size: 13px;
 }
@@ -2349,8 +2222,8 @@ watch(
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: #99eaf9;
-  box-shadow: 0 0 6px #99eaf9;
+  background-color: var(--accent-sky);
+  box-shadow: 0 0 6px var(--accent-sky);
 }
 
 /* Button Section */
@@ -2367,7 +2240,7 @@ watch(
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--bg-base);
   background: linear-gradient(
     135deg,
     #e07152,
@@ -2376,19 +2249,19 @@ watch(
   );
   background-size: 200% 100%;
   animation: gradientShift 6s ease-in-out infinite;
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, color 0.3s ease;
   position: relative;
   overflow: hidden;
 }
 
 .cancel-button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
 }
 
 .cancel-button:disabled {
-  background: #3a3a3a;
-  color: rgba(255, 255, 255, 0.3);
+  background: var(--line-2);
+  color: rgb(var(--ink) / 0.3);
   cursor: not-allowed;
 }
 
@@ -2399,28 +2272,28 @@ watch(
   cursor: pointer;
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--bg-base);
   background: linear-gradient(
         135deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   background-size: 200% 100%;
   animation: gradientShift 6s ease-in-out infinite;
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, color 0.3s ease;
   position: relative;
   overflow: hidden;
 }
 
 .launch-button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
 }
 
 .launch-button:disabled {
-  background: #3a3a3a;
-  color: rgba(255, 255, 255, 0.3);
+  background: var(--line-2);
+  color: rgb(var(--ink) / 0.3);
   cursor: not-allowed;
 }
 
@@ -2436,45 +2309,45 @@ watch(
 }
 
 @keyframes glowPulse {
-  0% { box-shadow: 0 0 0 0 rgba(160, 196, 255, 0.4); }
-  50% { box-shadow: 0 0 0 5px rgba(153, 234, 249, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(160, 196, 255, 0); }
+  0% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0.4); }
+  50% { box-shadow: 0 0 0 5px rgb(var(--accent-sky-rgb) / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0); }
 }
 
 @keyframes borderPulse {
-  0% { border-color: #aaffcd; box-shadow: 0 0 0px rgba(170, 255, 205, 0.15); }
-  50% { border-color: #99eaf9; box-shadow: 0 0 8px rgba(153, 234, 249, 0.35); }
-  100% { border-color: #a0c4ff; box-shadow: 0 0 0px rgba(160, 196, 255, 0.2); }
+  0% { border-color: var(--accent-mint); box-shadow: 0 0 0px rgb(var(--accent-mint-rgb) / 0.15); }
+  50% { border-color: var(--accent-sky); box-shadow: 0 0 8px rgb(var(--accent-sky-rgb) / 0.35); }
+  100% { border-color: var(--accent-indigo); box-shadow: 0 0 0px rgb(var(--accent-indigo-rgb) / 0.2); }
 }
 
 @keyframes wavePulse {
   0% {
-    left: -100%;
+    transform: translateX(-100%);
     opacity: 0;
   }
   50% {
     opacity: 1;
   }
   100% {
-    left: 100%;
+    transform: translateX(100%);
     opacity: 0;
   }
 }
 
 .download-button {
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
-  color: #f2f2f2;
+  color: var(--text-1);
   cursor: pointer;
   font-size: 14px;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .download-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--ink) / 0.2);
   transform: translateY(-1px);
 }
 
@@ -2487,7 +2360,7 @@ watch(
 .image-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgb(var(--shade) / 0.8);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2503,15 +2376,15 @@ watch(
   flex-direction: column;
   gap: 12px;
   align-items: center;
-  background: rgba(26, 26, 26, 0.9);
+  background: rgb(var(--panel-26) / 0.9);
   padding: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgb(var(--ink) / 0.1);
 }
 
 .image-modal-content img {
   max-width: 70vw;
   max-height: 65vh;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 40px rgb(var(--shade) / 0.5);
 }
 
 .image-modal-enter-active,
@@ -2534,7 +2407,7 @@ watch(
 .settings-button {
   background: transparent;
   border: none;
-  color: #a0c4ff;
+  color: var(--accent-indigo);
   cursor: pointer;
   padding: 8px;
   border-radius: 4px;
@@ -2545,14 +2418,14 @@ watch(
 }
 
 .settings-button:hover {
-  background-color: rgba(160, 196, 255, 0.1);
+  background-color: rgb(var(--accent-indigo-rgb) / 0.1);
 }
 
 /* Column Guide Modal */
 .column-guide-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgb(var(--shade) / 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2561,14 +2434,14 @@ watch(
 }
 
 .column-guide-modal {
-  background: #252525;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-3);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   max-width: 550px;
   width: 90vw;
   max-height: 80vh;
   overflow: hidden;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 40px rgb(var(--shade) / 0.5);
 }
 
 .modal-content {
@@ -2593,7 +2466,7 @@ watch(
 .batch-settings-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgb(var(--shade) / 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2602,14 +2475,14 @@ watch(
 }
 
 .batch-settings-modal {
-  background: #252525;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-3);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   max-width: 500px;
   width: 90vw;
   max-height: 80vh;
   overflow: hidden;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 40px rgb(var(--shade) / 0.5);
 }
 
 .batch-settings-modal .modal-content {
@@ -2623,20 +2496,20 @@ watch(
   justify-content: space-between;
   align-items: center;
   padding: 20px 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgb(var(--ink) / 0.1);
 }
 
 .batch-settings-modal .modal-header h3 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #f2f2f2;
+  color: var(--text-1);
 }
 
 .batch-settings-modal .close-button {
   background: none;
   border: none;
-  color: #888;
+  color: var(--text-muted-3);
   font-size: 24px;
   cursor: pointer;
   padding: 0;
@@ -2645,7 +2518,7 @@ watch(
 }
 
 .batch-settings-modal .close-button:hover {
-  color: #fff;
+  color: var(--text-strong);
 }
 
 .batch-settings-modal .modal-body {
@@ -2666,7 +2539,7 @@ watch(
   display: block;
   font-size: 14px;
   font-weight: 600;
-  color: #f2f2f2;
+  color: var(--text-1);
   margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -2675,52 +2548,52 @@ watch(
 .batch-settings-modal .setting-input {
   width: 86px;
   padding: 10px 12px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 14px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .batch-settings-modal .setting-input:focus {
   outline: none;
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background-color: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--ink) / 0.2);
 }
 
 .batch-settings-modal .setting-select {
   padding: 10px 12px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 14px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
   cursor: pointer;
 }
 
 .batch-settings-modal .setting-select:focus {
   outline: none;
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background-color: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--ink) / 0.2);
 }
 
 .batch-settings-modal .setting-select option {
-  background-color: #1a1a1a;
-  color: #f2f2f2;
+  background-color: var(--bg-base);
+  color: var(--text-1);
 }
 
 .batch-settings-modal .setting-desc {
   margin-top: 6px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   font-size: 12px;
   line-height: 1.4;
 }
 
 .batch-settings-modal .modal-footer {
   padding: 16px 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgb(var(--ink) / 0.1);
   display: flex;
   justify-content: flex-end;
   gap: 12px;
@@ -2744,19 +2617,60 @@ watch(
 
 .batch-settings-modal .cancel-button {
   background: transparent;
-  color: #ccc;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--text-soft-1);
+  border: 1px solid rgb(var(--ink) / 0.2);
   padding: 10px 20px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .batch-settings-modal .cancel-button:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.3);
+  background: rgb(var(--ink) / 0.05);
+  color: var(--text-strong);
+  border-color: rgb(var(--ink) / 0.3);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .launch-button,
+  .launch-button.glow,
+  .cancel-button,
+  .progress-fill,
+  .progress-fill.processing::before,
+  .metric-card.status-active {
+    animation: none;
+  }
+}
+
+/* ---------- Light theme: white glass cards instead of dark tinted panels ---------- */
+:root[data-theme="light"] .header {
+  background-color: rgb(255 255 255 / 0.72);
+  border-bottom-color: rgb(var(--ink) / 0.08);
+}
+:root[data-theme="light"] .dashboard-box,
+:root[data-theme="light"] .control-section,
+:root[data-theme="light"] .manual-content {
+  background: rgb(255 255 255 / 0.82);
+  border-color: rgb(var(--ink) / 0.08);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 30px -14px rgb(15 23 42 / 0.14);
+}
+:root[data-theme="light"] .metric-card {
+  background: #fff;
+  border-color: rgb(var(--ink) / 0.08);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+:root[data-theme="light"] .file-selector-input,
+:root[data-theme="light"] .batch-settings-modal .setting-input,
+:root[data-theme="light"] .batch-settings-modal .setting-select {
+  background-color: #fff;
+  border-color: rgb(var(--ink) / 0.12);
+}
+:root[data-theme="light"] .file-selector-input:hover:not(:disabled),
+:root[data-theme="light"] .file-selector-input:focus {
+  background-color: #fff;
+  border-color: rgb(var(--accent-sky-rgb) / 0.55);
+}
+
 </style>

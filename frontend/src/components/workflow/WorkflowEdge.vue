@@ -1,6 +1,58 @@
+<script>
+/*
+ * The gradient/glow <defs> are shared by every edge (ids are document-global),
+ * so they are injected into the document once instead of being rendered by
+ * each edge instance.
+ */
+const EDGE_DEFS_ID = 'workflow-edge-shared-defs'
+const EDGE_DEFS_MARKUP = `
+  <defs>
+    <linearGradient id="incomingEdgeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFD97A" />
+      <stop offset="60%" stop-color="#FFB84D" />
+      <stop offset="100%" stop-color="#FF6A00" />
+    </linearGradient>
+    <linearGradient id="outgoingEdgeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00F5D4" />
+      <stop offset="60%" stop-color="#00C7E6" />
+      <stop offset="100%" stop-color="#00A0FF" />
+    </linearGradient>
+    <filter id="incomingEdgeGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
+      <feFlood flood-color="#FF8A00" flood-opacity="0.65" result="color"/>
+      <feComposite in="color" in2="blur" operator="in" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="outgoingEdgeGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
+      <feFlood flood-color="#00B8D8" flood-opacity="0.65" result="color"/>
+      <feComposite in="color" in2="blur" operator="in" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+`
+
+function ensureSharedEdgeDefs() {
+  if (typeof document === 'undefined' || document.getElementById(EDGE_DEFS_ID)) return
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.id = EDGE_DEFS_ID
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('focusable', 'false')
+  svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;'
+  svg.innerHTML = EDGE_DEFS_MARKUP
+  document.body.appendChild(svg)
+}
+</script>
+
 <script setup>
-import { computed, ref, nextTick, watch } from 'vue'
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, MarkerType } from '@vue-flow/core'
+import { computed, ref, nextTick, watch, onMounted } from 'vue'
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, MarkerType } from '@vue-flow/core'
 import { useVueFlow } from '@vue-flow/core'
 import RichTooltip from '@/components/common/RichTooltip.vue'
 import { getEdgeHelp } from '@/utils/helpContent.js'
@@ -9,6 +61,8 @@ import { useI18n } from 'vue-i18n'
 
 const { findNode } = useVueFlow()
 const { t } = useI18n()
+
+onMounted(ensureSharedEdgeDefs)
 
 const props = defineProps({
   id: {
@@ -81,7 +135,7 @@ const hoverState = computed(() => {
 
 const edgeMarkerEnd = computed(() => {
   const base = (typeof props.markerEnd === 'object' && props.markerEnd !== null)
-    ? { type: MarkerType.Arrow, width: 18, height: 18, color: '#f2f2f2', strokeWidth: 2, ...props.markerEnd }
+    ? { type: MarkerType.Arrow, width: 18, height: 18, color: 'var(--text-1)', strokeWidth: 2, ...props.markerEnd }
     : props.markerEnd
 
   const { isEntry, isExit } = hoverState.value
@@ -100,7 +154,7 @@ const edgeMarkerEnd = computed(() => {
 
 const edgeStyle = computed(() => {
   const baseStyle = {
-    stroke: '#f2f2f2',
+    stroke: 'var(--text-1)',
     strokeWidth: 1.2,
     ...props.style,
   }
@@ -130,7 +184,7 @@ const edgeStyle = computed(() => {
   if (props.data?.trigger === false) {
     return {
       ...baseStyle,
-      stroke: '#868686',
+      stroke: 'var(--text-muted-2)',
       strokeDasharray: '5, 5',
       animation: 'none',
     }
@@ -196,13 +250,10 @@ function runEdgeAnimation() {
     { duration: duration * totalLength / 150, iterations: Infinity, easing: 'linear' }
   )
 
-  // Pulse opacity to enhance glow effect
-  const glowAnim = pathEl.animate(
-    [{ strokeOpacity: 2 }, { strokeOpacity: 1 }, { strokeOpacity: 2 }],
-    { duration: Math.max(600, Math.round(duration / 2)), iterations: Infinity, easing: 'ease-in-out' }
-  )
-
-  edgeAnimations = [dashAnim, glowAnim]
+  // Note: the former stroke-opacity "pulse" (2 -> 1 -> 2) was clamped to 1 by the
+  // browser for its whole cycle, so it cost a main-thread animation per hovered
+  // edge without any visible effect. It is intentionally not re-created.
+  edgeAnimations = [dashAnim]
 
   // Calculate label animation duration based on dash cycle speed
   // Dash cycle = dash + gap. Here gap is approx 2.5 * dash.
@@ -538,11 +589,11 @@ const labelStyle = computed(() => {
     position: 'absolute',
     transform: `translate(-50%, -50%) translate(${labelX.value}px, ${labelY.value}px)`,
     pointerEvents: 'none',
-    backgroundColor: 'rgba(10, 10, 10, 0.9)',
-    color: 'rgba(240, 240, 240, 1)',
+    backgroundColor: 'rgb(var(--panel-10) / 0.9)',
+    color: 'var(--text-1)',
     padding: '4px 6px',
     borderRadius: '3px',
-    border: '1px solid #f2f2f2',
+    border: '1px solid var(--text-1)',
     fontSize: '12px',
     whiteSpace: 'pre-line',
     textAlign: 'center',
@@ -554,10 +605,10 @@ const labelStyle = computed(() => {
 
   if (isEntry) {
     s.borderColor = '#ff8a00'
-    s.color = '#ffdec2'
+    s.color = 'var(--warn-soft-3)'
   } else if (isExit) {
     s.borderColor = '#00b8d8'
-    s.color = '#c2f8ff'
+    s.color = 'var(--accent-sky-2)'
   }
 
   // Inject CSS var for animation duration
@@ -572,8 +623,6 @@ const edgeHelpContent = computed(() => getEdgeHelp(props.data))
 
 // Compute tooltip position (geometric midpoint of edge path)
 const tooltipX = computed(() => {
-  const sourceNode = findNode(props.source)
-  const targetNode = findNode(props.target)
   const isSelfLoop = props.source === props.target
   const isLeftwardEdge = props.targetX < props.sourceX
   
@@ -588,8 +637,6 @@ const tooltipX = computed(() => {
 })
 
 const tooltipY = computed(() => {
-  const sourceNode = findNode(props.source)
-  const targetNode = findNode(props.target)
   const isSelfLoop = props.source === props.target
   const isLeftwardEdge = props.targetX < props.sourceX
   
@@ -608,39 +655,7 @@ const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
 </script>
 
 <template>
-  <!-- Invisible SVG defs to provide gradients for edge strokes -->
-  <svg style="position: absolute; width: 0; height: 0; overflow: hidden;" aria-hidden="true" focusable="false">
-    <defs>
-      <linearGradient id="incomingEdgeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="#FFD97A" />
-        <stop offset="60%" stop-color="#FFB84D" />
-        <stop offset="100%" stop-color="#FF6A00" />
-      </linearGradient>
-      <linearGradient id="outgoingEdgeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="#00F5D4" />
-        <stop offset="60%" stop-color="#00C7E6" />
-        <stop offset="100%" stop-color="#00A0FF" />
-      </linearGradient>
-      <filter id="incomingEdgeGlow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
-        <feFlood flood-color="#FF8A00" flood-opacity="0.65" result="color"/>
-        <feComposite in="color" in2="blur" operator="in" result="glow"/>
-        <feMerge>
-          <feMergeNode in="glow"/>
-          <feMergeNode in="SourceGraphic"/>
-        </feMerge>
-      </filter>
-      <filter id="outgoingEdgeGlow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
-        <feFlood flood-color="#00B8D8" flood-opacity="0.65" result="color"/>
-        <feComposite in="color" in2="blur" operator="in" result="glow"/>
-        <feMerge>
-          <feMergeNode in="glow"/>
-          <feMergeNode in="SourceGraphic"/>
-        </feMerge>
-      </filter>
-    </defs>
-  </svg>
+  <!-- Gradient/glow <defs> are injected once per document (see ensureSharedEdgeDefs) -->
   <BaseEdge
     :id="id"
     :path="edgePath"
@@ -697,12 +712,12 @@ const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
 
 @keyframes label-pulse {
   0%, 100% {
-    box-shadow: 0 0 1px inset rgba(255, 255, 255, 0);
-    background-color: rgba(10, 10, 10, 0.95);
+    box-shadow: 0 0 1px inset rgb(var(--ink) / 0);
+    background-color: rgb(var(--panel-10) / 0.95);
   }
   50% {
     box-shadow: 0 0 8px inset currentColor;
-    background-color: rgba(10, 10, 10, 0.95);
+    background-color: rgb(var(--panel-10) / 0.95);
   }
 }
 
@@ -716,6 +731,6 @@ const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
 }
 
 .edge-tooltip-trigger:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.1);
 }
 </style>

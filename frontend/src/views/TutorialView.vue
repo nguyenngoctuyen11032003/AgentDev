@@ -5,11 +5,10 @@ import MarkdownIt from 'markdown-it'
 import markdownItAnchor from 'markdown-it-anchor'
 import { useI18n } from 'vue-i18n'
 
-const route = useRoute()
-const { locale, t } = useI18n()
-
-const renderedContent = ref('')
-const markdownBody = ref(null)
+// ---------------------------------------------------------------------------
+// Module-level: one parser for the app lifetime (built once, not per visit)
+// and a cache of rendered HTML so revisits / language switches are instant.
+// ---------------------------------------------------------------------------
 const md = new MarkdownIt({
   html: true,
   linkify: true,
@@ -26,11 +25,66 @@ md.use(markdownItAnchor, {
     s
       .trim()
       .toLowerCase()
+      // Strip Vietnamese/Latin diacritics so headings get readable ASCII anchors
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\u0111/g, 'd')
       .replace(/[^a-z0-9\u4e00-\u9fa5\s-]/g, '')
       .replace(/\s+/g, '-')
 })
 
-const getTutorialFile = () => (locale.value === 'en' ? '/tutorial-en.md' : '/tutorial-zh.md')
+// Defer off-screen images so the long tutorial paints quickly.
+const defaultImageRenderer = md.renderer.rules.image
+md.renderer.rules.image = (tokens, idx, options, env, self) => {
+  const token = tokens[idx]
+  token.attrSet('loading', 'lazy')
+  token.attrSet('decoding', 'async')
+  return defaultImageRenderer(tokens, idx, options, env, self)
+}
+
+const TUTORIAL_FILES = { vi: '/tutorial-vi.md', en: '/tutorial-en.md', zh: '/tutorial-zh.md' }
+
+/** file -> rendered HTML */
+const renderedCache = new Map()
+/** file -> in-flight promise (concurrent requests share one fetch) */
+const pendingLoads = new Map()
+
+const fetchRendered = (file) => {
+  if (renderedCache.has(file)) return Promise.resolve(renderedCache.get(file))
+  if (pendingLoads.has(file)) return pendingLoads.get(file)
+
+  const load = fetch(file)
+    .then(async (response) => {
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status}`)
+        error.notOk = true
+        throw error
+      }
+      let text = await response.text()
+      // Fix media paths to point to /media/ (absolute path from public root)
+      // For markdown images: ![alt](media/file.png) -> ![alt](/media/file.png)
+      text = text.replace(/\]\(media\//g, '](/media/')
+      // For HTML image tags: src="media/file.gif" -> src="/media/file.gif"
+      text = text.replace(/src="media\//g, 'src="/media/')
+      // Raw <img> tags in the markdown are deferred as well
+      text = text.replace(/<img\s(?![^>]*\bloading=)/g, '<img loading="lazy" decoding="async" ')
+
+      const html = md.render(text)
+      renderedCache.set(file, html)
+      return html
+    })
+    .finally(() => pendingLoads.delete(file))
+
+  pendingLoads.set(file, load)
+  return load
+}
+
+const route = useRoute()
+const { locale, t } = useI18n()
+
+const renderedContent = ref('')
+const markdownBody = ref(null)
+const getTutorialFile = () => TUTORIAL_FILES[locale.value] || TUTORIAL_FILES.en
 
 const scrollToHash = () => {
   // Wait for DOM to update, then scroll to hash if present
@@ -79,31 +133,23 @@ const addCopyButtons = () => {
   })
 }
 
-const loadTutorial = async () => {
-  try {
-    const response = await fetch(getTutorialFile())
-    if (response.ok) {
-      let text = await response.text()
-      // Fix media paths to point to /media/ (absolute path from public root)
-      // For markdown images: ![alt](media/file.png) -> ![alt](/media/file.png)
-      text = text.replace(/\]\(media\//g, '](/media/')
-      // For HTML image tags: src="media/file.gif" -> src="/media/file.gif"
-      text = text.replace(/src="media\//g, 'src="/media/')
-      
-      renderedContent.value = md.render(text)
-      addCopyButtons()
-      scrollToHash()
-    } else {
-      console.error(t('tutorial.failed_to_fetch'))
-    }
-  } catch (error) {
-    console.error(t('tutorial.failed_to_load'), error)
-  }
-}
+// Guards against a slow earlier request overwriting a newer language choice
+let loadToken = 0
 
-const switchLang = (lang) => {
-  if (locale.value !== lang) {
-    locale.value = lang
+const loadTutorial = async () => {
+  const token = ++loadToken
+  try {
+    const html = await fetchRendered(getTutorialFile())
+    if (token !== loadToken) return
+    renderedContent.value = html
+    addCopyButtons()
+    scrollToHash()
+  } catch (error) {
+    if (error && error.notOk) {
+      console.error(t('tutorial.failed_to_fetch'))
+    } else {
+      console.error(t('tutorial.failed_to_load'), error)
+    }
   }
 }
 
@@ -118,10 +164,6 @@ onMounted(() => {
 
 <template>
   <div class="tutorial-view">
-    <div class="lang-switch">
-      <button :class="{ active: locale === 'zh' }" @click="switchLang('zh')">{{ $t('tutorial.zh') }}</button>
-      <button :class="{ active: locale === 'en' }" @click="switchLang('en')">{{ $t('tutorial.en') }}</button>
-    </div>
     <div ref="markdownBody" class="markdown-body" v-html="renderedContent"></div>
   </div>
 </template>
@@ -133,15 +175,14 @@ onMounted(() => {
   max-width: 100%;
   margin: 0 auto;
   height: calc(100vh - 55px); /* Adjust the height of the .sidebar */
-  background: linear-gradient(135deg, #232526 0%, #1e1e1e 100%);
+  background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface-1) 100%);
   overflow-y: auto;
   overflow-x: hidden;
   box-sizing: border-box;
-  transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   /* Glowing border and card shadow */
   border-radius: 18px;
-  box-shadow: 0 4px 32px 0 rgba(0, 255, 255, 0.08), 0 0 0 2px #00eaff33;
-  border: 1.5px solid #00eaff33;
+  box-shadow: 0 4px 32px 0 rgb(var(--cyan-rgb-2) / 0.08), 0 0 0 2px rgb(var(--cyan-rgb) / 0.2);
+  border: 1.5px solid rgb(var(--cyan-rgb) / 0.2);
   transition: box-shadow 0.3s, height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   scroll-behavior: smooth;
 }
@@ -150,52 +191,20 @@ onMounted(() => {
   height: 100vh;
 }
 
-.lang-switch {
-  position: absolute;
-  top: 80px; /* 55px nav + 25px spacing */
-  right: 48px;
-  z-index: 10;
-  display: flex;
-  gap: 12px;
-  transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-:global(body.nav-hidden .lang-switch) {
-  top: 25px; /* Adjust to 25px spacing from top of screen when nav is hidden */
-}
-.lang-switch button {
-  background: linear-gradient(90deg, #232526 60%, #00eaff22 100%);
-  color: #00eaff;
-  border: 1.5px solid #00eaff33;
-  border-radius: 8px;
-  padding: 6px 18px;
-  font-size: 1em;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s, border 0.2s, box-shadow 0.2s;
-  box-shadow: 0 2px 8px #00eaff11;
-}
-.lang-switch button.active,
-.lang-switch button:hover {
-  background: linear-gradient(90deg, #00eaff 0%, #232526 100%);
-  color: #fff;
-  border: 1.5px solid #00eaff;
-  box-shadow: 0 0 12px #00eaff44;
-}
-
 :deep(.markdown-body) {
   max-width: 980px;
   margin: 0 auto;
-  color: #e0e0e0;
+  color: var(--text-2);
   font-family: 'JetBrains Mono', 'Fira Mono', 'Consolas', 'Menlo', 'Monaco', 'monospace', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   line-height: 1.7;
   letter-spacing: 0.01em;
-  background: rgba(30,34,40,0.85);
+  background: rgb(var(--panel-30) / 0.85);
   border-radius: 14px;
-  box-shadow: 0 2px 16px 0 rgba(0,255,255,0.04);
+  box-shadow: 0 2px 16px 0 rgb(var(--cyan-rgb-2) / 0.04);
   padding: 32px 36px 32px 36px;
-  border: 1px solid #00eaff22;
-  backdrop-filter: blur(2px);
+  border: 1px solid rgb(var(--cyan-rgb) / 0.13);
+  /* No backdrop-filter here: it sits over a static gradient (no visible effect)
+     but would force the compositor to re-blur the whole article on every scroll. */
 }
 
 :deep(.markdown-body h1),
@@ -208,8 +217,8 @@ onMounted(() => {
   margin-bottom: 16px;
   font-weight: 700;
   line-height: 1.25;
-  color: #00eaff;
-  text-shadow: 0 0 8px #00eaff44;
+  color: var(--cyan);
+  text-shadow: 0 0 8px rgb(var(--cyan-rgb) / 0.27);
   letter-spacing: 0.02em;
   scroll-margin-top: 20px; /* Offset for hash scroll target */
   transition: background 0.3s ease;
@@ -222,35 +231,35 @@ onMounted(() => {
 :deep(.markdown-body h4:target),
 :deep(.markdown-body h5:target),
 :deep(.markdown-body h6:target) {
-  background: rgba(0, 234, 255, 0.15);
+  background: rgb(var(--cyan-rgb) / 0.15);
   padding: 8px 12px;
   margin-left: -12px;
   margin-right: -12px;
   border-radius: 6px;
-  box-shadow: 0 0 16px rgba(0, 234, 255, 0.3);
+  box-shadow: 0 0 16px rgb(var(--cyan-rgb) / 0.3);
 }
 
-:deep(.markdown-body h1) { font-size: 2.2em; border-bottom: 1px solid #00eaff33; padding-bottom: 0.3em; }
-:deep(.markdown-body h2) { font-size: 1.6em; border-bottom: 1px solid #00eaff22; padding-bottom: 0.3em; }
+:deep(.markdown-body h1) { font-size: 2.2em; border-bottom: 1px solid rgb(var(--cyan-rgb) / 0.2); padding-bottom: 0.3em; }
+:deep(.markdown-body h2) { font-size: 1.6em; border-bottom: 1px solid rgb(var(--cyan-rgb) / 0.13); padding-bottom: 0.3em; }
 :deep(.markdown-body h3) { font-size: 1.3em; }
 
 :deep(.markdown-body p) {
   margin-top: 0;
   margin-bottom: 16px;
-  color: #b8eaff;
+  color: var(--accent-sky-3);
   font-size: 1.08em;
 }
 
 :deep(.markdown-body a) {
-  color: #00eaff;
+  color: var(--cyan);
   text-decoration: none;
-  border-bottom: 1px dashed #00eaff99;
+  border-bottom: 1px dashed rgb(var(--cyan-rgb) / 0.6);
   transition: color 0.2s, border-bottom 0.2s;
 }
 :deep(.markdown-body a:hover) {
-  color: #fff;
-  border-bottom: 1px solid #00eaff;
-  text-shadow: 0 0 6px #00eaff99;
+  color: var(--text-strong);
+  border-bottom: 1px solid var(--cyan);
+  text-shadow: 0 0 6px rgb(var(--cyan-rgb) / 0.6);
 }
 
 :deep(.markdown-body img) {
@@ -259,33 +268,33 @@ onMounted(() => {
   box-sizing: border-box;
   background-color: transparent;
   border-radius: 10px;
-  border: 1.5px solid #00eaff33;
-  box-shadow: 0 2px 16px 0 #00eaff22;
+  border: 1.5px solid rgb(var(--cyan-rgb) / 0.2);
+  box-shadow: 0 2px 16px 0 rgb(var(--cyan-rgb) / 0.13);
   margin: 16px 0;
   transition: box-shadow 0.2s;
 }
 :deep(.markdown-body img:hover) {
-  box-shadow: 0 0 24px 2px #00eaff88;
+  box-shadow: 0 0 24px 2px rgb(var(--cyan-rgb) / 0.53);
 }
 
 :deep(.markdown-body video) {
   max-width: 100%;
   border-radius: 10px;
-  border: 1.5px solid #00eaff33;
+  border: 1.5px solid rgb(var(--cyan-rgb) / 0.2);
   margin-bottom: 16px;
-  box-shadow: 0 2px 16px 0 #00eaff22;
+  box-shadow: 0 2px 16px 0 rgb(var(--cyan-rgb) / 0.13);
 }
 
 :deep(.markdown-body code) {
   padding: 0.2em 0.5em;
   margin: 0;
   font-size: 90%;
-  background: linear-gradient(90deg, #232526 60%, #00eaff22 100%);
+  background: linear-gradient(90deg, var(--surface-2) 60%, rgb(var(--cyan-rgb) / 0.13) 100%);
   border-radius: 6px;
-  color: #00eaff;
+  color: var(--cyan);
   font-family: 'JetBrains Mono', 'Fira Mono', 'Consolas', 'Menlo', 'Monaco', 'monospace';
-  border: 1px solid #00eaff33;
-  box-shadow: 0 0 8px #00eaff22;
+  border: 1px solid rgb(var(--cyan-rgb) / 0.2);
+  box-shadow: 0 0 8px rgb(var(--cyan-rgb) / 0.13);
 }
 
 :deep(.markdown-body pre) {
@@ -293,11 +302,11 @@ onMounted(() => {
   overflow: auto;
   font-size: 95%;
   line-height: 1.55;
-  background: linear-gradient(90deg, #161b22 80%, #00eaff11 100%);
+  background: linear-gradient(90deg, var(--bg-deep-2) 80%, rgb(var(--cyan-rgb) / 0.07) 100%);
   border-radius: 10px;
   margin-bottom: 18px;
-  border: 1.5px solid #00eaff33;
-  box-shadow: 0 0 16px #00eaff11;
+  border: 1.5px solid rgb(var(--cyan-rgb) / 0.2);
+  box-shadow: 0 0 16px rgb(var(--cyan-rgb) / 0.07);
   position: relative;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -312,7 +321,7 @@ onMounted(() => {
   word-wrap: normal;
   background: transparent;
   border: 0;
-  color: #00eaff;
+  color: var(--cyan);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -325,30 +334,30 @@ onMounted(() => {
   position: absolute;
   top: 10px;
   right: 10px;
-  background: linear-gradient(90deg, #232526 60%, #00eaff22 100%);
-  color: #00eaff;
-  border: 1px solid #00eaff44;
+  background: linear-gradient(90deg, var(--surface-2) 60%, rgb(var(--cyan-rgb) / 0.13) 100%);
+  color: var(--cyan);
+  border: 1px solid rgb(var(--cyan-rgb) / 0.27);
   border-radius: 6px;
   padding: 4px 10px;
   font-size: 0.85em;
   cursor: pointer;
   transition: background 0.2s, color 0.2s, border 0.2s, box-shadow 0.2s;
-  box-shadow: 0 2px 8px #00eaff11;
+  box-shadow: 0 2px 8px rgb(var(--cyan-rgb) / 0.07);
 }
 
 :deep(.markdown-body .copy-code-btn:hover) {
-  background: linear-gradient(90deg, #00eaff 0%, #232526 100%);
+  background: linear-gradient(90deg, var(--cyan) 0%, var(--cyan-deep) 100%);
   color: #fff;
-  border: 1px solid #00eaff;
-  box-shadow: 0 0 12px #00eaff44;
+  border: 1px solid var(--cyan);
+  box-shadow: 0 0 12px rgb(var(--cyan-rgb) / 0.27);
 }
 
 :deep(.markdown-body blockquote) {
   padding: 0 1em;
-  color: #8bffe6;
-  border-left: 0.25em solid #00eaff99;
+  color: var(--accent-mint-3);
+  border-left: 0.25em solid rgb(var(--cyan-rgb) / 0.6);
   margin: 0 0 16px 0;
-  background: rgba(0,234,255,0.04);
+  background: rgb(var(--cyan-rgb) / 0.04);
   border-radius: 6px;
 }
 
@@ -356,7 +365,7 @@ onMounted(() => {
   height: 0.25em;
   padding: 0;
   margin: 24px 0;
-  background: linear-gradient(90deg, #00eaff33 0%, #232526 100%);
+  background: linear-gradient(90deg, rgb(var(--cyan-rgb) / 0.2) 0%, var(--surface-2) 100%);
   border: 0;
   border-radius: 2px;
 }
@@ -368,47 +377,60 @@ onMounted(() => {
   margin-bottom: 16px;
   width: 100%;
   overflow: auto;
-  background: rgba(0,234,255,0.02);
+  background: rgb(var(--cyan-rgb) / 0.02);
   border-radius: 8px;
 }
 
 :deep(.markdown-body table th),
 :deep(.markdown-body table td) {
   padding: 8px 15px;
-  border: 1px solid #00eaff22;
+  border: 1px solid rgb(var(--cyan-rgb) / 0.13);
 }
 
 :deep(.markdown-body table th) {
   font-weight: 700;
-  background: rgba(0,234,255,0.08);
-  color: #00eaff;
+  background: rgb(var(--cyan-rgb) / 0.08);
+  color: var(--cyan);
 }
 
 :deep(.markdown-body table tr) {
-  background: rgba(30,34,40,0.7);
-  border-top: 1px solid #00eaff11;
+  background: rgb(var(--panel-30) / 0.7);
+  border-top: 1px solid rgb(var(--cyan-rgb) / 0.07);
 }
 
 :deep(.markdown-body table tr:nth-child(2n)) {
-  background: rgba(0,234,255,0.03);
+  background: rgb(var(--cyan-rgb) / 0.03);
 }
 
 /* Custom Scrollbar */
 .tutorial-view::-webkit-scrollbar {
   width: 10px;
-  background: #232526;
+  background: var(--surface-2);
 }
 .tutorial-view::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, #00eaff 0%, #232526 100%);
+  background: linear-gradient(135deg, var(--cyan) 0%, var(--surface-2) 100%);
   border-radius: 8px;
 }
 
 :deep(.markdown-body::-webkit-scrollbar) {
   height: 8px;
-  background: #232526;
+  background: var(--surface-2);
 }
 :deep(.markdown-body::-webkit-scrollbar-thumb) {
-  background: linear-gradient(90deg, #00eaff 0%, #232526 100%);
+  background: linear-gradient(90deg, var(--cyan) 0%, var(--surface-2) 100%);
   border-radius: 8px;
 }
+
+/* ---------- Light theme: dark body copy, cyan kept for headings/links/code ---------- */
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body p),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body li),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body td),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body blockquote) {
+  color: var(--text-2);
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body strong) {
+  color: var(--text-strong);
+}
+
 </style>

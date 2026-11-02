@@ -11,7 +11,9 @@ services:
       - "6400:6400"
     env_file:
       - .env
-      - .env.docker
+    environment:
+      BACKEND_BIND: 0.0.0.0
+      CORS_ALLOW_ORIGINS: http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173}
     restart: unless-stopped
 
   frontend:
@@ -27,7 +29,9 @@ services:
       - "${FRONTEND_PORT:-5173}:5173"
     env_file:
       - .env
-      - .env.docker
+    environment:
+      # Vite dev proxy runs inside the container, so target the backend service name
+      VITE_API_BASE_URL: http://backend:6400
     depends_on:
       - backend
     restart: unless-stopped

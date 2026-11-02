@@ -1,12 +1,246 @@
+/* =========================================================
+   Theme tokens
+   - :root            = dark (original palette, unchanged)
+   - [data-theme=light] = light palette
+   Solid tokens are used as var(--name); "-rgb"/triplet tokens
+   are used as rgb(var(--name) / alpha) so one token serves
+   every opacity level.
+   ========================================================= */
+:root {
+  color-scheme: dark;
+
+  /* neutral surfaces */
+  --bg-base: #1a1a1a;
+  --bg-deep: #161616;
+  --bg-deep-2: #161b22;
+  --surface-1: #1e1e1e;
+  --surface-2: #232526;
+  --surface-2b: #242424;
+  --surface-3: #252525;
+  --surface-4: #2a2a2a;
+  --surface-5: #2f2f2f;
+  --line-1: #333;
+  --line-2: #3a3a3a;
+  --line-3: #444;
+  --line-4: #4a4a4a;
+  --line-5: #4d4d4d;
+  --neutral-1: #666;
+  --canvas-dot: #aaa;
+
+  /* text */
+  --text-muted-1: #858585;
+  --text-muted-2: #868686;
+  --text-muted-3: #888;
+  --text-muted-4: #8e8e8e;
+  --text-muted-5: #999;
+  --text-muted-6: #aaa;
+  --text-muted-7: #adb5bd;
+  --text-muted-8: #8b949e;
+  --text-muted-9: #95a5a6;
+  --text-muted-10: #7f8c8d;
+  --text-soft-1: #ccc;
+  --text-soft-2: #c0c0c0;
+  --text-soft-3: #d2d2d2;
+  --text-soft-4: #d4d4d4;
+  --text-2: #e0e0e0;
+  --text-2b: #e7e7e7;
+  --text-1: #f2f2f2;
+  --text-strong: #fff;
+  --text-glow: #fff8;
+
+  /* brand accents */
+  --accent-mint: #aaffcd;
+  --accent-sky: #99eaf9;
+  --accent-indigo: #a0c4ff;
+  --accent-mint-2: #99ffeb;
+  --accent-mint-3: #8bffe6;
+  --accent-green-1: #baf9b1;
+  --accent-green-2: #6bff75;
+  --accent-sky-2: #c2f8ff;
+  --accent-sky-3: #b8eaff;
+  --accent-sky-4: #88e4f8;
+  --accent-sky-5: #61dafb;
+  --accent-blue-1: #64b5f6;
+  --accent-blue-2: #60b7ff;
+  --accent-blue-3: #58a6ff;
+  --accent-indigo-2: #c8d8ff;
+  --accent-indigo-3: #c0d8ff;
+  --accent-indigo-4: #b9d0ff;
+  --accent-indigo-5: #9096ff;
+  --cyan: #00eaff;
+  --cyan-2: #00c7e6;
+  --cyan-3: #00b8d8;
+  --cyan-4: #00f5d4;
+  --cyan-5: #00a0ff;
+  --cyan-deep: #232526;
+
+  /* status */
+  --danger: #ff6b6b;
+  --danger-2: #ff8080;
+  --danger-3: #ff8888;
+  --danger-4: #ff4444;
+  --danger-soft: #ffcccc;
+  --warn-soft-1: #ffd97a;
+  --warn-soft-2: #ffe082;
+  --warn-soft-3: #ffdec2;
+
+  /* alpha-composable triplets */
+  --ink: 255 255 255;
+  --ink-soft: 242 242 242;
+  --ink-softer: 235 235 235;
+  --ink-mute: 200 200 200;
+  --ink-muter: 189 189 189;
+  --periwinkle: 180 200 255;
+  --periwinkle-2: 120 160 255;
+  --shade: 0 0 0;
+  --panel-10: 10 10 10;
+  --panel-15: 15 15 15;
+  --panel-20: 20 20 24;
+  --panel-20b: 10 20 24;
+  --panel-25: 25 25 25;
+  --panel-26: 26 26 26;
+  --panel-30: 30 34 40;
+  --panel-33: 33 33 33;
+  --panel-40: 40 40 40;
+  --panel-40b: 40 44 52;
+  --panel-40c: 40 45 60;
+  --panel-60: 60 60 60;
+  --panel-60b: 60 64 72;
+  --panel-74: 74 74 74;
+  --chip-90: 90 90 90;
+  --chip-110: 110 110 110;
+  --chip-117: 117 117 117;
+  --chip-136: 136 136 136;
+  --neutral-160: 160 160 160;
+  --neutral-100: 100 100 100;
+  --accent-mint-rgb: 170 255 205;
+  --accent-sky-rgb: 153 234 249;
+  --accent-indigo-rgb: 160 196 255;
+  --cyan-rgb: 0 234 255;
+  --cyan-rgb-2: 0 255 255;
+}
+
+/* ---------- Light theme: cool, crisp, high-contrast ---------- */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-base: #f3f5f9;
+  --bg-deep: #eaeef4;
+  --bg-deep-2: #eaeef4;
+  --surface-1: #ffffff;
+  --surface-2: #ffffff;
+  --surface-2b: #ffffff;
+  --surface-3: #ffffff;
+  --surface-4: #f1f4f8;
+  --surface-5: #e9edf3;
+  --line-1: #e2e7ee;
+  --line-2: #dde3eb;
+  --line-3: #d5dbe4;
+  --line-4: #cfd6e0;
+  --line-5: #d5dbe4;
+  --neutral-1: #94a3b8;
+  --canvas-dot: #c3cbd6;
+
+  --text-muted-1: #64748b;
+  --text-muted-2: #64748b;
+  --text-muted-3: #64748b;
+  --text-muted-4: #64748b;
+  --text-muted-5: #64748b;
+  --text-muted-6: #6b7280;
+  --text-muted-7: #6b7280;
+  --text-muted-8: #6b7280;
+  --text-muted-9: #6b7280;
+  --text-muted-10: #6b7280;
+  --text-soft-1: #475569;
+  --text-soft-2: #475569;
+  --text-soft-3: #334155;
+  --text-soft-4: #334155;
+  --text-2: #1f2937;
+  --text-2b: #1f2937;
+  --text-1: #111827;
+  --text-strong: #0f172a;
+  --text-glow: rgba(15, 23, 42, 0.5);
+
+  --accent-mint: #0f9d7a;
+  --accent-sky: #0284c7;
+  --accent-indigo: #4f46e5;
+  --accent-mint-2: #0f9d7a;
+  --accent-mint-3: #0f9d7a;
+  --accent-green-1: #15803d;
+  --accent-green-2: #16a34a;
+  --accent-sky-2: #0369a1;
+  --accent-sky-3: #0369a1;
+  --accent-sky-4: #0284c7;
+  --accent-sky-5: #0284c7;
+  --accent-blue-1: #2563eb;
+  --accent-blue-2: #2563eb;
+  --accent-blue-3: #2563eb;
+  --accent-indigo-2: #4338ca;
+  --accent-indigo-3: #4338ca;
+  --accent-indigo-4: #4338ca;
+  --accent-indigo-5: #4f46e5;
+  --cyan: #0891b2;
+  --cyan-2: #0e7490;
+  --cyan-3: #0e7490;
+  --cyan-4: #0d9488;
+  --cyan-5: #0369a1;
+  --cyan-deep: #0e7490;
+
+  --danger: #dc2626;
+  --danger-2: #dc2626;
+  --danger-3: #dc2626;
+  --danger-4: #dc2626;
+  --danger-soft: #b91c1c;
+  --warn-soft-1: #b45309;
+  --warn-soft-2: #b45309;
+  --warn-soft-3: #b45309;
+
+  --ink: 15 23 42;
+  --ink-soft: 17 24 39;
+  --ink-softer: 31 41 55;
+  --ink-mute: 71 85 105;
+  --ink-muter: 71 85 105;
+  --periwinkle: 67 56 202;
+  --periwinkle-2: 67 56 202;
+  --shade: 100 116 139;
+  --panel-10: 255 255 255;
+  --panel-15: 255 255 255;
+  --panel-20: 255 255 255;
+  --panel-20b: 255 255 255;
+  --panel-25: 255 255 255;
+  --panel-26: 255 255 255;
+  --panel-30: 255 255 255;
+  --panel-33: 255 255 255;
+  --panel-40: 241 245 249;
+  --panel-40b: 241 245 249;
+  --panel-40c: 241 245 249;
+  --panel-60: 241 245 249;
+  --panel-60b: 241 245 249;
+  --panel-74: 241 245 249;
+  --chip-90: 226 232 240;
+  --chip-110: 203 213 225;
+  --chip-117: 219 228 238;
+  --chip-136: 203 213 225;
+  --neutral-160: 148 163 184;
+  --neutral-100: 148 163 184;
+  --accent-mint-rgb: 15 157 122;
+  --accent-sky-rgb: 2 132 199;
+  --accent-indigo-rgb: 79 70 229;
+  --cyan-rgb: 8 145 178;
+  --cyan-rgb-2: 8 145 178;
+}
+
+/* =========================================================
+   Base
+   ========================================================= */
 :root {
   scrollbar-gutter: auto;
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color: var(--text-1);
+  background-color: var(--bg-base);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -16,17 +250,29 @@
 
 a {
   font-weight: 500;
-  color: #646cff;
+  color: var(--accent-indigo);
   text-decoration: inherit;
 }
 a:hover {
-  color: #535bf2;
+  color: var(--accent-sky);
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background-color: var(--bg-base);
+  color: var(--text-1);
+}
+
+/* Smooth theme switch (skipped for users who prefer reduced motion) */
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-transition,
+  html.theme-transition *,
+  html.theme-transition *::before,
+  html.theme-transition *::after {
+    transition: background-color 0.25s ease, border-color 0.25s ease, color 0.2s ease, fill 0.2s ease, stroke 0.2s ease !important;
+  }
 }
 
 h1 {
@@ -41,7 +287,7 @@ button {
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
+  background-color: var(--bg-base);
   cursor: pointer;
   transition: border-color 0.25s;
 }
@@ -55,15 +301,25 @@ button {
   height: 100vh;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
+/* Light theme: crisper native controls and subtle surface edges */
+:root[data-theme="light"] input,
+:root[data-theme="light"] textarea,
+:root[data-theme="light"] select {
+  color-scheme: light;
+}
+
+:root[data-theme="light"] ::selection {
+  background: rgb(var(--accent-sky-rgb) / 0.22);
+}
+
+/* Respect reduced-motion: collapse animations and transitions to near-instant */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

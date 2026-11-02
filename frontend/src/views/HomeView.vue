@@ -1,4 +1,5 @@
 <script setup>
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -6,6 +7,20 @@ const router = useRouter()
 const goToTutorial = () => {
   router.push('/tutorial')
 }
+
+// Pause the decorative background animations while the tab is hidden
+const isPageHidden = ref(typeof document !== 'undefined' && document.hidden)
+const handleVisibilityChange = () => {
+  isPageHidden.value = document.hidden
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 
 const cubeColors = ['#aaffcd', '#99eaf9', '#a0c4ff']
 const cubes = Array.from({ length: 80 }, (_, i) => ({
@@ -25,8 +40,8 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
 
 <template>
   <div class="home-view">
-    <div class="cubes-background">
-      <div 
+    <div class="cubes-background" :class="{ paused: isPageHidden }">
+      <div
         v-for="cube in cubes" 
         :key="cube.id"
         class="cube"
@@ -69,7 +84,7 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
 .home-view {
   width: 100%;
   height: 100%;
-  background-color: #1a1a1a;
+  background-color: var(--bg-base);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -95,11 +110,17 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(1200px 600px at 20% 30%, rgba(170, 255, 205, 0.15), transparent 60%),
-              radial-gradient(1000px 500px at 80% 70%, rgba(160, 196, 255, 0.15), transparent 60%),
-              linear-gradient(90deg, rgba(170,255,205,0.08), rgba(153,234,249,0.08), rgba(160,196,255,0.08));
+  background: radial-gradient(1200px 600px at 20% 30%, rgb(var(--accent-mint-rgb) / 0.15), transparent 60%),
+              radial-gradient(1000px 500px at 80% 70%, rgb(var(--accent-indigo-rgb) / 0.15), transparent 60%),
+              linear-gradient(90deg, rgb(var(--accent-mint-rgb) / 0.08), rgb(var(--accent-sky-rgb) / 0.08), rgb(var(--accent-indigo-rgb) / 0.08));
   filter: blur(2px);
   animation: bgFlow 18s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.cubes-background.paused::before,
+.cubes-background.paused .cube {
+  animation-play-state: paused;
 }
 
 @keyframes bgFlow {
@@ -120,20 +141,16 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
 .cube {
   position: absolute;
   border-radius: 4px;
-  transition: filter 0.3s, opacity 0.3s, transform 0.3s;
   animation: unifiedCubeAnim 18s linear infinite;
-  will-change: transform, opacity, filter;
+  /* Only transform/opacity animate; blur/box-shadow are static and rasterized once per layer */
+  will-change: transform, opacity;
   /* Combined transform: initial angle and scale come from CSS variables */
   --rotate: 0deg;
   --scale: 1;
 }
 
-.cube:hover {
-  filter: blur(0.5px) brightness(1.3) drop-shadow(0 0 8px #fff8);
-  opacity: 0.7;
-  transform: scale(1.2) rotate(10deg) !important;
-  z-index: 2;
-}
+/* Note: the background has pointer-events: none, so cubes never receive hover.
+   The former :hover rule (and its filter transition) was dead and only added cost. */
 
 @keyframes unifiedCubeAnim {
   0% {
@@ -221,15 +238,15 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
 }
 
 .title-line {
-  color: #f2f2f2;
+  color: var(--text-1);
 }
 
 .title-highlight {
   background: linear-gradient(
     90deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   background-clip: text;
   -webkit-background-clip: text;
@@ -238,7 +255,7 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
 
 .introduction {
   font-size: 22px;
-  color: rgba(235, 235, 235, 0.6);
+  color: rgb(var(--ink-softer) / 0.6);
   line-height: 1.5;
   max-width: 700px;
   margin: 0 auto 40px;
@@ -257,27 +274,27 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
   font-weight: 600;
   border-radius: 50px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   text-decoration: none;
 }
 
 .secondary-btn {
-  background-color: #2f2f2f;
-  color: #f2f2f2;
+  background-color: var(--surface-5);
+  color: var(--text-1);
 }
 
 .secondary-btn:hover {
-  background-color: #3a3a3a;
-  transition: all 0.3s ease;
+  background-color: var(--line-2);
+  transition: background-color 0.3s ease;
 }
 
 .get-started-btn {
-  color: #1a1a1a;
+  color: var(--bg-base);
   background: linear-gradient(
     90deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   animation: gradientShift 4s ease-in-out infinite;
   background-size: 200% 100%;
@@ -287,7 +304,7 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
 
 .get-started-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.4);
 }
 
 @keyframes gradientShift {
@@ -303,13 +320,25 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
   .title {
     font-size: 42px;
   }
-  
+
   .introduction {
     font-size: 18px;
   }
-  
+
   .actions {
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cubes-background::before,
+  .cube,
+  .get-started-btn {
+    animation: none;
+  }
+  .cube {
+    /* Keep the static composition visible without motion */
+    opacity: 0.3;
   }
 }
 </style>

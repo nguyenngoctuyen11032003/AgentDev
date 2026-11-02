@@ -3,11 +3,11 @@
     <template v-if="field.childNode">
       <div v-if="recursive" class="form-group form-group-inline child-node-group">
         <label>
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -118,11 +118,11 @@
       <!-- Standard Popup Style (if not expanded) -->
       <div v-if="!expandInline" class="form-group form-group-inline child-node-group">
         <label>
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -174,13 +174,13 @@
                   />
                 </svg>
               </span>
-              {{ conditionalChildButtonLabel }}
+              {{ conditionalChildButtonLabel || $t('dynamic_form_field.configure') }}
             </button>
             <button
               v-if="hasChildValue"
               class="clear-child-button"
               @click.stop="$emit('clear-child-entry', field.name)"
-              title="Clear configuration"
+              :title="$t('dynamic_form_field.clear_configuration')"
             >
               ×
             </button>
@@ -230,11 +230,11 @@
       <!-- Choice dropdown fields-->
       <div v-if="field.enum && !isList" class="form-group">
         <label :for="`${modalId}-${field.name}`">
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -267,21 +267,17 @@
                 :class="{ 'option-selected': formData[field.name] === null }"
                 @mousedown.stop="selectOption(null)"
               >
-                None
+                {{ $t('dynamic_form_field.none') }}
               </div>
               <div
                 v-for="option in filteredOptions"
                 :key="typeof option === 'string' ? option : option.value"
                 class="custom-select-option"
                 :class="{ 'option-selected': formData[field.name] === (typeof option === 'string' ? option : option.value) }"
-                :title="typeof option === 'string' ? '' : (option.description || '')"
+                :title="optionDescription(option)"
                 @mousedown.stop="selectOption(typeof option === 'string' ? option : option.value)"
               >
-                {{
-                  typeof option === 'string'
-                    ? option
-                    : (option.label || option.value)
-                }}
+                {{ optionLabel(option) }}
               </div>
               <div v-if="filteredOptions.length === 0" class="custom-select-no-results">
                 {{ $t('dynamic_form_field.no_options_found') }}
@@ -297,11 +293,11 @@
       <!-- Multi-choice fields -->
       <div v-else-if="field.enum && isList" class="form-group">
         <label>
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -312,7 +308,7 @@
             v-for="option in (field.enumOptions || field.enum)"
             :key="typeof option === 'string' ? option : option.value"
             class="multi-select-option"
-            :title="typeof option === 'string' ? '' : (option.description || '')"
+            :title="optionDescription(option)"
           >
             <input
               type="checkbox"
@@ -320,11 +316,7 @@
               v-model="internalFormData[field.name]"
             />
             <span class="option-label">
-              {{
-                typeof option === 'string'
-                  ? option
-                  : (option.label || option.value)
-              }}
+              {{ optionLabel(option) }}
             </span>
           </label>
         </div>
@@ -334,11 +326,11 @@
       <div v-else-if="field.type === 'bool' && !isList" class="form-group">
         <div class="switch-wrapper">
           <label :for="`${modalId}-${field.name}`" class="switch-label-text">
-            {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+            {{ fieldLabel }}
             <span v-if="field.required" class="required-asterisk">*</span>
             <RichTooltip
               v-if="field.description"
-              :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+              :content="{ description: fieldDescription }"
               placement="top"
             >
               <span class="help-icon" tabindex="0">?</span>
@@ -360,11 +352,11 @@
       <!-- String input fields -->
       <div v-else-if="field.type === 'str' && !isList" class="form-group">
         <label :for="`${modalId}-${field.name}`">
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -384,11 +376,11 @@
       <!-- Multiline text fields -->
       <div v-else-if="field.type === 'text' && !isList" class="form-group">
         <label :for="`${modalId}-${field.name}`">
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -411,11 +403,11 @@
       <!-- Integer input fields -->
       <div v-else-if="field.type === 'int' && !isList" class="form-group">
         <label :for="`${modalId}-${field.name}`">
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -436,11 +428,11 @@
       <!-- Float input fields -->
       <div v-else-if="field.type === 'float' && !isList" class="form-group">
         <label :for="`${modalId}-${field.name}`">
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -461,11 +453,11 @@
       <!-- Key-value fields -->
       <div v-else-if="field.type === 'dict[str, Any]' || field.type === 'dict[str, str]'" class="form-group form-group-inline">
         <label>
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -516,11 +508,11 @@
       <!-- List of strings field -->
       <div v-else-if="isList && field.type.includes('str')" class="form-group form-group-inline">
         <label>
-          {{ $te('schema.' + field.name) ? $t('schema.' + field.name) : (field.displayName || field.name) }}
+          {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
           <RichTooltip
             v-if="field.description"
-            :content="{ description: $te('schema_desc.' + field.name) ? $t('schema_desc.' + field.name) : field.description }"
+            :content="{ description: fieldDescription }"
             placement="top"
           >
             <span class="help-icon" tabindex="0">?</span>
@@ -541,7 +533,7 @@
                 />
               </svg>
             </span>
-            Add Entry
+            {{ $t('dynamic_form_field.add_entry') }}
           </button>
           <div v-if="formData[field.name] && formData[field.name].length > 0" class="list-items">
             <div
@@ -566,11 +558,19 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive, watch, onUnmounted } from 'vue'
+import { computed, ref, reactive, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import RichTooltip from '@/components/common/RichTooltip.vue'
+import { getFieldLabel, getFieldDescription, getEnumOptionLabel, getEnumOptionDescription } from '@/utils/formUtils.js'
 
 const { t } = useI18n()
+
+// Labels/descriptions: locale key first, then backend-provided text (see formUtils).
+const fieldLabel = computed(() => getFieldLabel(props.field))
+const fieldDescription = computed(() => getFieldDescription(props.field))
+const optionLabel = (option) => getEnumOptionLabel(props.field, option)
+
+const optionDescription = (option) => getEnumOptionDescription(props.field, option)
 
 const props = defineProps({
   field: {
@@ -609,7 +609,7 @@ const props = defineProps({
   },
   conditionalChildButtonLabel: {
     type: String,
-    default: 'Configure'
+    default: ''
   },
   activeChildRoute: {
     type: Object,
@@ -698,6 +698,13 @@ const handleOutsideClick = (e) => {
   }
 }
 
+// The dropdown listeners are attached to window while open; make sure they do not
+// outlive the component (e.g. field re-keyed/unmounted while its dropdown is open).
+onUnmounted(() => {
+  window.removeEventListener('scroll', closeOnScroll, true)
+  window.removeEventListener('mousedown', handleOutsideClick)
+})
+
 const isList = computed(() => {
   return props.field.type && props.field.type.includes('list[')
 })
@@ -729,8 +736,7 @@ const filteredOptions = computed(() => {
   }
   const filter = filterText.value.toLowerCase()
   return options.filter(option => {
-    const label = typeof option === 'string' ? option : (option.label || option.value)
-    return label.toLowerCase().includes(filter)
+    return String(optionLabel(option)).toLowerCase().includes(filter)
   })
 })
 
@@ -760,27 +766,27 @@ const describeChildEntry = (entry, index) => {
 }
 
 // Input handlers
+// formData is the parent's reactive modal state shared by reference (see FormGenerator);
+// writing into it directly is the intended data flow, so the lint rule is silenced here.
 const onInput = (value) => {
+  // eslint-disable-next-line vue/no-mutating-props
   props.formData[props.field.name] = value
 }
 
 const onInputNumber = (value) => {
     // Check if empty string
     if (value === "") {
+        // eslint-disable-next-line vue/no-mutating-props
         props.formData[props.field.name] = null
         return
     }
+  // eslint-disable-next-line vue/no-mutating-props
   props.formData[props.field.name] = Number(value)
 }
 
 const onBooleanSwitchChange = (checked) => {
+  // eslint-disable-next-line vue/no-mutating-props
   props.formData[props.field.name] = checked
-}
-
-// Custom select methods
-const onFilterInput = (event) => {
-  filterText.value = event.target.value
-  showDropdown.value = true
 }
 
 const handleLocalScrollWheel = (event) => {
@@ -811,15 +817,8 @@ const handleLocalScrollWheel = (event) => {
   }
 }
 
-const handleInputBlur = () => {
-  // Delay hiding dropdown to allow option selection
-  setTimeout(() => {
-    showDropdown.value = false
-    filterText.value = ''
-  }, 200)
-}
-
 const selectOption = (value) => {
+  // eslint-disable-next-line vue/no-mutating-props
   props.formData[props.field.name] = value
   closeDropdown()
   emit('handle-enum-change', props.field)
@@ -838,9 +837,7 @@ const getSelectedLabel = () => {
   })
 
   if (selectedOption) {
-    return typeof selectedOption === 'string'
-      ? selectedOption
-      : (selectedOption.label || selectedOption.value)
+    return optionLabel(selectedOption)
   }
 
   return currentValue
@@ -859,7 +856,7 @@ const getSelectedLabel = () => {
 .form-group label {
   display: block;
   margin-bottom: 6px;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-weight: 500;
   font-size: 13px;
 }
@@ -881,7 +878,7 @@ const getSelectedLabel = () => {
 }
 
 .required-asterisk {
-  color: #ff6b6b;
+  color: var(--danger);
   margin-left: 4px;
 }
 
@@ -893,18 +890,18 @@ const getSelectedLabel = () => {
   height: 14px;
   margin-left: 6px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgb(var(--ink) / 0.3);
   font-size: 11px;
   line-height: 1;
   cursor: default;
-  color: rgba(242, 242, 242, 0.7);
+  color: rgb(var(--ink-soft) / 0.7);
   background-color: transparent;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, color 0.2s ease;
 }
 
 .help-icon:hover {
-  border-color: #a0c4ff;
-  color: #a0c4ff;
+  border-color: var(--accent-indigo);
+  color: var(--accent-indigo);
 }
 
 .form-input,
@@ -918,9 +915,9 @@ const getSelectedLabel = () => {
   width: 100%;
   padding: 9px 11px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background-color: rgba(10, 10, 10, 0.6);
-  color: #f2f2f2;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background-color: rgb(var(--panel-10) / 0.6);
+  color: var(--text-1);
   font-size: 13px;
   box-sizing: border-box;
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
@@ -930,9 +927,9 @@ const getSelectedLabel = () => {
   width: 100%;
   padding: 9px 11px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background-color: rgba(10, 10, 10, 0.6);
-  color: #f2f2f2;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background-color: rgb(var(--panel-10) / 0.6);
+  color: var(--text-1);
   font-size: 13px;
   box-sizing: border-box;
   min-height: 80px;
@@ -943,29 +940,29 @@ const getSelectedLabel = () => {
 
 .form-textarea:focus {
   outline: none;
-  border-color: #a0c4ff;
-  background-color: rgba(15, 15, 15, 0.85);
-  box-shadow: 0 0 0 1px rgba(160, 196, 255, 0.5);
+  border-color: var(--accent-indigo);
+  background-color: rgb(var(--panel-15) / 0.85);
+  box-shadow: 0 0 0 1px rgb(var(--accent-indigo-rgb) / 0.5);
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #a0c4ff;
-  background-color: rgba(15, 15, 15, 0.85);
-  box-shadow: 0 0 0 1px rgba(160, 196, 255, 0.5);
+  border-color: var(--accent-indigo);
+  background-color: rgb(var(--panel-15) / 0.85);
+  box-shadow: 0 0 0 1px rgb(var(--accent-indigo-rgb) / 0.5);
 }
 
 .form-input::placeholder {
-  color: rgba(255, 255, 255, 0.35);
+  color: rgb(var(--ink) / 0.35);
 }
 
 .form-select {
   width: 100%;
   padding: 9px 11px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background-color: rgba(10, 10, 10, 0.6);
-  color: #f2f2f2;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background-color: rgb(var(--panel-10) / 0.6);
+  color: var(--text-1);
   font-size: 13px;
   box-sizing: border-box;
   cursor: pointer;
@@ -974,8 +971,8 @@ const getSelectedLabel = () => {
 
 .form-select:focus {
   outline: none;
-  border-color: #a0c4ff;
-  background-color: rgba(15, 15, 15, 0.85);
+  border-color: var(--accent-indigo);
+  background-color: rgb(var(--panel-15) / 0.85);
 }
 
 /* Switch Styles */
@@ -1011,10 +1008,10 @@ const getSelectedLabel = () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(255, 255, 255, 0.14);
-  transition: .4s;
+  background-color: rgb(var(--ink) / 0.14);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgb(var(--ink) / 0.14);
 }
 
 .switch-slider:before {
@@ -1025,12 +1022,13 @@ const getSelectedLabel = () => {
   left: 2px;
   bottom: 2px;
   background-color: white;
-  transition: .4s;
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
   border-radius: 50%;
+  will-change: transform;
 }
 
 input:checked + .switch-slider {
-  background-color: #a0c4ff;
+  background-color: var(--accent-indigo);
   border-color: #4facfe;
 }
 
@@ -1043,8 +1041,8 @@ input:checked + .switch-slider:before {
 }
 
 .form-select option {
-  background-color: #252525;
-  color: #f2f2f2;
+  background-color: var(--surface-3);
+  color: var(--text-1);
 }
 
 .multi-select-options {
@@ -1059,17 +1057,17 @@ input:checked + .switch-slider:before {
   gap: 6px;
   padding: 6px 10px;
   border-radius: 999px;
-  background-color: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgb(var(--ink) / 0.04);
+  border: 1px solid rgb(var(--ink) / 0.14);
   font-size: 12px;
-  color: rgba(242, 242, 242, 0.9);
+  color: rgb(var(--ink-soft) / 0.9);
   cursor: pointer;
   transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .multi-select-option:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(160, 196, 255, 0.6);
+  background-color: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--accent-indigo-rgb) / 0.6);
 }
 
 .option-label {
@@ -1084,14 +1082,14 @@ input:checked + .switch-slider:before {
 }
 
 .input-readonly {
-  background-color: rgba(255, 255, 255, 0.05); /* Slightly lighter background to indicate disabled-ish but readable */
-  border-color: rgba(255, 255, 255, 0.05);
+  background-color: rgb(var(--ink) / 0.05); /* Slightly lighter background to indicate disabled-ish but readable */
+  border-color: rgb(var(--ink) / 0.05);
   cursor: text; /* Allow text selection */
-  color: rgba(242, 242, 242, 0.6);
+  color: rgb(var(--ink-soft) / 0.6);
 }
 
 .input-readonly:focus {
-  border-color: rgba(255, 255, 255, 0.05);
+  border-color: rgb(var(--ink) / 0.05);
   box-shadow: none;
 }
 
@@ -1111,13 +1109,13 @@ input:checked + .switch-slider:before {
 
 .var-separator {
   font-size: 12px;
-  color: #858585;
+  color: var(--text-muted-1);
   margin: 0 5px;
 }
 
 .var-value {
   flex: 1;
-  color: #d2d2d2;
+  color: var(--text-soft-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1127,7 +1125,7 @@ input:checked + .switch-slider:before {
 .delete-var-button {
   background: transparent;
   border: none;
-  color: #999;
+  color: var(--text-muted-5);
   font-size: 20px;
   cursor: pointer;
   padding: 0;
@@ -1142,7 +1140,7 @@ input:checked + .switch-slider:before {
 }
 
 .delete-var-button:hover {
-  color: #ff6b6b;
+  color: var(--danger);
 }
 
 /* List items styles */
@@ -1165,20 +1163,20 @@ input:checked + .switch-slider:before {
   justify-content: space-between;
   max-width: 420px;
   padding: 7px 12px;
-  background-color: rgba(90, 90, 90, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgb(var(--chip-90) / 0.9);
+  border: 1px solid rgb(var(--ink) / 0.14);
   border-radius: 10px;
-  color: #f2f2f2;
+  color: var(--text-1);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
   font-size: 13px;
   gap: 12px;
 }
 
 .var-item:hover,
 .list-item:hover {
-  background-color: rgba(110, 110, 110, 0.95);
-  border-color: rgba(160, 196, 255, 0.7);
+  background-color: rgb(var(--chip-110) / 0.95);
+  border-color: rgb(var(--accent-indigo-rgb) / 0.7);
 }
 
 .item-value {
@@ -1188,7 +1186,7 @@ input:checked + .switch-slider:before {
 .delete-item-button {
   background: transparent;
   border: none;
-  color: #999;
+  color: var(--text-muted-5);
   font-size: 20px;
   cursor: pointer;
   padding: 0;
@@ -1203,7 +1201,7 @@ input:checked + .switch-slider:before {
 }
 
 .delete-item-button:hover {
-  color: #ff6b6b;
+  color: var(--danger);
 }
 
 .child-node-container {
@@ -1222,7 +1220,7 @@ input:checked + .switch-slider:before {
 .clear-child-button {
   background: transparent;
   border: none;
-  color: #999;
+  color: var(--text-muted-5);
   font-size: 18px;
   cursor: pointer;
   padding: 0;
@@ -1236,7 +1234,7 @@ input:checked + .switch-slider:before {
 }
 
 .clear-child-button:hover {
-  color: #ff6b6b;
+  color: var(--danger);
 }
 
 .add-child-button,
@@ -1248,18 +1246,18 @@ input:checked + .switch-slider:before {
   gap: 8px;
   padding: 6px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background-color: rgba(255, 255, 255, 0.14);
-  color: rgba(242, 242, 242, 0.9);
+  border: 1px solid rgb(var(--ink) / 0.16);
+  background-color: rgb(var(--ink) / 0.14);
+  color: rgb(var(--ink-soft) / 0.9);
   cursor: pointer;
   font-size: 13px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .add-child-button:hover,
 .add-list-button:hover,
 .add-var-button:hover {
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: rgb(var(--ink) / 0.08);
 }
 
 .add-child-button .plus-icon,
@@ -1280,9 +1278,9 @@ input:checked + .switch-slider:before {
 .add-child-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  border-color: rgba(255, 255, 255, 0.1);
-  background-color: rgba(74, 74, 74, 0.8);
-  color: rgba(200, 200, 200, 0.7);
+  border-color: rgb(var(--ink) / 0.1);
+  background-color: rgb(var(--panel-74) / 0.8);
+  color: rgb(var(--ink-mute) / 0.7);
 }
 
 .child-node-list {
@@ -1296,10 +1294,10 @@ input:checked + .switch-slider:before {
   align-items: center;
   justify-content: space-between;
   padding: 9px 14px;
-  background-color: rgba(90, 90, 90, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgb(var(--chip-90) / 0.9);
+  border: 1px solid rgb(var(--ink) / 0.14);
   border-radius: 10px;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 13px;
   gap: 12px;
   cursor: pointer;
@@ -1307,8 +1305,8 @@ input:checked + .switch-slider:before {
 }
 
 .child-node-item:hover {
-  background-color: rgba(110, 110, 110, 0.95);
-  border-color: rgba(160, 196, 255, 0.7);
+  background-color: rgb(var(--chip-110) / 0.95);
+  border-color: rgb(var(--accent-indigo-rgb) / 0.7);
 }
 
 .child-node-name {
@@ -1329,10 +1327,10 @@ input:checked + .switch-slider:before {
 .child-node-summary {
   padding: 6px 12px;
   margin-left: 0;
-  background-color: rgba(60, 60, 60, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: rgb(var(--panel-60) / 0.6);
+  border: 1px solid rgb(var(--ink) / 0.08);
   border-radius: 8px;
-  color: rgba(200, 200, 200, 0.85);
+  color: rgb(var(--ink-mute) / 0.85);
   font-size: 12px;
   line-height: 1.4;
   word-wrap: break-word;
@@ -1352,221 +1350,26 @@ input:checked + .switch-slider:before {
 }
 
 .edit-child-button {
-  background-color: rgba(117, 117, 117, 0.95);
-  color: #f2f2f2;
+  background-color: rgb(var(--chip-117) / 0.95);
+  color: var(--text-1);
 }
 
 .edit-child-button:hover {
-  background-color: rgba(136, 136, 136, 0.98);
+  background-color: rgb(var(--chip-136) / 0.98);
 }
 
 .delete-child-button {
-  background-color: rgba(90, 90, 90, 0.9);
-  color: #f2f2f2;
+  background-color: rgb(var(--chip-90) / 0.9);
+  color: var(--text-1);
 }
 
 .delete-child-button:hover {
-  background-color: rgba(110, 110, 110, 0.95);
+  background-color: rgb(var(--chip-110) / 0.95);
 }
 
 .child-node-hint {
   padding: 6px 8px;
-  color: rgba(189, 189, 189, 0.9);
-  font-size: 12px;
-}
-
-/* Custom select styles */
-
-.custom-select-wrapper {
-  position: relative;
-  height: 38px; /* Fixed height to prevent absolute child from stretching parent */
-}
-
-.custom-select-input {
-  cursor: pointer;
-  height: 100%;
-}
-
-.custom-select-input:focus {
-  cursor: text;
-}
-
-.custom-select-arrow {
-  position: absolute;
-  right: 12px;
-  margin-left: 8px;
-}
-
-.delete-item-button:hover {
-  color: #ff6b6b;
-}
-
-.child-node-container {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-}
-
-.child-node-controls {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.clear-child-button {
-  background: transparent;
-  border: none;
-  color: #999;
-  font-size: 18px;
-  cursor: pointer;
-  padding: 0;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.2s ease;
-  line-height: 1;
-}
-
-.clear-child-button:hover {
-  color: #ff6b6b;
-}
-
-.add-child-button,
-.add-list-button,
-.add-var-button {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background-color: rgba(255, 255, 255, 0.14);
-  color: rgba(242, 242, 242, 0.9);
-  cursor: pointer;
-  font-size: 13px;
-  transition: all 0.2s ease;
-}
-
-.add-child-button:hover,
-.add-list-button:hover,
-.add-var-button:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-}
-
-.add-child-button .plus-icon,
-.add-list-button .plus-icon,
-.add-var-button .plus-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-}
-
-.add-child-button .plus-icon svg,
-.add-list-button .plus-icon svg,
-.add-var-button .plus-icon svg {
-  display: block;
-}
-
-.add-child-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  border-color: rgba(255, 255, 255, 0.1);
-  background-color: rgba(74, 74, 74, 0.8);
-  color: rgba(200, 200, 200, 0.7);
-}
-
-.child-node-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.child-node-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 14px;
-  background-color: rgba(90, 90, 90, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
-  color: #f2f2f2;
-  font-size: 13px;
-  gap: 12px;
-  cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-}
-
-.child-node-item:hover {
-  background-color: rgba(110, 110, 110, 0.95);
-  border-color: rgba(160, 196, 255, 0.7);
-}
-
-.child-node-name {
-  flex: 1;
-}
-
-.child-node-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.child-node-item-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.child-node-summary {
-  padding: 6px 12px;
-  margin-left: 0;
-  background-color: rgba(60, 60, 60, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  color: rgba(200, 200, 200, 0.85);
-  font-size: 12px;
-  line-height: 1.4;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  white-space: pre-line;
-}
-
-.edit-child-button,
-.delete-child-button {
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: none;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.edit-child-button {
-  background-color: rgba(117, 117, 117, 0.95);
-  color: #f2f2f2;
-}
-
-.edit-child-button:hover {
-  background-color: rgba(136, 136, 136, 0.98);
-}
-
-.delete-child-button {
-  background-color: rgba(90, 90, 90, 0.9);
-  color: #f2f2f2;
-}
-
-.delete-child-button:hover {
-  background-color: rgba(110, 110, 110, 0.95);
-}
-
-.child-node-hint {
-  padding: 6px 8px;
-  color: rgba(189, 189, 189, 0.9);
+  color: rgb(var(--ink-muter) / 0.9);
   font-size: 12px;
 }
 
@@ -1591,7 +1394,7 @@ input:checked + .switch-slider:before {
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
-  color: rgba(242, 242, 242, 0.7);
+  color: rgb(var(--ink-soft) / 0.7);
   font-size: 12px;
   pointer-events: none;
   transition: transform 0.2s ease;
@@ -1607,34 +1410,34 @@ input:checked + .switch-slider:before {
   max-height: 200px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background-color: #1e1e1e;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: var(--surface-1);
+  border: 1px solid rgb(var(--ink) / 0.2);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+  box-shadow: 0 10px 30px rgb(var(--shade) / 0.8);
   box-sizing: border-box;
 }
 
 :global(.custom-select-option) {
   padding: 10px 14px;
   cursor: pointer;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 13px;
   transition: background-color 0.2s ease;
 }
 
 :global(.custom-select-option:hover) {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.1);
 }
 
 :global(.custom-select-option.option-selected) {
-  background-color: rgba(160, 196, 255, 0.2);
-  color: #a0c4ff;
+  background-color: rgb(var(--accent-indigo-rgb) / 0.2);
+  color: var(--accent-indigo);
   font-weight: 500;
 }
 
 :global(.custom-select-no-results) {
   padding: 10px 12px;
-  color: rgba(189, 189, 189, 0.7);
+  color: rgb(var(--ink-muter) / 0.7);
   font-size: 12px;
   text-align: center;
   font-style: italic;
@@ -1642,5 +1445,30 @@ input:checked + .switch-slider:before {
 
 .select-disabled .custom-select-input {
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .help-icon,
+  .form-input,
+  .form-textarea,
+  .form-select,
+  .switch-slider,
+  .switch-slider:before,
+  .multi-select-option,
+  .var-item,
+  .list-item,
+  .delete-var-button,
+  .delete-item-button,
+  .clear-child-button,
+  .add-child-button,
+  .add-list-button,
+  .add-var-button,
+  .child-node-item,
+  .edit-child-button,
+  .delete-child-button,
+  .custom-select-arrow,
+  :global(.custom-select-option) {
+    transition: none;
+  }
 }
 </style>

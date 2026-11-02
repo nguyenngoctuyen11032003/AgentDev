@@ -12,7 +12,7 @@
           <div v-if="modal.formError" class="submit-error">
             {{ modal.formError }}
           </div>
-          <button class="close-button" @click="closeModal(modal.id)">×</button>
+          <button class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeModal(modal.id)">×</button>
         </div>
         <div class="modal-body" data-local-scroll @wheel="handleLocalScrollWheel">
           <div
@@ -126,7 +126,7 @@
   <div v-if="showVarModal" class="modal-overlay modal-overlay-elevated" @click.self="closeVarModal">
     <div class="modal-content var-modal">
       <div class="modal-header">
-        <button class="close-button" @click="closeVarModal">×</button>
+        <button class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeVarModal">×</button>
       </div>
       <div class="modal-body" data-local-scroll @wheel="handleLocalScrollWheel">
         <div v-if="varFormError" class="submit-error">
@@ -167,7 +167,7 @@
     <div class="modal-content list-item-modal">
       <div class="modal-header">
         <h3 class="modal-title">{{ editingListItemIndex !== null ? t('form_generator.edit_entry') : t('form_generator.add_entry') }}</h3>
-        <button class="close-button" @click="closeListItemModal">×</button>
+        <button class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeListItemModal">×</button>
       </div>
       <div class="modal-body" data-local-scroll @wheel="handleLocalScrollWheel">
         <div v-if="listItemFormError" class="submit-error">
@@ -192,7 +192,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, watch, nextTick, computed, onMounted, onBeforeUnmount, markRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import yaml from 'js-yaml'
 import { fetchConfigSchema, postYaml, fetchWorkflowYAML, updateYaml } from '@/api/client.js'
@@ -207,11 +207,10 @@ import {
   isFieldVisible,
   canOpenConditionalChildModal,
   conditionalChildButtonLabel,
-  childNodeButtonLabel,
   getActiveChildRoute,
-  getConditionalChildKeyValue,
   getSchemaFields,
-  determineRouteControllerField
+  getFieldLabel,
+  getEnumOptionLabel
 } from '@/utils/formUtils.js'
 
 const props = defineProps({
@@ -338,7 +337,7 @@ const loadBaseYamlFromServer = async (workflowName) => {
     return true
   } catch (error) {
     console.error('Failed to load workflow YAML for FormGenerator:', error)
-    baseYamlError.value = 'Failed to load workflow YAML'
+    baseYamlError.value = t('form_generator.failed_to_load_yaml')
     baseYamlObject.value = null
     baseYamlString.value = ''
     return false
@@ -370,13 +369,6 @@ const varForm = reactive({
 })
 const activeVarModalId = ref(null)
 const activeVarFieldName = ref(null)
-
-const hasDictEntries = (value) => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false
-  }
-  return Object.keys(value).length > 0
-}
 
 // List item modal state
 const showListItemModal = ref(false)
@@ -411,7 +403,10 @@ const hasAdvancedField = (fields, fieldFilter = null, parentContext = null) => {
 
 
 
-const getMainDisplayFields = (modal) => {
+// Schema is static per modal, so the main/inline field lists are computed once in
+// createModalState (see modal.mainDisplayFields / modal.inlineDisplayFields) instead of
+// filtering the schema again on every render (i.e. on every keystroke).
+const computeMainDisplayFields = (modal) => {
   const fields = getDisplayFields(modal)
 
   const nonInlineFields = fields.filter(field => !isInlineConfigField(field))
@@ -424,23 +419,14 @@ const getMainDisplayFields = (modal) => {
   return nonInlineFields
 }
 
-const getInlineDisplayFields = (modal) => {
+const computeInlineDisplayFields = (modal) => {
   const fields = getDisplayFields(modal)
   return fields.filter(field => isInlineConfigField(field))
 }
 
+const getMainDisplayFields = (modal) => modal.mainDisplayFields || computeMainDisplayFields(modal)
 
-
-const hasChildValue = (modal, field) => {
-  if (!modal || !field) {
-    return false
-  }
-  const value = modal.formData?.[field.name]
-  if (Array.isArray(value)) {
-    return value.length > 0
-  }
-  return value !== null && value !== undefined && value !== ''
-}
+const getInlineDisplayFields = (modal) => modal.inlineDisplayFields || computeInlineDisplayFields(modal)
 
 
 
@@ -542,7 +528,6 @@ const buildPartialYamlPayload = (modal, data) => {
   try {
     const structuredData = wrapDataWithBreadcrumbs(modal, data)
     const yamlString = yaml.dump(structuredData ?? null, yamlDumpOptions)
-    console.log('Generated partial YAML:\n' + yamlString)
     return { structuredData, yamlString }
   } catch (error) {
     console.error('Failed to generate partial YAML:', error)
@@ -611,7 +596,7 @@ const validateModalForm = (modal) => {
 
     const value = modal.formData[field.name]
     if (isValueEmpty(value)) {
-      modal.formError = t('form_generator.field_required', { field: field.displayName || field.name })
+      modal.formError = t('form_generator.field_required', { field: getFieldLabel(field) })
       return false
     }
   }
@@ -670,31 +655,41 @@ const createModalState = (
   // which shares the same breadcrumb path but needs all fields.
   const schemaFields = Array.isArray(schemaResponse.fields) ? schemaResponse.fields : []
 
-  const effectiveSchema = {
+  // The schema (and its enum option lists) is never mutated: keep it out of the reactive
+  // proxy so field/option reads in templates and computeds are plain property accesses.
+  const effectiveSchema = markRaw({
     ...schemaResponse,
     fields: schemaFields
-  }
+  })
 
   const advancedFieldsPresent = hasAdvancedField(schemaFields, props.fieldFilter, parentContext)
 
   const derivedIsNewEntry = options?.isNewEntry ?? !initialData
 
+  const clonedInitialData = initialData ? cloneValue(initialData) : null
+
   const modalState = reactive({
     id: `modal-${modalIdCounter++}`,
     schema: effectiveSchema,
-    breadcrumbs: modalBreadcrumbs,
+    breadcrumbs: markRaw(Array.isArray(modalBreadcrumbs) ? modalBreadcrumbs : []),
     recursive: recursiveFlag,
     formData: reactive({}),
     formError: null,
     submitting: false,
-    parentContext,
-    initialData: initialData ? cloneValue(initialData) : null,
+    parentContext: parentContext ? markRaw(parentContext) : null,
+    initialData: clonedInitialData && typeof clonedInitialData === 'object' ? markRaw(clonedInitialData) : clonedInitialData,
     isNewEntry: Boolean(derivedIsNewEntry),
     showAdvanced: configStore.AUTO_SHOW_ADVANCED,
     hasAdvancedFields: advancedFieldsPresent,
+    mainDisplayFields: null,
+    inlineDisplayFields: null,
     childSummaries: reactive({}), // Store summaries for child nodes
     inlineChildModals: reactive({}) // Store inline states for type+config handling
   })
+
+  // Static per modal (schema never changes), so compute once instead of on every render.
+  modalState.mainDisplayFields = markRaw(computeMainDisplayFields(modalState))
+  modalState.inlineDisplayFields = markRaw(computeInlineDisplayFields(modalState))
 
   schemaFields.forEach(field => {
     if (field.childNode) {
@@ -739,7 +734,7 @@ const createModalState = (
 
   // Record snapshot to determine if changes are made
   try {
-    modalState.originalFormData = JSON.parse(JSON.stringify(modalState.formData ?? {}))
+    modalState.originalFormData = markRaw(JSON.parse(JSON.stringify(modalState.formData ?? {})))
   } catch (e) {
     console.warn('[FormGenerator] Failed to snapshot original form data:', e)
     modalState.originalFormData = null
@@ -927,30 +922,13 @@ const updateInlineChildModals = async (modal) => {
         const nextBreadcrumbs = [...baseBreadcrumbs, crumb]
         
         try {
-           console.log('Fetching inline schema with breadcrumbs:', nextBreadcrumbs)
-           // We fetch schema. If we already have a modal for this field, check if it matches? 
-           // Simpler: Just re-generate if type changed.
-           // How to detect type change efficiently without refetching always?
-           // 'activeRoute' gives us the key.
-           
-           // We can check if existing inline modal corresponds to current selection.
-           // However, 'generateForm' logic is complex.
-           
            // Let's rely on fetchConfigSchema caching or speed.
            const schemaResponse = await fetchConfigSchema(nextBreadcrumbs)
-           console.log('Inline schema response:', schemaResponse)
-           
-           // If we already have an inline modal, replace it ONLY if schema/type is different?
-           // But form generator creates new state easily.
-           
-           // We should NOT destroy existing data if type hasn't changed.
-           // The current updateInlineChildModals is called on generateForm.
-           // But handleEnumChange also calls it.
-           
+
            // Initialize data
            let initialData = modal.formData[field.name]
            if (!initialData) initialData = {} // or null
-           
+
            // Create the modal state roughly
           const inlineModalState = createModalState(
             schemaResponse,
@@ -964,22 +942,15 @@ const updateInlineChildModals = async (modal) => {
           await initializeChildSummaries(inlineModalState)
           await updateInlineChildModals(inlineModalState)
 
-          // We can use a watcher on the new inlineModalState.formData
-          watch(
-            () => inlineModalState.formData,
-            (newVal) => {
-              modal.formData[field.name] = newVal
-            },
-            { deep: true, immediate: true }
-          )
-           
-           // Set parent context properly so validations work if needed?
-           // Actually, validation of the parent should validate the child.
-           // Currently `validateModalForm` only validates own fields.
-           // If we have an inline child, we should validate it too!
-           
-           modal.inlineChildModals[field.name] = inlineModalState
-           
+          // Share the inline form object with the parent by reference. Because
+          // inlineModalState.formData is never reassigned, every edit inside the inline
+          // form is already visible through modal.formData[field.name]; a deep watcher here
+          // would only re-walk the whole inline object on every keystroke (and leak, since
+          // it was never stopped when the inline modal was replaced).
+          modal.formData[field.name] = inlineModalState.formData
+
+          modal.inlineChildModals[field.name] = inlineModalState
+
         } catch (e) {
            console.error("Failed to load inline config schema", e)
         }
@@ -1002,10 +973,8 @@ const generateForm = async (
 ) => {
   const formattedBreadcrumbs = formatBreadcrumbs(breadcrumbsArg)
   try {
-     console.log("Fetching schema with breadcrumbs: ", formattedBreadcrumbs)
     // Obtain schema for form
     const response = await fetchConfigSchema(formattedBreadcrumbs)
-    console.log("Schema response: ", response)
 
     // Use schema to create modal state
     const modalState = createModalState(
@@ -1118,29 +1087,6 @@ const toggleAdvancedFields = (modalId) => {
 
 const sanitizeFormData = (data) => JSON.parse(JSON.stringify(data ?? {}))
 
-const hasModalChanges = (modal, payload) => {
-  if (!modal) {
-    return true
-  }
-
-  if (modal.isNewEntry) {
-    return true
-  }
-
-  if (!modal.initialData || !modal.originalFormData) {
-    return true
-  }
-
-  try {
-    const original = sanitizeFormData(modal.originalFormData)
-    const current = sanitizeFormData(payload)
-    return JSON.stringify(original) !== JSON.stringify(current)
-  } catch (e) {
-    console.warn('[FormGenerator] Failed to compare form changes:', e)
-    return true
-  }
-}
-
 const generateChildSummary = (modal, formData) => {
   if (!modal || !modal.schema || !Array.isArray(modal.schema.fields)) {
     return ''
@@ -1151,7 +1097,7 @@ const generateChildSummary = (modal, formData) => {
 
   for (const field of fields) {
     const value = formData[field.name]
-    const label = field.displayName || field.name
+    const label = getFieldLabel(field)
 
     if (field.childNode) {
       if (isListField(field)) {
@@ -1203,7 +1149,7 @@ const generateChildSummary = (modal, formData) => {
           ) || field.enum.find(opt => 
             (typeof opt === 'string' ? opt : opt.value) === v
           )
-          return typeof option === 'string' ? option : (option?.label || option?.value || v)
+          return option ? getEnumOptionLabel(field, option) : v
         }).join(', ')
       } else {
         displayValue = value.join(', ')
@@ -1224,7 +1170,6 @@ const generateChildSummary = (modal, formData) => {
     summaryParts.push(`${label}: ${displayValue}`)
   }
 
-  console.log('Summary array generated: ', summaryParts)
   return summaryParts.join('\n')
 }
 
@@ -1480,7 +1425,11 @@ const deleteEntry = async (modalId) => {
   
   // Ask for user confirmation before deleting node/edge
   const collectionField = getUpperBreadcrumbsField(modal)
-  const entityLabel = collectionField === 'nodes' ? 'node' : collectionField === 'edges' ? 'edge' : 'entry'
+  const entityLabel = collectionField === 'nodes'
+    ? t('form_generator.entity_node')
+    : collectionField === 'edges'
+      ? t('form_generator.entity_edge')
+      : t('form_generator.entity_entry')
   const confirmed = window.confirm(t('form_generator.confirm_delete', { entity: entityLabel }))
   if (!confirmed) {
     return
@@ -1525,11 +1474,9 @@ const deleteEntry = async (modalId) => {
 
     const yamlString = yaml.dump(yamlObjectToSave ?? null, yamlDumpOptions)
 
-    console.log('Full YAML after deletion:', yamlString)
-
     const result = await saveWorkflowYaml(filename, yamlString)
     if (!result.success) {
-      modal.formError = result.detail || result.message || t('form_generator.failed_to_save')
+      modal.formError = result.message || result.detail || t('form_generator.failed_to_save')
       return
     }
 
@@ -1614,14 +1561,14 @@ const submitForm = async (modalId) => {
     if (props.workflowName) {
       const ready = await ensureBaseYamlReady()
       if (!ready || !baseYamlObject.value) {
-        modal.formError = baseYamlError.value || 'Failed to load existing workflow YAML'
+        modal.formError = baseYamlError.value || t('form_generator.failed_to_load_yaml')
         return
       }
     }
 
     const filename = resolveTargetFilename()
     if (!filename) {
-      modal.formError = 'Graph ID is required to save workflow'
+      modal.formError = t('form_generator.graph_id_required')
       return
     }
 
@@ -1641,16 +1588,12 @@ const submitForm = async (modalId) => {
 
     const yamlString = yaml.dump(mergedYamlObject ?? null, yamlDumpOptions)
 
-    console.log('Full YAML:\n', yamlString)
-
     // Save updated, full YAML through API
     const result = await saveWorkflowYaml(filename, yamlString)
     if (!result.success) {
-      modal.formError = result.detail || result.message || 'Failed to save workflow'
+      modal.formError = result.message || result.detail || t('form_generator.failed_to_save')
       return
     }
-
-    console.log('Saved successfully')
 
     baseYamlObject.value = cloneStructuredValue(mergedYamlObject)
     baseYamlString.value = yamlString
@@ -1665,7 +1608,7 @@ const submitForm = async (modalId) => {
     closeModal(modalId)
   } catch (error) {
     console.error('Error submitting form:', error)
-    modal.formError = t('form_generator.failed_to_submit') + error
+    modal.formError = t('form_generator.failed_to_submit') + (error?.message || error)
   } finally {
     modal.submitting = false
   }
@@ -1752,23 +1695,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeystrokes)
 })
 
-
-
-const describeChildEntry = (entry, field, index) => {
-  if (entry && typeof entry === 'object') {
-    if (entry.id) {
-      return entry.id
-    }
-    if (entry.name) {
-      return entry.name
-    }
-    if (entry.type) {
-      return entry.type
-    }
-  }
-  return `${field.childNode} #${index + 1}`
-}
-
 const openChildModal = async (modalId, field, listIndex = null) => {
   const parentModal = findModalById(modalId)
   if (!parentModal) {
@@ -1807,7 +1733,7 @@ const openChildModal = async (modalId, field, listIndex = null) => {
   try {
     await generateForm(nextBreadcrumbs, true, context, initialData)
   } catch (error) {
-    parentModal.formError = t('form_generator.failed_to_load_child') + error
+    parentModal.formError = t('form_generator.failed_to_load_child') + (error?.message || error)
   }
 }
 
@@ -1854,7 +1780,7 @@ const openConditionalChildModal = async (modalId, field) => {
   try {
     await generateForm(nextBreadcrumbs, true, context, initialData)
   } catch (error) {
-    parentModal.formError = 'Failed to load child schema, error:\n' + error
+    parentModal.formError = t('form_generator.failed_to_load_child') + (error?.message || error)
   }
 }
 
@@ -2122,9 +2048,9 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at top, rgba(160, 196, 255, 0.18), transparent 55%),
-    radial-gradient(circle at bottom, rgba(153, 234, 249, 0.25), transparent 55%),
-    rgba(0, 0, 0, 0.6);
+  background: radial-gradient(circle at top, rgb(var(--accent-indigo-rgb) / 0.18), transparent 55%),
+    radial-gradient(circle at bottom, rgb(var(--accent-sky-rgb) / 0.25), transparent 55%),
+    rgb(var(--shade) / 0.6);
   z-index: 1000;
   font-family: 'Inter', sans-serif;
 }
@@ -2140,10 +2066,10 @@ defineExpose({
   width: 90%;
   max-width: 900px;
   max-height: 90vh;
-  background-color: rgba(33, 33, 33, 0.92);
+  background-color: rgb(var(--panel-33) / 0.92);
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgb(var(--ink) / 0.08);
+  box-shadow: 0 20px 40px rgb(var(--shade) / 0.6);
   overflow: visible;
   backdrop-filter: blur(10px);
 }
@@ -2164,8 +2090,8 @@ defineExpose({
   max-height: none;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid rgb(var(--ink) / 0.04);
+  border-bottom: 1px solid rgb(var(--ink) / 0.04);
   scrollbar-width: none;
 }
 
@@ -2181,14 +2107,14 @@ defineExpose({
   align-items: center;
   justify-content: center;
   font-size: 26px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   cursor: pointer;
   transition: color 0.2s ease, transform 0.15s ease;
   padding: 14px 14px;
 }
 
 .close-button:hover {
-  color: #ffffff;
+  color: var(--text-strong);
   transform: scale(1.05);
 }
 
@@ -2199,7 +2125,7 @@ defineExpose({
   background-color: rgba(255, 68, 68, 0.12);
   border: 1px solid rgba(255, 68, 68, 0.6);
   border-radius: 10px;
-  color: #ff8888;
+  color: var(--danger-3);
   font-size: 13px;
 }
 
@@ -2210,7 +2136,7 @@ defineExpose({
 .form-group label {
   display: block;
   margin-bottom: 6px;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-weight: 500;
   font-size: 13px;
 }
@@ -2232,7 +2158,7 @@ defineExpose({
 }
 
 .required-asterisk {
-  color: #ff6b6b;
+  color: var(--danger);
   margin-left: 4px;
 }
 
@@ -2244,18 +2170,18 @@ defineExpose({
   height: 14px;
   margin-left: 6px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgb(var(--ink) / 0.3);
   font-size: 11px;
   line-height: 1;
   cursor: default;
-  color: rgba(242, 242, 242, 0.7);
+  color: rgb(var(--ink-soft) / 0.7);
   background-color: transparent;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, color 0.2s ease;
 }
 
 .help-icon:hover {
-  border-color: #a0c4ff;
-  color: #a0c4ff;
+  border-color: var(--accent-indigo);
+  color: var(--accent-indigo);
 }
 
 .form-input,
@@ -2269,9 +2195,9 @@ defineExpose({
   width: 100%;
   padding: 10px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background-color: rgba(10, 10, 10, 0.6);
-  color: #f2f2f2;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background-color: rgb(var(--panel-10) / 0.6);
+  color: var(--text-1);
   font-size: 14px;
   box-sizing: border-box;
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
@@ -2281,9 +2207,9 @@ defineExpose({
   width: 100%;
   padding: 10px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background-color: rgba(10, 10, 10, 0.6);
-  color: #f2f2f2;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background-color: rgb(var(--panel-10) / 0.6);
+  color: var(--text-1);
   font-size: 14px;
   box-sizing: border-box;
   min-height: 80px;
@@ -2293,29 +2219,29 @@ defineExpose({
 
 .form-textarea:focus {
   outline: none;
-  border-color: #a0c4ff;
-  background-color: rgba(15, 15, 15, 0.85);
-  box-shadow: 0 0 0 1px rgba(160, 196, 255, 0.5);
+  border-color: var(--accent-indigo);
+  background-color: rgb(var(--panel-15) / 0.85);
+  box-shadow: 0 0 0 1px rgb(var(--accent-indigo-rgb) / 0.5);
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #a0c4ff;
-  background-color: rgba(15, 15, 15, 0.85);
-  box-shadow: 0 0 0 1px rgba(160, 196, 255, 0.5);
+  border-color: var(--accent-indigo);
+  background-color: rgb(var(--panel-15) / 0.85);
+  box-shadow: 0 0 0 1px rgb(var(--accent-indigo-rgb) / 0.5);
 }
 
 .form-input::placeholder {
-  color: rgba(255, 255, 255, 0.35);
+  color: rgb(var(--ink) / 0.35);
 }
 
 .form-select {
   width: 100%;
   padding: 9px 11px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background-color: rgba(10, 10, 10, 0.6);
-  color: #f2f2f2;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background-color: rgb(var(--panel-10) / 0.6);
+  color: var(--text-1);
   font-size: 13px;
   box-sizing: border-box;
   cursor: pointer;
@@ -2324,13 +2250,13 @@ defineExpose({
 
 .form-select:focus {
   outline: none;
-  border-color: #a0c4ff;
-  background-color: rgba(15, 15, 15, 0.85);
+  border-color: var(--accent-indigo);
+  background-color: rgb(var(--panel-15) / 0.85);
 }
 
 .form-select option {
-  background-color: #252525;
-  color: #f2f2f2;
+  background-color: var(--surface-3);
+  color: var(--text-1);
 }
 
 .multi-select-options {
@@ -2345,17 +2271,17 @@ defineExpose({
   gap: 6px;
   padding: 6px 10px;
   border-radius: 999px;
-  background-color: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgb(var(--ink) / 0.04);
+  border: 1px solid rgb(var(--ink) / 0.14);
   font-size: 12px;
-  color: rgba(242, 242, 242, 0.9);
+  color: rgb(var(--ink-soft) / 0.9);
   cursor: pointer;
   transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .multi-select-option:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(160, 196, 255, 0.6);
+  background-color: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--accent-indigo-rgb) / 0.6);
 }
 
 .option-label {
@@ -2377,8 +2303,8 @@ defineExpose({
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
-  color: #1a1a1a;
-  background: linear-gradient(135deg, #aaffcd, #99eaf9, #a0c4ff);
+  color: var(--bg-base);
+  background: linear-gradient(135deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
   background-size: 200% 100%;
   animation: gradientShift 4s ease-in-out infinite;
   transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
@@ -2386,7 +2312,7 @@ defineExpose({
 
 .submit-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.35);
 }
 
 .submit-button:disabled {
@@ -2398,10 +2324,10 @@ defineExpose({
 .delete-button {
   padding: 10px 18px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgb(var(--ink) / 0.14);
   background: linear-gradient(135deg, #e07152, #dc5d4c, #bd4a4a);
   background-size: 200% 100%;
-  color: #1a1a1a;
+  color: var(--bg-base);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -2411,7 +2337,7 @@ defineExpose({
 
 .delete-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.35);
 }
 
 .delete-button:disabled {
@@ -2443,13 +2369,13 @@ defineExpose({
 
 .var-separator {
   font-size: 12px;
-  color: #858585;
+  color: var(--text-muted-1);
   margin: 0 5px;
 }
 
 .var-value {
   flex: 1;
-  color: #d2d2d2;
+  color: var(--text-soft-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2459,7 +2385,7 @@ defineExpose({
 .delete-var-button {
   background: transparent;
   border: none;
-  color: #999;
+  color: var(--text-muted-5);
   font-size: 20px;
   cursor: pointer;
   padding: 0;
@@ -2474,7 +2400,7 @@ defineExpose({
 }
 
 .delete-var-button:hover {
-  color: #ff6b6b;
+  color: var(--danger);
 }
 
 /* List items styles */
@@ -2497,20 +2423,20 @@ defineExpose({
   justify-content: space-between;
   max-width: 420px;
   padding: 7px 12px;
-  background-color: rgba(90, 90, 90, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgb(var(--chip-90) / 0.9);
+  border: 1px solid rgb(var(--ink) / 0.14);
   border-radius: 10px;
-  color: #f2f2f2;
+  color: var(--text-1);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
   font-size: 13px;
   gap: 12px;
 }
 
 .var-item:hover,
 .list-item:hover {
-  background-color: rgba(110, 110, 110, 0.95);
-  border-color: rgba(160, 196, 255, 0.7);
+  background-color: rgb(var(--chip-110) / 0.95);
+  border-color: rgb(var(--accent-indigo-rgb) / 0.7);
 }
 
 .item-value {
@@ -2520,7 +2446,7 @@ defineExpose({
 .delete-item-button {
   background: transparent;
   border: none;
-  color: #999;
+  color: var(--text-muted-5);
   font-size: 20px;
   cursor: pointer;
   padding: 0;
@@ -2535,7 +2461,7 @@ defineExpose({
 }
 
 .delete-item-button:hover {
-  color: #ff6b6b;
+  color: var(--danger);
 }
 
 .child-node-container {
@@ -2554,7 +2480,7 @@ defineExpose({
 .clear-child-button {
   background: transparent;
   border: none;
-  color: #999;
+  color: var(--text-muted-5);
   font-size: 18px;
   cursor: pointer;
   padding: 0;
@@ -2568,7 +2494,7 @@ defineExpose({
 }
 
 .clear-child-button:hover {
-  color: #ff6b6b;
+  color: var(--danger);
 }
 
 .add-child-button,
@@ -2580,18 +2506,18 @@ defineExpose({
   gap: 8px;
   padding: 6px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background-color: rgba(255, 255, 255, 0.14);
-  color: rgba(242, 242, 242, 0.9);
+  border: 1px solid rgb(var(--ink) / 0.16);
+  background-color: rgb(var(--ink) / 0.14);
+  color: rgb(var(--ink-soft) / 0.9);
   cursor: pointer;
   font-size: 13px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .add-child-button:hover,
 .add-list-button:hover,
 .add-var-button:hover {
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: rgb(var(--ink) / 0.08);
 }
 
 .add-child-button .plus-icon,
@@ -2612,9 +2538,9 @@ defineExpose({
 .add-child-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  border-color: rgba(255, 255, 255, 0.1);
-  background-color: rgba(74, 74, 74, 0.8);
-  color: rgba(200, 200, 200, 0.7);
+  border-color: rgb(var(--ink) / 0.1);
+  background-color: rgb(var(--panel-74) / 0.8);
+  color: rgb(var(--ink-mute) / 0.7);
 }
 
 .child-node-list {
@@ -2628,10 +2554,10 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   padding: 9px 14px;
-  background-color: rgba(90, 90, 90, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgb(var(--chip-90) / 0.9);
+  border: 1px solid rgb(var(--ink) / 0.14);
   border-radius: 10px;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 13px;
   gap: 12px;
   cursor: pointer;
@@ -2639,8 +2565,8 @@ defineExpose({
 }
 
 .child-node-item:hover {
-  background-color: rgba(110, 110, 110, 0.95);
-  border-color: rgba(160, 196, 255, 0.7);
+  background-color: rgb(var(--chip-110) / 0.95);
+  border-color: rgb(var(--accent-indigo-rgb) / 0.7);
 }
 
 .child-node-name {
@@ -2661,10 +2587,10 @@ defineExpose({
 .child-node-summary {
   padding: 6px 12px;
   margin-left: 0;
-  background-color: rgba(60, 60, 60, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: rgb(var(--panel-60) / 0.6);
+  border: 1px solid rgb(var(--ink) / 0.08);
   border-radius: 8px;
-  color: rgba(200, 200, 200, 0.85);
+  color: rgb(var(--ink-mute) / 0.85);
   font-size: 12px;
   line-height: 1.4;
   word-wrap: break-word;
@@ -2684,26 +2610,26 @@ defineExpose({
 }
 
 .edit-child-button {
-  background-color: rgba(117, 117, 117, 0.95);
-  color: #f2f2f2;
+  background-color: rgb(var(--chip-117) / 0.95);
+  color: var(--text-1);
 }
 
 .edit-child-button:hover {
-  background-color: rgba(136, 136, 136, 0.98);
+  background-color: rgb(var(--chip-136) / 0.98);
 }
 
 .delete-child-button {
-  background-color: rgba(90, 90, 90, 0.9);
-  color: #f2f2f2;
+  background-color: rgb(var(--chip-90) / 0.9);
+  color: var(--text-1);
 }
 
 .delete-child-button:hover {
-  background-color: rgba(110, 110, 110, 0.95);
+  background-color: rgb(var(--chip-110) / 0.95);
 }
 
 .child-node-hint {
   padding: 6px 8px;
-  color: rgba(189, 189, 189, 0.9);
+  color: rgb(var(--ink-muter) / 0.9);
   font-size: 12px;
 }
 
@@ -2715,7 +2641,7 @@ defineExpose({
 .advanced-toggle-button {
   background: transparent;
   border: none;
-  color: #a0c4ff;
+  color: var(--accent-indigo);
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
@@ -2726,7 +2652,7 @@ defineExpose({
 }
 
 .advanced-toggle-button:hover {
-  color: #b9d0ff;
+  color: var(--accent-indigo-4);
 }
 
 .advanced-toggle-arrow {
@@ -2740,7 +2666,7 @@ defineExpose({
 }
 
 .modal-title {
-  color: #f2f2f2;
+  color: var(--text-1);
   margin: 0;
   font-size: 18px;
   font-weight: 600;
@@ -2766,22 +2692,22 @@ defineExpose({
 }
 
 .cancel-button {
-  background-color: rgba(90, 90, 90, 0.9);
-  color: #f2f2f2;
+  background-color: rgb(var(--chip-90) / 0.9);
+  color: var(--text-1);
 }
 
 .cancel-button:hover {
-  background-color: rgba(110, 110, 110, 0.95);
+  background-color: rgb(var(--chip-110) / 0.95);
 }
 
 .confirm-button {
-  background: linear-gradient(135deg, #aaffcd, #99eaf9, #a0c4ff);
-  color: #1a1a1a;
+  background: linear-gradient(135deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
+  color: var(--bg-base);
 }
 
 .confirm-button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 10px rgb(var(--shade) / 0.35);
 }
 
 @keyframes gradientShift {
@@ -2801,8 +2727,40 @@ defineExpose({
 
 .inline-separator {
   height: 3px;
-  background-color: rgba(255, 255, 255, 0.3);
+  background-color: rgb(var(--ink) / 0.3);
   margin-bottom: 16px;
   width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .submit-button,
+  .delete-button {
+    animation: none;
+  }
+
+  .close-button,
+  .help-icon,
+  .form-input,
+  .form-textarea,
+  .form-select,
+  .multi-select-option,
+  .submit-button,
+  .delete-button,
+  .var-item,
+  .list-item,
+  .delete-var-button,
+  .delete-item-button,
+  .clear-child-button,
+  .add-child-button,
+  .add-list-button,
+  .add-var-button,
+  .child-node-item,
+  .edit-child-button,
+  .delete-child-button,
+  .advanced-toggle-button,
+  .cancel-button,
+  .confirm-button {
+    transition: none;
+  }
 }
 </style>

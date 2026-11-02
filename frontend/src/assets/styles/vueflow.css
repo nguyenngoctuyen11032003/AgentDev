@@ -1,33 +1,59 @@
 /* VueFlow Custom Node Styles */
 
+/* Character sprites stand above the node card; make sure the wrapper never clips them */
+.vue-flow__node,
+.vue-flow__node-workflow-node {
+  overflow: visible;
+}
+
+/*
+ * Performance: keep the whole viewport on its own compositor layer so panning
+ * and zooming are pure GPU transforms instead of a full repaint of every node,
+ * edge and sprite on each frame.
+ */
+.vue-flow__transformationpane {
+  will-change: transform;
+}
+
+/* A node being dragged moves every frame; give it its own layer for the drag only */
+.vue-flow__node.dragging {
+  will-change: transform;
+}
+
 .workflow-node {
   /* Default Variables */
-  --node-bg: #2a2a2a;
-  --node-gradient: linear-gradient(135deg, #666, #999);
-  --node-shadow-color: rgba(100, 100, 100, 0.3);
-  
+  --node-bg: var(--surface-4);
+  --node-gradient: linear-gradient(135deg, var(--neutral-1), var(--text-muted-5));
+  --node-shadow-color: rgb(var(--neutral-100) / 0.3);
+
   /* Gradient Border Implementation */
   background-image: linear-gradient(var(--node-bg), var(--node-bg)), var(--node-gradient);
   background-origin: border-box;
   background-clip: padding-box, border-box;
   border: 2px solid transparent;
-  
+
   border-radius: 12px;
   padding: 12px;
   min-width: 150px;
-  
-  /* Shadows & Transition */
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  
+
+  /* Shadows & Transition (only the properties that actually change on hover) */
+  box-shadow: 0 4px 6px -1px rgb(var(--shade) / 0.3), 0 2px 4px -1px rgb(var(--shade) / 0.06);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
   /* Font settings */
-  color: #e0e0e0;
+  color: var(--text-2);
   position: relative;
 }
 
 .workflow-node:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.4), 0 0 15px -3px var(--node-shadow-color);
+  box-shadow: 0 10px 20px -5px rgb(var(--shade) / 0.4), 0 0 15px -3px var(--node-shadow-color);
+}
+
+/* No lift while the node is being dragged: it would fight the drag translation */
+.vue-flow__node.dragging .workflow-node {
+  transform: none;
+  transition: none;
 }
 
 .workflow-node-header {
@@ -42,24 +68,24 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
-  
+
   /* Gradient Text */
   background: var(--node-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: brightness(1.2); 
+  filter: brightness(1.2);
 }
 
 .workflow-node-id {
   font-size: 15px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-strong);
 }
 
 .workflow-node-description {
   font-size: 12px;
-  color: #aaa;
+  color: var(--text-muted-6);
   margin-top: 4px;
   line-height: 1.5;
 }
@@ -68,58 +94,123 @@
   width: 10px;
   height: 10px;
   background-image: var(--node-gradient);
-  border: 2px solid #2a2a2a;
+  border: 2px solid var(--surface-4);
   border-radius: 50%;
-  transition: all 0.2s ease;
+  transition: filter 0.2s ease, transform 0.2s ease;
 }
 
 .workflow-node-handle:hover {
   filter: brightness(1.2);
 }
 
-/* Active State */
+/* ---------------------------------------------------------------------------
+ * Active State
+ *
+ * The glow lives on pseudo-elements with a *static* box-shadow whose opacity
+ * and scale are animated. transform/opacity run on the compositor, so a canvas
+ * full of active nodes no longer repaints (filter/box-shadow) on every frame.
+ * ------------------------------------------------------------------------- */
 .workflow-node.workflow-node-active {
-  animation: node-glowing 4s linear infinite, node-pulse 2s ease-out infinite;
+  /* Steady ring that used to be the 0% keyframe of node-pulse */
+  box-shadow:
+    0 0 0 1px var(--bg-base),
+    0 0 0 5px var(--node-shadow-color),
+    0 10px 25px -5px rgb(var(--shade) / 0.5);
+  animation: node-breathe 4s ease-in-out infinite;
+  will-change: transform;
 }
 
-@keyframes node-glowing {
-  0% {
-    filter: hue-rotate(0deg) saturate(1) brightness(1);
+.workflow-node.workflow-node-active:hover {
+  /* The breathe animation owns transform; keep the box-shadow ring */
+  box-shadow:
+    0 0 0 1px var(--bg-base),
+    0 0 0 5px var(--node-shadow-color),
+    0 10px 25px -5px rgb(var(--shade) / 0.5);
+}
+
+.workflow-node.workflow-node-active::before,
+.workflow-node.workflow-node-active::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 14px;
+  pointer-events: none;
+  /* Outer shadows only paint outside the box, so the card content stays untouched */
+  background: transparent;
+  will-change: opacity, transform;
+}
+
+/* Wide soft halo (replaces the animated 0 0 28px 12px shadow) */
+.workflow-node.workflow-node-active::before {
+  box-shadow:
+    0 0 28px 12px rgb(var(--neutral-100) / 0.1),
+    0 0 20px 8px rgb(var(--neutral-100) / 0.12);
+  opacity: 0;
+  animation: node-halo-pulse 2s ease-out infinite;
+}
+
+/* Coloured glow (replaces the animated drop-shadow in the node palette colour) */
+.workflow-node.workflow-node-active::after {
+  box-shadow: 0 0 18px 4px var(--node-shadow-color);
+  opacity: 0;
+  animation: node-glow-pulse 4s ease-in-out infinite;
+}
+
+@keyframes node-breathe {
+  0%, 100% {
     transform: translateZ(0) scale(1);
-    box-shadow: 0 0 0 0 transparent;
   }
   50% {
-    filter: hue-rotate(180deg) saturate(1.6) brightness(1.25) drop-shadow(0 0 16px var(--node-shadow-color));
     transform: translateZ(0) scale(1.02);
-    box-shadow: 0 0 20px 8px rgba(100,100,100,0.12);
-  }
-  100% {
-    filter: hue-rotate(360deg) saturate(1) brightness(1);
-    transform: translateZ(0) scale(1);
-    box-shadow: 0 0 0 0 transparent;
   }
 }
 
-@keyframes node-pulse {
+@keyframes node-halo-pulse {
   0% {
-    box-shadow: 
-      0 0 0 1px #1a1a1a, 
-      0 0 0 5px var(--node-shadow-color), 
-      0 10px 25px -5px rgba(0,0,0,0.5),
-      0 0 0 0 var(--node-shadow-color);
+    opacity: 0;
+    transform: scale(0.98);
   }
   50% {
-     box-shadow: 
-      0 0 0 1px #1a1a1a, 
-      0 0 0 6px rgba(100,100,100,0.08), 
-      0 12px 30px -6px rgba(0,0,0,0.55),
-      0 0 28px 12px rgba(100,100,100,0.08);
+    opacity: 1;
+    transform: scale(1);
   }
   100% {
-    box-shadow: 
-      0 0 0 1px #1a1a1a, 
-      0 0 0 5px var(--node-shadow-color), 
-      0 10px 25px -5px rgba(0,0,0,0.5),
-      0 0 0 0 transparent;
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@keyframes node-glow-pulse {
+  0%, 100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Accessibility: respect reduced motion
+ * ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .workflow-node,
+  .workflow-node-handle {
+    transition: none;
+  }
+
+  .workflow-node:hover {
+    transform: none;
+  }
+
+  .workflow-node.workflow-node-active,
+  .workflow-node.workflow-node-active::before,
+  .workflow-node.workflow-node-active::after {
+    animation: none;
+    will-change: auto;
+  }
+
+  /* Keep a static version of the glow so the active state is still visible */
+  .workflow-node.workflow-node-active::after {
+    opacity: 0.7;
   }
 }

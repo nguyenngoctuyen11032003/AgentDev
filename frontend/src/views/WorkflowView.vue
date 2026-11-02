@@ -17,6 +17,9 @@
         <div v-if="yamlParseError" class="yaml-error">
           {{ $t('workflow_view.yaml_parse_error') }} {{ yamlParseError }}
         </div>
+        <div v-else-if="yamlLoadError" class="yaml-error">
+          {{ yamlLoadError }}
+        </div>
         <textarea 
           v-model="yamlTextString" 
           class="yaml-textarea"
@@ -73,7 +76,7 @@
             :hovered-node-id="hoveredNodeId"
           />
         </template>
-        <Background pattern-color="#aaa"/>
+        <Background pattern-color="var(--canvas-dot)"/>
         <Controls position="bottom-right"/>
         </VueFlow>
 
@@ -294,7 +297,7 @@
   <div v-if="showCopyModal" class="modal-overlay" @click.self="closeCopyModal">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 class="modal-title">Copy Workflow</h3>
+        <h3 class="modal-title">{{ $t('workflow_view.copy_workflow') }}</h3>
         <button @click="closeCopyModal" class="close-button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -303,19 +306,19 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label for="copy-workflow-name" class="form-label">Workflow Name</label>
+          <label for="copy-workflow-name" class="form-label">{{ $t('workflow_view.workflow_name') }}</label>
           <input
             id="copy-workflow-name"
             v-model="copyWorkflowName"
             type="text"
             class="form-input"
-            placeholder="Enter new workflow name"
+            :placeholder="$t('workflow_view.enter_new_name')"
             @keyup.enter="handleCopySubmit"
           />
         </div>
       </div>
       <div class="modal-footer">
-        <button @click="closeCopyModal" class="cancel-button">Cancel</button>
+        <button @click="closeCopyModal" class="cancel-button">{{ $t('common.cancel') }}</button>
         <button @click="handleCopySubmit" class="submit-button" :disabled="!copyWorkflowName.trim()">{{ $t('common.submit') }}</button>
       </div>
     </div>
@@ -353,7 +356,27 @@ const props = defineProps({
 const emit = defineEmits(['refresh-workflows'])
 const router = useRouter()
 const { t } = useI18n()
-const { toObject, fromObject, fitView, getViewport } = useVueFlow()
+
+// Extract a readable backend error detail (FastAPI `detail` may be a string, an object or a list)
+const extractErrorDetail = (result) => {
+  const raw = result?.detail ?? result?.error?.message ?? result?.error
+  if (raw === undefined || raw === null || raw === '') return ''
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw)) {
+    return raw
+      .map(item => (typeof item === 'string' ? item : (item?.msg || item?.message || JSON.stringify(item))))
+      .join('; ')
+  }
+  if (typeof raw === 'object') return raw.message || raw.msg || JSON.stringify(raw)
+  return String(raw)
+}
+
+// Localized message, optionally followed by the backend detail
+const withErrorDetail = (message, result) => {
+  const detail = extractErrorDetail(result)
+  return detail ? t('workflow_view.error_with_detail', { message, detail }) : message
+}
+const { toObject, fromObject, fitView, getViewport, findNode } = useVueFlow()
 
 const vueflowContainerRef = ref(null)
 // Hovered node id for highlighting related edges
@@ -362,7 +385,7 @@ const hoveredNodeId = ref(null)
 const onNodeHover = (nodeId) => {
   hoveredNodeId.value = nodeId || null
 }
-const onNodeLeave = (_nodeId) => {
+const onNodeLeave = () => {
   hoveredNodeId.value = null
 }
 
@@ -371,6 +394,7 @@ const activeTab = ref('graph')
 const yamlContent = ref({}) // YAML object
 const yamlTextString = ref('') // YAML string
 const yamlParseError = ref(null)
+const yamlLoadError = ref(null)
 
 const showDynamicFormGenerator = ref(false)
 const showMenu = ref(false)
@@ -548,22 +572,25 @@ const onGlobalClick = () => {
   }
 }
 
+let dimStartNodeTimers = []
+
 const dimStartNode = () => {
-  const startNode = nodes.value.find(node => node.id === START_NODE_ID)
+  // Prefer the graph node from the VueFlow store (reactive), fall back to the model array
+  const startNode = findNode?.(START_NODE_ID) || nodes.value.find(node => node.id === START_NODE_ID)
   if (!startNode) return
 
   const dimSpeed = 120 // milliseconds between opacity changes - slightly slower for smoothness
   const dimSteps = [1, 0.6, 1, 0.6, 1] // Full opacity -> dim -> full -> dim -> full
 
-  dimSteps.forEach((opacity, index) => {
+  // Restart cleanly if the user clicks again mid-blink
+  dimStartNodeTimers.forEach(clearTimeout)
+  dimStartNodeTimers = dimSteps.map((opacity, index) =>
     setTimeout(() => {
-      // Add opacity to node data for animation
+      // Targeted update: only the start node's data changes, so only StartNode
+      // re-renders (replacing the whole nodes array re-synced every node)
       startNode.data = { ...startNode.data, opacity }
-      
-      // Force VueFlow to update by triggering reactivity
-      nodes.value = [...nodes.value]
     }, index * dimSpeed)
-  })
+  )
 }
 
 // Persist an updated YAML snapshot back to the server and refresh local state
@@ -576,12 +603,14 @@ const persistYamlSnapshot = async (snapshot) => {
     const result = await updateYaml(currentWorkflowName.value, yamlString)
     if (!result?.success) {
       console.error('Failed to update workflow YAML:', result?.message || result?.detail)
+      alert(withErrorDetail(t('workflow_view.alert_save_failed'), result))
       return false
     }
     console.log("YAML snapshot successfully persisted through API")
     return true
   } catch (error) {
     console.error('Error persisting YAML snapshot:', error)
+    alert(withErrorDetail(t('workflow_view.alert_save_failed'), { detail: error?.message }))
     return false
   }
 }
@@ -674,7 +703,7 @@ const deleteEdgeByEndpoints = async (fromId, toId) => {
     // Empty start node array is not allowed
     const startArray = Array.isArray(nextStart) ? nextStart : []
     if (startArray.length === 0) {
-      alert("At least one connection required from start node!")
+      alert(t('workflow_view.alert_start_edge_required'))
       return
     }
   }
@@ -702,7 +731,7 @@ const deleteEdgeByEndpoints = async (fromId, toId) => {
 const onDeleteNodeFromContext = async () => {
   const nodeId = contextNodeId.value
   contextNodeId.value = null
-  const confirmed = window.confirm(`Are you sure you want to delete this node?`)
+  const confirmed = window.confirm(t('workflow_view.confirm_delete_node'))
   if (!confirmed) {
     return
   }
@@ -715,7 +744,7 @@ const onDeleteNodeFromContext = async () => {
 const onDeleteEdgeFromContext = async () => {
   const info = contextEdgeInfo.value
   contextEdgeInfo.value = null
-  const confirmed = window.confirm(`Are you sure you want to delete this edge?`)
+  const confirmed = window.confirm(t('workflow_view.confirm_delete_edge'))
   if (!confirmed) {
     return
   }
@@ -752,6 +781,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('click', onGlobalClick)
+  dimStartNodeTimers.forEach(clearTimeout)
+  dimStartNodeTimers = []
 })
 
 watch(activeTab, async (newTab) => {
@@ -828,10 +859,13 @@ const loadYamlFile = async () => {
     if (!currentWorkflowName.value) {
       return
     }
+    yamlLoadError.value = null
     const result = await fetchYaml(currentWorkflowName.value)
 
     if (!result?.success) {
       console.error('Failed to load YAML file', result?.message || result?.detail)
+      yamlLoadError.value = withErrorDetail(t('workflow_view.yaml_load_failed'), result)
+      yamlTextString.value = ''
       return
     }
 
@@ -851,6 +885,8 @@ const loadYamlFile = async () => {
     }
   } catch (error) {
     console.error('Error loading YAML file: ', error)
+    yamlLoadError.value = withErrorDetail(t('workflow_view.yaml_load_failed'), { detail: error?.message })
+    yamlTextString.value = ''
   }
 }
 
@@ -950,7 +986,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
               q.push(firstStart)
               levelById.set(firstStart, 0)
             }
-          } catch (e) {
+          } catch {
             // ignore and fall back later
           }
         }
@@ -1029,7 +1065,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
         })
 
         // Build nextNodes respecting preserveExistingLayout where possible
-        const nextNodes = yamlNodes.map((yamlNode, index) => {
+        const nextNodes = yamlNodes.map((yamlNode) => {
           const id = yamlNode?.id
           if (!id) return null
           if (preserveExistingLayout && existingNodeById?.has(id)) {
@@ -1056,7 +1092,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
       } catch (err) {
         console.error('Failed to compute topological layout, falling back to center positions:', err)
         // Fallback to previous behavior
-        const nextNodes = yamlNodes.map((yamlNode, index) => ({
+        const nextNodes = yamlNodes.map((yamlNode) => ({
           id: yamlNode.id,
           type: 'workflow-node',
           label: yamlNode.id,
@@ -1089,7 +1125,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
           width: 16,
           height: 16,
           // Set color to match with edge
-          color: (yamlEdge && yamlEdge.trigger === false) ? '#868686' : '#f2f2f2',
+          color: (yamlEdge && yamlEdge.trigger === false) ? 'var(--text-muted-2)' : 'var(--text-1)',
           strokeWidth: 1.5,
         },
       }
@@ -1168,7 +1204,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
           type: MarkerType.Arrow,
           width: 16,
           height: 16,
-          color: '#f2f2f2',
+          color: 'var(--text-1)',
           strokeWidth: 1.5,
         },
         animated: false
@@ -1797,7 +1833,7 @@ const handleRenameSubmit = async () => {
       console.warn('Error handling VueGraph rename:', error)
     }
 
-    alert(result.message)
+    alert(t('workflow_view.rename_success', { name: newName }))
     closeRenameModal()
 
     // Refresh workflow list first
@@ -1811,7 +1847,7 @@ const handleRenameSubmit = async () => {
     const workflowNameWithoutExtension = newWorkflowName.replace('.yaml', '')
     router.push({ path: `/workflows/${workflowNameWithoutExtension}` })
   } else {
-    alert(result.error?.message || 'Failed to rename workflow')
+    alert(withErrorDetail(t('workflow_view.rename_failed'), result))
   }
 }
 
@@ -1856,7 +1892,7 @@ const handleCopySubmit = async () => {
       console.warn('Error handling VueGraph copy:', error)
     }
 
-    alert(result.message)
+    alert(t('workflow_view.copy_success', { name: newName }))
     closeCopyModal()
 
     // Refresh workflow list first
@@ -1870,7 +1906,7 @@ const handleCopySubmit = async () => {
       const workflowNameWithoutExtension = newWorkflowName.replace('.yaml', '')
     router.push({ path: `/workflows/${workflowNameWithoutExtension}` })
   } else {
-    alert(result.message || result.error?.message || 'Failed to copy workflow')
+    alert(withErrorDetail(t('workflow_view.copy_failed'), result))
   }
 }
 </script>
@@ -1881,8 +1917,8 @@ const handleCopySubmit = async () => {
   height: calc(100vh - 55px);
   display: flex;
   flex-direction: column;
-  background-color: #1a1a1a;
-  color: #f2f2f2;
+  background-color: var(--bg-base);
+  color: var(--text-1);
   font-family: 'Inter', sans-serif;
   position: relative;
   overflow: hidden;
@@ -1896,9 +1932,9 @@ const handleCopySubmit = async () => {
   height: 500px;
   background: linear-gradient(
     90deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   filter: blur(120px);
   opacity: 0.15;
@@ -1922,8 +1958,8 @@ const handleCopySubmit = async () => {
   align-items: center;
   padding: 0 20px;
   height: 40px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border-bottom: 1px solid rgb(var(--ink) / 0.1);
   backdrop-filter: blur(5px);
   flex-shrink: 0;
 }
@@ -1932,7 +1968,7 @@ const handleCopySubmit = async () => {
   padding: 8px;
   margin-right: 16px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   cursor: pointer;
   transition: color 0.2s ease;
   display: flex;
@@ -1944,7 +1980,7 @@ const handleCopySubmit = async () => {
 
 .back-button:hover {
   background: transparent;
-  color: #f2f2f2;
+  color: var(--text-1);
   border-color: transparent;
 }
 
@@ -1955,7 +1991,7 @@ const handleCopySubmit = async () => {
 }
 
 .workflow-name {
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 18px;
   font-weight: 600;
   margin: 0;
@@ -1967,8 +2003,8 @@ const handleCopySubmit = async () => {
   align-items: center;
   padding: 0 20px;
   height: 50px;
-  background-color: rgba(255, 255, 255, 0.02);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.02);
+  border-top: 1px solid rgb(var(--ink) / 0.1);
   backdrop-filter: blur(5px);
   flex-shrink: 0;
   position: sticky;
@@ -1990,22 +2026,22 @@ const handleCopySubmit = async () => {
   cursor: pointer;
   font-size: 14px;
   font-family: 'Inter', sans-serif;
-  color: #8e8e8e;
+  color: var(--text-muted-4);
   font-weight: 500;
   transition: color 0.2s ease;
   position: relative;
 }
 
 .tab:hover {
-  color: #f2f2f2;
+  color: var(--text-1);
 }
 
 .tab.active {
   background: linear-gradient(
     135deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   background-clip: text;
   -webkit-background-clip: text;
@@ -2026,12 +2062,12 @@ const handleCopySubmit = async () => {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background-color: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.03);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  color: #f2f2f2;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  color: var(--text-1);
   font-size: 14px;
   position: relative;
   z-index: 1;
@@ -2046,32 +2082,51 @@ const handleCopySubmit = async () => {
   border: none;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  color: #1a1a1a;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+  color: var(--bg-base);
   font-size: 14px;
   font-weight: 600;
+  /* Opaque gradient: no backdrop-filter needed (it only cost a blur per frame) */
   background: linear-gradient(
     135deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
-  background-size: 200% 100%;
-  animation: gradientShift 6s ease-in-out infinite;
-  backdrop-filter: blur(5px);
   position: relative;
+  isolation: isolate;
   z-index: 1;
+}
+
+/* Gradient shimmer as an opacity cross-fade (compositor) instead of an
+   animated background-position (repaint every frame) */
+.launch-button-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(135deg, var(--accent-sky), var(--accent-indigo));
+  opacity: 0;
+  animation: gradientFade 6s ease-in-out infinite;
+  will-change: opacity;
 }
 
 .launch-button-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
   opacity: 0.9;
 }
 
+@keyframes gradientFade {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
 .glass-button:hover {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.05);
+  background-color: rgb(var(--ink) / 0.05);
+  border-color: rgb(var(--ink) / 0.05);
 }
 
 @keyframes gradientShift {
@@ -2088,27 +2143,49 @@ const handleCopySubmit = async () => {
   padding: 2px;
   background: linear-gradient(
     135deg,
-    #aaffcd,
-    #99eaf9,
-    #a0c4ff
+    var(--accent-mint),
+    var(--accent-sky),
+    var(--accent-indigo)
   );
   -webkit-mask: 
-     linear-gradient(#f2f2f2 0 0) content-box, 
-     linear-gradient(#f2f2f2 0 0);
+     linear-gradient(var(--text-1) 0 0) content-box, 
+     linear-gradient(var(--text-1) 0 0);
   mask: 
-     linear-gradient(#f2f2f2 0 0) content-box, 
-     linear-gradient(#f2f2f2 0 0);
+     linear-gradient(var(--text-1) 0 0) content-box, 
+     linear-gradient(var(--text-1) 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   opacity: 0;
   transition: opacity 0.3s ease;
   background-size: 200% 100%;
   animation: gradientShift 6s ease-in-out infinite;
+  /* The blurred ring is invisible until hover; do not tick its animation until then */
+  animation-play-state: paused;
   filter: blur(4px);
 }
 
 .glass-button:hover::before {
   opacity: 1;
+  animation-play-state: running;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launch-button-primary::before,
+  .glass-button::before {
+    animation: none;
+    will-change: auto;
+  }
+
+  .launch-button-primary,
+  .glass-button,
+  .submit-button {
+    transition: none;
+  }
+
+  .launch-button-primary:hover,
+  .submit-button:hover:not(:disabled) {
+    transform: none;
+  }
 }
 
 .btn-icon {
@@ -2130,36 +2207,36 @@ const handleCopySubmit = async () => {
   justify-content: center;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  color: rgba(255, 255, 255, 0.7);
+  transition: background-color 0.2s ease, color 0.2s ease;
+  color: rgb(var(--ink) / 0.7);
 }
 
 .menu-dropdown {
   position: absolute;
   bottom: 100%;
   right: 0;
-  background: rgba(60, 60, 60, 0.99);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--panel-60) / 0.99);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   padding: 8px;
   min-width: 180px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
   backdrop-filter: blur(10px);
   z-index: 3;
 }
 
 .menu-item {
   padding: 10px 16px;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgb(var(--ink) / 0.8);
   font-size: 14px;
   cursor: pointer;
   border-radius: 8px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .menu-item:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: #f2f2f2;
+  background-color: rgb(var(--ink) / 0.1);
+  color: var(--text-1);
 }
 
 /* Transitions */
@@ -2191,7 +2268,7 @@ const handleCopySubmit = async () => {
   padding: 12px 20px;
   background-color: rgba(255, 68, 68, 0.1);
   border-bottom: 1px solid rgba(255, 68, 68, 0.3);
-  color: #ff8888;
+  color: var(--danger-3);
   font-size: 14px;
   margin: 0;
 }
@@ -2206,7 +2283,7 @@ const handleCopySubmit = async () => {
   resize: none;
   outline: none;
   background: transparent;
-  color: #d4d4d4;
+  color: var(--text-soft-4);
 }
 
 .yaml-textarea::-webkit-scrollbar {
@@ -2214,14 +2291,15 @@ const handleCopySubmit = async () => {
 }
 
 .yaml-error-border {
-  border: 2px solid #ff4444 !important;
+  border: 2px solid var(--danger-4) !important;
 }
 
 .vueflow-container {
   height: 100%;
   width: 100%;
-  background-color: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(5px);
+  background-color: rgb(var(--ink) / 0.03);
+  /* No backdrop-filter here: it re-blurred the full-screen canvas on every pan/zoom
+     frame, and the only thing behind it is the already blur(120px) backdrop */
   z-index: 1;
   position: relative;
 }
@@ -2234,18 +2312,18 @@ const handleCopySubmit = async () => {
 .context-menu {
   position: absolute;
   min-width: 160px;
-  background: rgba(40, 40, 40, 0.98);
+  background: rgb(var(--panel-40) / 0.98);
   border-radius: 10px;
   padding: 6px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 30px rgb(var(--shade) / 0.6);
+  border: 1px solid rgb(var(--ink) / 0.1);
   backdrop-filter: blur(10px);
   z-index: 5;
 }
 
 .context-menu-item {
   padding: 8px 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgb(var(--ink) / 0.85);
   font-size: 13px;
   border-radius: 8px;
   cursor: pointer;
@@ -2253,8 +2331,8 @@ const handleCopySubmit = async () => {
 }
 
 .context-menu-item:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: #f2f2f2;
+  background-color: rgb(var(--ink) / 0.1);
+  color: var(--text-1);
 }
 
 /* Modal Styles - Matching FormGenerator modal-content */
@@ -2264,7 +2342,7 @@ const handleCopySubmit = async () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgb(var(--shade) / 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2278,10 +2356,10 @@ const handleCopySubmit = async () => {
   width: 90%;
   max-width: 500px;
   max-height: 90vh;
-  background-color: rgba(33, 33, 33, 0.92);
+  background-color: rgb(var(--panel-33) / 0.92);
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgb(var(--ink) / 0.08);
+  box-shadow: 0 20px 40px rgb(var(--shade) / 0.6);
   overflow: hidden;
   backdrop-filter: blur(10px);
 }
@@ -2293,11 +2371,11 @@ const handleCopySubmit = async () => {
   align-items: center;
   padding: 0 20px;
   background-color: transparent;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgb(var(--ink) / 0.04);
 }
 
 .modal-title {
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 15px;
   font-weight: 600;
   margin: 0;
@@ -2314,12 +2392,12 @@ const handleCopySubmit = async () => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgb(var(--ink) / 0.6);
   transition: color 0.2s ease;
 }
 
 .close-button:hover {
-  color: #f2f2f2;
+  color: var(--text-1);
 }
 
 .modal-body {
@@ -2327,8 +2405,8 @@ const handleCopySubmit = async () => {
   padding: 20px;
   max-height: none;
   overflow-y: auto;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid rgb(var(--ink) / 0.04);
+  border-bottom: 1px solid rgb(var(--ink) / 0.04);
   scrollbar-width: none;
 }
 
@@ -2342,7 +2420,7 @@ const handleCopySubmit = async () => {
 
 .form-label {
   display: block;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 13px;
   font-weight: 500;
   margin-bottom: 8px;
@@ -2351,10 +2429,10 @@ const handleCopySubmit = async () => {
 .form-input {
   width: 90%;
   padding: 12px 16px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgb(var(--ink) / 0.05);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
-  color: #f2f2f2;
+  color: var(--text-1);
   font-size: 14px;
   font-family: 'Inter', sans-serif;
   outline: none;
@@ -2362,12 +2440,12 @@ const handleCopySubmit = async () => {
 }
 
 .form-input:focus {
-  border-color: rgba(170, 255, 205, 0.5);
-  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgb(var(--accent-mint-rgb) / 0.5);
+  background-color: rgb(var(--ink) / 0.08);
 }
 
 .form-input::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgb(var(--ink) / 0.4);
 }
 
 .modal-footer {
@@ -2377,7 +2455,7 @@ const handleCopySubmit = async () => {
   gap: 12px;
   padding: 16px 20px;
   background-color: transparent;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid rgb(var(--ink) / 0.04);
 }
 
 .cancel-button,
@@ -2387,32 +2465,32 @@ const handleCopySubmit = async () => {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
   font-family: 'Inter', sans-serif;
 }
 
 .cancel-button {
   background-color: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgb(var(--ink) / 0.1);
+  color: rgb(var(--ink) / 0.7);
 }
 
 .cancel-button:hover {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #f2f2f2;
+  background-color: rgb(var(--ink) / 0.05);
+  border-color: rgb(var(--ink) / 0.2);
+  color: var(--text-1);
 }
 
 .submit-button {
-  background: linear-gradient(135deg, #aaffcd, #99eaf9, #a0c4ff);
+  background: linear-gradient(135deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
   border: none;
-  color: #1a1a1a;
+  color: var(--bg-base);
   font-weight: 600;
 }
 
 .submit-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 12px rgb(var(--shade) / 0.2);
 }
 
 .submit-button:disabled {

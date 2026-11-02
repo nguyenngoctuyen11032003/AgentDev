@@ -5,6 +5,7 @@
         class="copy-btn" 
         @click="copyToClipboard" 
         :title="copyStatus === 'copied' ? $t('components.collapsible_message.copied') : $t('components.collapsible_message.copy_original')"
+        :aria-label="copyStatus === 'copied' ? $t('components.collapsible_message.copied') : $t('components.collapsible_message.copy_original')"
       >
         <svg v-if="copyStatus === 'idle'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -36,14 +37,14 @@
         class="toggle-btn" 
         @click="toggle"
       >
-        {{ isCollapsed ? 'Show More' : 'Show Less' }}
+        {{ isCollapsed ? $t('components.collapsible_message.show_more') : $t('components.collapsible_message.show_less') }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 
 const props = defineProps({
   htmlContent: {
@@ -80,33 +81,64 @@ const contentStyle = computed(() => {
   return {}
 })
 
+// Coalesce height checks into one layout read per frame (images loading, content updates)
+let heightRafId = null
 const checkHeight = async () => {
   await nextTick()
-  if (contentRef.value) {
-    contentHeight.value = contentRef.value.scrollHeight
-  }
+  if (heightRafId !== null) return
+  heightRafId = requestAnimationFrame(() => {
+    heightRafId = null
+    if (contentRef.value) {
+      contentHeight.value = contentRef.value.scrollHeight
+    }
+  })
 }
 
 const toggle = () => {
   isCollapsed.value = !isCollapsed.value
 }
 
+let copyResetTimeout = null
 const copyToClipboard = async () => {
   if (!props.rawContent) return
-  
+
   try {
     await navigator.clipboard.writeText(props.rawContent)
     copyStatus.value = 'copied'
-    setTimeout(() => {
+    if (copyResetTimeout) clearTimeout(copyResetTimeout)
+    copyResetTimeout = setTimeout(() => {
       copyStatus.value = 'idle'
+      copyResetTimeout = null
     }, 2000)
   } catch (err) {
     console.error('Failed to copy text: ', err)
   }
 }
 
+// Re-measure when embedded images/code blocks finish loading and change the height
+let resizeObserver = null
+
 onMounted(() => {
   checkHeight()
+  if (typeof ResizeObserver !== 'undefined' && contentRef.value?.firstElementChild) {
+    resizeObserver = new ResizeObserver(() => checkHeight())
+    resizeObserver.observe(contentRef.value.firstElementChild)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+  if (heightRafId !== null) {
+    cancelAnimationFrame(heightRafId)
+    heightRafId = null
+  }
+  if (copyResetTimeout) {
+    clearTimeout(copyResetTimeout)
+    copyResetTimeout = null
+  }
 })
 
 watch(() => props.htmlContent, () => {
@@ -135,21 +167,21 @@ watch(() => props.htmlContent, () => {
 }
 
 .copy-btn {
-  background: rgba(40, 44, 52, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--panel-40b) / 0.8);
+  border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 4px;
   padding: 4px;
   cursor: pointer;
-  color: #adb5bd;
+  color: var(--text-muted-7);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 .copy-btn:hover {
-  background: rgba(60, 64, 72, 0.9);
-  color: #fff;
+  background: rgb(var(--panel-60b) / 0.9);
+  color: var(--text-strong);
 }
 
 
@@ -177,7 +209,7 @@ watch(() => props.htmlContent, () => {
 .toggle-btn {
   background: none;
   border: none;
-  color: #64b5f6; /* Adjust color to match theme */
+  color: var(--accent-blue-1); /* Adjust color to match theme */
   cursor: pointer;
   font-size: 0.9em;
   padding: 4px 8px;
@@ -193,7 +225,7 @@ watch(() => props.htmlContent, () => {
 
 /* Markdown Styles */
 .markdown-body {
-  color: #f2f2f2;
+  color: var(--text-1);
   font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;
   font-size: 14px;
   line-height: 1.6;
@@ -233,7 +265,7 @@ watch(() => props.htmlContent, () => {
 }
 
 .markdown-body :deep(pre) {
-    background-color: rgba(0, 0, 0, 0.3);
+    background-color: rgb(var(--shade) / 0.3);
     border-radius: 6px;
     padding: 12px;
     overflow: auto;
@@ -244,7 +276,7 @@ watch(() => props.htmlContent, () => {
     padding: 0.2em 0.4em;
     margin: 0;
     font-size: 85%;
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgb(var(--ink) / 0.1);
     border-radius: 4px;
     font-family: ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;
 }
@@ -266,7 +298,7 @@ watch(() => props.htmlContent, () => {
 }
 
 .markdown-body :deep(a) {
-    color: #64b5f6;
+    color: var(--accent-blue-1);
     text-decoration: none;
 }
 
@@ -279,5 +311,13 @@ watch(() => props.htmlContent, () => {
     box-sizing: border-box;
     background-color: transparent;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .copy-button-wrapper,
+  .copy-btn,
+  .content-wrapper,
+  .toggle-btn {
+    transition-duration: 0.01ms;
+  }
+}
 </style>
-/style>

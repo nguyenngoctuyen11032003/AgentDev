@@ -1,3 +1,7 @@
+import i18n from '@/i18n'
+
+const t = (...args) => i18n.global.t(...args)
+
 export const isListField = (field) => {
   return field.type && field.type.includes('list[')
 }
@@ -86,15 +90,114 @@ export const isFieldVisible = (modal, field) => {
 
 export const childNodeButtonLabel = (modal, field) => {
   if (isListField(field)) {
-    return `Add Entry`
+    return t('dynamic_form_field.add_entry')
   }
-  return modal.formData[field.name] ? `Edit ${field.childNode}` : `Configure ${field.childNode}`
+  return modal.formData[field.name]
+    ? t('dynamic_form_field.edit_child', { child: field.childNode })
+    : t('dynamic_form_field.configure_child', { child: field.childNode })
 }
 
 export const conditionalChildButtonLabel = (modal, field) => {
   if (!canOpenConditionalChildModal(modal, field)) {
-    return 'Configure'
+    return t('dynamic_form_field.configure')
   }
   const childNodeName = getConditionalChildKeyValue(modal, field)
-  return modal.formData[field.name] ? `Edit ${childNodeName}` : `Configure ${childNodeName}`
+  return modal.formData[field.name]
+    ? t('dynamic_form_field.edit_child', { child: childNodeName })
+    : t('dynamic_form_field.configure_child', { child: childNodeName })
+}
+
+// Stable key for a backend-provided English text (djb2 -> base36). The same function is used by the
+// script that generates the schema_desc_text translations, so keep both in sync if it ever changes.
+// Results are memoized: the same description/label strings are hashed for every field render
+// (labels, tooltips, summaries), and descriptions can be long.
+const MAX_KEY_CACHE = 2000
+const textKeyCache = new Map()
+const slugKeyCache = new Map()
+
+const memoKey = (cache, text, compute) => {
+  const str = String(text)
+  const cached = cache.get(str)
+  if (cached !== undefined) return cached
+  const result = compute(str)
+  if (cache.size >= MAX_KEY_CACHE) cache.clear()
+  cache.set(str, result)
+  return result
+}
+
+export const textKey = (text) => memoKey(textKeyCache, text, (str) => {
+  let h = 5381
+  for (const c of str) h = ((h * 33) ^ c.codePointAt(0)) >>> 0
+  return 'h' + h.toString(36)
+})
+
+const slugKey = (text) => memoKey(slugKeyCache, text, (str) =>
+  str.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+)
+
+// Return the translation for the first key that exists in the current locale, else null.
+const firstTranslated = (keys) => {
+  for (const key of keys) {
+    if (key && i18n.global.te(key)) return t(key)
+  }
+  return null
+}
+
+// Label/description resolution for backend-provided schema fields. Most specific translation wins:
+// 1. schema_display.<slug(displayName)> / schema_desc_text.<textKey(description)>  (per backend text)
+// 2. schema.<name> / schema_desc.<name>                                           (generic, per field name)
+// 3. backend displayName/description, then the raw field name.
+export const getFieldLabel = (field) => {
+  const name = field?.name
+  const display = field?.displayName
+  const slug = display ? slugKey(display) : ''
+  return firstTranslated([slug && `schema_display.${slug}`, name && `schema.${name}`]) ??
+    (display || name || '')
+}
+
+export const getFieldDescription = (field) => {
+  const name = field?.name
+  const desc = field?.description
+  return firstTranslated([desc && `schema_desc_text.${textKey(desc)}`, name && `schema_desc.${name}`]) ??
+    (desc || '')
+}
+
+// Enum option labels can be localized with schema_enum.<field>.<value>;
+// otherwise fall back to the backend label, then the raw value.
+const SAFE_KEY_SEGMENT = /^[A-Za-z0-9_-]+$/
+
+export const getEnumOptionLabel = (field, option) => {
+  const value = typeof option === 'string' ? option : option?.value
+  const name = field?.name
+  if (
+    typeof value === 'string' &&
+    typeof name === 'string' &&
+    SAFE_KEY_SEGMENT.test(value) &&
+    SAFE_KEY_SEGMENT.test(name)
+  ) {
+    const key = `schema_enum.${name}.${value}`
+    if (i18n.global.te(key)) {
+      return t(key)
+    }
+  }
+  if (typeof option === 'string') {
+    return option
+  }
+  return option?.label ?? (value ?? '')
+}
+
+// Enum option descriptions. The same field/value pair can carry different descriptions in different
+// config classes, so the exact-text key wins: schema_desc_text.<textKey(description)>,
+// then schema_enum_desc.<field>.<value>, else the backend description.
+export const getEnumOptionDescription = (field, option) => {
+  if (!option || typeof option === 'string') return ''
+  const value = option.value
+  const name = field?.name
+  const desc = option.description
+  const safe = typeof value === 'string' && typeof name === 'string' &&
+    SAFE_KEY_SEGMENT.test(value) && SAFE_KEY_SEGMENT.test(name)
+  return firstTranslated([
+    desc && `schema_desc_text.${textKey(desc)}`,
+    safe && `schema_enum_desc.${name}.${value}`
+  ]) ?? (desc || '')
 }
