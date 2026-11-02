@@ -117,6 +117,18 @@ model:
 ```
 Gemini Provider 支持多模态输入（图片/视频/音频会自动转换为 Part），并支持 `function_calling_config` 来控制工具调用行为。
 
+### 4.2 Anthropic Claude Provider 配置示例
+```yaml
+model:
+  provider: anthropic
+  api_key: ${ANTHROPIC_API_KEY}   # 不要使用 ${API_KEY}；base_url 可选（${ANTHROPIC_BASE_URL}）
+  name: claude-opus-5-5
+  params:
+    effort: medium
+    max_tokens: 16000
+```
+Anthropic Provider 支持工具调用、图片/PDF 输入、自适应思考与提示缓存；仅输出文本。完整 `params` 说明见 [Agent 节点：使用 Claude](nodes/agent.md#使用-claude-anthropic)。
+
 ## 5. 边与条件
 - 基本边：
   ```yaml

@@ -117,6 +117,18 @@ model:
 ```
 The Gemini Provider supports multi-modal input (images/video/audio are automatically converted to Parts) and supports `function_calling_config` to control tool execution behavior.
 
+### 4.2 Anthropic Claude Provider Config Example
+```yaml
+model:
+  provider: anthropic
+  api_key: ${ANTHROPIC_API_KEY}   # not ${API_KEY}; base_url optional (${ANTHROPIC_BASE_URL})
+  name: claude-opus-5-5
+  params:
+    effort: medium
+    max_tokens: 16000
+```
+The Anthropic provider supports tool use, image/PDF input, adaptive thinking and prompt caching; output is text only. See [Agent node: Using Claude](nodes/agent.md#using-claude-anthropic) for all `params`.
+
 ## 5. Edges & Conditions
 - Basic edge:
   ```yaml

@@ -20,7 +20,7 @@ This landing page helps operators, workflow authors, and extension developers fi
 
 ## 2. Product Overview (Backend Focus)
 - **Workflow orchestration engine**: Parses YAML DAGs, coordinates `model`, `python`, `tooling`, and `human` nodes inside a shared context, and writes node outputs into `storage/warehouse/<session>/`.
-- **Provider abstraction**: The `backend/agentdev/runtime/node/agent/providers/` layer encapsulates OpenAI, Gemini, and other APIs so each node can swap models, base URLs, credentials, plus optional `thinking` and `memories` settings.
+- **Provider abstraction**: The `backend/agentdev/runtime/node/agent/providers/` layer encapsulates OpenAI, Gemini, Anthropic Claude, and other APIs so each node can swap models, base URLs, credentials, plus optional `thinking` and `memories` settings.
 - **Real-time observability**: FastAPI + WebSocket streams node states, stdout/stderr, and artifact events to the Web UI, while structured logs land in `storage/logs/` for centralized collection.
 - **Run asset management**: Every execution creates an isolated session; attachments, Python workspace, context snapshots, and summary outputs are downloadable for later review.
 

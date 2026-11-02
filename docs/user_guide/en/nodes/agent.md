@@ -1,13 +1,13 @@
 # Agent Node
 
-The Agent node is the most fundamental node type in the AgentDev platform, used to invoke Large Language Models (LLMs) for text generation, conversation, reasoning, and other tasks. It supports multiple model providers (OpenAI, Gemini, etc.) and can be configured with advanced features like tool calling, chain-of-thought, and memory.
+The Agent node is the most fundamental node type in the AgentDev platform, used to invoke Large Language Models (LLMs) for text generation, conversation, reasoning, and other tasks. It supports multiple model providers (OpenAI, Gemini, Anthropic Claude, etc.) and can be configured with advanced features like tool calling, chain-of-thought, and memory.
 
 ## Configuration
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `provider` | string | Yes | `openai` | Model provider name, e.g., `openai`, `gemini` |
-| `name` | string | Yes | - | Model name, e.g., `gpt-4o`, `gemini-2.0-flash-001` |
+| `provider` | string | Yes | `openai` | Model provider name, e.g., `openai`, `gemini`, `anthropic` |
+| `name` | string | Yes | - | Model name, e.g., `gpt-4o`, `gemini-2.0-flash-001`, `claude-opus-5-5` |
 | `role` | text | No | - | System prompt |
 | `base_url` | string | No | Provider default | API endpoint URL, supports `${VAR}` placeholders |
 | `api_key` | string | No | - | API key, recommend using environment variable `${API_KEY}` |
@@ -144,6 +144,57 @@ nodes:
       name: gemini-2.5-flash-image
       role: You need to generate corresponding image content based on user input.
 ```
+
+### Using Claude (Anthropic)
+
+The `anthropic` provider calls Claude models through the official `anthropic` Python SDK (Messages API, streamed internally so long outputs do not time out).
+
+```yaml
+nodes:
+  - id: Claude Agent
+    type: agent
+    config:
+      provider: anthropic
+      name: claude-opus-5-5          # also: claude-sonnet-5-5, claude-haiku-5-5, claude-fable-5-1
+      api_key: ${ANTHROPIC_API_KEY}  # do NOT reuse ${API_KEY}/${BASE_URL} (those hold OpenAI values)
+      # base_url: ${ANTHROPIC_BASE_URL}  # optional; omit to use the official endpoint
+      role: You are a helpful assistant.
+      tooling:
+        - type: function
+          config:
+            auto_load: true
+            tools:
+              - name: get_weather
+      params:
+        effort: medium
+        max_tokens: 16000
+```
+
+- `api_key`: node value if set, otherwise the `ANTHROPIC_API_KEY` environment variable. `base_url`: node value if set, otherwise `ANTHROPIC_BASE_URL` or the official endpoint.
+- Supported: text, system prompts, tool use (function tools, MCP tools, skills), parallel tool calls, image input (png/jpeg/gif/webp), PDF input, text-file attachments (inlined as text), adaptive thinking, prompt caching (on by default), token usage including cache read/write tokens.
+- See `workspace/workflows/demo_claude.yaml` for a runnable example.
+
+| Param | Description |
+|-------|-------------|
+| `max_tokens` | Maximum output tokens (default `64000`) |
+| `effort` | `low` / `medium` / `high` / `xhigh` / `max` (sent as `output_config.effort`) |
+| `thinking` | Thinking config dict passed through as-is; `false` or `"off"` omits it |
+| `thinking_display` | `summarized` or `omitted` |
+| `prompt_caching` | Enable prompt caching (bool, default `true`) |
+| `tool_choice` | `auto` / `none` / `required`, or a native Anthropic `tool_choice` dict |
+| `stop_sequences` | List of custom stop sequences |
+| `timeout` | Request timeout (seconds) |
+| `fallbacks` | Server-side refusal fallback. Defaults to `"default"` on `claude-opus-5-5`, `claude-fable-5-1`, `claude-opus-5`, `claude-sonnet-5-5` with the official endpoint; `false` disables |
+| `metadata` | Request metadata dict |
+| `inference_geo` | Inference geography |
+| `extra_headers` | Extra HTTP headers |
+| `temperature` / `top_p` / `top_k` | Dropped with a warning (current Claude models reject them) unless `allow_sampling_params: true` |
+
+**Limitations**
+
+- Output is text only: no image/audio/video generation.
+- Audio/video inputs are not sent natively; they are described to the model as text.
+- Anthropic has no embedding model: memory `embedding` must keep using `openai` or `local`.
 
 ### Configuring Retry Strategy
 

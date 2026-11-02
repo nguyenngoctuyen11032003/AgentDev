@@ -431,7 +431,7 @@ class AgentConfig(BaseConfig):
             display_name="Model Provider",
             type_hint="str",
             required=True,
-            description="Name of a registered provider (openai, gemini, etc.) that selects the underlying client adapter.",
+            description="Name of a registered provider (openai, gemini, anthropic, etc.) that selects the underlying client adapter.",
             default="openai",
         ),
         "base_url": ConfigFieldSpec(

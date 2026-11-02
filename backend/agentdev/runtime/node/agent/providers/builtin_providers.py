@@ -25,3 +25,18 @@ if GeminiProvider is not None:
     )
 else:
     print("Gemini provider not registered: google-genai library not found.")
+
+try:
+    from agentdev.runtime.node.agent.providers.anthropic_provider import AnthropicProvider
+except ImportError:
+    AnthropicProvider = None
+
+if AnthropicProvider is not None:
+    ProviderRegistry.register(
+        "anthropic",
+        AnthropicProvider,
+        label="Anthropic Claude",
+        summary="Anthropic Claude models via the official anthropic SDK (Messages API)",
+    )
+else:
+    print("Anthropic provider not registered: anthropic library not found.")

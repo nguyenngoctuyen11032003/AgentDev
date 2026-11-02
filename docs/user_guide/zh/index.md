@@ -20,7 +20,7 @@
 
 ## 2. 产品概览（后端视角）
 - **工作流调度引擎**：解析 YAML DAG，在统一上下文中协调 `model`、`python`、`tooling`、`human` 等节点，并把节点输出写入 `storage/warehouse/<session>/`。
-- **多 Provider 抽象**：`backend/agentdev/runtime/node/agent/providers/` 层封装 OpenAI、Gemini 等 API，可在节点级别切换模型与鉴权，亦支持额外 `thinking` 与 `memories` 配置。
+- **多 Provider 抽象**：`backend/agentdev/runtime/node/agent/providers/` 层封装 OpenAI、Gemini、Anthropic Claude 等 API，可在节点级别切换模型与鉴权，亦支持额外 `thinking` 与 `memories` 配置。
 - **实时可观测性**：FastAPI + WebSocket 将节点状态、stdout/stderr、工件事件推送至 Web UI；结构化日志写入 `storage/logs/`，便于集中收集。
 - **运行资产管理**：每次运行创建独立 Session，附件、Python workspace、context snapshot、输出摘要等均可下载。
 
