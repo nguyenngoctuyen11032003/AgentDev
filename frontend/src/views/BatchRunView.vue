@@ -97,7 +97,7 @@
                 v-if="workflow.description"
                 class="file-desc"
               >
-                {{ workflow.description }}
+                {{ localizedWorkflowDescription(workflow.name, workflow.description) }}
               </span>
             </li>
             <li
@@ -328,6 +328,8 @@ const withErrorDetail = (message, result) => {
 }
 import { fetchWorkflowsWithDesc, fetchLogsZip, postBatchWorkflow } from '@/api/client.js'
 import SettingsModal from '@/components/common/SettingsModal.vue'
+import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
+import { toast } from '@/utils/toast.js'
 
 const formatLogTimestamp = (timestamp) => {
   if (!timestamp) return ''
@@ -723,7 +725,7 @@ const onInputFileSelected = (event) => {
   const isValidType = allowedExtensions.some(ext => fileName.endsWith(ext))
 
   if (!isValidType) {
-    alert(t('batch_run.alert_invalid_input_file'))
+    toast.warning(t('batch_run.alert_invalid_input_file'))
     return
   }
 
@@ -794,12 +796,12 @@ const handleButtonClick = () => {
   if (status.value === 'Batch completed' || status.value === 'Batch cancelled') {
     // If Relaunch, restart the same workflow and re-enter Launch state
     if (!selectedYamlFile.value) {
-      alert(t('launch.alert_choose_workflow'))
+      toast.warning(t('launch.alert_choose_workflow'))
       return
     }
 
     if (!selectedInputFile.value) {
-      alert(t('batch_run.alert_select_input_file'))
+      toast.warning(t('batch_run.alert_select_input_file'))
       return
     }
 
@@ -861,7 +863,7 @@ const establishWebSocketConnection = () => {
 
       if (!sessionId) {
         status.value = 'Connection error'
-        alert(t('launch.alert_missing_session'))
+        toast.error(t('launch.alert_missing_session'))
         resetConnectionState()
         return
       }
@@ -884,7 +886,7 @@ const establishWebSocketConnection = () => {
 
     console.error('WebSocket error:', error)
     status.value = 'Connection error'
-    alert(t('launch.alert_ws_error'))
+    toast.error(t('launch.alert_ws_error'))
     resetConnectionState({ closeSocket: false })
   }
 
@@ -964,12 +966,12 @@ const switchToDashboard = async () => {
 
 const launchBatchWorkflow = async () => {
   if (!selectedYamlFile.value) {
-    alert(t('launch.alert_choose_workflow'))
+    toast.warning(t('launch.alert_choose_workflow'))
     return
   }
 
   if (!selectedInputFile.value) {
-    alert(t('batch_run.alert_select_input_file'))
+    toast.warning(t('batch_run.alert_select_input_file'))
     return
   }
 
@@ -978,7 +980,7 @@ const launchBatchWorkflow = async () => {
     !isConnectionReady.value ||
     !sessionId
   ) {
-    alert(t('launch.alert_ws_not_ready'))
+    toast.warning(t('launch.alert_ws_not_ready'))
     return
   }
 
@@ -1001,7 +1003,7 @@ const launchBatchWorkflow = async () => {
     } else {
       console.error('Failed to launch batch workflow:', result)
       status.value = 'Failed'
-      alert(withErrorDetail(t('batch_run.alert_launch_failed'), result))
+      toast.error(withErrorDetail(t('batch_run.alert_launch_failed'), result))
       shouldGlow.value = true
       if (isConnectionReady.value) {
         status.value = 'Pending launch'
@@ -1010,7 +1012,7 @@ const launchBatchWorkflow = async () => {
   } catch (error) {
     console.error('Error calling batch workflow API:', error)
     status.value = 'Error'
-    alert(withErrorDetail(t('batch_run.alert_launch_api_failed'), { detail: error?.message }))
+    toast.error(withErrorDetail(t('batch_run.alert_launch_api_failed'), { detail: error?.message }))
     shouldGlow.value = true
     if (isConnectionReady.value) {
       status.value = 'Pending launch'
@@ -1129,7 +1131,7 @@ const downloadLogs = async () => {
     await fetchLogsZip(sessionIdToDownload)
   } catch (error) {
     console.error('Download failed:', error)
-    alert(t('launch.alert_download_logs_failed'))
+    toast.error(t('launch.alert_download_logs_failed'))
   }
 }
 

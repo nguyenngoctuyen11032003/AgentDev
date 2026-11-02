@@ -80,6 +80,44 @@ async function walkDirectory(directoryEntry, prefix, project) {
 }
 
 /**
+ * True when the File System Access folder picker is available (Chromium).
+ * Unlike `<input webkitdirectory>`, it lets us skip ignored folders without
+ * enumerating them, and the browser does not ask to "upload N files" for
+ * every file under node_modules/.git.
+ */
+export const supportsDirectoryPicker = () =>
+  typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'
+
+async function walkDirectoryHandle(directoryHandle, prefix, project) {
+  for await (const handle of directoryHandle.values()) {
+    const path = prefix ? `${prefix}/${handle.name}` : handle.name
+    if (handle.kind === 'directory') {
+      if (IGNORED_PROJECT_DIRS.has(handle.name)) {
+        project.skipped += 1
+        continue
+      }
+      await walkDirectoryHandle(handle, path, project)
+    } else if (isIgnoredProjectPath(path)) {
+      project.skipped += 1
+    } else {
+      project.entries.push({ file: await handle.getFile(), path })
+    }
+  }
+}
+
+/**
+ * Open the folder picker and collect one project from it.
+ * Rejects with an `AbortError` DOMException when the user cancels.
+ * @returns {Promise<{name: string, entries: {file: File, path: string}[], skipped: number}>}
+ */
+export async function pickProjectDirectory() {
+  const directoryHandle = await window.showDirectoryPicker({ id: 'project-upload', mode: 'read' })
+  const project = { name: directoryHandle.name, entries: [], skipped: 0 }
+  await walkDirectoryHandle(directoryHandle, '', project)
+  return project
+}
+
+/**
  * Split a drag-and-drop payload into loose files and whole folders.
  * Must be called synchronously inside the drop handler (DataTransfer items
  * are only readable during the event); the returned promise can be awaited.

@@ -447,7 +447,7 @@
                 v-if="workflow.description"
                 class="file-desc"
               >
-                {{ workflow.description }}
+                {{ localizedWorkflowDescription(workflow.name, workflow.description) }}
               </span>
             </li>
             <li
@@ -541,7 +541,8 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, uploadProject, getAttachment, fetchVueGraph } from '@/api/client.js'
-import { projectsFromDirectoryInput, collectDroppedItems } from '@/utils/projectFiles.js'
+import { projectsFromDirectoryInput, collectDroppedItems, supportsDirectoryPicker, pickProjectDirectory } from '@/utils/projectFiles.js'
+import { toast } from '@/utils/toast.js'
 import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import yaml from 'js-yaml'
@@ -599,6 +600,7 @@ import WorkflowNode from '@/components/workflow/WorkflowNode.vue'
 import WorkflowEdge from '@/components/workflow/WorkflowEdge.vue'
 import StartNode from '@/components/workflow/StartNode.vue'
 import CollapsibleMessage from '@/components/common/CollapsibleMessage.vue'
+import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -1231,7 +1233,7 @@ const uploadFiles = async (files) => {
   }
 
   if (!sessionId) {
-    alert(t('launch.alert_session_not_ready'))
+    toast.warning(t('launch.alert_session_not_ready'))
     return
   }
 
@@ -1245,11 +1247,11 @@ const uploadFiles = async (files) => {
           uploadedAttachments.value.push(result)
         } else {
           console.error('File upload failed:', result)
-          alert(t('launch.errors.upload_failed', { name: file?.name || '' }))
+          toast.error(t('launch.errors.upload_failed', { name: file?.name || '' }))
         }
       } catch (error) {
         console.error('Failed to upload attachment:', error)
-        alert(errorWithDetail('launch.errors.upload_error', error, { name: file?.name || '' }))
+        toast.error(errorWithDetail('launch.errors.upload_error', error, { name: file?.name || '' }))
       }
     }
   } finally {
@@ -1270,11 +1272,25 @@ const onAttachmentSelected = async (event) => {
   await uploadFiles(files)
 }
 
-const handleFolderButtonClick = () => {
+const handleFolderButtonClick = async () => {
   if (!isAttachmentUploadAllowed()) {
     return
   }
-  folderInputRef.value?.click()
+  if (!supportsDirectoryPicker()) {
+    folderInputRef.value?.click()
+    return
+  }
+  let project
+  try {
+    project = await pickProjectDirectory()
+  } catch (error) {
+    if (error?.name !== 'AbortError') {
+      console.error('Failed to read folder:', error)
+      toast.error(t('launch.errors.folder_read_failed'), { detail: formatErrorDetail(error) })
+    }
+    return
+  }
+  await uploadProjects([project])
 }
 
 // Upload whole project folders (structure preserved). Each folder becomes one
@@ -1284,7 +1300,7 @@ const uploadProjects = async (projects) => {
     return
   }
   if (!sessionId) {
-    alert(t('launch.alert_session_not_ready'))
+    toast.warning(t('launch.alert_session_not_ready'))
     return
   }
 
@@ -1292,7 +1308,9 @@ const uploadProjects = async (projects) => {
   try {
     for (const project of projects) {
       if (!project.entries.length) {
-        alert(t('launch.errors.project_empty', { name: project.name }))
+        toast.warning(t('launch.errors.project_empty_title', { name: project.name }), {
+          detail: t('launch.errors.project_empty_detail')
+        })
         continue
       }
       const result = await uploadProject(sessionId, project.name, project.entries, ({ uploadedFiles, totalFiles }) => {
@@ -1304,9 +1322,23 @@ const uploadProjects = async (projects) => {
       })
       if (result?.success && result?.attachmentId) {
         uploadedAttachments.value.push(result)
+        const summary = t('launch.project_uploaded_detail', {
+          count: result.fileCount || 0,
+          skipped: project.skipped || 0
+        })
+        if (result.failedFiles) {
+          toast.warning(t('launch.project_uploaded_partial', { name: project.name, count: result.failedFiles }), {
+            detail: summary,
+            items: result.failedPaths
+          })
+        } else {
+          toast.success(t('launch.project_uploaded', { name: project.name }), { detail: summary })
+        }
       } else {
         console.error('Project upload failed:', result)
-        alert(t('launch.errors.project_upload_failed', { name: project.name, detail: result?.message || '' }))
+        toast.error(t('launch.errors.project_upload_failed', { name: project.name }), {
+          detail: result?.detail || result?.message || ''
+        })
       }
     }
   } finally {
@@ -1391,11 +1423,11 @@ const startRecording = async () => {
           uploadedAttachments.value.push(result)
         } else {
           console.error('Recording upload failed:', result)
-          alert(t('launch.alert_recording_upload_failed'))
+          toast.error(t('launch.alert_recording_upload_failed'))
         }
       } catch (error) {
         console.error('Failed to upload recording:', error)
-        alert(t('launch.alert_recording_upload_failed'))
+        toast.error(t('launch.alert_recording_upload_failed'))
       } finally {
         isUploadingAttachment.value = false
         cleanupRecording()
@@ -1404,7 +1436,7 @@ const startRecording = async () => {
 
     mediaRecorder.onerror = (event) => {
       console.error('MediaRecorder error:', event.error)
-      alert(t('launch.alert_recording_error'))
+      toast.error(t('launch.alert_recording_error'))
       cleanupRecording()
     }
 
@@ -1412,7 +1444,7 @@ const startRecording = async () => {
     isRecording.value = true
   } catch (error) {
     console.error('Failed to start recording:', error)
-    alert(t('launch.alert_mic_access_failed'))
+    toast.error(t('launch.alert_mic_access_failed'))
     cleanupRecording()
   }
 }
@@ -1677,7 +1709,7 @@ const handleButtonClick = () => {
   } else if (status.value === 'Completed' || status.value === 'Cancelled') {
     // If Relaunch, restart the same workflow and re-enter Launch state
     if (!selectedFile.value) {
-      alert(t('launch.alert_choose_workflow'))
+      toast.warning(t('launch.alert_choose_workflow'))
       return
     }
 
@@ -1804,7 +1836,7 @@ const establishWebSocketConnection = (options = {}) => {
 
       if (!sessionId) {
         status.value = 'Connection error'
-        alert(t('launch.errors.missing_session'))
+        toast.error(t('launch.errors.missing_session'))
         resetConnectionState()
         return
       }
@@ -1830,7 +1862,7 @@ const establishWebSocketConnection = (options = {}) => {
 
     console.error('WebSocket error:', error)
     status.value = 'Connection error'
-    alert(t('launch.errors.ws_connection'))
+    toast.error(t('launch.errors.ws_connection'))
     resetConnectionState({ closeSocket: false })
   }
 
@@ -2122,7 +2154,7 @@ const switchToGraph = async () => {
 
 const launchWorkflow = async () => {
   if (!selectedFile.value) {
-    alert(t('launch.alert_choose_workflow'))
+    toast.warning(t('launch.alert_choose_workflow'))
     return
   }
 
@@ -2133,7 +2165,7 @@ const launchWorkflow = async () => {
   )
 
   if (!trimmedPrompt && attachmentIds.length === 0) {
-    alert(t('launch.alert_enter_prompt'))
+    toast.warning(t('launch.alert_enter_prompt'))
     return
   }
 
@@ -2142,7 +2174,7 @@ const launchWorkflow = async () => {
     !isConnectionReady.value ||
     !sessionId
   ) {
-    alert(t('launch.alert_ws_not_ready'))
+    toast.warning(t('launch.alert_ws_not_ready'))
     return
   }
 
@@ -2195,7 +2227,7 @@ const launchWorkflow = async () => {
       const error = await response.json().catch(() => ({}))
       console.error('Failed to launch workflow:', error)
       status.value = 'Failed'
-      alert(errorWithDetail('launch.errors.launch_failed', error.detail || (response.status ? `HTTP ${response.status}` : '')))
+      toast.error(errorWithDetail('launch.errors.launch_failed', error.detail || (response.status ? `HTTP ${response.status}` : '')))
       shouldGlow.value = true
       if (isConnectionReady.value) {
         status.value = 'Waiting for launch...'
@@ -2204,7 +2236,7 @@ const launchWorkflow = async () => {
   } catch (error) {
     console.error('Error calling execute API:', error)
     status.value = 'Error'
-    alert(errorWithDetail('launch.errors.execute_failed', error))
+    toast.error(errorWithDetail('launch.errors.execute_failed', error))
     shouldGlow.value = true
     if (isConnectionReady.value) {
       status.value = 'Waiting for launch...'
@@ -2245,7 +2277,7 @@ const downloadArtifact = async (message) => {
     document.body.removeChild(link)
   } catch (error) {
     console.error('Failed to download artifact:', error)
-    alert(errorWithDetail('launch.errors.download_failed', error, { name: message?.fileName || '' }))
+    toast.error(errorWithDetail('launch.errors.download_failed', error, { name: message?.fileName || '' }))
   } finally {
     if (message.loading) {
       message.loading = false
@@ -2839,7 +2871,7 @@ const downloadLogs = async () => {
     await fetchLogsZip(sessionIdToDownload)
   } catch (error) {
     console.error('Download failed:', error)
-    alert(errorWithDetail('launch.errors.download_logs_failed', error))
+    toast.error(errorWithDetail('launch.errors.download_logs_failed', error))
   }
 }
 

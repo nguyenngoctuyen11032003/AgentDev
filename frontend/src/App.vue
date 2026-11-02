@@ -3,6 +3,7 @@ import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Sidebar from '@/components/common/Sidebar.vue'
+import ToastHost from '@/components/common/ToastHost.vue'
 
 const route = useRoute()
 
@@ -33,6 +34,7 @@ watch(locale, (value) => {
         <component :is="Component" v-else />
       </router-view>
     </main>
+    <ToastHost />
   </div>
 </template>
 

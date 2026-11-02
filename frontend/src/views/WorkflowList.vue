@@ -52,7 +52,7 @@
         >
           <div class="file-info">
             <div class="file-name">{{ file.name }}</div>
-            <div class="file-description">{{ file.description }}</div>
+            <div class="file-description">{{ localizedWorkflowDescription(file.name, file.description) }}</div>
           </div>
           <div class="file-arrow">→</div>
         </div>
@@ -83,6 +83,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fetchWorkflowsWithDesc } from '@/api/client.js'
+import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
 import FormGenerator from '@/components/form/FormGenerator.vue'
 
 const router = useRouter()
@@ -169,7 +170,7 @@ const filteredFiles = computed(() => {
 
   return sortedFiles.value.filter(file => {
     const name = (file?.name ?? '').toString().toLowerCase()
-    const desc = (file?.description ?? '').toString().toLowerCase()
+    const desc = localizedWorkflowDescription(file?.name, file?.description ?? '').toString().toLowerCase()
 
     if (!name && !desc) return false
 

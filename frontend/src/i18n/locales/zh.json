@@ -241,8 +241,10 @@
       "workflow_error_detail": "工作流因错误而停止：{detail}",
       "download_logs_failed": "无法下载日志，请稍后重试。",
       "download_logs_failed_detail": "无法下载日志，请稍后重试。详情：{detail}",
-      "project_empty": "文件夹“{name}”中没有可上传的文件（已跳过 node_modules、.git、构建产物等）。",
-      "project_upload_failed": "无法上传项目“{name}”。{detail}"
+      "project_upload_failed": "无法上传项目“{name}”",
+      "project_empty_title": "文件夹“{name}”中没有可上传的文件",
+      "project_empty_detail": "node_modules、.git、dist、build 等文件夹会被自动跳过。",
+      "folder_read_failed": "无法读取所选文件夹"
     },
     "input_from_header": "— 来自 {source} 的输入（{role}）—",
     "input_source_task": "任务",
@@ -272,7 +274,10 @@
     "upload_folder_hint": "上传整个项目文件夹（保留目录结构，自动跳过 node_modules、.git、dist、build 等）。可拖放多个文件夹一次上传多个项目。",
     "uploading_progress": "{name}：{done}/{total}",
     "project_files": "{count} 个文件",
-    "status_waiting_file": "等待选择文件..."
+    "status_waiting_file": "等待选择文件...",
+    "project_uploaded": "项目“{name}”已上传",
+    "project_uploaded_partial": "项目“{name}”已上传，{count} 个文件未能保存",
+    "project_uploaded_detail": "{count} 个文件 · 已跳过 {skipped} 项（node_modules、.git、build 等）"
   },
   "components": {
     "workflow_edge": {
@@ -762,5 +767,50 @@
       "copy_path": "复制路径",
       "copied": "已复制！"
     }
+  },
+  "workflow_descriptions": {
+    "AgentDev_v1": "AgentDev 多智能体软件开发工作流，包含规划、编码、评审和测试循环。",
+    "blender_3d_builder_hub_auto_human": "由编排器驱动的架构，几何建模与外观开发（Lookdev）阶段相互分离。",
+    "blender_3d_builder_hub": "由编排器驱动的架构，几何建模与外观开发（Lookdev）阶段相互分离。",
+    "blender_3d_builder_simple": "顺序流程：3D 场景规格 -> 规划 -> Blender Python 构建。",
+    "blender_scientific_illustration_image_gen": "Blender 科学插图工作流，包含规划、科学家、工程师、执行和 QA 评审。",
+    "blender_scientific_illustration_with_human": "Blender 科学插图工作流，包含规划、科学家、工程师、执行和人工 QA 评审。",
+    "data_visualization_basic": "对给定数据进行可视化。",
+    "data_visualization_enhanced_v2": "对给定数据进行可视化。",
+    "data_visualization_enhanced_v3": "数据可视化流程（包括初步数据画像、数据清洗与评估、多图表方案拆解以及迭代评审）。",
+    "deep_research_executor_sub": "执行子图：负责搜索、分发 URL 摘要任务并汇总研究摘要。",
+    "deep_research_v1": "深度研究工作流，包含需求分析、规划、网页执行子图和报告撰写。",
+    "demo_claude": "Claude（anthropic 提供商）演示：调用工具获取气温，然后给出穿衣建议。",
+    "demo_code": "由人工提供代码，再由 Python 节点执行。",
+    "demo_context_reset": "通过人工节点演示 clear_context 与 clear_kept_context 行为的最小示例。",
+    "demo_dynamic_tree": "将长文本动态树状拆分为多个片段，并行进行摘要。",
+    "demo_dynamic": "动态 map/树演示：多部分旅行规划及结果汇总。",
+    "demo_edge_transform": "用正则提取代码块并传递给下一个节点。请输入：请把代码片段放在 ```python ... ``` 代码块中。",
+    "demo_file_memory": "演示基于 FileMemory 的本地文档检索工作流。",
+    "demo_function_call": "天气助手：获取气温后生成穿衣建议。",
+    "demo_human": "结合人工反馈与编辑扩写的文章生成。",
+    "demo_improved_memory": "改进版记忆模块演示，用于检索增强写作。",
+    "demo_loop_counter": "LoopCounter 演示：在第三次迭代时输出结果。",
+    "demo_loop_timer": "LoopTimer 演示：智能体迭代 20 秒后输出结果。",
+    "demo_majority_voting": "三个智能体之间的多数投票演示。",
+    "demo_mcp": "MCP 演示：获取随机数用于写诗和点评。",
+    "demo_mem0_memory": "使用 Mem0 托管记忆服务的带记忆对话。",
+    "demo_simple_memory": "基于简单记忆的文章生成与扩写工作流。",
+    "demo_sub_graph_path": "文章生成，评审子图从文件加载。",
+    "demo_sub_graph": "文章生成，包含内联评审子图和修订环节。",
+    "GameDev_with_manager": "精简的两阶段工作流，用于生成视觉精美、可玩的 Pygame 游戏。",
+    "general_problem_solving_team": "通用问题解决专家小组，包括需求理解与拆解部门、逻辑推理与分析部门、创意与方案生成部门、语言表达部门、技术实现部门、信息搜集部门、审核部门。",
+    "MACNet_Node_sub": "MACNet 节点：分发优化子图并汇总结果。",
+    "MACNet_optimize_sub": "代码评审与可选的编译运行反馈循环，用于改进代码。",
+    "MACNet_v1": "MACNet 流水线：串联多个节点子图并最终透传结果。",
+    "net_example_en": "带有诗人与编辑反馈的文章生成与润色工作流。",
+    "net_example": "带有诗人与编辑反馈的文章生成与润色工作流。",
+    "react": "子图封装的 ReAct 智能体，支持多轮工具调用。",
+    "reflexion_product": "使用 Reflexion 子图迭代的营销活动头脑风暴。",
+    "skills": "演示 Skills 用法的工作流。",
+    "spring_3d": "稳定且丰富的 3D 流水线（纯代码）：规格 -> 规划 -> bpy 脚本 -> 静态评审 -> 补丁 -> 最终打包。无工具调用。",
+    "spring_text_image_EN": "由启动驱动的春节内容工厂：规划 -> 并行生成 -> 编辑 -> 人工审核 -> 修订（gpt-4o）。",
+    "spring_text_image": "由启动驱动的春节内容工厂：规划 -> 并行生成 -> 编辑 -> 人工审核 -> 修订（gpt-4o）。",
+    "teach_video": "使用 Manim 的教学视频流水线：大纲、分页、渲染与拼接。"
   }
 }

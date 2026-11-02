@@ -599,6 +599,8 @@ export async function uploadProject(sessionId, projectName, entries, onProgress)
     const projectUrl = `${base}/${encodeURIComponent(created.project_id)}`
 
     let uploadedFiles = 0
+    let failedFiles = 0
+    const failedPaths = []
     onProgress?.({ uploadedFiles, totalFiles: entries.length })
     for (const batch of splitIntoBatches(entries)) {
       const formData = new FormData()
@@ -611,6 +613,9 @@ export async function uploadProject(sessionId, projectName, entries, onProgress)
       if (!response.ok) {
         return failureResult('errors.api.project_upload_failed', response, data)
       }
+      // The backend skips single files it cannot write and reports them here.
+      failedFiles += data?.failed || 0
+      failedPaths.push(...(data?.failed_paths || []))
       uploadedFiles += batch.length
       onProgress?.({ uploadedFiles, totalFiles: entries.length })
     }
@@ -633,7 +638,9 @@ export async function uploadProject(sessionId, projectName, entries, onProgress)
       mimeType: data?.mime_type,
       size: data?.total_size,
       fileCount: data?.file_count,
-      workspacePath: data?.workspace_path
+      workspacePath: data?.workspace_path,
+      failedFiles,
+      failedPaths
     }
   } catch (error) {
     console.error('Error uploading project:', error)

@@ -38,6 +38,26 @@ IGNORED_PROJECT_DIRS = frozenset(
 IGNORED_PROJECT_FILES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
 
 _PROJECT_TREE_LINE_LIMIT = 400
+_PROJECT_FAILED_REPORT_LIMIT = 20
+
+
+def _fs_path(path: Path) -> Path:
+    """Return a path usable for file I/O beyond Windows' 260-char MAX_PATH.
+
+    Uploaded projects are nested under ``<warehouse>/session_<uuid>/code_workspace/
+    projects/<id>/`` (~150 chars before the project's own relative path), so deep
+    source trees easily exceed MAX_PATH when long-path support is disabled in the
+    OS. The ``\\\\?\\`` extended-length prefix lifts that limit; elsewhere this is
+    a no-op.
+    """
+    if os.name != "nt":
+        return path
+    text = os.path.abspath(path)
+    if text.startswith("\\\\?\\"):
+        return Path(text)
+    if text.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + text[2:])
+    return Path("\\\\?\\" + text)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -285,11 +305,12 @@ class AttachmentService:
         """Store one batch of files, keeping their folder structure."""
         if len(files) != len(paths):
             raise ValidationError("Each uploaded file needs exactly one relative path", field="paths")
-        project_root = self._project_root(session_id, project_id)
+        project_root = _fs_path(self._project_root(session_id, project_id))
         resolved_root = project_root.resolve()
         file_count, total_size = self._project_usage(project_root)
 
         saved = skipped = 0
+        failed: List[str] = []
         for upload, raw_path in zip(files, paths):
             relative = self._safe_project_relative_path(raw_path)
             if relative is None:
@@ -306,13 +327,13 @@ class AttachmentService:
                     break
                 if ancestor.is_symlink():
                     raise ValidationError("Project paths must not contain symbolic links", field="paths")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if not target.parent.resolve().is_relative_to(resolved_root):
-                raise ValidationError("Project file path escapes the project folder", field="paths")
-
             written = 0
-            replaced = target.stat().st_size if target.is_file() else 0
+            replaced = 0
             try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if not target.parent.resolve().is_relative_to(resolved_root):
+                    raise ValidationError("Project file path escapes the project folder", field="paths")
+                replaced = target.stat().st_size if target.is_file() else 0
                 with target.open("wb") as buffer:
                     while True:
                         chunk = await upload.read(1024 * 1024)
@@ -328,12 +349,32 @@ class AttachmentService:
             except ValidationError:
                 target.unlink(missing_ok=True)
                 raise
+            except OSError as exc:
+                # One unwritable file (locked, reserved name such as "con", ...)
+                # must not abort the whole project; report it back instead.
+                self.logger.warning("Skipped project file %s: %s", relative.as_posix(), exc)
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                if replaced:
+                    file_count -= 1
+                    total_size -= replaced
+                failed.append(relative.as_posix())
+                continue
             total_size += written - replaced
             if not replaced:
                 file_count += 1
             saved += 1
 
-        return {"saved": saved, "skipped": skipped, "file_count": file_count, "total_size": total_size}
+        return {
+            "saved": saved,
+            "skipped": skipped,
+            "failed": len(failed),
+            "failed_paths": failed[:_PROJECT_FAILED_REPORT_LIMIT],
+            "file_count": file_count,
+            "total_size": total_size,
+        }
 
     def finalize_project(self, session_id: str, project_id: str) -> AttachmentRecord:
         """Register a Markdown overview of the uploaded project as an attachment.
@@ -342,7 +383,7 @@ class AttachmentService:
         instead of every file; it then reads/edits the real files with the file
         tools under ``projects/<project_id>/``.
         """
-        project_root = self._project_root(session_id, project_id)
+        project_root = _fs_path(self._project_root(session_id, project_id))
         workspace_path = f"{PROJECTS_DIRNAME}/{project_id}"
         file_count, total_size = self._project_usage(project_root)
         if file_count == 0:

@@ -346,6 +346,7 @@ import { fetchYaml, fetchVueGraph, postVuegraphs, updateYaml, postYamlNameChange
 import { helpContent } from '@/utils/helpContent.js'
 import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
+import { toast } from '@/utils/toast.js'
 
 const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
 
@@ -625,14 +626,14 @@ const persistYamlSnapshot = async (snapshot) => {
     const result = await updateYaml(currentWorkflowName.value, yamlString)
     if (!result?.success) {
       console.error('Failed to update workflow YAML:', result?.message || result?.detail)
-      alert(withErrorDetail(t('workflow_view.alert_save_failed'), result))
+      toast.error(withErrorDetail(t('workflow_view.alert_save_failed'), result))
       return false
     }
     console.log("YAML snapshot successfully persisted through API")
     return true
   } catch (error) {
     console.error('Error persisting YAML snapshot:', error)
-    alert(withErrorDetail(t('workflow_view.alert_save_failed'), { detail: error?.message }))
+    toast.error(withErrorDetail(t('workflow_view.alert_save_failed'), { detail: error?.message }))
     return false
   }
 }
@@ -725,7 +726,7 @@ const deleteEdgeByEndpoints = async (fromId, toId) => {
     // Empty start node array is not allowed
     const startArray = Array.isArray(nextStart) ? nextStart : []
     if (startArray.length === 0) {
-      alert(t('workflow_view.alert_start_edge_required'))
+      toast.warning(t('workflow_view.alert_start_edge_required'))
       return
     }
   }
@@ -1861,7 +1862,7 @@ const handleRenameSubmit = async () => {
       console.warn('Error handling VueGraph rename:', error)
     }
 
-    alert(t('workflow_view.rename_success', { name: newName }))
+    toast.success(t('workflow_view.rename_success', { name: newName }))
     closeRenameModal()
 
     // Refresh workflow list first
@@ -1875,7 +1876,7 @@ const handleRenameSubmit = async () => {
     const workflowNameWithoutExtension = newWorkflowName.replace('.yaml', '')
     router.push({ path: `/workflows/${workflowNameWithoutExtension}` })
   } else {
-    alert(withErrorDetail(t('workflow_view.rename_failed'), result))
+    toast.error(withErrorDetail(t('workflow_view.rename_failed'), result))
   }
 }
 
@@ -1920,7 +1921,7 @@ const handleCopySubmit = async () => {
       console.warn('Error handling VueGraph copy:', error)
     }
 
-    alert(t('workflow_view.copy_success', { name: newName }))
+    toast.success(t('workflow_view.copy_success', { name: newName }))
     closeCopyModal()
 
     // Refresh workflow list first
@@ -1934,7 +1935,7 @@ const handleCopySubmit = async () => {
       const workflowNameWithoutExtension = newWorkflowName.replace('.yaml', '')
     router.push({ path: `/workflows/${workflowNameWithoutExtension}` })
   } else {
-    alert(withErrorDetail(t('workflow_view.copy_failed'), result))
+    toast.error(withErrorDetail(t('workflow_view.copy_failed'), result))
   }
 }
 </script>
