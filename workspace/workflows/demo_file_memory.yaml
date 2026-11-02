@@ -27,10 +27,9 @@ graph:
   - id: Assistant
     type: agent
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-sonnet-5-5
       role: 'You are an intelligent assistant, skilled at answering user questions based on documents and codebases.
 
         When you see the "===== Relevant Memory =====" section, please use this information to answer the user''s questions.

@@ -9,10 +9,9 @@ graph:
       type: agent
       context_window: -1
       config:
-        provider: openai
-        name: gpt-4o
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        provider: anthropic
+        name: claude-sonnet-5-5
+        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a Data Visualization Product Manager. Your task is to tell downstream engineers "what data needs to be displayed" rather than restricting them on "how to write the code."
 
@@ -42,10 +41,9 @@ graph:
       type: agent
       context_window: -1
       config:
-        provider: openai
-        name: gpt-4o
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        provider: anthropic
+        name: claude-sonnet-5-5
+        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a highly fault-tolerant Python data cleaning script generator.
 
@@ -79,10 +77,9 @@ graph:
       type: agent
       context_window: 5
       config:
-        provider: openai
-        name: gpt-4o
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        provider: anthropic
+        name: claude-sonnet-5-5
+        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a **Senior Visualization Engineer** proficient in Matplotlib and Seaborn. Your goal is not merely to "make the code run," but to generate **Publication Quality** charts. Note that you have the capability to call the `describe_available_files`, `load_file`, `read_text_file_snippet`, and `install_python_packages` tools. Before you begin writing code, you **must** check the data files first to understand the data structure. Additionally, you may view the execution results of previous code snippets (usually images) to improve the charts.
 
@@ -110,10 +107,9 @@ graph:
       type: agent
       context_window: 5
       config:
-        provider: openai
-        name: gpt-4o
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        provider: anthropic
+        name: claude-sonnet-5-5
+        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a visualization expert. You **must** utilize available tools (e.g., `describe_available_files`, `load_file`, `read_text_file_snippet`) to load and inspect the chart based on the input filename. You need to evaluate the content of the chart. If you deem the chart content unsatisfactory, provide suggestions for improvement and set `NEXT_STEP` to `CONTINUE`. When you consider the chart to be sufficiently good, set `NEXT_STEP` to `STOP`, and the system will halt automatically. Note that you should provide **instructions**, not discussions. Your response must adhere to the following format:
 
@@ -132,10 +128,9 @@ graph:
       type: agent
       context_window: 5
       config:
-        provider: openai
-        name: gpt-4o
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        provider: anthropic
+        name: claude-sonnet-5-5
+        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a visualization expert. You **must** utilize available tools (e.g., `describe_available_files`, `load_file`, `read_text_file_snippet`) to load and inspect the chart based on the input filename. You need to evaluate the content of the chart. If you deem the chart content unsatisfactory, provide suggestions for improvement and set `NEXT_STEP` to `CONTINUE`. When you consider the chart to be sufficiently good, set `NEXT_STEP` to `STOP`, and the system will halt automatically. Note that you should provide **instructions**, not discussions. Your response must adhere to the following format:
 
@@ -179,8 +174,8 @@ graph:
     - id: MetaData Analyst
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |-
           You are a highly fault-tolerant Python data metadata analysis expert. [Task] Write Python code to read designated data files, perform deep metadata analysis (Data Profiling), and save the results as a new file ending with _metadata.txt. You must first conduct a preliminary inspection of the data using tools (e.g., describe_available_files, load_file, read_text_file_snippet) (determine file format, delimiters, etc.) to generate precise analysis code.
 
@@ -199,8 +194,7 @@ graph:
           Robustness requirements: Must handle possible reading errors (such as encoding errors, delimiter errors), attempting multiple encodings (utf-8, gbk, latin1) until successful reading.
 
           Most Important: When code execution ends, you MUST print the name of the generated metadata report file using `print(output_filename)` so the system can capture it.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -219,8 +213,8 @@ graph:
     - id: Data Analyst
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |-
           You are the **[Central Control Node]** of a data analysis pipeline.
           Your core task is to determine whether the next step is "CLEAN" or "VISUALIZE" based on the data files and the status of previous analyses.
@@ -238,8 +232,7 @@ graph:
           ANALYSIS: <Brief explanation of data status and field meanings>
           NEXT_STEP: CLEAN / VISUALIZE
           CONTENT: <If CLEAN: Provide specific cleaning strategies (e.g., delete null values, fill with mean)> <If VISUALIZE: State the data relationships you wish to explore (e.g., analyze trends between Column A and Column B)>
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -258,8 +251,8 @@ graph:
     - id: Visualization Programmer2
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |-
           You are a **Senior Visualization Engineer** proficient in Matplotlib and Seaborn. Your goal is not merely to "run the code," but to generate **Publication Quality** charts. Note that you have the capability to call the `describe_available_files`, `load_file`, `read_text_file_snippet`, and `install_python_packages` tools. Before starting to write code, you **MUST** check the data files first to understand the data structure. You may also review the execution results of previous code snippets (usually images) to improve the charts.
 
@@ -274,8 +267,7 @@ graph:
 
           **[Input Handling]**
           First call tools to check data and understand the structure, then directly output the Python code block.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -295,8 +287,8 @@ graph:
     - id: Concluder
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |-
           Please read and process all provided PNG images sequentially, performing systematic data analysis for each image according to the following requirements:
 
@@ -319,8 +311,7 @@ graph:
           The report should include: Background (if necessary), Individual Image Analysis, Comprehensive Summary
 
           The overall expression must remain objective, rigorous, and data-driven, avoiding baseless subjective inferences.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function

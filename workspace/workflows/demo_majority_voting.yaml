@@ -13,33 +13,30 @@ graph:
   - id: A1
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
+      provider: anthropic
+      name: claude-sonnet-5-5
       role: You are a helpful assistant. Respond with 'Option A'
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
+      api_key: ${ANTHROPIC_API_KEY}
       params:
         temperature: 0.1
         max_tokens: 16
   - id: A2
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
+      provider: anthropic
+      name: claude-sonnet-5-5
       role: You are a helpful assistant. Respond with 'Option A'
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
+      api_key: ${ANTHROPIC_API_KEY}
       params:
         temperature: 0.1
         max_tokens: 16
   - id: A3
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
+      provider: anthropic
+      name: claude-sonnet-5-5
       role: You are a helpful assistant. Respond with 'Option B'
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
+      api_key: ${ANTHROPIC_API_KEY}
       params:
         temperature: 0.1
         max_tokens: 16

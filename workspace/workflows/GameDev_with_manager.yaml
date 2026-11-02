@@ -19,7 +19,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           You are a manager in the AI driven game development process, responsible for supervising the operations of other AI driven departments and providing targeted suggestions and optimization directions for their work based on the characteristics of this game, preventing them from deviating from the initial concept during the development process and making the game more playable. You can also add your additional ideas to the suggestion, but you need to pay attention to compatibility with the original design. In the workflow, there are also game designers, planners core developer、polish developer、QA agent。
           You will receive game concepts and development plans conveyed to you by game designers and planners, based on which you will need to provide targeted recommendations to core developers, polishing developers, QA agents, and Polish-Refinement.
@@ -60,8 +60,7 @@ graph:
           [Your suggestion]
           **QA agent**
           [Your suggestion]
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -74,7 +73,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           # Role
           You are a **Technical Planner** for game development.
@@ -129,8 +128,7 @@ graph:
           4. Animation & Juice: Add smooth movements, size pulsing, rotation.
           5. Visual Feedback: Flash effects on collisions, spawn animations.
           6. UI Polish: Centered text, drop shadows, background gradients.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -143,7 +141,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           # Role
           You are a **Creative Game Designer** specializing in visually impressive, arcade-style games.
@@ -213,8 +211,7 @@ graph:
 
           # Constraints
           -All game files should be in one folder, with a size not exceeding 20KB
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -227,7 +224,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           Implement Phase 1 pygame game based on the plan.
 
@@ -291,8 +288,7 @@ graph:
           - DO NOT paste the code in your chat message text (to save tokens and avoid duplication)
           - The code should ONLY appear inside the tool call's 'content' argument, NOT in your message
           - DO NOT add explanations after calling save_file
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -312,7 +308,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           You are a PROFESSIONAL GAME ARTIST specializing in indie game visual design.
           Transform the Phase 1 game into a visually stunning experience.
@@ -456,8 +452,7 @@ graph:
           - DO NOT paste the code in your chat message text (to save tokens and avoid duplication)
           - The code should ONLY appear inside the tool call's 'content' argument, NOT in your message
           - DO NOT add explanations after calling save_file
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -477,7 +472,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           You are a GAME QUALITY ASSURANCE SPECIALIST.
           Perform final comprehensive review of the game code before execution.
@@ -538,8 +533,7 @@ graph:
           - [Actionable fix 2]
 
           IMPORTANT: Your last line must contain either "APPROVE" or "NEEDS_REFINEMENT" as a routing keyword.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -557,7 +551,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           You are a GAME IMPROVEMENT SPECIALIST.
           Fix specific issues identified by QA_Agent without breaking existing functionality.
@@ -599,8 +593,7 @@ graph:
           - Do NOT rewrite the game
           - Preserve all existing functionality
           - Do NOT simplify or optimize unrelated code
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -619,7 +612,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           TASK: Read the complete game.py file and output it as a Python code block.
 
@@ -645,8 +638,7 @@ graph:
           - NO summaries or explanations
           - Output MUST be the complete, unmodified game.py content
           - If file is incomplete, read more until you have it all
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -664,7 +656,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: openai
+        provider: anthropic
         role: |-
           You are a Bug Fixer. Fix ONLY the specific runtime error without rewriting the entire file.
 
@@ -724,8 +716,7 @@ graph:
           - DO NOT paste the code in your chat message text (to save tokens and avoid duplication)
           - The code should ONLY appear inside the tool call's 'content' argument, NOT in your message
           - Only output a brief fix description in your message, NO code blocks
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function

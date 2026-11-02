@@ -326,6 +326,7 @@ class AgentConfig(BaseConfig):
     name: str
     role: str | None = None
     api_key: str | None = None
+    connection: str | None = None
     params: Dict[str, Any] = field(default_factory=dict)
     retry: AgentRetryConfig | None = None
     input_mode: AgentInputMode = AgentInputMode.MESSAGES
@@ -341,7 +342,13 @@ class AgentConfig(BaseConfig):
     @classmethod
     def from_dict(cls, data: Mapping[str, Any], *, path: str) -> "AgentConfig":
         mapping = require_mapping(data, path)
-        provider = require_str(mapping, "provider", path)
+        connection = optional_str(mapping, "connection", path)
+        connection = connection.strip() if connection and connection.strip() else None
+        if connection:
+            # The connection decides the vendor; provider is optional and filled in at runtime.
+            provider = optional_str(mapping, "provider", path) or ""
+        else:
+            provider = require_str(mapping, "provider", path)
         base_url = optional_str(mapping, "base_url", path)
         name_value = mapping.get("name")
         if isinstance(name_value, str) and name_value.strip():
@@ -401,6 +408,7 @@ class AgentConfig(BaseConfig):
             name=model_name,
             role=role,
             api_key=api_key,
+            connection=connection,
             params=params,
             tooling=tooling_cfg,
             thinking=thinking_cfg,
@@ -426,11 +434,18 @@ class AgentConfig(BaseConfig):
             required=False,
             description="Model system prompt",
         ),
+        "connection": ConfigFieldSpec(
+            name="connection",
+            display_name="Connection",
+            type_hint="str",
+            required=False,
+            description="Saved connection (Connections page) that supplies the vendor and credential. When set, provider/base_url/api_key are ignored.",
+        ),
         "provider": ConfigFieldSpec(
             name="provider",
             display_name="Model Provider",
             type_hint="str",
-            required=True,
+            required=False,
             description="Name of a registered provider (openai, gemini, anthropic, etc.) that selects the underlying client adapter.",
             default="openai",
         ),
@@ -526,7 +541,27 @@ class AgentConfig(BaseConfig):
         if provider_spec:
             enum_spec = cls._apply_provider_enum(provider_spec)
             specs["provider"] = enum_spec
+        connection_spec = specs.get("connection")
+        if connection_spec:
+            specs["connection"] = cls._apply_connection_enum(connection_spec)
         return specs
+
+    @staticmethod
+    def _apply_connection_enum(connection_spec: ConfigFieldSpec) -> ConfigFieldSpec:
+        from agentdev.connections import get_store
+
+        connections = get_store().list()
+        if not connections:
+            return connection_spec
+        options = [
+            EnumOption(value=conn.id, label=conn.label, description=conn.vendor)
+            for conn in connections
+        ]
+        return replace(
+            connection_spec,
+            enum=[conn.id for conn in connections],
+            enum_options=options,
+        )
 
     @staticmethod
     def _apply_provider_enum(provider_spec: ConfigFieldSpec) -> ConfigFieldSpec:

@@ -21,10 +21,9 @@ graph:
     type: agent
     description: Actor (πθ) generates a strategy draft based on blackboard experience and short-term context.
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o-mini
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-haiku-5-5
       input_mode: messages
       role: |
         You are the Actor. If there are relevant memories, refer to that experience and output the latest action draft; if there are no relevant memories, provide an action draft to the best of your ability.
@@ -45,10 +44,9 @@ graph:
     type: agent
     description: Evaluator (Me) provides scores and improvement directions for the Actor's draft.
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o-mini
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-haiku-5-5
       input_mode: messages
       role: |
         You are the Evaluator. Receive and read the Actor's latest output and task objectives, and evaluate whether they meet the goals.
@@ -66,10 +64,9 @@ graph:
     type: agent
     description: Self-Reflection (Msr) converts Evaluator results into reusable experience.
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o-mini
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-haiku-5-5
       input_mode: messages
       role: |
         You are responsible for refining the Evaluator output and Actor Draft into JSON experience:
@@ -90,10 +87,9 @@ graph:
     type: agent
     description: Converge the final answer, absorbing the latest Draft and Evaluator tips.
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-sonnet-5-5
       input_mode: messages
       role: |
         Please synthesize all inputs and provide a final answer. Be comprehensive. Do not include any extra text other than the final answer.

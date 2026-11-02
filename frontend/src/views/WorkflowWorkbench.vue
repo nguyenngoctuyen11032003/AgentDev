@@ -200,13 +200,12 @@ const handleRefreshWorkflows = async () => {
   left: 0;
   right: 0;
   height: 500px;
-  background: linear-gradient(
-    90deg,
-    var(--accent-mint),
-    var(--accent-sky),
-    var(--accent-indigo)
-  );
-  filter: blur(120px);
+  /* Pre-softened radial glows instead of filter: blur(120px) on a 500px-tall
+     layer, which is very expensive to rasterise and composite. */
+  background:
+    radial-gradient(ellipse 40% 70% at 18% 45%, var(--accent-mint), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent-sky), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 82% 45%, var(--accent-indigo), transparent 72%);
   opacity: 0.15;
   z-index: 0;
   pointer-events: none;

@@ -370,7 +370,11 @@
           class="form-input"
           :readonly="isReadOnly"
           :class="{'input-readonly': isReadOnly}"
+          :list="modelSuggestions.length ? `${modalId}-${field.name}-models` : undefined"
         />
+        <datalist v-if="modelSuggestions.length" :id="`${modalId}-${field.name}-models`">
+          <option v-for="model in modelSuggestions" :key="model" :value="model" />
+        </datalist>
       </div>
 
       <!-- Multiline text fields -->
@@ -558,9 +562,10 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive, onUnmounted } from 'vue'
+import { computed, ref, reactive, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import RichTooltip from '@/components/common/RichTooltip.vue'
+import { modelsForConnection } from '@/utils/connectionModels.js'
 import { getFieldLabel, getFieldDescription, getEnumOptionLabel, getEnumOptionDescription } from '@/utils/formUtils.js'
 
 const { t } = useI18n()
@@ -622,6 +627,16 @@ const props = defineProps({
 })
 
 const isReadOnly = computed(() => props.isReadOnly)
+
+// Agent node: offer the selected connection's models as suggestions for the model name.
+const modelSuggestions = ref([])
+watch(
+  () => (props.field.name === 'name' ? props.formData?.connection : null),
+  async (connectionId) => {
+    modelSuggestions.value = connectionId ? await modelsForConnection(connectionId) : []
+  },
+  { immediate: true }
+)
 
 const emit = defineEmits([
   'update:form-data',

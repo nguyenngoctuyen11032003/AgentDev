@@ -278,12 +278,11 @@ onBeforeUnmount(() => {
   position: fixed;
   z-index: 10000;
   max-width: 320px;
-  background: rgb(var(--panel-26) / 0.95);
+  background: rgb(var(--panel-26) / 0.98);
   color: var(--text-1);
   border-radius: 8px;
   padding: 12px 16px;
   box-shadow: 0 4px 20px rgb(var(--shade) / 0.4), 0 0 0 1px rgb(var(--ink) / 0.1);
-  backdrop-filter: blur(10px);
   font-size: 13px;
   line-height: 1.5;
   pointer-events: auto;

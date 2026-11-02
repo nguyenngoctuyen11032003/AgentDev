@@ -125,3 +125,13 @@ def test_mismatched_files_and_paths(service):
     service.create_project(SESSION, "app")
     with pytest.raises(ValidationError):
         asyncio.run(service.save_project_files(SESSION, "app", [_upload(b"x")], []))
+
+
+def test_deeply_nested_paths_beyond_windows_max_path(service):
+    service.create_project(SESSION, "deep")
+    deep = "/".join(["a_fairly_long_directory_name"] * 10) + "/file.txt"
+    result = _save(service, "deep", [(deep, b"hello")])
+    assert result["saved"] == 1 and result["failed"] == 0
+
+    record = service.finalize_project(SESSION, "deep")
+    assert record.extra["file_count"] == 1

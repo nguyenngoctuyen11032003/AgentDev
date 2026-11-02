@@ -64,7 +64,7 @@ const fetchRendered = (file) => {
       // Fix media paths to point to /media/ (absolute path from public root)
       // For markdown images: ![alt](media/file.png) -> ![alt](/media/file.png)
       text = text.replace(/\]\(media\//g, '](/media/')
-      // For HTML image tags: src="media/file.gif" -> src="/media/file.gif"
+      // For HTML image tags: src="media/file.webp" -> src="/media/file.webp"
       text = text.replace(/src="media\//g, 'src="/media/')
       // Raw <img> tags in the markdown are deferred as well
       text = text.replace(/<img\s(?![^>]*\bloading=)/g, '<img loading="lazy" decoding="async" ')
@@ -183,7 +183,9 @@ onMounted(() => {
   border-radius: 18px;
   box-shadow: 0 4px 32px 0 rgb(var(--cyan-rgb-2) / 0.08), 0 0 0 2px rgb(var(--cyan-rgb) / 0.2);
   border: 1.5px solid rgb(var(--cyan-rgb) / 0.2);
-  transition: box-shadow 0.3s, height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Height snaps when the nav hides: animating it re-laid out the whole long
+     article (with its animated images) on every frame mid-scroll. */
+  transition: box-shadow 0.3s;
   scroll-behavior: smooth;
 }
 
@@ -265,6 +267,9 @@ onMounted(() => {
 :deep(.markdown-body img) {
   width: 100%;
   max-width: 100%;
+  /* With the width/height attributes this reserves the box before a lazy image
+     loads, so the article does not jump while scrolling. */
+  height: auto;
   box-sizing: border-box;
   background-color: transparent;
   border-radius: 10px;

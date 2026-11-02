@@ -31,7 +31,6 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
   color: cubeColors[Math.floor(Math.random() * cubeColors.length)],
   duration: `${Math.random() * 30 + 40}s`, // 30-60 seconds
   delay: `-${Math.random() * 60}s`, // Staggered delays
-  blur: `${Math.random() * 2 + 1}px`, // Add blur
   opacity: Math.random() * 0.4 + 0.2, // Add opacity variation
   rotate: `${Math.random() * 360}deg`, // Add initial rotation
   scale: Math.random() * 1 + 0.7 // Add scale variation
@@ -54,7 +53,6 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
           boxShadow: `0 0 12px 2px ${cube.color}, 0 0 24px 4px ${cube.color}99`,
           animationDuration: cube.duration,
           animationDelay: cube.delay,
-          filter: `blur(${cube.blur})`,
           opacity: cube.opacity,
           '--rotate': cube.rotate,
           '--scale': cube.scale
@@ -113,7 +111,8 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
   background: radial-gradient(1200px 600px at 20% 30%, rgb(var(--accent-mint-rgb) / 0.15), transparent 60%),
               radial-gradient(1000px 500px at 80% 70%, rgb(var(--accent-indigo-rgb) / 0.15), transparent 60%),
               linear-gradient(90deg, rgb(var(--accent-mint-rgb) / 0.08), rgb(var(--accent-sky-rgb) / 0.08), rgb(var(--accent-indigo-rgb) / 0.08));
-  filter: blur(2px);
+  /* No filter: the gradients are already soft, and a blur on a full-screen
+     animated layer is re-applied by the compositor on every frame. */
   animation: bgFlow 18s ease-in-out infinite;
   will-change: transform, opacity;
 }

@@ -14,6 +14,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from agentdev.connections import resolve_connection
 from agentdev.entity.configs import Node
 from agentdev.entity.configs.node.agent import AgentConfig, AgentRetryConfig
 from agentdev.entity.enums import CallStage, AgentExecFlowStage, AgentInputMode
@@ -63,6 +64,11 @@ class AgentNodeExecutor(NodeExecutor):
         
         try:
             self._current_node_id = node.id
+            if agent_config.connection:
+                creds = resolve_connection(agent_config.connection)
+                agent_config.provider = creds.provider or creds.vendor
+                agent_config.api_key = creds.api_key
+                agent_config.base_url = creds.base_url or ""
             provider_class = ProviderRegistry.get_provider(agent_config.provider)
             if not provider_class:
                 raise ValueError(f"Provider '{agent_config.provider}' not found")

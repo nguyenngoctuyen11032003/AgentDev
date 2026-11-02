@@ -1,7 +1,7 @@
 <template>
     <div class="sidebar" :class="{ 'is-hidden': isHidden }" @mouseenter="isHidden = false">
         <router-link to="/" class="sidebar-brand" aria-label="AgentDev">
-            <img src="/media/logo.svg" alt="" class="sidebar-brand-logo" width="28" height="28" />
+            <img src="/media/logo.svg?v=2" alt="" class="sidebar-brand-logo" width="28" height="28" />
             <span class="sidebar-brand-name">AgentDev</span>
         </router-link>
 
@@ -11,7 +11,7 @@
             <router-link to="/workflows">{{ $t('nav.workflows') }}</router-link>
             <router-link to="/launch" target="_blank" rel="noopener">{{ $t('nav.launch') }}</router-link>
             <router-link to="/batch-run" target="_blank" rel="noopener">{{ $t('nav.laboratory') }}</router-link>
-            <router-link to="/sprites">{{ $t('sprites.gallery.title') }}</router-link>
+            <router-link to="/connections">{{ $t('nav.connections') }}</router-link>
         </nav>
         <div class="sidebar-actions">
             <button class="settings-nav-btn" @click="showSettingsModal = true" :title="$t('settings.title')" :aria-label="$t('settings.title')">

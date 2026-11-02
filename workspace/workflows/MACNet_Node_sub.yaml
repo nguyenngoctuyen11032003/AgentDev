@@ -27,8 +27,8 @@ graph:
     - id: Aggregate
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |-
           You are an experienced and meticulous software analyst and developer, trusted by others to optimize and enhance their code. Now there are several programs that serve the same purpose and are currently competing in the software development field.
           Now you need to carefully analyze and compare these programs to identify their strengths and weaknesses and explain them. Subsequently, you must generate only one new, improved, and runnable program. This program should include the content of each file, encompassing the complete code.
@@ -47,8 +47,7 @@ graph:
           You will start with the "main" file, then go to the ones that are imported by that file, and so on.
           This new program should combine the advantages obtained from the competition between different teams and eliminate all weaknesses.
           Please bear in mind that even if some parts of the improved code may similar to the previous program, do not omit them. Instead, clearly write out each line of the improved code. Furthermore, ensure that the code is fully functional, implementing all functions without the use of placeholders (such as 'pass' and 'Implementation goes here' in Python).
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: null
         thinking: null

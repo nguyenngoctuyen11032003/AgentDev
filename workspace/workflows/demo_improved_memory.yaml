@@ -24,10 +24,9 @@ graph:
   - id: Writer
     type: agent
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-sonnet-5-5
       role: 'You are a professional writer, skilled at creating high-quality articles based on topics input by the user.
 
         Your writing style is beautiful, and your content is rich, capable of naturally integrating relevant memory content.

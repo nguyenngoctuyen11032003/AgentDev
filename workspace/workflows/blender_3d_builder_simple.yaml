@@ -14,7 +14,7 @@ graph:
       description: ''
       context_window: 0
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Role
           You are a professional **3D Technical Product Manager**.
@@ -56,7 +56,8 @@ graph:
           *   **DO NOT** ask the user for more info. You must improvise using your best judgment.
           *   **DO NOT** describe impossible shapes (like "a hyper-realistic face"). Keep it structurally logical for code generation.
           *   Ensure the **Dimensions** are consistent (e.g., a door must fit a human, a tree must be taller than a house).
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         params: {}
@@ -69,7 +70,7 @@ graph:
       description: ''
       context_window: 0
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Role
           You are the **Technical Planner**.
@@ -110,7 +111,8 @@ graph:
           2. [Structure]: Construct 'Tower_Body' using a cylinder (Radius: 2m, Height: 5m) on top of the hill. Material: 'Grey Stone Bricks'.
           3. [Details]: Create 'Anchor_Window' on the tower wall and attach a simple arched window geometry.
           4. [Lighting]: Setup a Sun light (Strength 5) and set Camera to view the tower.
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         params: {}
@@ -123,7 +125,7 @@ graph:
       description: ''
       context_window: 10
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Identity
           You are a **Procedural Architect**, a top expert in the Blender Python API (bpy).
@@ -211,7 +213,8 @@ graph:
           # Output Format
           You must call tools to execute code; your final output is forbidden from containing code.
           When you consider the current step complete, briefly report: "Constructed [Object Name], applied procedural [Material Type], and adjusted viewport lighting to present details." You do not need to mention the next steps.
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         params: {}
@@ -228,7 +231,7 @@ graph:
       description: ''
       context_window: 10
       config:
-        name: gemini-3-pro-preview
+        name: claude-opus-5-5
         role: |
           # Role
           You are a **Technical Supervisor**, responsible for the **Sanity Check** of 3D scenes.
@@ -263,7 +266,8 @@ graph:
           # Output Format
           DECISION: <APPROVE|REJECT>
           CRITIQUE: <Your feedback, can be skipped if APPROVE>
-        provider: gemini
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
 #        base_url: ${BASE_URL}
         api_key: ${API_KEY}
         params: {}

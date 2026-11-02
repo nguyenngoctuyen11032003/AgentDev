@@ -20,7 +20,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: gemini
+        provider: anthropic
         role: |-
           # To be placed in the config.role of the Content Getter node in deep_research_executor_sub.yaml
 
@@ -47,8 +47,7 @@ graph:
             *   **Atomicity:** Your responsibility is strictly limited to your assigned URL.
             *   **Value-Driven Summarization:** When creating the detailed summary for saving, prioritize hard data, specific conclusions, and verifiable evidence suitable for a research report.
             *   **Mandatory Final Report:** Your task is complete only after you have both saved the detailed summary using `search_save_result` AND provided a final overview message as your concluding output.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -69,7 +68,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: gemini
+        provider: anthropic
         role: |-
           ### Role: You are a premier Information Retrieval and Orchestration Expert.
 
@@ -104,8 +103,7 @@ graph:
           *   **Phase-Specific Tools:** In Phase 1, your primary tool is `web_search`. In Phase 2, your primary tools are `search_load_all` and `search_load_by_url`.
           *   **Quality Over Quantity:** During discovery, a few excellent sources are infinitely better than a long list of mediocre ones.
           *   **Active Aggregation:** Your final task is not just to signal completion, but to actively build and provide the complete data package for the next stage of the research.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function

@@ -22,7 +22,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: gemini
+        provider: anthropic
         role: |-
           Role: You are a "Requirements Analysis Expert" in the Deep Research system.
 
@@ -43,8 +43,7 @@ graph:
           Result:
 
           Outline, including: report title, target audience, key points of each chapter, and key KPIs.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -62,7 +61,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: gemini
+        provider: anthropic
         role: |-
           **Role:** You are the "Chief Research Strategist and Chapter-by-Chapter Planner" in the Deep Research system.
 
@@ -142,8 +141,7 @@ graph:
           FINISHED
 
           The research report has been successfully completed and compiled. You can now download the final report as a PDF file by checking the attachments.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -162,7 +160,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: gemini
+        provider: anthropic
         role: |-
           **Role:** You are the "Chief Report Architect and Analyst" within the Deep Research system.
 
@@ -229,8 +227,7 @@ graph:
           - In this chapter, I synthesized findings on market trends and competitive landscapes, supporting the analysis with numerical citations `[1][2][3]`.
           - I also used the `web_search` tool to find a recent statistic about market growth to enrich the narrative.
           - Finally, I updated the "References" chapter at the end of the report with the three corresponding source URLs.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -250,7 +247,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: gemini
+        provider: anthropic
         role: |-
           Role: You are the "Critical Quality Inspector and Editorial Supervisor" in the Deep Research system.
 
@@ -297,8 +294,7 @@ graph:
           **Example 2: Approval (Finished)**
           Current chapter is will organized. Let's begin writing the next chapter.
           ROUTE: Planner
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -317,7 +313,7 @@ graph:
       type: agent
       config:
         name: ${MODEL_NAME}
-        provider: gemini
+        provider: anthropic
         role: |-
           **Role:** You are the "Final Report Formatter" in the Deep Research system.
 
@@ -337,8 +333,7 @@ graph:
 
           **Result:**
           Simply output: "Report Completed! Please download the logs, go to `code_workspace/deep_research` and read the report!"
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -551,4 +546,4 @@ graph:
   end: []
 version: 0.0.0
 vars:
-  MODEL_NAME: gemini-3-flash-preview
+  MODEL_NAME: claude-sonnet-5-5

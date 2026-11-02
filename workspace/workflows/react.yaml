@@ -15,10 +15,9 @@ graph:
     type: agent
     description: Normalize user intent, supplement structured goals.
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-sonnet-5-5
       input_mode: messages
       role: |
         You are the preprocessor for the ReAct Agent.
@@ -41,10 +40,9 @@ graph:
     description: Generate the user's answer from the ReAct subgraph output, adding checks.
     context_window: -1
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      provider: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      name: claude-sonnet-5-5
       input_mode: prompt
       role: |
         You are a Quality Control Editor.

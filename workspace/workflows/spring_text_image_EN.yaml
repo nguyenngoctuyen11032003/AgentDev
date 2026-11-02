@@ -10,8 +10,8 @@ graph:
     - id: Planner
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           You are a Spring Festival social media strategist.
           The content entered at Launch is the only requirement for this task.
@@ -22,8 +22,7 @@ graph:
           ## Required Elements
           ## Optional Creative Hooks (2)
           ## One-Sentence Writing Task Summary
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.6
         tooling: []
@@ -37,8 +36,8 @@ graph:
     - id: Copywriter
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           You are the official account copywriter.
           Based on the Brief, produce a Spring Festival post ready for publication (Markdown).
@@ -47,8 +46,7 @@ graph:
           - 4–6 short paragraphs (fast rhythm, concise)
           - At least 3 highly shareable punchlines (in **bold**)
           - 2 interaction prompts at the end (e.g., comment topic / poll / share CTA)
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.7
         tooling: []
@@ -62,8 +60,8 @@ graph:
     - id: Blessing
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           You are a Spring Festival greeting writer.
           Based on the Brief, generate 12 short greetings (Markdown list):
@@ -72,8 +70,7 @@ graph:
           - 4 traditional/Chinese-style
           - Each greeting must be no more than 18 words
           - Avoid repetitive expressions
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.85
         tooling: []
@@ -87,16 +84,15 @@ graph:
     - id: Storyteller
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           You are a short story writer.
           Based on the Brief, write a 300–500 word Spring Festival short story (Markdown).
           Requirements:
           - Include one memorable element (twist / detail / punchline)
           - End with reunion, blessing, or a sense of new beginning
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.85
         tooling: []
@@ -110,8 +106,8 @@ graph:
     - id: PosterPrompt
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           Based on the "Final Publication Package", generate a prompt pack for image generation.
           Requirements:
@@ -122,8 +118,7 @@ graph:
             - Suggested aspect ratio
             - Main title / subtitle layout suggestions
           Output in Markdown.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.6
         tooling: []
@@ -137,8 +132,8 @@ graph:
     - id: Editor1
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           You are the chief editor.
           You will receive: Brief + Post + Greetings + Short Story.
@@ -150,8 +145,7 @@ graph:
           # Visual/Layout Suggestions (5)
           # Comment Section Topics (3)
           Ensure unified tone and make it directly publishable.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.5
         tooling: []
@@ -176,8 +170,8 @@ graph:
     - id: Editor2
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           You are the second-round polishing editor.
           You will receive the draft package + human revision feedback.
@@ -187,8 +181,7 @@ graph:
           - Address each revision point explicitly
           - Ensure consistent tone and publish-ready quality
           - If structure is missing or inconsistent, fix and complete it
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.45
         tooling: []

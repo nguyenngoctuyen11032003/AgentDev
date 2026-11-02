@@ -35,13 +35,12 @@ graph:
     - id: Z
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: >-
           You need to plan according to user requests. Use your imagination and
           do not ask the user any questions.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: null
         thinking: null
@@ -81,13 +80,12 @@ graph:
     - id: 'Y'
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: >-
           Please aggregate the input content into a final result. Note that you
           must not omit anything! If there is only one input, output it as is.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: null
         thinking: null

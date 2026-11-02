@@ -8,8 +8,7 @@ import vue from '@vitejs/plugin-vue'
  */
 function manualChunks(id) {
   if (!id.includes('node_modules')) {
-    // Locale bundles change on their own cadence; keep them out of the app chunk.
-    if (id.includes('/src/i18n/locales/')) return 'locales'
+    // Locale JSON is code-split per language by the dynamic imports in src/i18n.
     return undefined
   }
   // vue-flow and its own runtime deps (d3 zoom/selection, vueuse)

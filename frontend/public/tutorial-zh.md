@@ -30,7 +30,7 @@
 
 Graph 本身不承担具体任务的执行，而是负责对各节点的运行逻辑进行统一的组织、编排与调度。
 
-<img src="media/graph_create.gif" width="800" />
+<img src="media/graph_create.webp" width="800" height="450" />
 
 ---
 
@@ -43,7 +43,7 @@ Graph 本身不承担具体任务的执行，而是负责对各节点的运行�
 需要注意的是：如果你已经在外层的 `.env` 文件中配置了相关环境变量，并且希望直接使用它们，则无需在此处重复配置。
 一旦在此处进行了配置，将会**优先使用这里的配置**，而不是外层 `.env` 文件中的环境变量。
 
-<img src="media/config_graph.gif" width="800" />
+<img src="media/config_graph.webp" width="800" height="450" />
 
 ---
 
@@ -90,7 +90,7 @@ Graph 本身不承担具体任务的执行，而是负责对各节点的运行�
 你是一位编辑，请你根据输入的文章与诗词，进行结合，文章最后应当附上诗词。
 ```
 
-<img src="media/create_node.gif" width="800" />
+<img src="media/create_node.webp" width="800" height="450" />
 
 ---
 
@@ -125,7 +125,7 @@ Graph 本身不承担具体任务的执行，而是负责对各节点的运行�
 
 此时，Graph 形成了一个典型的「并行生成 → 汇总编辑」结构。
 
-<img src="media/create_edge.gif" width="800" />
+<img src="media/create_edge.webp" width="800" height="450" />
 
 ---
 
@@ -141,7 +141,7 @@ Graph 本身不承担具体任务的执行，而是负责对各节点的运行�
 
 因此，在当前结构下，**Poet** 和 **Article Writer** 会并行运行，效果如下所示。
 
-<img src="media/run.gif" width="800" />
+<img src="media/run.webp" width="800" height="450" />
 
 > 至此，你已经搭建了一个最基础的多智能体工作流。
 
@@ -155,7 +155,7 @@ Graph 本身不承担具体任务的执行，而是负责对各节点的运行�
 并建立如下连接关系：
 * `Editor 1 → Editor 2`（`trigger = false`）
 
-<img src="media/condition_edge_1.gif" width="800" />
+<img src="media/condition_edge_1.webp" width="800" height="450" />
 
 在上述配置中，涉及一个重要的边属性： `trigger`
    * `trigger` 用于控制是否触发目标节点执行
@@ -202,7 +202,7 @@ Graph 本身不承担具体任务的执行，而是负责对各节点的运行�
 * **决策与确认**：在关键节点引入人工决策
 * **执行路径控制**：根据人工反馈决定流程走向
 
-<img src="media/human_node.gif" width="800" />
+<img src="media/human_node.webp" width="800" height="450" />
 
 **Human Node 提示语（可复制配置）**
 
@@ -219,14 +219,14 @@ Graph 本身不承担具体任务的执行，而是负责对各节点的运行�
 
 为实现这一逻辑，需要在节点之间配置**带条件的边（Conditional Edge）**
 
-<img src="media/condition_edge_2.gif" width="800" />
+<img src="media/condition_edge_2.webp" width="800" height="450" />
 
 在上述配置中，涉及一个关键的边属性：`condition`，用于控制该边是否生效：
 * 当 `condition` 计算结果为 `true` 时，该边处于激活状态，流程可以沿该边继续执行
 * 当 `condition` 为 `false` 时，该边被视为断开，对目标节点不产生任何影响
 ---
 通过上述几步，我们就完成了一个更复杂的审阅修改流程的添加，执行起来如下所示
-<img src="media/complex_run.gif" width="800" />
+<img src="media/complex_run.webp" width="800" height="450" />
 
 ---
 ## 更多细节

@@ -1,6 +1,16 @@
+/*
+ * Inter variable (wght + opsz), subset to Latin + Vietnamese + common symbols and
+ * compressed as WOFF2: ~220 KB instead of the 875 KB source TTF. CJK text falls back
+ * to system fonts (Inter has no CJK glyphs anyway).
+ * Regenerate from the TTF in fonts/Inter with fontTools' pyftsubset
+ * (--flavor=woff2 --layout-features='*', unicode ranges below).
+ */
 @font-face {
   font-family: 'Inter';
-  src: url('fonts/Inter/Inter-VariableFont_opsz,wght.ttf') format('truetype');
+  src: url('fonts/Inter/Inter-Variable.woff2') format('woff2');
   font-weight: 100 900;
+  font-style: normal;
   font-display: swap;
+  unicode-range: U+0000-00FF, U+0100-024F, U+0259, U+02B0-02FF, U+0300-036F, U+1E00-1EFF,
+    U+2000-206F, U+20A0-20CF, U+2100-218F, U+2190-23FF, U+25A0-27BF, U+FEFF, U+FFFD;
 }

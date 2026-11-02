@@ -26,6 +26,22 @@ if GeminiProvider is not None:
 else:
     print("Gemini provider not registered: google-genai library not found.")
 
+from agentdev.runtime.node.agent.providers.claude_cli_provider import ClaudeCliProvider
+from agentdev.runtime.node.agent.providers.codex_cli_provider import CodexCliProvider
+
+ProviderRegistry.register(
+    "claude_cli",
+    ClaudeCliProvider,
+    label="Claude (CLI sign-in)",
+    summary="Use your logged-in local `claude` CLI; no API key. Text only, tools unsupported.",
+)
+ProviderRegistry.register(
+    "codex_cli",
+    CodexCliProvider,
+    label="OpenAI Codex (CLI sign-in)",
+    summary="Use your logged-in local `codex` CLI; no API key. Text only. Codex can read local files: use only with trusted inputs.",
+)
+
 try:
     from agentdev.runtime.node.agent.providers.anthropic_provider import AnthropicProvider
 except ImportError:

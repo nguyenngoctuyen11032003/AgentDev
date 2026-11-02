@@ -15,11 +15,10 @@ graph:
     - id: Article Writer
       type: agent
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
         input_mode: messages
-        name: gpt-4o
+        name: claude-sonnet-5-5
         role: |
           你是一位作家，擅长根据用户输入的一个词句生成一整篇文章。
           用户会输入一个词语或一个短句，你需要据此生成一篇不少于 2000 字的文章，要求含有多个段落。
@@ -29,11 +28,10 @@ graph:
     - id: Editor 1
       type: agent
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
         input_mode: messages
-        name: gpt-4o
+        name: claude-sonnet-5-5
         role: |
           你是一位编辑，请你根据输入的文章与诗词，进行结合，文章最后应当附上诗词。
         params:
@@ -48,13 +46,12 @@ graph:
     - id: Editor 2
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           你是一位编辑，擅长对文章进行整合和润色。
           请根据输入的文章与修改建议，对文章进行润色和修改，直接输出修改后的文章。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           max_tokens: 4000
         tooling: []
@@ -67,13 +64,12 @@ graph:
     - id: Poet
       type: agent
       config:
-        name: gpt-4o
-        provider: openai
+        name: claude-sonnet-5-5
+        provider: anthropic
         role: |
           你是一位诗人，擅长根据用户输入的一个词句生成一首古体诗。
           用户会输入一个词语或一个短句，你需要据此生成一首古体诗，每句五字还是七字由你决定。
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
+        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.1
           max_tokens: 4000

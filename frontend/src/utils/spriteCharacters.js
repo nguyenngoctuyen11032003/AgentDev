@@ -1,5 +1,5 @@
 /**
- * Metadata for the 12 pixel-art chibi characters shipped in `/public/sprites`.
+ * Metadata for the 13 pixel-art chibi characters shipped in `/public/sprites`.
  * Each character has 4 stances (D/L/R/U) and 3 frames (1 = idle, 2/3 = walk).
  * Display names and taglines live in the i18n locales under `sprites.characters.<id>`.
  */
@@ -34,12 +34,27 @@ export const SPRITE_CHARACTERS = Object.freeze([
   { id: 9, key: 'zane', accent: '#E05A5A', accentSoft: 'rgba(224, 90, 90, 0.16)', hair: 'blue swept hair', outfit: 'red top, green pants', vibe: 'cool' },
   { id: 10, key: 'theo', accent: '#6FB7E6', accentSoft: 'rgba(111, 183, 230, 0.16)', hair: 'dark-blonde dreadlocks', outfit: 'light-blue top, green pants', vibe: 'chill' },
   { id: 11, key: 'milo', accent: '#5A74C4', accentSoft: 'rgba(90, 116, 196, 0.16)', hair: 'light-brown curly hair', outfit: 'blue top, pink pants', vibe: 'playful' },
-  { id: 12, key: 'rosa', accent: '#B05A8C', accentSoft: 'rgba(176, 90, 140, 0.16)', hair: 'dark-red big curly hair', outfit: 'purple top, red pants', vibe: 'lively' }
+  { id: 12, key: 'rosa', accent: '#B05A8C', accentSoft: 'rgba(176, 90, 140, 0.16)', hair: 'dark-red big curly hair', outfit: 'purple top, red pants', vibe: 'lively' },
+  { id: 13, key: 'nathan', accent: '#3E5BA9', accentSoft: 'rgba(62, 91, 169, 0.16)', hair: 'neat black side-swept hair', outfit: 'navy zip jacket, black pants, Canon camera', vibe: 'focused' }
 ])
 
 /**
+ * Character rendered with the "hero" aura / motion-trail effects
+ * (see `assets/styles/heroSprite.css`).
+ */
+export const HERO_CHARACTER_ID = 13
+
+/** True for the hero character id or any of its sprite paths. */
+export function isHeroSprite(idOrPath) {
+  if (typeof idOrPath === 'string' && idOrPath.includes('/')) {
+    return new RegExp(`/sprites/${HERO_CHARACTER_ID}-`).test(idOrPath)
+  }
+  return Number(idOrPath) === HERO_CHARACTER_ID
+}
+
+/**
  * Look up a character's metadata by id.
- * @param {number|string} id - Character id (1-12).
+ * @param {number|string} id - Character id (1-13).
  * @returns {{id:number,key:string,accent:string,accentSoft:string,hair:string,outfit:string,vibe:string}} Metadata, or a neutral default for unknown ids.
  */
 export function getCharacterMeta(id) {
@@ -49,7 +64,7 @@ export function getCharacterMeta(id) {
 
 /**
  * Resolve the localized display name of a character.
- * @param {number|string} id - Character id (1-12).
+ * @param {number|string} id - Character id (1-13).
  * @param {(key: string) => string} t - vue-i18n translate function.
  * @returns {string} Localized name from `sprites.characters.<id>.name`.
  */
@@ -60,7 +75,7 @@ export function getCharacterName(id, t) {
 /**
  * Build the public path of a sprite frame.
  * Mirrors `buildSpritePath` in `spriteFetcher.js`; keep both in sync.
- * @param {number|string} id - Character id (1-12).
+ * @param {number|string} id - Character id (1-13).
  * @param {string} [stance='D'] - Facing direction ('D', 'L', 'R', 'U').
  * @param {number} [frame=1] - Frame number (1 = idle, 2/3 = walk).
  * @returns {string} Image path such as `/sprites/3-D-1.png`.

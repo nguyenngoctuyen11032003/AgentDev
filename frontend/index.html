@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/media/logo.svg" />
+  <link rel="icon" type="image/svg+xml" href="/media/logo.svg?v=2" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AgentDev</title>
   <!-- Critical paint colours: match main.css tokens so the first frame never flashes white -->
@@ -11,8 +11,6 @@
     html { background: #1a1a1a; }
     html[data-theme="light"] { background: #f3f5f9; }
   </style>
-  <!-- Start fetching the UI font early (low priority so it never competes with app code) -->
-  <link rel="preload" href="/src/assets/styles/fonts/Inter/Inter-VariableFont_opsz,wght.ttf" as="font" type="font/ttf" crossorigin fetchpriority="low" />
   <script>
     // Apply the saved theme before first paint to avoid a flash of the wrong theme.
     (function () {

@@ -12,7 +12,7 @@ export const SPRITE_FRAMES = [1, 2, 3]
 
 /**
  * Build the public path of a sprite frame.
- * @param {number} character - Character index (1-12).
+ * @param {number} character - Character index (1-13).
  * @param {string} stance - Stance ('D', 'L', 'R', 'U').
  * @param {number} frame - Frame number (1, 2, 3).
  * @returns {string} Image path.
@@ -23,8 +23,8 @@ export function buildSpritePath(character, stance = 'D', frame = 1) {
 
 export class SpriteFetcher {
   constructor() {
-    // Available character list (1-12)
-    this.availableCharacters = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    // Available character list (1-13)
+    this.availableCharacters = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     // Map of characters already bound to node_id
     this.nodeCharacterMap = new Map()
     // Unassigned character pool for random allocation
@@ -81,7 +81,7 @@ export class SpriteFetcher {
   /**
    * Get the character bound to a node, if any.
    * @param {string} node_id - Node ID.
-   * @returns {number|null} Character index (1-12) or null when unbound.
+   * @returns {number|null} Character index (1-13) or null when unbound.
    */
   getCharacter(node_id) {
     if (!node_id) return null
@@ -91,7 +91,7 @@ export class SpriteFetcher {
   /**
    * Preload all 12 frames (4 stances x 3 frames) of a character.
    * Safe to call repeatedly; frames are only requested once.
-   * @param {number} character - Character index (1-12).
+   * @param {number} character - Character index (1-13).
    * @param {Object} [options]
    * @param {boolean} [options.lowPriority=false] - Fetch with low network priority (bulk warm-up).
    * @param {boolean} [options.decode=true] - Also decode the frames off the critical path.
