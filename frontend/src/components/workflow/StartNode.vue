@@ -76,6 +76,12 @@ const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
   opacity:0.9;
   box-shadow: 0 2px 2px rgb(var(--shade) / 0.25);
 }
+/* Light theme: --text-1 turns near-black, which reads as a hole in the saturated
+   pill; keep the light "start" dot of the dark theme */
+:root[data-theme="light"] .start-node-bubble{
+  background: var(--surface-1);
+  opacity: 1;
+}
 .start-node-label{
   white-space:nowrap;
 }

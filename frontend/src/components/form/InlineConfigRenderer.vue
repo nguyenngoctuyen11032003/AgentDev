@@ -177,4 +177,17 @@ const isFieldReadOnly = (field) => {
   background-color: rgb(var(--ink) / 0.1);
   margin: 16px 0 20px;
 }
+
+/* Light theme: hairlines at 8–10% ink almost disappear on white */
+:root[data-theme="light"] .advanced-toggle {
+  border-top-color: var(--line-4);
+}
+
+:root[data-theme="light"] .inline-separator {
+  background-color: var(--line-4);
+}
+
+:root[data-theme="light"] .advanced-toggle-button {
+  font-weight: 600;
+}
 </style>

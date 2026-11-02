@@ -7,12 +7,29 @@
 }
 
 /*
- * Performance: keep the whole viewport on its own compositor layer so panning
- * and zooming are pure GPU transforms instead of a full repaint of every node,
- * edge and sprite on each frame.
+ * Performance: while the canvas is being panned, promote the viewport to its own
+ * compositor layer so the pan is a pure GPU transform instead of a full repaint
+ * of every node, edge and sprite on each frame. Only during the drag: a permanent
+ * will-change keeps a (possibly huge) layer alive and blurs text at non-1 zoom.
  */
-.vue-flow__transformationpane {
+.vue-flow__pane.dragging .vue-flow__transformationpane {
   will-change: transform;
+}
+
+/*
+ * Overlay that hosts the edge walkers (see LaunchView animateSpriteAlongEdge).
+ * It lives inside the transformation pane, so it shares the pan/zoom transform
+ * and the edge path coordinates, but it is stacked above the node layer so the
+ * character walks in front of the node cards (nodes use z-index up to 1000).
+ */
+.sprite-walker-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1001;
 }
 
 /* A node being dragged moves every frame; give it its own layer for the drag only */
@@ -188,6 +205,63 @@
     opacity: 1;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Edge highlight colours (used by WorkflowEdge for hover marker/label borders)
+ * Dark values are the original hardcoded ones; light values are darker so the
+ * arrow head and label border stay visible on a white canvas.
+ * ------------------------------------------------------------------------- */
+:root {
+  --edge-entry-color: #ff8a00;
+  --edge-exit-color: #00b8d8;
+}
+
+/* ---------------------------------------------------------------------------
+ * Light theme
+ *
+ * The per-type palettes are pastel (made for a dark canvas). On white they are
+ * near-invisible, so the light theme switches label/handle/border to the
+ * saturated `--node-text-gradient` twin from colorUtils.js.
+ * ------------------------------------------------------------------------- */
+:root[data-theme="light"] {
+  --edge-entry-color: #c2410c;
+  --edge-exit-color: #0369a1;
+}
+
+:root[data-theme="light"] .workflow-node {
+  --node-bg: var(--surface-1);
+  --node-text-gradient: linear-gradient(135deg, var(--text-soft-1), var(--text-muted-5));
+  background-image: linear-gradient(var(--node-bg), var(--node-bg)), var(--node-text-gradient);
+}
+
+:root[data-theme="light"] .workflow-node-type {
+  background: var(--node-text-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: none;
+}
+
+:root[data-theme="light"] .workflow-node-handle {
+  background-image: var(--node-text-gradient);
+  border-color: var(--surface-1);
+  box-shadow: 0 0 0 1px rgb(var(--ink) / 0.18);
+}
+
+:root[data-theme="light"] .workflow-node-handle:hover {
+  filter: brightness(1.15);
+}
+
+/* Shared edge <defs> (injected by WorkflowEdge): CSS beats the presentation
+   attributes, so only the light theme gets darker stops / softer glow */
+:root[data-theme="light"] #incomingEdgeGradient stop:nth-child(1) { stop-color: #d97706; }
+:root[data-theme="light"] #incomingEdgeGradient stop:nth-child(2) { stop-color: #ea580c; }
+:root[data-theme="light"] #incomingEdgeGradient stop:nth-child(3) { stop-color: #c2410c; }
+:root[data-theme="light"] #outgoingEdgeGradient stop:nth-child(1) { stop-color: #0d9488; }
+:root[data-theme="light"] #outgoingEdgeGradient stop:nth-child(2) { stop-color: #0891b2; }
+:root[data-theme="light"] #outgoingEdgeGradient stop:nth-child(3) { stop-color: #0369a1; }
+:root[data-theme="light"] #incomingEdgeGlow feFlood { flood-color: #f97316; flood-opacity: 0.35; }
+:root[data-theme="light"] #outgoingEdgeGlow feFlood { flood-color: #0891b2; flood-opacity: 0.35; }
 
 /* ---------------------------------------------------------------------------
  * Accessibility: respect reduced motion

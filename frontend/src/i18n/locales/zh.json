@@ -698,5 +698,69 @@
       "user": "用户（user）",
       "assistant": "助手（assistant）"
     }
+  },
+  "sprites": {
+    "characters": {
+      "1": {
+        "name": "小绿",
+        "tagline": "总爱打听新点子"
+      },
+      "2": {
+        "name": "阿紫",
+        "tagline": "沉稳又温暖"
+      },
+      "3": {
+        "name": "桃桃",
+        "tagline": "粉色的小太阳"
+      },
+      "4": {
+        "name": "麦麦",
+        "tagline": "温柔又勤快"
+      },
+      "5": {
+        "name": "蓝蓝",
+        "tagline": "脑袋飘在云上"
+      },
+      "6": {
+        "name": "栗子",
+        "tagline": "靠谱的小管家"
+      },
+      "7": {
+        "name": "小阳",
+        "tagline": "笑容最灿烂"
+      },
+      "8": {
+        "name": "枫枫",
+        "tagline": "从不退缩"
+      },
+      "9": {
+        "name": "阿风",
+        "tagline": "酷酷的不着急"
+      },
+      "10": {
+        "name": "小天",
+        "tagline": "慢悠悠很放松"
+      },
+      "11": {
+        "name": "米粒",
+        "tagline": "随时出发冒险"
+      },
+      "12": {
+        "name": "莓莓",
+        "tagline": "卷发里全是活力"
+      }
+    },
+    "gallery": {
+      "title": "角色图鉴",
+      "subtitle": "认识让工作流鲜活起来的 12 位像素小伙伴。",
+      "idle": "待机",
+      "walk": "行走",
+      "direction": "方向",
+      "frame": "帧",
+      "character": "角色",
+      "preview_size": "预览尺寸",
+      "copy_path": "复制路径",
+      "copied": "已复制！"
+    }
   }
 }

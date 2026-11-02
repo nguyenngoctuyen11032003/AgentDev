@@ -698,5 +698,69 @@
       "user": "user",
       "assistant": "assistant"
     }
+  },
+  "sprites": {
+    "characters": {
+      "1": {
+        "name": "Kai",
+        "tagline": "Always sniffing out new ideas"
+      },
+      "2": {
+        "name": "Bruno",
+        "tagline": "Old soul, big heart"
+      },
+      "3": {
+        "name": "Momo",
+        "tagline": "Sunshine in a pink bob"
+      },
+      "4": {
+        "name": "Lily",
+        "tagline": "Braids, books and quiet smiles"
+      },
+      "5": {
+        "name": "Nilo",
+        "tagline": "Head in the clouds"
+      },
+      "6": {
+        "name": "Hazel",
+        "tagline": "Keeps everyone on track"
+      },
+      "7": {
+        "name": "Sunny",
+        "tagline": "Brightest smile in the room"
+      },
+      "8": {
+        "name": "Ruby",
+        "tagline": "Never backs down"
+      },
+      "9": {
+        "name": "Zane",
+        "tagline": "Too cool to hurry"
+      },
+      "10": {
+        "name": "Theo",
+        "tagline": "Easy going, always chill"
+      },
+      "11": {
+        "name": "Milo",
+        "tagline": "Up for any adventure"
+      },
+      "12": {
+        "name": "Rosa",
+        "tagline": "Curls full of energy"
+      }
+    },
+    "gallery": {
+      "title": "Character Gallery",
+      "subtitle": "Meet the 12 pixel mascots that bring your workflows to life.",
+      "idle": "Idle",
+      "walk": "Walk",
+      "direction": "Direction",
+      "frame": "Frame",
+      "character": "Character",
+      "preview_size": "Preview size",
+      "copy_path": "Copy path",
+      "copied": "Copied!"
+    }
   }
 }

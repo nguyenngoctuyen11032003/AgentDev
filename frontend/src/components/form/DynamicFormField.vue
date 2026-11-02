@@ -1447,6 +1447,129 @@ input:checked + .switch-slider:before {
   cursor: not-allowed;
 }
 
+/* Light theme (applied via :root[data-theme="light"]) – contrast fixes.
+   Selectors below carry :root + attr, so they outrank the base :focus/:hover
+   rules; the matching :focus/:hover states are restated where needed. */
+:root[data-theme="light"] .help-icon {
+  border-color: rgb(var(--ink) / 0.45);
+  color: var(--text-soft-1);
+}
+
+:root[data-theme="light"] .help-icon:hover {
+  border-color: var(--accent-indigo);
+  color: var(--accent-indigo);
+}
+
+:root[data-theme="light"] .form-input,
+:root[data-theme="light"] .form-textarea,
+:root[data-theme="light"] .form-select {
+  border-color: #8592a5;
+  background-color: #fff;
+}
+
+:root[data-theme="light"] .form-input:focus,
+:root[data-theme="light"] .form-textarea:focus,
+:root[data-theme="light"] .form-select:focus {
+  border-color: var(--accent-indigo);
+  background-color: #fff;
+}
+
+:root[data-theme="light"] .form-input::placeholder,
+:root[data-theme="light"] .form-textarea::placeholder {
+  color: var(--text-muted-1);
+}
+
+/* Read-only fields: keep them visibly "locked" but legible */
+:root[data-theme="light"] .input-readonly,
+:root[data-theme="light"] .input-readonly:focus {
+  background-color: var(--surface-4);
+  border-color: var(--line-4);
+  color: var(--text-soft-1);
+  box-shadow: none;
+}
+
+/* Switch: white knob on a pale track was nearly invisible */
+:root[data-theme="light"] .switch-slider {
+  background-color: #cbd5e1;
+  border-color: #8592a5;
+}
+
+:root[data-theme="light"] .switch-slider:before {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.3);
+}
+
+:root[data-theme="light"] input:checked + .switch-slider {
+  background-color: var(--accent-indigo);
+  border-color: var(--accent-indigo-2);
+}
+
+:root[data-theme="light"] .custom-select-arrow {
+  color: var(--text-soft-1);
+}
+
+:root[data-theme="light"] .multi-select-option,
+:root[data-theme="light"] .var-item,
+:root[data-theme="light"] .list-item,
+:root[data-theme="light"] .child-node-item {
+  border-color: var(--neutral-1);
+}
+
+:root[data-theme="light"] .multi-select-option:hover,
+:root[data-theme="light"] .var-item:hover,
+:root[data-theme="light"] .list-item:hover,
+:root[data-theme="light"] .child-node-item:hover {
+  border-color: rgb(var(--accent-indigo-rgb) / 0.7);
+}
+
+:root[data-theme="light"] .add-child-button,
+:root[data-theme="light"] .add-list-button,
+:root[data-theme="light"] .add-var-button {
+  border-color: var(--neutral-1);
+  background-color: var(--surface-4);
+  color: var(--text-2);
+}
+
+:root[data-theme="light"] .add-child-button:hover:not(:disabled),
+:root[data-theme="light"] .add-list-button:hover,
+:root[data-theme="light"] .add-var-button:hover {
+  background-color: var(--surface-5);
+}
+
+:root[data-theme="light"] .add-child-button:disabled {
+  opacity: 0.7;
+  border-color: var(--line-4);
+  background-color: var(--surface-4);
+  color: var(--text-muted-1);
+}
+
+:root[data-theme="light"] .child-node-summary {
+  border-color: var(--line-4);
+  color: var(--text-soft-1);
+}
+
+:root[data-theme="light"] .child-node-hint {
+  color: var(--text-muted-1);
+}
+
+/* Dropdown is teleported/fixed, hence :global */
+:global(:root[data-theme="light"] .custom-select-dropdown) {
+  border-color: var(--line-4);
+  box-shadow: 0 10px 30px -8px rgb(15 23 42 / 0.22);
+}
+
+:global(:root[data-theme="light"] .custom-select-option:hover) {
+  background-color: var(--surface-4);
+}
+
+:global(:root[data-theme="light"] .custom-select-option.option-selected) {
+  background-color: rgb(var(--accent-indigo-rgb) / 0.12);
+  color: var(--accent-indigo-2);
+}
+
+:global(:root[data-theme="light"] .custom-select-no-results) {
+  color: var(--text-muted-1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .help-icon,
   .form-input,

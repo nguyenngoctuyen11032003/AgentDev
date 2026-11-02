@@ -142,11 +142,11 @@ const edgeMarkerEnd = computed(() => {
 
   if (isEntry) {
     // warm orange marker for incoming (entry) edges
-    return { ...(typeof base === 'object' ? base : {}), color: '#ff8a00' }
+    return { ...(typeof base === 'object' ? base : {}), color: 'var(--edge-entry-color)' }
   }
   if (isExit) {
     // cyan-turquoise marker for outgoing (exit) edges
-    return { ...(typeof base === 'object' ? base : {}), color: '#00b8d8' }
+    return { ...(typeof base === 'object' ? base : {}), color: 'var(--edge-exit-color)' }
   }
 
   return base
@@ -604,10 +604,10 @@ const labelStyle = computed(() => {
   const { isEntry, isExit } = hoverState.value
 
   if (isEntry) {
-    s.borderColor = '#ff8a00'
+    s.borderColor = 'var(--edge-entry-color)'
     s.color = 'var(--warn-soft-3)'
   } else if (isExit) {
-    s.borderColor = '#00b8d8'
+    s.borderColor = 'var(--edge-exit-color)'
     s.color = 'var(--accent-sky-2)'
   }
 

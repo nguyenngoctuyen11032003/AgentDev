@@ -227,6 +227,31 @@ const handleRefreshWorkflows = async () => {
   color: rgb(var(--ink-softer) / 0.6);
 }
 
+/* ---------- Light theme: solid text colors, visible edges, no glow ---------- */
+:root[data-theme="light"] .workflow-sidebar {
+  border-right-color: var(--line-4);
+  box-shadow: 4px 0 16px rgb(var(--shade) / 0.18);
+}
+:root[data-theme="light"] .sidebar-toggle-btn {
+  border-color: rgb(var(--accent-indigo-rgb) / 0.45);
+  box-shadow: 2px 0 8px rgb(var(--shade) / 0.18);
+}
+:root[data-theme="light"] .sidebar-toggle-btn span {
+  text-shadow: none;
+}
+:root[data-theme="light"] .placeholder {
+  color: var(--text-soft-1);
+}
+:root[data-theme="light"] .placeholder-title {
+  color: var(--text-1);
+}
+:root[data-theme="light"] .placeholder-subtitle {
+  color: var(--text-muted-3);
+}
+:root[data-theme="light"] .placeholder::before {
+  opacity: 0.08;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .workflow-sidebar,
   .sidebar-toggle-btn {
