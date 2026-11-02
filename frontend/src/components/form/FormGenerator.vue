@@ -2066,12 +2066,13 @@ defineExpose({
   width: 90%;
   max-width: 900px;
   max-height: 90vh;
-  background-color: rgb(var(--panel-33) / 0.92);
+  /* Near-opaque instead of backdrop-filter: a blur behind a large panel over the
+     animated canvas is recomputed every frame while the form is open. */
+  background-color: rgb(var(--panel-33) / 0.98);
   border-radius: 16px;
   border: 1px solid rgb(var(--ink) / 0.08);
   box-shadow: 0 20px 40px rgb(var(--shade) / 0.6);
   overflow: visible;
-  backdrop-filter: blur(10px);
 }
 
 .modal-header {
@@ -2306,11 +2307,12 @@ defineExpose({
   color: var(--bg-base);
   background: linear-gradient(135deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
   background-size: 200% 100%;
-  animation: gradientShift 4s ease-in-out infinite;
   transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
 }
 
 .submit-button:hover:not(:disabled) {
+  /* Shimmer only while hovered: background-position animations repaint every frame. */
+  animation: gradientShift 4s ease-in-out infinite;
   transform: translateY(-1px);
   box-shadow: 0 4px 15px rgb(var(--shade) / 0.35);
 }
@@ -2331,11 +2333,11 @@ defineExpose({
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  animation: gradientShift 4s ease-in-out infinite;
   transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
 }
 
 .delete-button:hover:not(:disabled) {
+  animation: gradientShift 4s ease-in-out infinite;
   transform: translateY(-1px);
   box-shadow: 0 4px 15px rgb(var(--shade) / 0.35);
 }

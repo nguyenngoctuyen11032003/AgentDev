@@ -115,15 +115,23 @@ const copyToClipboard = async () => {
   }
 }
 
-// Re-measure when embedded images/code blocks finish loading and change the height
+// Measure via ResizeObserver: it reports the initial size and every later change
+// (content updates, images or code blocks finishing loading). The size comes from
+// the observer entry, so no layout is read: when many messages mount at once
+// (e.g. replay after reconnect) this avoids a forced layout per message.
 let resizeObserver = null
 
 onMounted(() => {
-  checkHeight()
-  if (typeof ResizeObserver !== 'undefined' && contentRef.value?.firstElementChild) {
-    resizeObserver = new ResizeObserver(() => checkHeight())
-    resizeObserver.observe(contentRef.value.firstElementChild)
+  const target = contentRef.value?.firstElementChild
+  if (typeof ResizeObserver === 'undefined' || !target) {
+    checkHeight()
+    return
   }
+  resizeObserver = new ResizeObserver(([entry]) => {
+    const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height
+    if (height !== contentHeight.value) contentHeight.value = height
+  })
+  resizeObserver.observe(target)
 })
 
 onBeforeUnmount(() => {
@@ -141,8 +149,9 @@ onBeforeUnmount(() => {
   }
 })
 
+// Without ResizeObserver, re-measure when the content changes.
 watch(() => props.htmlContent, () => {
-  checkHeight()
+  if (!resizeObserver) checkHeight()
 })
 </script>
 

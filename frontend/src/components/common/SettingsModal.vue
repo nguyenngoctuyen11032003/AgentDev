@@ -69,9 +69,7 @@
 <script setup>
 import { reactive, watch } from 'vue'
 import { configStore, applyTheme } from '@/stores/configStore.js'
-import { useI18n } from 'vue-i18n'
-
-const { locale } = useI18n()
+import { setLocale } from '@/i18n'
 
 const props = defineProps({
   isVisible: {
@@ -122,7 +120,8 @@ const close = () => {
 const save = () => {
   // Commit local changes to global store
   Object.assign(configStore, localConfig)
-  locale.value = localConfig.LANGUAGE
+  // Loads the language chunk on first use, then switches.
+  setLocale(localConfig.LANGUAGE).catch((error) => console.error('Failed to switch language:', error))
   close()
 }
 </script>
@@ -131,12 +130,11 @@ const save = () => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgb(var(--shade) / 0.5);
+  background: rgb(var(--shade) / 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 2000;
-  backdrop-filter: blur(2px);
 }
 
 .modal-content.settings-modal {

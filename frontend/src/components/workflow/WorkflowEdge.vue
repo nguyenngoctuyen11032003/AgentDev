@@ -711,17 +711,24 @@ const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
 }
 
 @keyframes label-pulse {
-  0%, 100% {
-    box-shadow: 0 0 1px inset rgb(var(--ink) / 0);
-    background-color: rgb(var(--panel-10) / 0.95);
-  }
-  50% {
-    box-shadow: 0 0 8px inset currentColor;
-    background-color: rgb(var(--panel-10) / 0.95);
-  }
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
 }
 
+/* The inner glow is painted once on a pseudo-element and only its opacity is
+   animated (compositor-only), instead of animating box-shadow every frame. */
 .animated-label {
+  background-color: rgb(var(--panel-10) / 0.95);
+}
+
+.animated-label::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 8px inset currentColor;
+  pointer-events: none;
+  opacity: 0;
   animation: label-pulse var(--label-anim-duration) infinite linear;
 }
 

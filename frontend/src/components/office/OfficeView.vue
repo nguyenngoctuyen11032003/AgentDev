@@ -40,8 +40,14 @@
         v-for="agent in agents"
         :key="agent.id"
         class="office-agent"
-        :class="[`pose-${agent.pose}`, `state-${agent.state}`, { hovered: focusId === agent.id, 'desk-rest': agent.deskRest }]"
+        :class="[
+          `pose-${agent.pose}`,
+          `state-${agent.state}`,
+          { hovered: focusId === agent.id, 'desk-rest': agent.deskRest },
+          isHeroSprite(agent.character) && [`hero-sprite`, `hero-${agent.facing}`, { 'is-moving': agent.pose === 'walk' }]
+        ]"
         :style="agentStyle(agent)"
+        :ref="(el) => bindEl(agent.id, 'root', el)"
         @mouseenter="hoveredId = agent.id"
         @mouseleave="hoveredId = null"
         @click="togglePin(agent.id)"
@@ -57,6 +63,7 @@
         class="office-agent-overlay"
         :class="{ dim: focusId && focusId !== agent.id }"
         :style="overlayStyle(agent)"
+        :ref="(el) => bindEl(agent.id, 'overlay', el)"
       >
         <Transition name="office-bubble">
           <div v-if="agent.bubble" :key="agent.bubble.key" class="office-bubble" :class="`bubble-${agent.bubble.type}`">
@@ -87,7 +94,7 @@
 
       <!-- Info card -->
       <Transition name="office-card">
-        <div v-if="focusAgent" class="office-card" :style="cardStyle(focusAgent)">
+        <div v-if="focusAgent" ref="cardEl" class="office-card" :style="cardStyle(focusAgent)">
           <div class="card-head">
             <img class="card-avatar" :src="avatarSrc(focusAgent)" alt="" />
             <div class="card-title">
@@ -201,9 +208,10 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { buildSpritePath, spriteFetcher } from '@/utils/spriteFetcher.js'
+import { isHeroSprite } from '@/utils/spriteCharacters.js'
 import { OfficePathfinder } from '@/utils/officePathfinder.js'
 import {
   OFFICE_WIDTH,
@@ -298,8 +306,9 @@ const rackLeds = SERVER_RACKS.flatMap(([x, y, , h], r) => {
   return leds
 })
 
-const prefersReducedMotion = () =>
-  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const reducedMotionQuery =
+  typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+const prefersReducedMotion = () => !!reducedMotionQuery?.matches
 
 const hashOf = (text) => {
   let h = 2166136261
@@ -365,17 +374,22 @@ const createAgent = (node, spawn) => {
     character: characterFor(node.id),
     seat: null,
     lane: { x: (h - 0.5) * 6, y: (hashOf(`${node.id}#`) - 0.5) * 6 },
-    x: ENTRANCE.x + (h - 0.5) * 30,
-    y: ENTRANCE.y,
-    path: [],
-    speed: 0,
+    // Per-frame motion state. markRaw keeps it out of Vue's reactivity: the rAF
+    // loop writes these values straight to the DOM (see paint()), so walking
+    // never re-renders the office. Discrete fields below stay reactive.
+    m: markRaw({
+      x: ENTRANCE.x + (h - 0.5) * 30,
+      y: ENTRANCE.y,
+      path: [],
+      speed: 0,
+      sitT: spawn ? 0 : 1,
+      frame: 1,
+      stride: 0,
+    }),
     destKey: '',
     dest: null,
     pose: spawn ? 'walk' : 'sit',
-    sitT: spawn ? 0 : 1,
     facing: 'U',
-    frame: 1,
-    stride: 0,
     state: 'idle',
     deskRest: false,
     activity: null,
@@ -490,7 +504,7 @@ const visitPoint = (target, visitor) => {
     : [[30, seat.facing === 'D' ? -4 : 4], [-30, seat.facing === 'D' ? -4 : 4], [0, seat.facing === 'D' ? -26 : 26]]
   for (const [dx, dy] of offsets) {
     const x = seat.x + dx, y = seat.y + dy
-    const busy = agents.value.some((a) => a !== visitor && a !== target && Math.hypot(a.x - x, a.y - y) < 12)
+    const busy = agents.value.some((a) => a !== visitor && a !== target && Math.hypot(a.m.x - x, a.m.y - y) < 12)
     if (pathfinder.isFreePoint(x, y) && !busy) {
       return { x, y, facing: dx > 0 ? 'L' : dx < 0 ? 'R' : dy > 0 ? 'U' : 'D' }
     }
@@ -547,14 +561,14 @@ const resolveDestination = (agent, now) => {
 const placeAt = (agent, dest) => {
   agent.destKey = dest.key
   agent.dest = dest
-  agent.path = []
-  agent.x = dest.x
-  agent.y = dest.y
+  agent.m.path = []
+  agent.m.x = dest.x
+  agent.m.y = dest.y
   agent.facing = dest.facing
   agent.pose = dest.pose
-  agent.sitT = dest.pose === 'sit' ? 1 : 0
-  agent.speed = 0
-  agent.frame = 1
+  agent.m.sitT = dest.pose === 'sit' ? 1 : 0
+  agent.m.speed = 0
+  agent.m.frame = 1
   agent.deskRest = !!dest.deskRest
 }
 
@@ -567,8 +581,8 @@ const facingFor = (dx, dy, current) => {
 }
 
 const remainingLength = (agent) => {
-  let len = 0, px = agent.x, py = agent.y
-  for (const p of agent.path) { len += Math.hypot(p.x - px, p.y - py); px = p.x; py = p.y }
+  let len = 0, px = agent.m.x, py = agent.m.y
+  for (const p of agent.m.path) { len += Math.hypot(p.x - px, p.y - py); px = p.x; py = p.y }
   return len
 }
 
@@ -584,8 +598,8 @@ const onArrive = (agent, now) => {
   const dest = agent.dest
   agent.pose = dest.pose
   agent.facing = dest.facing
-  agent.frame = 1
-  agent.speed = 0
+  agent.m.frame = 1
+  agent.m.speed = 0
   agent.deskRest = !!dest.deskRest
   if (dest.visit && agent.handoff && !agent.handoff.deliveredAt) {
     agent.handoff.deliveredAt = now
@@ -611,11 +625,16 @@ const step = (agent, dt, now, animate) => {
       if (dest.visit) onArrive(agent, now)
       return
     }
-    agent.path = laneShift(agent, pathfinder.findPath({ x: agent.x, y: agent.y }, dest))
+    agent.m.path = laneShift(agent, pathfinder.findPath({ x: agent.m.x, y: agent.m.y }, dest))
     agent.pose = 'walk'
   } else if (agent.pose === 'walk') {
     // Same seat, new intent (e.g. work started while walking back): arrive with the right facing.
-    agent.dest = dest
+    // resolveDestination() returns a fresh object every frame; only store real changes so
+    // walking does not trigger a re-render per frame.
+    const cur = agent.dest
+    if (!cur || cur.facing !== dest.facing || cur.pose !== dest.pose || !!cur.deskRest !== !!dest.deskRest) {
+      agent.dest = dest
+    }
   } else if (dest.facing !== agent.facing || !!dest.deskRest !== agent.deskRest) {
     // Only turning on the chair: towards the screen to work, away from it to relax.
     agent.dest = dest
@@ -625,8 +644,8 @@ const step = (agent, dt, now, animate) => {
 
   // Smoothly stand up / sit down.
   const wantSit = agent.pose === 'sit' ? 1 : 0
-  if (agent.sitT !== wantSit) {
-    agent.sitT = animate ? Math.max(0, Math.min(1, agent.sitT + (wantSit ? 1 : -1) * dt * 6)) : wantSit
+  if (agent.m.sitT !== wantSit) {
+    agent.m.sitT = animate ? Math.max(0, Math.min(1, agent.m.sitT + (wantSit ? 1 : -1) * dt * 6)) : wantSit
   }
 
   if (agent.pose !== 'walk') return
@@ -636,68 +655,147 @@ const step = (agent, dt, now, animate) => {
     return
   }
   // Stand up before walking off.
-  if (agent.sitT > 0.05) return
+  if (agent.m.sitT > 0.05) return
 
   // Ease in at the start and ease out on the last stretch.
   const remaining = remainingLength(agent)
-  agent.speed = Math.min(1, agent.speed + ACCEL * dt)
+  agent.m.speed = Math.min(1, agent.m.speed + ACCEL * dt)
   const easeOut = Math.min(1, 0.35 + remaining / 18)
-  let budget = WALK_SPEED * agent.speed * easeOut * dt
-  while (budget > 0 && agent.path.length) {
-    const target = agent.path[0]
-    const dx = target.x - agent.x, dy = target.y - agent.y
+  let budget = WALK_SPEED * agent.m.speed * easeOut * dt
+  while (budget > 0 && agent.m.path.length) {
+    const target = agent.m.path[0]
+    const dx = target.x - agent.m.x, dy = target.y - agent.m.y
     const dist = Math.hypot(dx, dy)
     if (dist <= budget) {
-      agent.x = target.x
-      agent.y = target.y
+      agent.m.x = target.x
+      agent.m.y = target.y
       budget -= dist
-      agent.stride += dist
-      agent.path.shift()
+      agent.m.stride += dist
+      agent.m.path.shift()
     } else {
-      agent.x += (dx / dist) * budget
-      agent.y += (dy / dist) * budget
-      agent.stride += budget
+      agent.m.x += (dx / dist) * budget
+      agent.m.y += (dy / dist) * budget
+      agent.m.stride += budget
       budget = 0
     }
     agent.facing = facingFor(dx, dy, agent.facing)
   }
-  agent.frame = WALK_FRAMES[Math.floor(agent.stride / STEP_LENGTH) % WALK_FRAMES.length]
-  if (!agent.path.length) onArrive(agent, now)
+  agent.m.frame = WALK_FRAMES[Math.floor(agent.m.stride / STEP_LENGTH) % WALK_FRAMES.length]
+  if (!agent.m.path.length) onArrive(agent, now)
 }
 
+// The loop runs every frame only while someone walks or sits down / stands up.
+// When everyone is settled it drops to a slow timer that just checks break and
+// bubble timers; any event (state change, handoff, ...) wakes it immediately.
+const IDLE_TICK_MS = 200
 let rafId = 0
+let idleTimer = 0
 let lastTick = 0
+
+const isMoving = (agent) => agent.pose === 'walk' || agent.m.sitT !== (agent.pose === 'sit' ? 1 : 0)
+
 const tick = (time) => {
+  rafId = 0
   const dt = Math.min(0.05, (time - (lastTick || time)) / 1000)
   lastTick = time
   const animate = props.visible && !prefersReducedMotion()
-  for (const agent of agents.value) step(agent, dt, time, animate)
-  rafId = props.visible ? requestAnimationFrame(tick) : 0
+  let moving = false
+  for (const agent of agents.value) {
+    step(agent, dt, time, animate)
+    paint(agent)
+    if (isMoving(agent)) moving = true
+  }
+  if (!props.visible) return
+  if (moving) {
+    rafId = requestAnimationFrame(tick)
+  } else {
+    idleTimer = setTimeout(() => {
+      idleTimer = 0
+      lastTick = 0
+      rafId = requestAnimationFrame(tick)
+    }, IDLE_TICK_MS)
+  }
 }
 
 const startLoop = () => {
-  if (rafId || typeof requestAnimationFrame === 'undefined') return
+  if (!props.visible || typeof requestAnimationFrame === 'undefined') return
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+    idleTimer = 0
+  }
+  if (rafId) return
   lastTick = 0
   rafId = requestAnimationFrame(tick)
 }
 
 const stopLoop = () => {
   if (rafId) cancelAnimationFrame(rafId)
+  if (idleTimer) clearTimeout(idleTimer)
   rafId = 0
+  idleTimer = 0
 }
 
-// While hidden, keep the logical state current so the office is right when shown again.
+// While hidden, keep the logical state current so the office is right when shown
+// again. While visible, wake the loop so a new destination is acted on at once.
 const settleHidden = () => {
-  if (props.visible) return
+  if (props.visible) {
+    startLoop()
+    return
+  }
   const now = performance.now()
   for (const agent of agents.value) step(agent, 0, now, false)
 }
 
+// ---------------------------------------------------------------- direct DOM painting
+// agent id -> { root, img, overlay } elements, filled by template function refs.
+const agentEls = new Map()
+const cardEl = ref(null)
+
+const bindEl = (id, part, el) => {
+  let entry = agentEls.get(id)
+  if (!entry) {
+    if (!el) return
+    entry = {}
+    agentEls.set(id, entry)
+  }
+  entry[part] = el || null
+  if (part === 'root') entry.img = el ? el.querySelector('.office-agent-sprite') : null
+  if (!entry.root && !entry.overlay) agentEls.delete(id)
+}
+
+const setStyle = (el, prop, value) => {
+  if (el && el.style.getPropertyValue(prop) !== value) el.style.setProperty(prop, value)
+}
+
+// Write the values that change every frame straight to the elements. Vue renders
+// the same values (agentStyle / overlayStyle / spriteSrc) whenever it re-renders
+// for other reasons, so the two never disagree.
+const paint = (agent) => {
+  const els = agentEls.get(agent.id)
+  if (!els) return
+  const style = agentStyle(agent)
+  if (els.root) {
+    setStyle(els.root, 'transform', style.transform)
+    setStyle(els.root, 'z-index', String(style.zIndex))
+    setStyle(els.root, '--sit', String(style['--sit']))
+    if (style['--hero-sprite']) setStyle(els.root, '--hero-sprite', style['--hero-sprite'])
+  }
+  const src = spriteSrc(agent)
+  if (els.img && els.img.getAttribute('src') !== src) els.img.setAttribute('src', src)
+  if (els.overlay) setStyle(els.overlay, 'transform', overlayStyle(agent).transform)
+  if (cardEl.value && focusId.value === agent.id) {
+    const card = cardStyle(agent)
+    setStyle(cardEl.value, 'left', card.left)
+    setStyle(cardEl.value, 'top', card.top)
+    setStyle(cardEl.value, 'transform', card.transform)
+  }
+}
+
 // ---------------------------------------------------------------- rendering helpers
-const spriteSrc = (agent) => buildSpritePath(agent.character, agent.facing, agent.pose === 'walk' ? agent.frame : 1)
+const spriteSrc = (agent) => buildSpritePath(agent.character, agent.facing, agent.pose === 'walk' ? agent.m.frame : 1)
 const avatarSrc = (agent) => buildSpritePath(agent.character, 'D', 1)
 
-const footY = (agent) => agent.y + 1 + SIT_DROP * agent.sitT
+const footY = (agent) => agent.m.y + 1 + SIT_DROP * agent.m.sitT
 
 const agentStyle = (agent) => {
   const k = scale.value
@@ -705,9 +803,11 @@ const agentStyle = (agent) => {
   return {
     width: `${SPRITE_W * k}px`,
     height: `${SPRITE_H * k}px`,
-    transform: `translate3d(${(agent.x - SPRITE_W / 2) * k}px, ${(fy - SPRITE_H) * k}px, 0)`,
+    transform: `translate3d(${(agent.m.x - SPRITE_W / 2) * k}px, ${(fy - SPRITE_H) * k}px, 0)`,
     zIndex: Math.round(fy * 2) + 10,
-    '--sit': agent.sitT,
+    '--sit': agent.m.sitT,
+    // Afterimage source for the hero character's motion trail
+    ...(isHeroSprite(agent.character) ? { '--hero-sprite': `url("${spriteSrc(agent)}")` } : {}),
   }
 }
 
@@ -715,16 +815,16 @@ const overlayStyle = (agent) => {
   const k = scale.value
   // Sprite art has ~5 px of empty space above the head.
   const headY = footY(agent) - SPRITE_H + 3
-  return { transform: `translate3d(${agent.x * k}px, ${headY * k}px, 0)` }
+  return { transform: `translate3d(${agent.m.x * k}px, ${headY * k}px, 0)` }
 }
 
 const cardStyle = (agent) => {
   const k = scale.value
-  const right = agent.x > OFFICE_WIDTH * 0.6
-  const below = agent.y < OFFICE_HEIGHT * 0.45
+  const right = agent.m.x > OFFICE_WIDTH * 0.6
+  const below = agent.m.y < OFFICE_HEIGHT * 0.45
   return {
-    left: `${(agent.x + (right ? -20 : 20)) * k}px`,
-    top: `${(agent.y + (below ? -6 : -30)) * k}px`,
+    left: `${(agent.m.x + (right ? -20 : 20)) * k}px`,
+    top: `${(agent.m.y + (below ? -6 : -30)) * k}px`,
     transform: `translate(${right ? '-100%' : '0'}, ${below ? '0' : '-100%'})`,
   }
 }
@@ -1273,7 +1373,6 @@ onBeforeUnmount(() => {
   background: rgba(20, 23, 30, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
   font-size: 12px;
   pointer-events: none;
 }
@@ -1342,7 +1441,7 @@ onBeforeUnmount(() => {
 
 /* ---------- HUD drawer ---------- */
 .office-hud-dock {
-  --hud-bg: rgba(17, 20, 27, 0.88);
+  --hud-bg: rgba(17, 20, 27, 0.96); /* opaque enough to need no backdrop blur over the animated stage */
   --hud-border: rgba(255, 255, 255, 0.1);
   position: absolute;
   top: 0;
@@ -1384,7 +1483,6 @@ onBeforeUnmount(() => {
   color: #eef1f6;
   background: var(--hud-bg);
   border: 1px solid var(--hud-border);
-  backdrop-filter: blur(8px);
   font-size: 12px;
   flex-wrap: wrap;
   justify-content: center;
@@ -1409,7 +1507,6 @@ onBeforeUnmount(() => {
   border-radius: 0 0 10px 10px;
   color: rgba(238, 241, 246, 0.75);
   background: var(--hud-bg);
-  backdrop-filter: blur(8px);
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
   font: inherit;
   font-size: 11px;
@@ -1531,10 +1628,9 @@ onBeforeUnmount(() => {
   flex-direction: column-reverse;
   border-radius: 12px;
   color: #eef1f6;
-  background: rgba(17, 20, 27, 0.88);
+  background: rgba(17, 20, 27, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(8px);
   font-size: 12px;
   overflow: hidden;
 }

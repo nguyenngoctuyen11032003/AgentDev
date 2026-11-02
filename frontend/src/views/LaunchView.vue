@@ -37,7 +37,6 @@
                   class="chat-message-item"
                   v-memo="[
                     message.rev,
-                    message.isLoading ? now : 0,
                     message.duration,
                     message.loading,
                     message.dataUri,
@@ -103,7 +102,7 @@
                     >
                       <span class="loading-entry-label">{{ entry.label }}</span>
                       <span class="loading-entry-duration">
-                        {{ formatDuration(entry.startedAt, entry.endedAt || null) }}
+                        <LiveDuration :started-at="entry.startedAt" :ended-at="entry.endedAt || 0" />
                       </span>
                     </div>
                   </TransitionGroup>
@@ -187,7 +186,8 @@
                     v-if="message.isLoading || message.duration"
                     class="loading-timer"
                   >
-                    {{ message.isLoading ? formatDuration(message.startedAt) : message.duration }}
+                    <LiveDuration v-if="message.isLoading" :started-at="message.startedAt" />
+                    <template v-else>{{ message.duration }}</template>
                   </div>
                 </div>
                 </div>
@@ -559,7 +559,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, uploadProject, getAttachment, fetchVueGraph } from '@/api/client.js'
+import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, uploadProject, getAttachment, fetchVueGraph } from '@/api/client.js'
 import { projectsFromDirectoryInput, collectDroppedItems, supportsDirectoryPicker, pickProjectDirectory } from '@/utils/projectFiles.js'
 import { toast } from '@/utils/toast.js'
 import { configStore } from '@/stores/configStore.js'
@@ -577,11 +577,18 @@ const md = new MarkdownIt({
 // Memoize markdown output by source text so re-renders never re-parse the same message
 const MARKDOWN_CACHE_LIMIT = 300
 const markdownCache = new Map()
+// Above this size a message is shown as preformatted text: running markdown-it
+// (linkify + typographer) over hundreds of KB blocks the WebSocket handler and
+// freezes the page for a noticeable moment.
+const MARKDOWN_MAX_CHARS = 120_000
+const preformatted = (text, lang = '') =>
+  `<pre><code${lang ? ` class="language-${lang}"` : ''}>${md.utils.escapeHtml(text)}</code></pre>`
+
 const renderMarkdown = (text) => {
   const source = text || ''
   const cached = markdownCache.get(source)
   if (cached !== undefined) return cached
-  const html = md.render(source)
+  const html = source.length > MARKDOWN_MAX_CHARS ? preformatted(source) : md.render(source)
   if (markdownCache.size >= MARKDOWN_CACHE_LIMIT) {
     markdownCache.delete(markdownCache.keys().next().value)
   }
@@ -620,6 +627,8 @@ import WorkflowNode from '@/components/workflow/WorkflowNode.vue'
 import WorkflowEdge from '@/components/workflow/WorkflowEdge.vue'
 import StartNode from '@/components/workflow/StartNode.vue'
 import CollapsibleMessage from '@/components/common/CollapsibleMessage.vue'
+// Ticking durations render themselves; the chat list no longer re-renders every second.
+import LiveDuration from '@/components/common/LiveDuration.js'
 import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
 
 const router = useRouter()
@@ -1171,12 +1180,16 @@ const addDialogue = (name, message) => {
     return
   }
   let text
+  let htmlContent = null
   if (typeof message === 'string') {
     text = message
   } else if (typeof message === 'object') {
-    // Avoid showing "[object Object]" for structured outputs
+    // Avoid showing "[object Object]" for structured outputs. The JSON code block
+    // is built directly (escaped) instead of markdown-parsing the whole dump.
     try {
-      text = '```json\n' + JSON.stringify(message, null, 2) + '\n```'
+      const json = JSON.stringify(message, null, 2)
+      text = '```json\n' + json + '\n```'
+      htmlContent = preformatted(json, 'json')
     } catch {
       text = String(message)
     }
@@ -1196,7 +1209,7 @@ const addDialogue = (name, message) => {
 
   const isRight = name === USER_SENDER
 
-  const htmlContent = renderMarkdown(text)
+  if (htmlContent === null) htmlContent = renderMarkdown(text)
   chatMessages.value.push({
     type: 'dialogue',
     name: name,
@@ -2202,6 +2215,20 @@ const launchWorkflow = async () => {
     return
   }
 
+  // Block the run early when a node references a connection that is missing or has no credential.
+  // A failed check (e.g. network) must not stop the launch; the runtime still reports the error.
+  try {
+    const check = await checkWorkflowConnections(await fetchWorkflowYAML(selectedFile.value))
+    if (!check.ok) {
+      toast.error(t('connections.precheck_failed'), {
+        items: check.problems.map((problem) => `${problem.nodeId}: ${problem.message}`)
+      })
+      return
+    }
+  } catch (error) {
+    console.warn('Connection pre-check skipped:', error)
+  }
+
   shouldGlow.value = false
   status.value = 'Launching...'
 
@@ -2729,17 +2756,20 @@ const processMessage = async (msg) => {
         chatMessages.value.push(message)
         scheduleScrollToBottom()
 
-        // Preload image content
+        // Preload image content. Not awaited: several images in one event load in
+        // parallel instead of one after another.
         if (message.isImage && sessionId && attachmentId) {
-          try {
-            const dataUri = await getAttachment(sessionId, attachmentId)
-            message.dataUri = dataUri
-          } catch (error) {
-            console.error('Failed to load image artifact:', error)
-            message.error = t('launch.errors.image_load_failed')
-          } finally {
-            message.loading = false
-          }
+          getAttachment(sessionId, attachmentId)
+            .then((dataUri) => {
+              message.dataUri = dataUri
+            })
+            .catch((error) => {
+              console.error('Failed to load image artifact:', error)
+              message.error = t('launch.errors.image_load_failed')
+            })
+            .finally(() => {
+              message.loading = false
+            })
         } else {
           message.loading = false
         }
@@ -3018,13 +3048,12 @@ watch(
   left: 0;
   right: 0;
   height: 500px;
-  background: linear-gradient(
-    90deg,
-    var(--accent-mint),
-    var(--accent-sky),
-    var(--accent-indigo)
-  );
-  filter: blur(120px);
+  /* Pre-softened radial glows instead of filter: blur(120px) on a large layer,
+     which is very expensive to rasterise and composite. */
+  background:
+    radial-gradient(ellipse 40% 70% at 18% 45%, var(--accent-mint), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent-sky), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 82% 45%, var(--accent-indigo), transparent 72%);
   opacity: 0.15;
   z-index: 0;
   pointer-events: none;
@@ -3037,7 +3066,6 @@ watch(
   height: 40px;
   background-color: rgb(var(--ink) / 0.05);
   border-bottom: 1px solid rgb(var(--ink) / 0.1);
-  backdrop-filter: blur(5px);
   flex-shrink: 0;
   position: relative;
   z-index: 2;
@@ -3118,7 +3146,6 @@ watch(
 .chat-panel-fullscreen .chat-panel-content {
   background: rgb(var(--ink) / 0.03);
   border: 1px solid rgb(var(--ink) / 0.1);
-  backdrop-filter: blur(5px);
 }
 
 .chat-panel-collapsed {
@@ -3133,10 +3160,9 @@ watch(
   min-width: 0;
   min-height: 0;
   pointer-events: auto;
-  background: rgb(var(--panel-26) / 0.92);
+  background: rgb(var(--panel-26) / 0.97);
   border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
-  backdrop-filter: blur(12px);
   overflow: hidden;
   padding: 0;
 }
@@ -3150,8 +3176,7 @@ watch(
   border-radius: 0 8px 8px 0;
   border: 1px solid rgb(var(--ink) / 0.15);
   border-left: none;
-  background: rgb(var(--panel-26) / 0.92);
-  backdrop-filter: blur(8px);
+  background: rgb(var(--panel-26) / 0.97);
   color: rgb(var(--ink) / 0.7);
   cursor: pointer;
   display: flex;
@@ -3222,6 +3247,8 @@ watch(
 /* Each message lays out independently so a growing bubble does not invalidate the whole list */
 .chat-message-item {
   contain: layout style;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
 }
 
 /* Chat Notification */
@@ -3610,11 +3637,13 @@ watch(
   height: 100%;
   display: flex;
   flex-direction: row;
-  background-color: rgb(var(--ink) / 0.03);
+  /* Near-opaque instead of backdrop-filter: this panel can float over the animated
+     office map / graph, where a blur would be recomputed every frame. Over the flat
+     page background it looks the same as the former translucent fill. */
+  background-color: rgb(32 32 34 / 0.94);
   border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   transition: border-color 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
-  backdrop-filter: blur(5px);
   position: relative;
 }
 
@@ -3892,8 +3921,7 @@ watch(
   height: 56px;
   border-radius: 16px;
   border: 1px solid rgb(var(--periwinkle-2) / 0.3);
-  background: rgb(var(--panel-26) / 0.94);
-  backdrop-filter: blur(12px);
+  background: rgb(var(--panel-26) / 0.97);
   box-shadow: 0 3px 12px rgb(var(--shade) / 0.4), 0 0 0 1px rgb(var(--periwinkle-2) / 0.08);
   color: rgb(var(--periwinkle) / 0.85);
   cursor: pointer;
@@ -3920,11 +3948,13 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
-  background-color: rgb(var(--ink) / 0.03);
+  /* Near-opaque instead of backdrop-filter: this panel can float over the animated
+     office map / graph, where a blur would be recomputed every frame. Over the flat
+     page background it looks the same as the former translucent fill. */
+  background-color: rgb(32 32 34 / 0.94);
   border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   padding: 20px;
-  backdrop-filter: blur(5px);
 }
 
 .section-label {
@@ -4247,7 +4277,6 @@ watch(
   border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   overflow: hidden;
-  backdrop-filter: blur(5px);
 }
 
 .vueflow-graph {
@@ -4358,14 +4387,18 @@ watch(
 }
 :root[data-theme="light"] .chat-panel-content,
 :root[data-theme="light"] .chat-panel-fullscreen .chat-panel-content,
-:root[data-theme="light"] .control-section,
 :root[data-theme="light"] .graph-panel {
   background: rgb(255 255 255 / 0.82);
   border-color: rgb(var(--ink) / 0.08);
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 30px -14px rgb(15 23 42 / 0.14);
 }
+:root[data-theme="light"] .control-section {
+  background: rgb(255 255 255 / 0.95);
+  border-color: rgb(var(--ink) / 0.08);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 30px -14px rgb(15 23 42 / 0.14);
+}
 :root[data-theme="light"] .input-shell {
-  background-color: rgb(255 255 255 / 0.9);
+  background-color: rgb(255 255 255 / 0.95);
   border-color: rgb(var(--ink) / 0.1);
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
 }

@@ -32,7 +32,7 @@ A **Graph** is the execution carrier and scheduling structure for multi-agent sy
 
 The Graph itself does not perform specific tasks, but is responsible for organizing, orchestrating, and scheduling the execution logic of each node.
 
-<img src="media/graph_create.gif" width="800" />
+<img src="media/graph_create.webp" width="800" height="450" />
 
 ---
 
@@ -45,7 +45,7 @@ It is recommended to manage common or sensitive configurations such as API Keys 
 Note that if the required environment variables are already defined in the outer `.env` file and you intend to use them directly, there is no need to configure them here again.
 If the variables are configured here, **these settings will take precedence** over those defined in the outer `.env` file.
 
-<img src="media/config_graph.gif" width="800" />
+<img src="media/config_graph.webp" width="800" height="450" />
 
 ---
 
@@ -92,7 +92,7 @@ The user will input a word or short phrase, and you must produce an article of a
 You are an editor. Combine the article and the poem, and append the poem at the end of the article.
 ```
 
-<img src="media/create_node.gif" width="800" />
+<img src="media/create_node.webp" width="800" height="450" />
 
 ---
 
@@ -127,7 +127,7 @@ Based on the three nodes created, establish the following connections:
 
 At this point, the Graph forms a typical "parallel generation → summary editing" structure.
 
-<img src="media/create_edge.gif" width="800" />
+<img src="media/create_edge.webp" width="800" height="450" />
 
 ---
 ## 4. Graph Startup and Execution Logic
@@ -142,7 +142,7 @@ When the Graph starts:
 
 Therefore, in the current setup, **Poet** and **Article Writer** will run in parallel, as shown below.
 
-<img src="media/run.gif" width="800" />
+<img src="media/run.webp" width="800" height="450" />
 
 > At this point, you have built a minimal multi-agent workflow.
 
@@ -158,7 +158,7 @@ Then establish the following connection:
 
 * `Editor 1 → Editor 2` (`trigger = false`)
 
-<img src="media/condition_edge_1.gif" width="800" />
+<img src="media/condition_edge_1.webp" width="800" height="450" />
 
 In this configuration, an important edge attribute is involved: `trigger`
 
@@ -207,7 +207,7 @@ Common use cases include:
 * **Decision and confirmation**: introducing human decisions at critical steps
 * **Execution path control**: determining workflow branching based on human feedback
 
-<img src="media/human_node.gif" width="800" />
+<img src="media/human_node.webp" width="800" height="450" />
 
 **Human Node Instruction (Copy to Configure)**
 
@@ -224,7 +224,7 @@ In this example, we want to determine whether a second editing step is required 
 
 To implement this logic, we need to configure **Conditional Edges** between nodes.
 
-<img src="media/condition_edge_2.gif" width="800" />
+<img src="media/condition_edge_2.webp" width="800" height="450" />
 
 In the configuration above, a key edge attribute is used: `condition`, which controls whether the edge is active:
 
@@ -234,7 +234,7 @@ In the configuration above, a key edge attribute is used: `condition`, which con
 ---
 
 With these steps, we have added a more complex review-and-revision workflow. The execution flow is shown below.
-<img src="media/complex_run.gif" width="800" />
+<img src="media/complex_run.webp" width="800" height="450" />
 
 ---
 Below are more detailed informations about this system:

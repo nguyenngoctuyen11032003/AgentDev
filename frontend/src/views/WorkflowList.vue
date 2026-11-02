@@ -252,13 +252,12 @@ const handleFormGeneratorSubmit = async (payload) => {
   left: 0;
   right: 0;
   height: 500px;
-  background: linear-gradient(
-    90deg,
-    var(--accent-mint),
-    var(--accent-sky),
-    var(--accent-indigo)
-  );
-  filter: blur(120px);
+  /* Pre-softened radial glows instead of filter: blur(120px) on a full-width
+     fixed layer, which is very expensive to rasterise and composite. */
+  background:
+    radial-gradient(ellipse 40% 70% at 18% 45%, var(--accent-mint), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent-sky), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 82% 45%, var(--accent-indigo), transparent 72%);
   opacity: 0.15;
   z-index: 0;
   pointer-events: none;
@@ -294,7 +293,6 @@ const handleFormGeneratorSubmit = async (payload) => {
   width: 100px;
   min-height: 20px;
   transition: width 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-  backdrop-filter: blur(5px);
 }
 
 .search-container:hover,
@@ -482,11 +480,10 @@ const handleFormGeneratorSubmit = async (payload) => {
   filter: blur(4px);
 }
 
-/* Run the blurred gradient animation only on the hovered card, not on every
-   card in the list (an invisible animation still repaints each frame) */
+/* Hover only fades the (static) glow border in. Animating background-position
+   under a blur and mask repainted the card every frame while hovered. */
 .file-item:hover::before {
   opacity: 1;
-  animation: gradientShift 3s ease-in-out infinite;
 }
 
 /* Removed the left border glow ::before pseudo-element */

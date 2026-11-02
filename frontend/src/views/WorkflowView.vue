@@ -74,7 +74,7 @@
             :data="props.data"
             :marker-end="props.markerEnd"
             :animated="props.animated"
-            :hovered-node-id="hoveredNodeId"
+            :hovered-node-id="hoveredNodeId === props.source || hoveredNodeId === props.target ? hoveredNodeId : null"
           />
         </template>
         <Background pattern-color="var(--canvas-dot)"/>
@@ -1959,13 +1959,12 @@ const handleCopySubmit = async () => {
   left: 0;
   right: 0;
   height: 500px;
-  background: linear-gradient(
-    90deg,
-    var(--accent-mint),
-    var(--accent-sky),
-    var(--accent-indigo)
-  );
-  filter: blur(120px);
+  /* Pre-softened radial glows instead of filter: blur(120px) on a large layer,
+     which is very expensive to rasterise and composite. */
+  background:
+    radial-gradient(ellipse 40% 70% at 18% 45%, var(--accent-mint), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent-sky), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 82% 45%, var(--accent-indigo), transparent 72%);
   opacity: 0.15;
   z-index: 0;
   pointer-events: none;
@@ -1989,7 +1988,6 @@ const handleCopySubmit = async () => {
   height: 40px;
   background-color: rgb(var(--ink) / 0.05);
   border-bottom: 1px solid rgb(var(--ink) / 0.1);
-  backdrop-filter: blur(5px);
   flex-shrink: 0;
 }
 
@@ -2034,7 +2032,6 @@ const handleCopySubmit = async () => {
   height: 50px;
   background-color: rgb(var(--ink) / 0.02);
   border-top: 1px solid rgb(var(--ink) / 0.1);
-  backdrop-filter: blur(5px);
   flex-shrink: 0;
   position: sticky;
   bottom: 0;
@@ -2100,7 +2097,6 @@ const handleCopySubmit = async () => {
   font-size: 14px;
   position: relative;
   z-index: 1;
-  backdrop-filter: blur(5px);
 }
 
 .launch-button-primary {
@@ -2250,7 +2246,6 @@ const handleCopySubmit = async () => {
   padding: 8px;
   min-width: 180px;
   box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
-  backdrop-filter: blur(10px);
   z-index: 3;
 }
 
@@ -2346,7 +2341,6 @@ const handleCopySubmit = async () => {
   padding: 6px;
   box-shadow: 0 10px 30px rgb(var(--shade) / 0.6);
   border: 1px solid rgb(var(--ink) / 0.1);
-  backdrop-filter: blur(10px);
   z-index: 5;
 }
 
@@ -2371,12 +2365,11 @@ const handleCopySubmit = async () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgb(var(--shade) / 0.5);
+  background-color: rgb(var(--shade) / 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(4px);
 }
 
 .modal-content {
@@ -2385,12 +2378,11 @@ const handleCopySubmit = async () => {
   width: 90%;
   max-width: 500px;
   max-height: 90vh;
-  background-color: rgb(var(--panel-33) / 0.92);
+  background-color: rgb(var(--panel-33) / 0.98);
   border-radius: 16px;
   border: 1px solid rgb(var(--ink) / 0.08);
   box-shadow: 0 20px 40px rgb(var(--shade) / 0.6);
   overflow: hidden;
-  backdrop-filter: blur(10px);
 }
 
 .modal-header {

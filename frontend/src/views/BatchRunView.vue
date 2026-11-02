@@ -36,7 +36,8 @@
               </div>
               <div class="metric-card" :class="{ 'status-active': status === 'In Progress' }">
                 <div class="metric-title">{{ $t('batch_run.total_time') }}</div>
-                <div class="metric-value">{{ totalTime }}</div>
+                <!-- Text is written by the timer loop directly (no per-frame re-render of the view) -->
+                <div ref="totalTimeEl" class="metric-value metric-timer"></div>
               </div>
               <div class="metric-card" :class="{ 'status-active': status === 'In Progress' }">
                 <div class="metric-title">{{ $t('batch_run.success_rate') }}</div>
@@ -302,7 +303,7 @@ JSON.stringify(["C:\\a_sheep.png"], null, 2)
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, shallowRef, triggerRef, markRaw, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 const { t, te } = useI18n()
@@ -345,8 +346,9 @@ const formatLogTimestamp = (timestamp) => {
 const router = useRouter()
 const route = useRoute()
 
-// Log box state
-const logMessages = ref([])
+// Log box state. Entries never change after being added, so the list is shallow:
+// pushing a line does not wrap it in a deep proxy (triggerRef notifies the view).
+const logMessages = shallowRef([])
 const logMessagesRef = ref(null)
 
 // Log message types
@@ -439,15 +441,35 @@ const failedTasks = ref(0)
 const batchStartTime = ref(null)
 const batchEndTime = ref(null)
 
-// Timer update loop (rAF: one update per rendered frame, automatically paused in background tabs)
+// Elapsed-time display. The loop writes the text node directly instead of going
+// through reactive state: a reactive per-frame value would re-render the whole
+// view (including the full log list) 60 times a second while a batch runs.
 let timerFrame = null
-const currentTime = ref(Date.now())
+const totalTimeEl = ref(null)
 
-// Timer functions
+const pad2 = (value) => value.toString().padStart(2, '0')
+const formatElapsed = (duration) => {
+  const hours = Math.floor(duration / (1000 * 60 * 60))
+  const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60))
+  const seconds = Math.floor((duration % (1000 * 60)) / 1000)
+  const centiseconds = Math.floor((duration % 1000) / 10)
+  return `${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}:${pad2(centiseconds)}`
+}
+
+const renderTotalTime = () => {
+  const el = totalTimeEl.value
+  if (!el) return
+  const text = batchStartTime.value
+    ? formatElapsed((batchEndTime.value || Date.now()) - batchStartTime.value)
+    : '00:00:00:00'
+  if (el.textContent !== text) el.textContent = text
+}
+
+// Timer functions (rAF: paused automatically in background tabs)
 const startTimer = () => {
   if (timerFrame !== null) return
   const tick = () => {
-    currentTime.value = Date.now()
+    renderTotalTime()
     timerFrame = requestAnimationFrame(tick)
   }
   timerFrame = requestAnimationFrame(tick)
@@ -458,24 +480,15 @@ const stopTimer = () => {
     cancelAnimationFrame(timerFrame)
     timerFrame = null
   }
+  renderTotalTime()
 }
+
+// Fill the element when the dashboard (v-if) mounts and when start/end change.
+watch([totalTimeEl, batchStartTime, batchEndTime], renderTotalTime, { flush: 'post' })
 
 const completedRows = computed(() => {
   if (totalRowsCount.value === 0) return '-'
   return `${completedRowsCount.value}/${totalRowsCount.value}`
-})
-
-const totalTime = computed(() => {
-  if (!batchStartTime.value) return '00:00:00:00'
-
-  const endTime = batchEndTime.value || currentTime.value
-  const duration = endTime - batchStartTime.value
-  const hours = Math.floor(duration / (1000 * 60 * 60))
-  const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60))
-  const seconds = Math.floor((duration % (1000 * 60)) / 1000)
-  const centiseconds = Math.floor((duration % 1000) / 10)
-
-  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${centiseconds.toString().padStart(2, '0')}`
 })
 
 const successRate = computed(() => {
@@ -693,12 +706,13 @@ const handleClickOutside = (event) => {
 let logMessageSeq = 0
 const addLogMessage = (message, type = LOG_TYPES.DEFAULT) => {
   const timestamp = formatLogTimestamp(Date.now())
-  logMessages.value.push({
+  logMessages.value.push(markRaw({
     id: ++logMessageSeq,
     timestamp,
     message,
     type
-  })
+  }))
+  triggerRef(logMessages)
 }
 
 // Input file selection methods
@@ -1183,13 +1197,12 @@ watch(viewMode, async (mode) => {
   left: 0;
   right: 0;
   height: 500px;
-  background: linear-gradient(
-    90deg,
-    var(--accent-mint),
-    var(--accent-sky),
-    var(--accent-indigo)
-  );
-  filter: blur(120px);
+  /* Pre-softened radial glows instead of filter: blur(120px) on a large layer,
+     which is very expensive to rasterise and composite. */
+  background:
+    radial-gradient(ellipse 40% 70% at 18% 45%, var(--accent-mint), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent-sky), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 82% 45%, var(--accent-indigo), transparent 72%);
   opacity: 0.15;
   z-index: 0;
   pointer-events: none;
@@ -1202,7 +1215,6 @@ watch(viewMode, async (mode) => {
   height: 40px;
   background-color: rgb(var(--ink) / 0.05);
   border-bottom: 1px solid rgb(var(--ink) / 0.1);
-  backdrop-filter: blur(5px);
   flex-shrink: 0;
   position: relative;
   z-index: 2;
@@ -1273,7 +1285,6 @@ watch(viewMode, async (mode) => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  backdrop-filter: blur(5px);
 }
 
 .dashboard-content {
@@ -1576,7 +1587,6 @@ watch(viewMode, async (mode) => {
   background: rgb(var(--ink) / 0.05);
   border: 1px solid rgb(var(--ink) / 0.12);
   position: relative;
-  backdrop-filter: blur(4px);
 }
 
 .loading-entry-label {
@@ -2025,7 +2035,6 @@ watch(viewMode, async (mode) => {
   border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   padding: 20px;
-  backdrop-filter: blur(5px);
 }
 
 .section-label {
@@ -2427,12 +2436,11 @@ watch(viewMode, async (mode) => {
 .column-guide-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgb(var(--shade) / 0.6);
+  background: rgb(var(--shade) / 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(2px);
 }
 
 .column-guide-modal {
@@ -2468,12 +2476,11 @@ watch(viewMode, async (mode) => {
 .batch-settings-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgb(var(--shade) / 0.6);
+  background: rgb(var(--shade) / 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(2px);
 }
 
 .batch-settings-modal {

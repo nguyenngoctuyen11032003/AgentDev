@@ -34,7 +34,7 @@ Hướng dẫn này sẽ chỉ cho bạn cách dùng cấu trúc **Đồ thị (
 
 Bản thân đồ thị không trực tiếp thực hiện công việc cụ thể nào, mà chịu trách nhiệm tổ chức, sắp xếp và điều phối logic thực thi của từng nút.
 
-<img src="media/graph_create.gif" width="800" />
+<img src="media/graph_create.webp" width="800" height="450" />
 
 ---
 
@@ -48,7 +48,7 @@ Nên quản lý tập trung tại đây các cấu hình dùng chung hoặc nh�
 Lưu ý: nếu các biến môi trường cần thiết đã được định nghĩa trong tệp `.env` bên ngoài và bạn muốn dùng trực tiếp, thì không cần cấu hình lại ở đây.
 Nếu biến được cấu hình tại đây, **thiết lập này sẽ được ưu tiên** hơn giá trị trong tệp `.env` bên ngoài.
 
-<img src="media/config_graph.gif" width="800" />
+<img src="media/config_graph.webp" width="800" height="450" />
 
 ---
 
@@ -98,7 +98,7 @@ The user will input a word or short phrase, and you must produce an article of a
 You are an editor. Combine the article and the poem, and append the poem at the end of the article.
 ```
 
-<img src="media/create_node.gif" width="800" />
+<img src="media/create_node.webp" width="800" height="450" />
 
 ---
 
@@ -137,7 +137,7 @@ Dựa trên ba nút vừa tạo, hãy thiết lập các liên kết sau:
 
 Lúc này, đồ thị tạo thành một cấu trúc điển hình "tạo nội dung song song → tổng hợp biên tập".
 
-<img src="media/create_edge.gif" width="800" />
+<img src="media/create_edge.webp" width="800" height="450" />
 
 ---
 <a id="4-graph-startup-and-execution-logic"></a>
@@ -154,7 +154,7 @@ Khi đồ thị khởi động:
 
 Vì vậy, với thiết lập hiện tại, **Poet** và **Article Writer** sẽ chạy song song, như hình dưới đây.
 
-<img src="media/run.gif" width="800" />
+<img src="media/run.webp" width="800" height="450" />
 
 > Đến đây, bạn đã xây dựng xong một quy trình đa Agent tối giản.
 
@@ -172,7 +172,7 @@ Sau đó thiết lập liên kết sau:
 
 * `Editor 1 → Editor 2` (`trigger = false`)
 
-<img src="media/condition_edge_1.gif" width="800" />
+<img src="media/condition_edge_1.webp" width="800" height="450" />
 
 Cấu hình này liên quan đến một thuộc tính quan trọng của liên kết: `trigger`
 
@@ -224,7 +224,7 @@ Các trường hợp sử dụng phổ biến:
 * **Ra quyết định và xác nhận**: để con người quyết định ở các bước quan trọng
 * **Điều khiển nhánh thực thi**: chọn nhánh đi tiếp của quy trình dựa trên góp ý của con người
 
-<img src="media/human_node.gif" width="800" />
+<img src="media/human_node.webp" width="800" height="450" />
 
 **Hướng dẫn cho nút Human (sao chép để cấu hình)**
 
@@ -241,7 +241,7 @@ Trong ví dụ này, chúng ta muốn dựa vào đầu vào mà nút Human nh�
 
 Để hiện thực logic này, chúng ta cần cấu hình **liên kết có điều kiện** giữa các nút.
 
-<img src="media/condition_edge_2.gif" width="800" />
+<img src="media/condition_edge_2.webp" width="800" height="450" />
 
 Cấu hình ở trên sử dụng một thuộc tính quan trọng của liên kết: `condition`, dùng để quyết định liên kết có hoạt động hay không:
 
@@ -251,7 +251,7 @@ Cấu hình ở trên sử dụng một thuộc tính quan trọng của liên k
 ---
 
 Với các bước trên, chúng ta đã bổ sung một quy trình duyệt và chỉnh sửa phức tạp hơn. Luồng thực thi được minh họa như dưới đây.
-<img src="media/complex_run.gif" width="800" />
+<img src="media/complex_run.webp" width="800" height="450" />
 
 ---
 Dưới đây là thông tin chi tiết hơn về hệ thống:

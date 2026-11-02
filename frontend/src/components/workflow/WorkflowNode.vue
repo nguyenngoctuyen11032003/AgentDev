@@ -120,6 +120,7 @@ import { computed, ref, onUnmounted, watch } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { getNodeStyles } from '@/utils/colorUtils.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
+import { isHeroSprite } from '@/utils/spriteCharacters.js'
 import RichTooltip from '@/components/common/RichTooltip.vue'
 import { getNodeHelp } from '@/utils/helpContent.js'
 import { configStore } from '@/stores/configStore.js'
@@ -195,6 +196,15 @@ const currentSprite = computed(() => {
   // When not active, use the original frame (1)
   return props.sprite
 })
+
+// Hero character: aura while idle, motion trail while the walk cycle runs
+const isHero = computed(() => isHeroSprite(currentSprite.value))
+const figureClass = computed(() =>
+  isHero.value ? ['hero-sprite', 'hero-D', { 'is-moving': isActive.value }] : null
+)
+const figureStyle = computed(() =>
+  isHero.value ? { '--hero-sprite': `url("${currentSprite.value}")` } : null
+)
 
 const applyFrame = (frame) => {
   const img = spriteImgRef.value
@@ -272,7 +282,7 @@ onUnmounted(() => {
     <div class="workflow-node-container" :class="{ 'is-active': isActive }">
       <div v-if="props.sprite" class="workflow-node-sprite" :style="spriteStyles">
         <span v-if="isActive" class="sprite-halo" aria-hidden="true"></span>
-        <div class="sprite-figure">
+        <div class="sprite-figure" :class="figureClass" :style="figureStyle">
           <img
             ref="spriteImgRef"
             :src="currentSprite"
@@ -319,7 +329,7 @@ onUnmounted(() => {
   <div v-else class="workflow-node-container" :class="{ 'is-active': isActive }">
     <div v-if="props.sprite" class="workflow-node-sprite" :style="spriteStyles">
       <span v-if="isActive" class="sprite-halo" aria-hidden="true"></span>
-      <div class="sprite-figure">
+      <div class="sprite-figure" :class="figureClass" :style="figureStyle">
         <img
           ref="spriteImgRef"
           :src="currentSprite"
@@ -440,7 +450,13 @@ onUnmounted(() => {
   height: 100%;
   transform-origin: 50% 100%;
   transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
-  /* Subtle contact shadow + a faint rim so the figure reads as a figure, not an icon */
+}
+
+/* Subtle contact shadow + a faint rim so the figure reads as a figure, not an icon.
+   Set on the image itself (not the wrapper): the image's idle bob is a transform,
+   so the filtered image is rasterised once and just moved, instead of the wrapper
+   re-filtering its animated child every frame. Hero sprites bring their own glow. */
+.sprite-figure:not(.hero-sprite) .node-sprite-image {
   filter: drop-shadow(0 3px 2px rgb(var(--shade) / 0.35)) drop-shadow(0 0 1px rgb(var(--ink) / 0.18));
 }
 
