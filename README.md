@@ -9,9 +9,6 @@
 </p>
 
 <p align="center">
-  【<a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>】
-</p>
-<p align="center">
     【📚 <a href="#developers">Developers</a> | 👤 <a href="#author">Author</a> | ⚖️ <a href="#license">License</a>】
 </p>
 
@@ -20,6 +17,21 @@
 **AgentDev** is a **Zero-Code Multi-Agent Platform** for "Developing Everything". It lets you rapidly build and run customized multi-agent systems through simple configuration. No coding is required—define agents, workflows, and tasks to orchestrate complex scenarios such as data visualization, 3D generation, and deep research.
 
 AgentDev is developed and maintained by [Nguyễn Ngọc Tuyền](https://github.com/nguyenngoctuyen11032003). It is built on top of [ChatDev 2.0 (AgentDev)](https://github.com/OpenBMB/ChatDev) by OpenBMB, released under the Apache License 2.0 — see [License & Credits](#license).
+
+## 📁 Project Structure
+
+```
+AgentDev/
+├── backend/      # Python backend (uv project): main.py server, cli.py runner, agentdev/ package, scripts/, tests/
+├── frontend/     # Vue 3 + Vite web console
+├── workspace/    # user-editable content: workflows/, functions/, skills/, templates/, examples/
+├── docs/         # user guide (en / zh)
+├── storage/      # generated at runtime, gitignored: warehouse/ (session output), db/ (vuegraphs.db), logs/, temp/
+├── compose.yml   # Docker Compose setup (backend + frontend)
+└── Makefile      # dev shortcuts (make install / dev / help ...)
+```
+
+`.env` stays at the repository root. Set `AGENTDEV_STORAGE_DIR` to keep runtime data elsewhere (e.g. a mounted volume).
 
 ## 🚀 Quick Start
 
@@ -32,9 +44,11 @@ AgentDev is developed and maintained by [Nguyễn Ngọc Tuyền](https://github
 
 ### 📦 Installation
 
+Install everything at once with `make install`, or step by step:
+
 1.  **Backend Dependencies** (Python managed by `uv`):
     ```bash
-    uv sync
+    cd backend && uv sync
     ```
 
 2.  **Frontend Dependencies** (Vite + Vue 3):
@@ -49,6 +63,7 @@ AgentDev is developed and maintained by [Nguyễn Ngọc Tuyền](https://github
     cp .env.example .env
     ```
 *   **Model Keys**: Set `API_KEY` and `BASE_URL` in `.env` for your LLM provider.
+*   **Claude (optional)**: Set `ANTHROPIC_API_KEY` (optionally `ANTHROPIC_BASE_URL`) and use `provider: anthropic` with `api_key: ${ANTHROPIC_API_KEY}` in Claude nodes (see `workspace/workflows/demo_claude.yaml`).
 *   **YAML placeholders**: Use `${VAR}`（e.g., `${API_KEY}`）in configuration files to reference these variables.
 
 ### ⚡️ Run the Application
@@ -67,9 +82,9 @@ make dev
 1.  **Start Backend**:
     ```bash
     # Run from the project root
-    uv run python server_main.py --port 6400 --reload
+    cd backend && uv run python main.py --port 6400 --reload
     ```
-    > `--reload` watches the server's Python source folders only; agent-generated files under `WareHouse/` no longer trigger restarts. Pass `--reload-dir` or `--reload-exclude` (repeatable) to customise.
+    > `--reload` watches the server's Python source folders only; agent-generated files under `storage/warehouse/` no longer trigger restarts. Pass `--reload-dir` or `--reload-exclude` (repeatable) to customise.
 
 2.  **Start Frontend**:
     ```bash
@@ -96,7 +111,7 @@ make dev
     ```bash
     make sync
     ```
-    Uploads all workflow files from `workflows/` to the database.
+    Uploads all workflow files from `workspace/workflows/` to the database.
 
 *   **Validate all YAML workflows**:
     ```bash
@@ -166,7 +181,7 @@ from agentdev.runtime.sdk import run_workflow
 
 # Execute a workflow and get the final node message
 result = run_workflow(
-    yaml_file="workflows/demo.yaml",
+    yaml_file="workspace/workflows/demo.yaml",
     task_prompt="Summarize the attached document in one sentence.",
     attachments=["/path/to/document.pdf"],
     variables={"API_KEY": "sk-xxxx"} # Override .env variables if needed
@@ -188,38 +203,43 @@ Extend AgentDev with new nodes, providers, and tools.
 The project is organized into a modular structure:
 
 ```
-agentdev/                 # Python backend (single package)
-├── entity/               #   workflow config dataclasses, messages, enums
-├── schema_registry/      #   node/edge/memory schema registrations
-├── runtime/              #   node & edge execution, agent providers, SDK
-├── workflow/             #   graph orchestration (DAG, cycles, executors)
-├── server/               #   FastAPI app: routes/ + services/
-├── validation/           #   YAML/workflow validation (load_config)
-├── utils/                #   shared helpers (logging, attachments, paths)
-└── paths.py              #   canonical repo locations
-functions/                # user-extensible Python tools & edge functions
-workflows/                # workflow YAML definitions served by the API
-templates/                # generated design template (design.yaml)
-scripts/                  # maintenance CLIs (python -m scripts.<name>)
-examples/                 # sample MCP server
-frontend/                 # Vue 3 web console
-tests/  docs/             # pytest suite, user guide
-run.py  server_main.py    # CLI runner, HTTP server entry point
+backend/                      # Python backend (uv project: pyproject.toml, uv.lock)
+├── agentdev/                 #   single Python package
+│   ├── entity/               #     workflow config dataclasses, messages, enums
+│   ├── schema_registry/      #     node/edge/memory schema registrations
+│   ├── runtime/              #     node & edge execution, agent providers, SDK
+│   ├── workflow/             #     graph orchestration (DAG, cycles, executors)
+│   ├── api/                  #     FastAPI app: routes/ + services/
+│   ├── validation/           #     YAML/workflow validation (load_config)
+│   ├── utils/                #     shared helpers (logging, attachments, paths)
+│   └── paths.py              #     canonical repo locations
+├── scripts/                  #   maintenance CLIs (cd backend && uv run python -m scripts.<name>)
+├── tests/                    #   pytest suite
+├── main.py                   #   HTTP server entry point
+└── cli.py                    #   CLI workflow runner
+workspace/                    # user-editable content
+├── workflows/                #   workflow YAML definitions served by the API
+├── functions/                #   user-extensible Python tools & edge functions
+├── skills/                   #   agent skills
+├── templates/                #   generated design template (design.yaml)
+└── examples/                 #   sample MCP server
+frontend/                     # Vue 3 web console (src/api, views, components, stores, i18n)
+docs/                         # user guide
 ```
 
-*   **Core Systems**: `agentdev/server/` hosts the FastAPI backend, while `agentdev/runtime/` manages agent abstraction and tool execution.
-*   **Orchestration**: `agentdev/workflow/` handles the multi-agent logic, driven by configurations in `agentdev/entity/`.
+*   **Core Systems**: `backend/agentdev/api/` hosts the FastAPI backend, while `backend/agentdev/runtime/` manages agent abstraction and tool execution.
+*   **Orchestration**: `backend/agentdev/workflow/` handles the multi-agent logic, driven by configurations in `backend/agentdev/entity/`.
 *   **Frontend**: `frontend/` contains the Vue 3 Web Console.
-*   **Extensibility**: `functions/` is the place for custom Python tools.
+*   **Extensibility**: `workspace/functions/` is the place for custom Python tools.
 
 Relevant reference documentation:
 *   **Getting Started**: [Start Guide](./docs/user_guide/en/index.md)
-*   **Core Modules**: [Workflow Authoring](./docs/user_guide/en/workflow_authoring.md), [Memory](./docs/user_guide/en/modules/memory.md), and [Tooling](./docs/user_guide/en/modules/tooling/index.md)
+*   **Core Modules**: [Workflow Authoring](./docs/user_guide/en/workflow_authoring.md), [Memory](./docs/user_guide/en/modules/memory.md), and [Tooling](./docs/user_guide/en/modules/tooling/README.md)
 
 ---
 
 ## 🌟 Featured Workflows
-We provide robust, out-of-the-box templates for common scenarios. All runnable workflow configs are located in `workflows/`.
+We provide robust, out-of-the-box templates for common scenarios. All runnable workflow configs are located in `workspace/workflows/`.
 *   **Demos**: Files named `demo_*.yaml` showcase specific features or modules.
 *   **Implementations**: Files named directly (e.g., `AgentDev_v1.yaml`) are full in-house or recreated workflows. As follows:
 
@@ -231,7 +251,7 @@ We provide robust, out-of-the-box templates for common scenarios. All runnable w
 | **🛠️ 3D Generation**<br>*(Requires [Blender](https://www.blender.org/) & [blender-mcp](https://github.com/ahujasid/blender-mcp))* | `blender_3d_builder_simple.yaml`<br>`blender_3d_builder_hub.yaml`<br>`blender_scientific_illustration.yaml` | Prompt: *"Please build a Christmas tree."* |
 | **🎮 Game Dev** | `GameDev_v1.yaml`<br>`AgentDev_v1.yaml`                                                                      | Prompt: *"Please help me design and develop a Tank Battle game."* |
 | **📚 Deep Research** | `deep_research_v1.yaml`                                                                                     | Prompt: *"Research about recent advances in the field of LLM-based agent RL"* |
-| **🎓 Teach Video** | `teach_video.yaml` (Please run command `uv add manim` before running this workflow)                         | Prompt: *"讲一下什么是凸优化"* |
+| **🎓 Teach Video** | `teach_video.yaml` (Please run command `cd backend && uv add manim` before running this workflow)                         | Prompt: *"讲一下什么是凸优化"* |
 
 ---
 

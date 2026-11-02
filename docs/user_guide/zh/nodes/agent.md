@@ -1,13 +1,13 @@
 # Agent 节点
 
-Agent 节点是 AgentDev 平台中最核心的节点类型，用于调用大语言模型 (LLM) 完成文本生成、对话、推理等任务。它支持多种模型提供商（OpenAI、Gemini 等），并可配置工具调用、思维链、记忆等高级功能。
+Agent 节点是 AgentDev 平台中最核心的节点类型，用于调用大语言模型 (LLM) 完成文本生成、对话、推理等任务。它支持多种模型提供商（OpenAI、Gemini、Anthropic Claude 等），并可配置工具调用、思维链、记忆等高级功能。
 
 ## 配置项
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| `provider` | string | 是 | `openai` | 模型提供商名称，如 `openai`、`gemini` |
-| `name` | string | 是 | - | 模型名称，如 `gpt-4o`、`gemini-2.0-flash-001` |
+| `provider` | string | 是 | `openai` | 模型提供商名称，如 `openai`、`gemini`、`anthropic` |
+| `name` | string | 是 | - | 模型名称，如 `gpt-4o`、`gemini-2.0-flash-001`、`claude-opus-5-5` |
 | `role` | text | 否 | - | 系统提示词 (System Prompt) |
 | `base_url` | string | 否 | 提供商默认 | API 端点 URL，支持 `${VAR}` 占位符 |
 | `api_key` | string | 否 | - | API 密钥，建议使用环境变量 `${API_KEY}` |
@@ -33,11 +33,11 @@ Agent 节点是 AgentDev 平台中最核心的节点类型，用于调用大语�
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | `false` | 是否为该节点启用 Agent Skills |
-| `allow` | list[object] | `[]` | 可选的技能白名单，来源于项目级 `.agents/skills/` 目录；每个条目使用 `name` |
+| `allow` | list[object] | `[]` | 可选的技能白名单，来源于项目级 `workspace/skills/` 目录；每个条目使用 `name` |
 
 ### Agent Skills 说明
 
-- 技能统一从固定的项目级 `.agents/skills/` 目录中发现。
+- 技能统一从固定的项目级 `workspace/skills/` 目录中发现。
 - 运行时会暴露两个内置技能工具：`activate_skill` 和 `read_skill_file`。
 - `read_skill_file` 只有在对应技能已经激活后才可用。
 - 技能 `SKILL.md` 的 frontmatter 可以包含可选的 `allowed-tools`，格式遵循 Agent Skills 规范，例如 `allowed-tools: execute_code`。
@@ -85,7 +85,7 @@ nodes:
       tooling:
         type: function  # 工具类型：function, mcp_remote, mcp_local
         config:
-          tools:  # 函数工具列表，来自 functions/function_calling/ 目录
+          tools:  # 函数工具列表，来自 workspace/functions/function_calling/ 目录
             - name: describe_available_files
             - name: load_file
           timeout: 20  # 可选：执行超时（秒）
@@ -144,6 +144,57 @@ nodes:
       name: gemini-2.5-flash-image
       role: 你需要根据用户的输入，生成相应的图像内容。
 ```
+
+### 使用 Claude (Anthropic)
+
+`anthropic` 提供商通过官方 `anthropic` Python SDK 调用 Claude 模型（Messages API，内部使用流式传输，长输出不会超时）。
+
+```yaml
+nodes:
+  - id: Claude Agent
+    type: agent
+    config:
+      provider: anthropic
+      name: claude-opus-5-5          # 也可用：claude-sonnet-5-5、claude-haiku-5-5、claude-fable-5-1
+      api_key: ${ANTHROPIC_API_KEY}  # 不要复用 ${API_KEY}/${BASE_URL}（它们是 OpenAI 的配置）
+      # base_url: ${ANTHROPIC_BASE_URL}  # 可选；省略则使用官方端点
+      role: 你是一个乐于助人的助手。
+      tooling:
+        - type: function
+          config:
+            auto_load: true
+            tools:
+              - name: get_weather
+      params:
+        effort: medium
+        max_tokens: 16000
+```
+
+- `api_key`：优先使用节点配置，否则读取环境变量 `ANTHROPIC_API_KEY`。`base_url`：优先使用节点配置，否则使用 `ANTHROPIC_BASE_URL` 或官方端点。
+- 支持：文本、系统提示词、工具调用（函数工具、MCP 工具、Skills）、并行工具调用、图片输入（png/jpeg/gif/webp）、PDF 输入、文本文件附件（以文本内联）、自适应思考 (adaptive thinking)、提示缓存（默认开启）、Token 用量统计（含缓存读/写 Token）。
+- 可运行示例见 `workspace/workflows/demo_claude.yaml`。
+
+| 参数 | 说明 |
+|------|------|
+| `max_tokens` | 最大输出 Token 数（默认 `64000`） |
+| `effort` | `low` / `medium` / `high` / `xhigh` / `max`（映射为 `output_config.effort`） |
+| `thinking` | 思考配置字典，原样透传；设为 `false` 或 `"off"` 则不发送 |
+| `thinking_display` | `summarized` 或 `omitted` |
+| `prompt_caching` | 是否启用提示缓存（布尔值，默认 `true`） |
+| `tool_choice` | `auto` / `none` / `required`，或原生 Anthropic `tool_choice` 字典 |
+| `stop_sequences` | 自定义停止序列列表 |
+| `timeout` | 请求超时（秒） |
+| `fallbacks` | 服务端拒答回退。使用官方端点时，`claude-opus-5-5`、`claude-fable-5-1`、`claude-opus-5`、`claude-sonnet-5-5` 默认为 `"default"`；设为 `false` 可关闭 |
+| `metadata` | 请求元数据字典 |
+| `inference_geo` | 推理地域 |
+| `extra_headers` | 额外 HTTP 请求头 |
+| `temperature` / `top_p` / `top_k` | 当前 Claude 模型不接受这些参数，会被丢弃并给出警告；设置 `allow_sampling_params: true` 可保留 |
+
+**限制**
+
+- 仅输出文本：不支持图片/音频/视频生成。
+- 音频/视频输入不会原生发送，而是以文本描述的形式提供给模型。
+- Anthropic 没有 embedding 模型：记忆模块的 `embedding` 仍需使用 `openai` 或 `local`。
 
 ### 配置重试策略
 

@@ -90,7 +90,7 @@ Responses:
 
 ## 3. CLI Helper
 ```bash
-python run.py --inspect-schema --schema-breadcrumbs '[{"node":"DesignConfig","field":"graph"}]'
+cd backend && uv run python cli.py --inspect-schema --schema-breadcrumbs '[{"node":"DesignConfig","field":"graph"}]'
 ```
 The CLI prints the same JSON as `/schema`, which is useful while editing `FIELD_SPECS` or debugging registries before exporting templates.
 

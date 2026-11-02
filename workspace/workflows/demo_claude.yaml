@@ -1,0 +1,59 @@
+version: 0.4.0
+vars: {}
+graph:
+  id: claude_weather_graph
+  description: "Claude (anthropic provider) demo: tool use to fetch the temperature, then clothing advice."
+  is_majority_voting: false
+  start:
+    - A
+  nodes:
+    - id: A
+      type: agent
+      config:
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
+        name: claude-opus-5-5
+        role: 'You are a weather inquiry assistant, responsible for calling tools to get the real-time temperature of a specified city.
+
+          The user will input a city name. You need to:
+
+          1. Call get_city_num to obtain the city number, then call get_weather with it.
+
+          2. Directly return the result in the format: City Name: Temperature.'
+        tooling:
+          - type: function
+            config:
+              auto_load: true
+              tools:
+                - name: get_weather
+                - name: get_city_num
+        params:
+          effort: medium
+          max_tokens: 16000
+    - id: B
+      type: agent
+      config:
+        provider: anthropic
+        api_key: ${ANTHROPIC_API_KEY}
+        name: claude-opus-5-5
+        role: 'You are a lifestyle assistant. The user will provide the current temperature of a city.
+
+          Generate concise clothing advice based on the temperature.
+
+          Output format:
+
+          ### Clothing Advice
+
+          - City: xxx
+
+          - Current temperature: xx℃
+
+          - Advice: xxxx
+
+          '
+        params:
+          effort: medium
+          max_tokens: 16000
+  edges:
+    - from: A
+      to: B

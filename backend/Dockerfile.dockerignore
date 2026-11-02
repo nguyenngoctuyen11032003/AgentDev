@@ -1,0 +1,44 @@
+# Build context is the repository root (see compose.yml / backend/Dockerfile).
+# BuildKit picks this file up automatically as <Dockerfile>.dockerignore.
+
+# VCS / editor / OS
+.git
+.github
+.gitignore
+.gitattributes
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Python caches and virtual environments
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/venv/
+**/env/
+**/.uv-cache/
+**/.pytest_cache/
+**/.ruff_cache/
+
+# Secrets / local env
+.env
+.env.*
+
+# Runtime data (mounted at runtime, never baked into the image)
+storage/
+WareHouse/
+data/
+temp/
+logs/
+
+# Frontend has its own image
+frontend/
+**/node_modules/
+
+# Docs and repo metadata not needed at runtime
+docs/
+README*
+compose.yml
+backend/Dockerfile
+backend/Dockerfile.dockerignore

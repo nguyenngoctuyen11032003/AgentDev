@@ -1,6 +1,6 @@
 # 内置 Function 工具目录
 
-本文档列出 `functions/function_calling/` 目录中预置的所有工具，供 Agent 节点通过 Function Tooling 调用。
+本文档列出 `workspace/functions/function_calling/` 目录中预置的所有工具，供 Agent 节点通过 Function Tooling 调用。
 
 ## 快速导入
 
@@ -38,7 +38,7 @@ tooling:
 | `move_path` | 移动文件或目录 |
 | `search_in_files` | 在工作区文件中搜索文本或正则模式 |
 
-**示例 YAML**：[AgentDev_v1.yaml](../../../../../workflows/AgentDev_v1.yaml)、[file_tool_use_case.yaml](../../../../../workflows/file_tool_use_case.yaml)
+**示例 YAML**：[AgentDev_v1.yaml](../../../../../workspace/workflows/AgentDev_v1.yaml)、[file_tool_use_case.yaml](../../../../../workspace/workflows/file_tool_use_case.yaml)
 
 ---
 
@@ -52,7 +52,7 @@ tooling:
 | `init_python_env` | 初始化 Python 环境（uv lock + venv） |
 | `uv_run` | 在工作区内执行 uv run，运行模块或脚本 |
 
-**示例 YAML**：[AgentDev_v1.yaml](../../../../../workflows/AgentDev_v1.yaml)
+**示例 YAML**：[AgentDev_v1.yaml](../../../../../workspace/workflows/AgentDev_v1.yaml)
 
 ---
 
@@ -83,7 +83,7 @@ tooling:
 | `report_del_chapter` | 删除章节 |
 | `report_export_pdf` | 导出报告为 PDF |
 
-**示例 YAML**：[deep_research_v1.yaml](../../../../../workflows/deep_research_v1.yaml)
+**示例 YAML**：[deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
 
 ---
 
@@ -100,7 +100,7 @@ tooling:
 - `SERPER_DEV_API_KEY`：Serper.dev API 密钥
 - `JINA_API_KEY`：Jina API 密钥（可选，无密钥时自动限速 20 RPM）
 
-**示例 YAML**：[deep_research_v1.yaml](../../../../../workflows/deep_research_v1.yaml)
+**示例 YAML**：[deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
 
 ---
 
@@ -113,7 +113,7 @@ Manim 动画渲染与视频处理。
 | `render_manim` | 渲染 Manim 脚本，自动检测场景类并输出视频 |
 | `concat_videos` | 使用 FFmpeg 拼接多个视频文件 |
 
-**示例 YAML**：[teach_video.yaml](../../../../../workflows/teach_video.yaml)、[teach_video.yaml](../../../../../workflows/teach_video.yaml)
+**示例 YAML**：[teach_video.yaml](../../../../../workspace/workflows/teach_video.yaml)、[teach_video.yaml](../../../../../workspace/workflows/teach_video.yaml)
 
 ---
 
@@ -148,7 +148,7 @@ Manim 动画渲染与视频处理。
 
 ## 添加自定义工具
 
-1. 在 `functions/function_calling/` 目录下创建 Python 文件
+1. 在 `workspace/functions/function_calling/` 目录下创建 Python 文件
 2. 使用类型注解定义参数：
 
 ```python

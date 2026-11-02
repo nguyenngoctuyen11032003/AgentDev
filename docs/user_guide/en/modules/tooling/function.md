@@ -1,6 +1,6 @@
 # Function Tooling Configuration Guide
 
-`FunctionToolConfig` lets agent nodes call Python functions defined in the repo. Implementation lives in `agentdev/entity/configs/node/tooling.py`, `agentdev/utils/function_catalog.py`, and `functions/function_calling/`.
+`FunctionToolConfig` lets agent nodes call Python functions defined in the repo. Implementation lives in `backend/agentdev/entity/configs/node/tooling.py`, `backend/agentdev/utils/function_catalog.py`, and `workspace/functions/function_calling/`.
 
 ## 1. Config Fields
 | Field | Description |
@@ -9,21 +9,21 @@
 | `timeout` | Tool execution timeout (seconds). |
 
 `FunctionToolEntryConfig` specifics:
-- `name`: top-level function name in `functions/function_calling/`.
+- `name`: top-level function name in `workspace/functions/function_calling/`.
 
 ### Function picker (`module_name:function_name`) & `module_name:All`
-- The dropdown displays each function as `module_name:function_name`, where `module_name` is the relative Python file under `functions/function_calling/` (without `.py`, nested folders joined by `/`). This preserves semantic grouping for large catalogs.
+- The dropdown displays each function as `module_name:function_name`, where `module_name` is the relative Python file under `workspace/functions/function_calling/` (without `.py`, nested folders joined by `/`). This preserves semantic grouping for large catalogs.
 - Every module automatically prepends a `module_name:All` entry, and all `All` entries are sorted lexicographically ahead of concrete functions. Choosing it expands to all functions in that module during config parsing, preserving alphabetical order.
 - `module_name:All` is strictly for bulk imports; overriding `description`/`parameters`/`auto_fill` alongside it raises a validation error. Customize individual functions after expansion if needed.
 - Both modules and functions are sorted alphabetically, and YAML still stores the plain function names; `module_name:All` is merely an input shortcut.
 
 ## 2. Function Directory Requirements
-- Path: `functions/function_calling/` (override with `MAC_FUNCTIONS_DIR`).
+- Path: `workspace/functions/function_calling/` (override with `MAC_FUNCTIONS_DIR`).
 - Functions must live at module top level.
 - Provide Python type hints; for enums/descriptions use `typing.Annotated[..., ParamMeta(...)]`.
 - Parameters beginning with `_` or splats (`*args`/`**kwargs`) are hidden from the agent call.
 - The docstring’s first paragraph becomes the description (truncated to ~600 chars).
-- `agentdev/utils/function_catalog.py` builds JSON Schemas at startup for the frontend/CLI.
+- `backend/agentdev/utils/function_catalog.py` builds JSON Schemas at startup for the frontend/CLI.
 
 ## 3. Context Injection
 The executor passes `_context` into each function:
@@ -33,7 +33,7 @@ The executor passes `_context` into each function:
 | `python_workspace_root` | Session `code_workspace/` shared by Python nodes. |
 | `graph_directory` | Session root directory for relative path helpers. |
 | others | Environment-specific extras (session/node IDs, etc.). |
-Functions can declare `_context: dict | None = None` and parse it (see `functions/function_calling/file.py`’s `FileToolContext`).
+Functions can declare `_context: dict | None = None` and parse it (see `workspace/functions/function_calling/file.py`’s `FileToolContext`).
 
 ## 4. Example: Read Text File
 ```python
@@ -66,10 +66,10 @@ nodes:
 ```
 
 ## 5. Extension Flow
-1. Add your function under `functions/function_calling/`.
+1. Add your function under `workspace/functions/function_calling/`.
 2. Supply type hints + `ParamMeta`; set `auto_fill: false` with custom `parameters` if you need manual JSON Schema.
-3. If the function needs extra packages, declare them in `pyproject.toml`/`requirements.txt`, or use the bundled `install_python_packages` sparingly.
-4. Run `python -m scripts.export_design_template ...` so the frontend picks up new enums.
+3. If the function needs extra packages, declare them in `backend/pyproject.toml`, or use the bundled `install_python_packages` sparingly.
+4. Run `cd backend && uv run python -m scripts.export_design_template ...` so the frontend picks up new enums.
 
 ## 6. Debugging
 - If the frontend/CLI reports function `foo` not found, double-check the name and ensure it resides under `MAC_FUNCTIONS_DIR`.

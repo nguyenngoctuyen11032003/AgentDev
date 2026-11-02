@@ -1,6 +1,6 @@
 # Memory Module Guide
 
-This document explains AgentDev's memory system: memory list config, built-in store implementations, how agent nodes attach memories, and troubleshooting tips. Core code lives in `agentdev/entity/configs/node/memory.py` and `node/agent/memory/*.py`.
+This document explains AgentDev's memory system: memory list config, built-in store implementations, how agent nodes attach memories, and troubleshooting tips. Core code lives in `backend/agentdev/entity/configs/node/memory.py` and `backend/agentdev/runtime/node/agent/memory/*.py`.
 
 ## 1. Architecture
 1. **Memory Store** – Declared under `memory[]` in YAML with `name`, `type`, and `config`. Types are registered via `register_memory_store()` and point to concrete implementations.
@@ -14,7 +14,7 @@ memory:
   - name: convo_cache
     type: simple
     config:
-      memory_path: WareHouse/shared/simple.json
+      memory_path: shared/simple.json   # relative -> storage/memory/shared/simple.json
       embedding:
         provider: openai
         model: text-embedding-3-small
@@ -22,7 +22,7 @@ memory:
   - name: project_docs
     type: file
     config:
-      index_path: WareHouse/index/project_docs.json
+      index_path: index/project_docs.json   # relative -> storage/memory/index/project_docs.json
       file_sources:
         - path: docs/
           file_types: [".md", ".mdx"]
@@ -122,6 +122,7 @@ This schema lets multimodal outputs flow into Memory/Thinking modules without ex
 - `provider=openai` uses the official client; override `base_url` for compatibility layers.
 - `params` can include `use_chunking`, `chunk_strategy`, `max_length`, etc.
 - `provider=local` expects `params.model_path` and depends on `sentence-transformers`.
+- Anthropic Claude has no embedding model: agents may use `provider: anthropic`, but `embedding.provider` must stay `openai` (or an OpenAI-compatible endpoint) or `local`.
 
 ## 7. Troubleshooting & Best Practices
 - **Duplicate names** – The memory list enforces unique `memory[]` names. Duplicates raise `ConfigError`.
@@ -132,5 +133,5 @@ This schema lets multimodal outputs flow into Memory/Thinking modules without ex
 ## 8. Extending Memory
 1. Implement a Config + Store (subclass `MemoryBase`).
 2. Register via `register_memory_store("my_store", config_cls=..., factory=..., summary="...")` in `node/agent/memory/registry.py`.
-3. Add `FIELD_SPECS`, then run `python -m scripts.export_design_template ...` so the frontend picks up the enum.
+3. Add `FIELD_SPECS`, then run `cd backend && uv run python -m scripts.export_design_template ...` so the frontend picks up the enum.
 4. Update this guide or ship a README detailing configuration knobs and boundaries.

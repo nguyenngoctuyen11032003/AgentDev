@@ -1,6 +1,6 @@
 # Memory 模块指南
 
-本文档解释 AgentDev 的 Memory 体系：memory 列表配置、内置存储实现、Agent 节点如何引用记忆，以及排障建议。代码主要位于 `agentdev/entity/configs/node/memory.py`、`node/agent/memory/*.py`。
+本文档解释 AgentDev 的 Memory 体系：memory 列表配置、内置存储实现、Agent 节点如何引用记忆，以及排障建议。代码主要位于 `backend/agentdev/entity/configs/node/memory.py`、`backend/agentdev/runtime/node/agent/memory/*.py`。
 
 ## 1. 体系结构
 1. **Memory Store**：在 YAML `memory[]` 中声明，包含 `name`、`type` 和 `config`。`type` 由 `register_memory_store()` 注册，并映射到具体实现。
@@ -14,7 +14,7 @@ memory:
   - name: convo_cache
     type: simple
     config:
-      memory_path: WareHouse/shared/simple.json
+      memory_path: shared/simple.json   # 相对路径 -> storage/memory/shared/simple.json
       embedding:
         provider: openai
         model: text-embedding-3-small
@@ -22,7 +22,7 @@ memory:
   - name: project_docs
     type: file
     config:
-      index_path: WareHouse/index/project_docs.json
+      index_path: index/project_docs.json   # 相对路径 -> storage/memory/index/project_docs.json
       file_sources:
         - path: docs/
           file_types: [".md", ".mdx"]
@@ -124,6 +124,7 @@ nodes:
 - `provider=openai` 时使用 `openai.OpenAI` 客户端，可配置 `base_url` 以兼容兼容层。
 - `params` 支持 `use_chunking`, `chunk_strategy`, `max_length` 等自定义键。
 - `provider=local` 时需提供 `params.model_path`，依赖 `sentence-transformers`。
+- Anthropic Claude 没有 embedding 模型：Agent 可以使用 `provider: anthropic`，但 `embedding.provider` 仍需为 `openai`（或 OpenAI 兼容端点）或 `local`。
 
 ## 7. 排错与最佳实践
 - **重复命名**：内存列表会校验 `memory[]` 名称唯一；重复时抛出 `ConfigError`。
@@ -137,5 +138,5 @@ nodes:
 ## 8. 扩展自定义 Memory
 1. 新建 Config + Store（继承 `MemoryBase`）。
 2. 在 `node/agent/memory/registry.py` 中调用 `register_memory_store("my_store", config_cls=..., factory=..., summary="用途")`。
-3. 补充 `FIELD_SPECS`，运行 `python -m scripts.export_design_template ...` 以让前端获取新枚举。
+3. 补充 `FIELD_SPECS`，运行 `cd backend && uv run python -m scripts.export_design_template ...` 以让前端获取新枚举。
 4. 更新本指南或附带 README，说明新 store 的配置项与边界条件。

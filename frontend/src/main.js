@@ -1,8 +1,9 @@
 import { createApp } from 'vue'
-import './style.css'
+import '@/assets/styles/main.css'
 import App from './App.vue'
-import router from './router'
-import i18n from './i18n'
-import './assets/styles/fonts.css'
+import router from '@/router'
+import i18n from '@/i18n'
+import '@/assets/styles/fonts.css'
+import '@/assets/styles/markdown.css'
 
 createApp(App).use(router).use(i18n).mount('#app')

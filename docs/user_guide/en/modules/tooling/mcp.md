@@ -58,7 +58,7 @@ nodes:
 AgentDev keeps the process alive and relays MCP frames over stdio.
 
 ## 4. FastMCP sample server
-`examples/mcp_server.py`:
+`workspace/examples/mcp_server.py`:
 ```python
 from fastmcp import FastMCP
 import random
@@ -74,7 +74,7 @@ if __name__ == "__main__":
 ```
 Launch:
 ```bash
-uv run fastmcp run examples/mcp_server.py --transport streamable-http --port 8010
+uv run --project backend fastmcp run workspace/examples/mcp_server.py --transport streamable-http --port 8010
 ```
 - Remote mode: set `server` to `http://127.0.0.1:8010/mcp`.
 - Local mode: run the script with `transport=stdio` and point `command` to that invocation.
@@ -89,4 +89,4 @@ uv run fastmcp run examples/mcp_server.py --transport streamable-http --port 801
 ## 6. Debugging checklist
 1. Remote: ping the HTTP endpoint via curl or `fastmcp client`. Local: run the binary manually and confirm the readiness log.
 2. Start AgentDev (optionally with `--reload`) and observe backend logs for tool discovery.
-3. When calls fail, inspect the Web UI tool traces or the structured logs under `logs/`.
+3. When calls fail, inspect the Web UI tool traces or the structured logs under `storage/logs/`.

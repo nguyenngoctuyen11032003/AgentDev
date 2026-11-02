@@ -1,6 +1,6 @@
 # Built-in Function Tool Catalog
 
-This document lists all preset tools in the `functions/function_calling/` directory for Agent nodes to use via Function Tooling.
+This document lists all preset tools in the `workspace/functions/function_calling/` directory for Agent nodes to use via Function Tooling.
 
 ## Quick Import
 
@@ -38,7 +38,7 @@ Tools for file and directory management within `code_workspace/`.
 | `move_path` | Move a file or directory |
 | `search_in_files` | Search for text or regex patterns in workspace files |
 
-**Example YAML**: [AgentDev_v1.yaml](../../../../../workflows/AgentDev_v1.yaml), [file_tool_use_case.yaml](../../../../../workflows/file_tool_use_case.yaml)
+**Example YAML**: [AgentDev_v1.yaml](../../../../../workspace/workflows/AgentDev_v1.yaml), [file_tool_use_case.yaml](../../../../../workspace/workflows/file_tool_use_case.yaml)
 
 ---
 
@@ -52,7 +52,7 @@ Manage Python environments and dependencies using uv.
 | `init_python_env` | Initialize Python environment (uv lock + venv) |
 | `uv_run` | Execute uv run in workspace to run modules or scripts |
 
-**Example YAML**: [AgentDev_v1.yaml](../../../../../workflows/AgentDev_v1.yaml)
+**Example YAML**: [AgentDev_v1.yaml](../../../../../workspace/workflows/AgentDev_v1.yaml)
 
 ---
 
@@ -83,7 +83,7 @@ Search result management and report generation tools for automated research work
 | `report_del_chapter` | Delete a chapter |
 | `report_export_pdf` | Export report to PDF |
 
-**Example YAML**: [deep_research_v1.yaml](../../../../../workflows/deep_research_v1.yaml)
+**Example YAML**: [deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
 
 ---
 
@@ -100,7 +100,7 @@ Web search and webpage content retrieval.
 - `SERPER_DEV_API_KEY`: Serper.dev API key
 - `JINA_API_KEY`: Jina API key (optional, auto rate-limited to 20 RPM without key)
 
-**Example YAML**: [deep_research_v1.yaml](../../../../../workflows/deep_research_v1.yaml)
+**Example YAML**: [deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
 
 ---
 
@@ -113,7 +113,7 @@ Manim animation rendering and video processing.
 | `render_manim` | Render Manim script, auto-detects scene class and outputs video |
 | `concat_videos` | Concatenate multiple video files using FFmpeg |
 
-**Example YAML**: [teach_video.yaml](../../../../../workflows/teach_video.yaml), [teach_video.yaml](../../../../../workflows/teach_video.yaml)
+**Example YAML**: [teach_video.yaml](../../../../../workspace/workflows/teach_video.yaml), [teach_video.yaml](../../../../../workspace/workflows/teach_video.yaml)
 
 ---
 
@@ -148,7 +148,7 @@ Demo tools to illustrate Function Calling workflow.
 
 ## Adding Custom Tools
 
-1. Create a Python file in `functions/function_calling/` directory
+1. Create a Python file in `workspace/functions/function_calling/` directory
 2. Define parameters using type annotations:
 
 ```python

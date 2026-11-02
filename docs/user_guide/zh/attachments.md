@@ -18,7 +18,7 @@
     "size": 12345
   }
   ```
-- 文件保存到 `WareHouse/<session>/code_workspace/attachments/`，并记录在 `attachments_manifest.json`。
+- 文件保存到 `storage/warehouse/<session>/code_workspace/attachments/`，并记录在 `attachments_manifest.json`。
 
 ### 1.2 列举附件
 `GET /api/uploads/{session_id}`
@@ -56,13 +56,13 @@
 
 ### 2.3 打包下载 Session
 `GET /api/sessions/{session_id}/download`
-- 将 `WareHouse/<session>/` 打包为 zip，供一次性下载。
+- 将 `storage/warehouse/<session>/` 打包为 zip，供一次性下载。
 
 ## 3. 文件生命周期
 1. 上传：写入 `code_workspace/attachments/`，manifest 记录 `source`、`workspace_path`、`storage` 等字段。
 2. Python 节点或工具可调用 `AttachmentStore.register_file()` 把 workspace 文件注册为附件；`WorkspaceArtifactHook` 会将其同步到事件流。
 3. 默认保留所有附件，便于运行结束后下载。如果希望自动清理，设置 `MAC_AUTO_CLEAN_ATTACHMENTS=1`（只在 Session 完成后删除 `attachments/` 目录）。
-4. WareHouse 打包下载不会删除原文件，需要额外策略（cron/job）做归档或清空。
+4. warehouse 打包下载不会删除原文件，需要额外策略（cron/job）做归档或清空。
 
 ## 4. 大小与安全建议
 - **大小限制**：后端未硬编码，可在反向代理设置 `client_max_body_size`、`max_request_body_size`，或在自定义分支的 `AttachmentService.save_upload_file` 中添加校验。

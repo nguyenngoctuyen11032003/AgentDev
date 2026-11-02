@@ -17,7 +17,7 @@
 查看和管理所有可用的工作流 YAML 文件。
 
 **功能**：
-- 浏览 `workflows/` 目录下的工作流
+- 浏览 `workspace/workflows/` 目录下的工作流
 - 预览 YAML 配置内容
 - 选择工作流进入执行或编辑
 
@@ -89,8 +89,8 @@
 | 问题 | 解决方案 |
 |------|----------|
 | 页面无法加载 | 确认前端服务 `npm run dev` 正常运行 |
-| 无法连接后端 | 确认后端服务 `uv run python server_main.py` 正常运行 |
-| 工作流列表为空 | 检查 `workflows/` 目录是否有 YAML 文件 |
+| 无法连接后端 | 确认后端服务 `cd backend && uv run python main.py` 正常运行 |
+| 工作流列表为空 | 检查 `workspace/workflows/` 目录是否有 YAML 文件 |
 | 执行无响应 | 检查浏览器开发者工具的 Network/Console 日志 |
 | WebSocket 断开 | 刷新页面重新建立连接 |
 

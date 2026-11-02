@@ -92,7 +92,7 @@ Memory 检索结果会通过 `memory` 参数传入思考函数，允许反思时
        summary="自定义思考模式描述",
    )
    ```
-4. **导出模板**：运行 `python -m scripts.export_design_template` 更新前端选项
+4. **导出模板**：运行 `cd backend && uv run python -m scripts.export_design_template` 更新前端选项
 
 ## 7. 最佳实践
 

@@ -1,7 +1,7 @@
 # Tooling Module Overview
 
 AgentDev currently exposes two tool binding modes for agent nodes:
-1. **Function Tooling** – call in-repo Python functions from `functions/function_calling/`, with JSON Schema auto-generated from type hints.
+1. **Function Tooling** – call in-repo Python functions from `workspace/functions/function_calling/`, with JSON Schema auto-generated from type hints.
 2. **MCP Tooling** – connect to external services that implement the Model Context Protocol, including FastMCP, Claude Desktop, or any MCP-compatible tool stack.
 
 All tooling configs hang off `AgentConfig.tooling`:
@@ -24,7 +24,7 @@ nodes:
 ```
 
 ## 1. Lifecycle
-1. **Parse** – `ToolingConfig` selects `FunctionToolConfig`, `McpRemoteConfig`, or `McpLocalConfig` based on `type`. Field definitions live in `agentdev/entity/configs/node/tooling.py`.
+1. **Parse** – `ToolingConfig` selects `FunctionToolConfig`, `McpRemoteConfig`, or `McpLocalConfig` based on `type`. Field definitions live in `backend/agentdev/entity/configs/node/tooling.py`.
 2. **Runtime** – When the LLM chooses a tool, the executor injects `_context` (attachment store, workspace paths, etc.) for Function tools or forwards the request through MCP.
 3. **Completion** – Tool outputs are appended to the agent message stream and, when relevant, registered as attachments (e.g., `load_file`).
 
