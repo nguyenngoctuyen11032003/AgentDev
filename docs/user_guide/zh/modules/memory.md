@@ -1,6 +1,6 @@
 # Memory 模块指南
 
-本文档解释 AgentDev 的 Memory 体系：memory 列表配置、内置存储实现、Agent 节点如何引用记忆，以及排障建议。代码主要位于 `entity/configs/memory.py`、`node/agent/memory/*.py`。
+本文档解释 AgentDev 的 Memory 体系：memory 列表配置、内置存储实现、Agent 节点如何引用记忆，以及排障建议。代码主要位于 `agentdev/entity/configs/node/memory.py`、`node/agent/memory/*.py`。
 
 ## 1. 体系结构
 1. **Memory Store**：在 YAML `memory[]` 中声明，包含 `name`、`type` 和 `config`。`type` 由 `register_memory_store()` 注册，并映射到具体实现。
@@ -137,5 +137,5 @@ nodes:
 ## 8. 扩展自定义 Memory
 1. 新建 Config + Store（继承 `MemoryBase`）。
 2. 在 `node/agent/memory/registry.py` 中调用 `register_memory_store("my_store", config_cls=..., factory=..., summary="用途")`。
-3. 补充 `FIELD_SPECS`，运行 `python -m tools.export_design_template ...` 以让前端获取新枚举。
+3. 补充 `FIELD_SPECS`，运行 `python -m scripts.export_design_template ...` 以让前端获取新枚举。
 4. 更新本指南或附带 README，说明新 store 的配置项与边界条件。

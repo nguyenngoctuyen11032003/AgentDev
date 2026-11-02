@@ -279,7 +279,7 @@ AgentDev 支持两类工具：
 
 ```python
 from typing import Annotated
-from utils.function_catalog import ParamMeta
+from agentdev.utils.function_catalog import ParamMeta
 
 def my_tool(
     param1: Annotated[str, ParamMeta(description="参数描述")],
@@ -344,9 +344,9 @@ SimpleMemory 需要配置 Embedding，我们点击 Embedding Configuration，选
 
 | 类型           | 特点                 | 适用场景      | 是否需要 Embedding | 参考配置                                        |
 |--------------|--------------------|-----------|----------------|---------------------------------------------|
-| `simple`     | 向量搜索 + 语义重打分，支持读写  | 对话记忆、快速原型 | 是              | yaml_instance/demo_simple_memory.yaml       |
-| `file`       | 将文件/目录切片为向量索引，只读   | 知识库、文档问答  | 是              | yaml_instance/demo_file_memory.yaml         |
-| `blackboard` | 按时间/条数裁剪的简易日志，无需向量 | 广播板       | 否              | yaml_instance/subgraphs/reflexion_loop.yaml |
+| `simple`     | 向量搜索 + 语义重打分，支持读写  | 对话记忆、快速原型 | 是              | workflows/demo_simple_memory.yaml       |
+| `file`       | 将文件/目录切片为向量索引，只读   | 知识库、文档问答  | 是              | workflows/demo_file_memory.yaml         |
+| `blackboard` | 按时间/条数裁剪的简易日志，无需向量 | 广播板       | 否              | workflows/subgraphs/reflexion_loop.yaml |
 
 2. 在 Agent 节点中引用：
 点击 Memory Attachments，选择刚创建的 Memory Store，并配置读写权限、检索阶段等。
@@ -395,9 +395,9 @@ Passthrough 节点不执行任何操作，仅将消息传递给下游。**默认
 
 **关键用途**：
 
-1. **作为入口节点保留初始上下文**：配合边的 `Keep Message Input`，确保原始任务始终保留（e.g. `yaml_instance/AgentDev_v1.yaml`）
+1. **作为入口节点保留初始上下文**：配合边的 `Keep Message Input`，确保原始任务始终保留（e.g. `workflows/AgentDev_v1.yaml`）
 2. **过滤循环中的冗余输出**：可配置只传递最终结果，控制循环输出，避免上下文膨胀
-3. **简化图结构**：作为逻辑占位符，便于图的组织和阅读（e.g. `yaml_instance/AgentDev_v1.yaml`）
+3. **简化图结构**：作为逻辑占位符，便于图的组织和阅读（e.g. `workflows/AgentDev_v1.yaml`）
 
 ---
 
@@ -408,8 +408,8 @@ Literal 节点输出固定的文本内容，忽略所有输入。用户可指定
 ![literal.png](media/literal.png)
 
 **典型用途**：
-- 向流程注入固定指令或上下文（e.g. `yaml_instance/AgentDev_v1.yaml`）
-- 测试下游节点（e.g. `yaml_instance/demo_dynamic.yaml`）
+- 向流程注入固定指令或上下文（e.g. `workflows/AgentDev_v1.yaml`）
+- 测试下游节点（e.g. `workflows/demo_dynamic.yaml`）
 - 条件分支中的固定响应
 
 ---
@@ -427,7 +427,7 @@ Loop Counter 节点用于限制环路的执行次数。它通过计数机制，�
 
 > **重要**：由于未达上限时不产生输出，Loop Counter 的出边必须同时连接环内节点（保持在环内，实际不会对下游节点产生影响）和环外节点（达到上限时退出）。
 
-参考：`yaml_instance/AgentDev_v1.yaml`
+参考：`workflows/AgentDev_v1.yaml`
 
 ---
 
@@ -446,7 +446,7 @@ Subgraph 节点允许将另一个工作流图嵌入到当前工作流中，实�
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `Subgraph File Path` | string | 是 | 子图文件路径（相对于 `yaml_instance/` 或绝对路径） |
+| `Subgraph File Path` | string | 是 | 子图文件路径（相对于 `workflows/` 或绝对路径） |
 
 **config 类型配置**（内联定义完整子图）：
 
@@ -465,7 +465,7 @@ Subgraph 节点允许将另一个工作流图嵌入到当前工作流中，实�
 >   - `start`：只需要在子图整个是环的时候指定。
 >   - `end`：指定子图的出口节点列表。系统会按配置顺序逐个检查这些节点，返回第一个有输出的节点输出作为子图的返回结果。若所有配置的出口节点均无输出，或未配置 `end`，系统默认使用无后继节点的节点作为出口。
 
-参考：`yaml_instance/MACNet_optimize_sub.yaml`，`yaml_instance/MACNet_Node_sub.yaml`，`yaml_instance/MACNet_v1.yaml`。
+参考：`workflows/MACNet_optimize_sub.yaml`，`workflows/MACNet_Node_sub.yaml`，`workflows/MACNet_v1.yaml`。
 
 ---
 
@@ -524,7 +524,7 @@ Payload Processor 用于在消息通过边传递之前对其内容进行转换�
 | `No Match Behavior` | 无匹配时的行为：`pass`（保持原样）、`default`（使用默认值）、`drop`（丢弃消息） |
 | `Default Value` | 当 `No Match Behavior=default` 时使用的默认值 |
 
-**示例**：提取代码（可参考 `yaml_instance/demo_edge_transform.yaml`）
+**示例**：提取代码（可参考 `workflows/demo_edge_transform.yaml`）
 
 ![edge_transform_regex.png](media/edge_transform_regex.png)
 
@@ -538,7 +538,7 @@ Payload Processor 用于在消息通过边传递之前对其内容进行转换�
 
 **内置函数**：
 - `uppercase_payload`：将消息内容转为大写
-- `code_save_and_run`：保存代码到工作区并执行 `main.py` （可参考 `yaml_instance/MACNet_optimize_sub.yaml`）
+- `code_save_and_run`：保存代码到工作区并执行 `main.py` （可参考 `workflows/MACNet_optimize_sub.yaml`）
 
 ### 自定义函数处理器
 
@@ -654,7 +654,7 @@ AgentDev 使用分层的工作区结构管理文件：
 
 Dynamic 执行模式允许在边级别定义并行处理行为，支持 **Map**（扇出）和 **Tree**（归约）两种模式。
 
-可参考 `yaml_instance/demo_dynamic.yaml`，`yaml_instance/MACNet_Node_sub.yaml` 示例。
+可参考 `workflows/demo_dynamic.yaml`，`workflows/MACNet_Node_sub.yaml` 示例。
 
 ## 模式对比
 
@@ -679,7 +679,7 @@ Dynamic 配置定义在**边**上，表示通过此边传递的信息需要 Dyna
 
 `(?s).{1,2000}(?:\\s|$)` 会将输入按每 2000 字符拆分为多段。
 
-可参考 `yaml_instance/demo_dynamic_tree.yaml`。
+可参考 `workflows/demo_dynamic_tree.yaml`。
 
 ## Split 拆分策略
 

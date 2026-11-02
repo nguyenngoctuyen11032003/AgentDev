@@ -24,7 +24,7 @@ nodes:
 ```
 
 ## 1. 生命周期
-1. 解析阶段：`ToolingConfig` 根据 `type` 选择 `FunctionToolConfig`、`McpRemoteConfig` 或 `McpLocalConfig`，字段定义来自 `entity/configs/tooling.py`。
+1. 解析阶段：`ToolingConfig` 根据 `type` 选择 `FunctionToolConfig`、`McpRemoteConfig` 或 `McpLocalConfig`，字段定义来自 `agentdev/entity/configs/node/tooling.py`。
 2. 运行阶段：Agent 节点根据响应启用工具调用；当 LLM 选择某工具时，执行器会将 `_context`（附件仓库、workspace 路径等）注入函数或通过 MCP 发送请求。
 3. 结束阶段：工具输出写入 Agent 消息流，必要时注册为附件（如 `load_file`）。
 

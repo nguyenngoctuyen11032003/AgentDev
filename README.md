@@ -96,7 +96,7 @@ make dev
     ```bash
     make sync
     ```
-    Uploads all workflow files from `yaml_instance/` to the database.
+    Uploads all workflow files from `workflows/` to the database.
 
 *   **Validate all YAML workflows**:
     ```bash
@@ -162,11 +162,11 @@ The AgentDev interface provides a seamless experience for both construction and 
 For automation and batch processing, use our lightweight Python SDK to execute workflows programmatically and retrieve results directly.
 
 ```python
-from runtime.sdk import run_workflow
+from agentdev.runtime.sdk import run_workflow
 
 # Execute a workflow and get the final node message
 result = run_workflow(
-    yaml_file="yaml_instance/demo.yaml",
+    yaml_file="workflows/demo.yaml",
     task_prompt="Summarize the attached document in one sentence.",
     attachments=["/path/to/document.pdf"],
     variables={"API_KEY": "sk-xxxx"} # Override .env variables if needed
@@ -186,8 +186,29 @@ if result.final_message:
 
 Extend AgentDev with new nodes, providers, and tools.
 The project is organized into a modular structure:
-*   **Core Systems**: `server/` hosts the FastAPI backend, while `runtime/` manages agent abstraction and tool execution.
-*   **Orchestration**: `workflow/` handles the multi-agent logic, driven by configurations in `entity/`.
+
+```
+agentdev/                 # Python backend (single package)
+├── entity/               #   workflow config dataclasses, messages, enums
+├── schema_registry/      #   node/edge/memory schema registrations
+├── runtime/              #   node & edge execution, agent providers, SDK
+├── workflow/             #   graph orchestration (DAG, cycles, executors)
+├── server/               #   FastAPI app: routes/ + services/
+├── validation/           #   YAML/workflow validation (load_config)
+├── utils/                #   shared helpers (logging, attachments, paths)
+└── paths.py              #   canonical repo locations
+functions/                # user-extensible Python tools & edge functions
+workflows/                # workflow YAML definitions served by the API
+templates/                # generated design template (design.yaml)
+scripts/                  # maintenance CLIs (python -m scripts.<name>)
+examples/                 # sample MCP server
+frontend/                 # Vue 3 web console
+tests/  docs/             # pytest suite, user guide
+run.py  server_main.py    # CLI runner, HTTP server entry point
+```
+
+*   **Core Systems**: `agentdev/server/` hosts the FastAPI backend, while `agentdev/runtime/` manages agent abstraction and tool execution.
+*   **Orchestration**: `agentdev/workflow/` handles the multi-agent logic, driven by configurations in `agentdev/entity/`.
 *   **Frontend**: `frontend/` contains the Vue 3 Web Console.
 *   **Extensibility**: `functions/` is the place for custom Python tools.
 
@@ -198,7 +219,7 @@ Relevant reference documentation:
 ---
 
 ## 🌟 Featured Workflows
-We provide robust, out-of-the-box templates for common scenarios. All runnable workflow configs are located in `yaml_instance/`.
+We provide robust, out-of-the-box templates for common scenarios. All runnable workflow configs are located in `workflows/`.
 *   **Demos**: Files named `demo_*.yaml` showcase specific features or modules.
 *   **Implementations**: Files named directly (e.g., `AgentDev_v1.yaml`) are full in-house or recreated workflows. As follows:
 

@@ -20,13 +20,13 @@
 
 ## 2. 产品概览（后端视角）
 - **工作流调度引擎**：解析 YAML DAG，在统一上下文中协调 `model`、`python`、`tooling`、`human` 等节点，并把节点输出写入 `WareHouse/<session>/`。
-- **多 Provider 抽象**：`runtime/node/agent/providers/` 层封装 OpenAI、Gemini 等 API，可在节点级别切换模型与鉴权，亦支持额外 `thinking` 与 `memories` 配置。
+- **多 Provider 抽象**：`agentdev/runtime/node/agent/providers/` 层封装 OpenAI、Gemini 等 API，可在节点级别切换模型与鉴权，亦支持额外 `thinking` 与 `memories` 配置。
 - **实时可观测性**：FastAPI + WebSocket 将节点状态、stdout/stderr、工件事件推送至 Web UI；结构化日志写入 `logs/`，便于集中收集。
 - **运行资产管理**：每次运行创建独立 Session，附件、Python workspace、context snapshot、输出摘要等均可下载。
 
 ## 3. 架构与运行流概览
 1. **入口**：Web UI 与 CLI 调用 `server_main.py` 暴露的 FastAPI（如 `/api/workflow/execute`）。
-2. **验证/入队**：`WorkflowRunService` 校验 YAML、创建 Session、准备 `code_workspace/attachments/`，随后调度器在 `workflow/` 中运行 DAG。
+2. **验证/入队**：`WorkflowRunService` 校验 YAML、创建 Session、准备 `code_workspace/attachments/`，随后调度器在 `agentdev/workflow/` 中运行 DAG。
 3. **执行阶段**：节点执行器负责依赖解析、上下文传递、工具调用、memory 检索；`MemoryManager`、`ToolingConfig`、`ThinkingManager` 会在模型节点内按需触发。
 4. **可观测性**：WebSocket 推送状态、日志、artifact 事件；`logs/` 存储 JSON 日志，`WareHouse/` 保存运行资产。
 5. **清理与下载**：Session 结束后可选择打包下载或通过附件 API 逐项获取；保留策略由部署者自定。

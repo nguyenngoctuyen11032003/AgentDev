@@ -25,6 +25,12 @@ Modifications made by Nguyễn Ngọc Tuyền (Apache-2.0 Section 4(b)):
     contact sections).
   - Renamed yaml_instance/ChatDev_v1.yaml to yaml_instance/AgentDev_v1.yaml.
   - Removed upstream marketing/demo images and unused font files.
+  - Restructured the source tree: the backend packages (entity, runtime,
+    workflow, server, utils, schema_registry, check) now live in a single
+    `agentdev` package (check → agentdev/validation); yaml_instance →
+    workflows, yaml_template → templates, tools → scripts,
+    mcp_example → examples. Imports and path anchors were updated
+    accordingly (agentdev/paths.py).
   - Further changes are recorded in this repository's git history.
 
 The Inter typeface bundled under frontend/src/assets/styles/fonts/Inter/

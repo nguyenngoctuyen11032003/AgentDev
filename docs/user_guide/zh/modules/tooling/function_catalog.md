@@ -38,7 +38,7 @@ tooling:
 | `move_path` | 移动文件或目录 |
 | `search_in_files` | 在工作区文件中搜索文本或正则模式 |
 
-**示例 YAML**：[AgentDev_v1.yaml](../../../../../yaml_instance/AgentDev_v1.yaml)、[file_tool_use_case.yaml](../../../../../yaml_instance/file_tool_use_case.yaml)
+**示例 YAML**：[AgentDev_v1.yaml](../../../../../workflows/AgentDev_v1.yaml)、[file_tool_use_case.yaml](../../../../../workflows/file_tool_use_case.yaml)
 
 ---
 
@@ -52,7 +52,7 @@ tooling:
 | `init_python_env` | 初始化 Python 环境（uv lock + venv） |
 | `uv_run` | 在工作区内执行 uv run，运行模块或脚本 |
 
-**示例 YAML**：[AgentDev_v1.yaml](../../../../../yaml_instance/AgentDev_v1.yaml)
+**示例 YAML**：[AgentDev_v1.yaml](../../../../../workflows/AgentDev_v1.yaml)
 
 ---
 
@@ -83,7 +83,7 @@ tooling:
 | `report_del_chapter` | 删除章节 |
 | `report_export_pdf` | 导出报告为 PDF |
 
-**示例 YAML**：[deep_research_v1.yaml](../../../../../yaml_instance/deep_research_v1.yaml)
+**示例 YAML**：[deep_research_v1.yaml](../../../../../workflows/deep_research_v1.yaml)
 
 ---
 
@@ -100,7 +100,7 @@ tooling:
 - `SERPER_DEV_API_KEY`：Serper.dev API 密钥
 - `JINA_API_KEY`：Jina API 密钥（可选，无密钥时自动限速 20 RPM）
 
-**示例 YAML**：[deep_research_v1.yaml](../../../../../yaml_instance/deep_research_v1.yaml)
+**示例 YAML**：[deep_research_v1.yaml](../../../../../workflows/deep_research_v1.yaml)
 
 ---
 
@@ -113,7 +113,7 @@ Manim 动画渲染与视频处理。
 | `render_manim` | 渲染 Manim 脚本，自动检测场景类并输出视频 |
 | `concat_videos` | 使用 FFmpeg 拼接多个视频文件 |
 
-**示例 YAML**：[teach_video.yaml](../../../../../yaml_instance/teach_video.yaml)、[teach_video.yaml](../../../../../yaml_instance/teach_video.yaml)
+**示例 YAML**：[teach_video.yaml](../../../../../workflows/teach_video.yaml)、[teach_video.yaml](../../../../../workflows/teach_video.yaml)
 
 ---
 
@@ -153,7 +153,7 @@ Manim 动画渲染与视频处理。
 
 ```python
 from typing import Annotated
-from utils.function_catalog import ParamMeta
+from agentdev.utils.function_catalog import ParamMeta
 
 def my_tool(
     param1: Annotated[str, ParamMeta(description="参数描述")],
