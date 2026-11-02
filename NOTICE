@@ -1,0 +1,31 @@
+AgentDev
+Copyright 2026 Nguyễn Ngọc Tuyền
+https://github.com/nguyenngoctuyen11032003/AgentDev
+
+This product is licensed under the Apache License, Version 2.0
+(see the LICENSE file).
+
+-------------------------------------------------------------------------
+Third-party work
+-------------------------------------------------------------------------
+
+This product is a derivative work of ChatDev 2.0 (DevAll):
+
+  ChatDev
+  Copyright 2025 OpenBMB and the ChatDev contributors
+  https://github.com/OpenBMB/ChatDev
+  Licensed under the Apache License, Version 2.0
+  Based on upstream commit a2ea4a2.
+
+Modifications made by Nguyễn Ngọc Tuyền (Apache-2.0 Section 4(b)):
+
+  - Rebranded the project from ChatDev / DevAll to AgentDev (names, titles,
+    UI strings, documentation, package metadata, logo).
+  - Rewrote README.md and README-zh.md (overview, authorship, license and
+    contact sections).
+  - Renamed yaml_instance/ChatDev_v1.yaml to yaml_instance/AgentDev_v1.yaml.
+  - Removed upstream marketing/demo images and unused font files.
+  - Further changes are recorded in this repository's git history.
+
+The Inter typeface bundled under frontend/src/assets/styles/fonts/Inter/
+is licensed under the SIL Open Font License 1.1 (see OFL.txt there).
