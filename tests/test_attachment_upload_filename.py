@@ -17,7 +17,7 @@ import io
 import pytest
 from fastapi import UploadFile
 
-from server.services.attachment_service import AttachmentService
+from agentdev.server.services.attachment_service import AttachmentService
 
 
 @pytest.mark.parametrize(

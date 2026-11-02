@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence
 
-from utils.code_execution import require_unsafe_code_execution
+from agentdev.utils.code_execution import require_unsafe_code_execution
 
 _SAFE_PACKAGE_RE = re.compile(r"^[A-Za-z0-9_.\-+=<>!\[\],@:/]+$")
 _DEFAULT_TIMEOUT = float(os.getenv("LIB_INSTALL_TIMEOUT", "120"))

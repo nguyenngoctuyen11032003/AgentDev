@@ -2,8 +2,8 @@ import argparse
 import logging
 from pathlib import Path
 
-from runtime.bootstrap.schema import ensure_schema_registry_populated
-from server.app import app
+from agentdev.runtime.bootstrap.schema import ensure_schema_registry_populated
+from agentdev.server.app import app
 
 
 ensure_schema_registry_populated()
@@ -14,16 +14,10 @@ ensure_schema_registry_populated()
 # WareHouse/, logs/, etc. never trigger a StatReload restart mid-workflow
 # (issue #569).
 RELOAD_SOURCE_DIRS = [
-    "check",
-    "entity",
+    "agentdev",
+    "examples",
     "functions",
-    "mcp_example",
-    "runtime",
-    "schema_registry",
-    "server",
-    "tools",
-    "utils",
-    "workflow",
+    "scripts",
 ]
 
 # Directory names whose contents must never trigger a reload. These are
@@ -154,7 +148,7 @@ def main():
 
     # Launch the server
     uvicorn.run(
-        "server.app:app",
+        "agentdev.server.app:app",
         host=args.host,
         port=args.port,
         reload=args.reload,

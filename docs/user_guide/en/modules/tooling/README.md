@@ -24,7 +24,7 @@ nodes:
 ```
 
 ## 1. Lifecycle
-1. **Parse** – `ToolingConfig` selects `FunctionToolConfig`, `McpRemoteConfig`, or `McpLocalConfig` based on `type`. Field definitions live in `entity/configs/tooling.py`.
+1. **Parse** – `ToolingConfig` selects `FunctionToolConfig`, `McpRemoteConfig`, or `McpLocalConfig` based on `type`. Field definitions live in `agentdev/entity/configs/node/tooling.py`.
 2. **Runtime** – When the LLM chooses a tool, the executor injects `_context` (attachment store, workspace paths, etc.) for Function tools or forwards the request through MCP.
 3. **Completion** – Tool outputs are appended to the agent message stream and, when relevant, registered as attachments (e.g., `load_file`).
 

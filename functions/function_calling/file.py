@@ -21,10 +21,10 @@ from typing import (
     Sequence,
 )
 
-from entity.messages import MessageBlock, MessageBlockType
-from utils.attachments import AttachmentStore
-from utils.workspace_scanner import iter_workspace_entries
-from utils.function_catalog import ParamMeta
+from agentdev.entity.messages import MessageBlock, MessageBlockType
+from agentdev.utils.attachments import AttachmentStore
+from agentdev.utils.workspace_scanner import iter_workspace_entries
+from agentdev.utils.function_catalog import ParamMeta
 
 
 class FileToolContext:

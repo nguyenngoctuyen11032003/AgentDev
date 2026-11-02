@@ -4,7 +4,7 @@ from pathlib import Path
 import ast
 import subprocess
 import tempfile
-from utils.code_execution import require_unsafe_code_execution
+from agentdev.utils.code_execution import require_unsafe_code_execution
 
 def _get_class_names(py_file: str) -> list[str]:
     file_path = Path(py_file)

@@ -83,7 +83,7 @@ Memory 检索结果会通过 `memory` 参数传入思考函数，允许反思时
 2. **实现 ThinkingManager**：继承 `ThinkingManagerBase`，实现 `_before_gen_think` 或 `_after_gen_think`
 3. **注册模式**：
    ```python
-   from runtime.node.agent.thinking.registry import register_thinking_mode
+   from agentdev.runtime.node.agent.thinking.registry import register_thinking_mode
    
    register_thinking_mode(
        "my_thinking",
@@ -92,7 +92,7 @@ Memory 检索结果会通过 `memory` 参数传入思考函数，允许反思时
        summary="自定义思考模式描述",
    )
    ```
-4. **导出模板**：运行 `python -m tools.export_design_template` 更新前端选项
+4. **导出模板**：运行 `python -m scripts.export_design_template` 更新前端选项
 
 ## 7. 最佳实践
 

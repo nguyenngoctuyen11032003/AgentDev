@@ -12,20 +12,20 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from entity.messages import AttachmentRef, Message, MessageBlock, MessageBlockType, MessageRole
-from runtime import sdk
-from runtime.node.agent import ModelResponse, ProviderRegistry
-from runtime.node.executor.agent_executor import AgentNodeExecutor
-from runtime.node.executor.base import ExecutionContext
-from server import state
-from server.routes import execute_sync, sessions, uploads, websocket, workflows
-from server.services.websocket_manager import WebSocketManager
-from utils.attachments import AttachmentStore
-from utils.error_handler import add_exception_handlers
-from utils.exceptions import SecurityError
+from agentdev.entity.messages import AttachmentRef, Message, MessageBlock, MessageBlockType, MessageRole
+from agentdev.runtime import sdk
+from agentdev.runtime.node.agent import ModelResponse, ProviderRegistry
+from agentdev.runtime.node.executor.agent_executor import AgentNodeExecutor
+from agentdev.runtime.node.executor.base import ExecutionContext
+from agentdev.server import state
+from agentdev.server.routes import execute_sync, sessions, uploads, websocket, workflows
+from agentdev.server.services.websocket_manager import WebSocketManager
+from agentdev.utils.attachments import AttachmentStore
+from agentdev.utils.error_handler import add_exception_handlers
+from agentdev.utils.exceptions import SecurityError
 
 
-DEMO = Path(__file__).resolve().parents[1] / "yaml_instance/demo_loop_counter.yaml"
+DEMO = Path(__file__).resolve().parents[1] / "workflows/demo_loop_counter.yaml"
 CONTENT = b"generated attachment content"
 
 
@@ -36,7 +36,7 @@ def api(tmp_path, monkeypatch):
     manager = WebSocketManager()
     monkeypatch.setattr(state, "websocket_manager", manager)
     monkeypatch.setattr(sessions, "WARE_HOUSE_DIR", tmp_path / "WareHouse")
-    yaml_dir = tmp_path / "yaml_instance"
+    yaml_dir = tmp_path / "workflows"
     yaml_dir.mkdir()
     for module in (sdk, execute_sync, workflows):
         monkeypatch.setattr(module, "YAML_DIR", yaml_dir)

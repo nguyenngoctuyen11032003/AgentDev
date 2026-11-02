@@ -86,7 +86,7 @@ make dev
     ```bash
     make sync
     ```
-    将 `yaml_instance/` 中的所有工作流文件上传到数据库。
+    将 `workflows/` 中的所有工作流文件上传到数据库。
 
 *   **校验所有 YAML 工作流**：
     ```bash
@@ -163,11 +163,11 @@ AgentDev 界面为构建和执行提供了无缝体验：
 对于自动化和批量处理，使用我们轻量级的 Python SDK 编排任务并直接获取结果。
 
 ```python
-from runtime.sdk import run_workflow
+from agentdev.runtime.sdk import run_workflow
 
 # 执行工作流并获取最后一条节点消息
 result = run_workflow(
-    yaml_file="yaml_instance/demo.yaml",
+    yaml_file="workflows/demo.yaml",
     task_prompt="用一句话总结附件文档。",
     attachments=["/path/to/document.pdf"],
     variables={"API_KEY": "sk-xxxx"} # 如果需要，可覆盖 .env 中的变量
@@ -187,8 +187,29 @@ if result.final_message:
 
 您可以通过扩展节点、Provider 与工具来增强 AgentDev。
 项目采用模块化结构：
-*   **核心系统**：`server/` 承载 FastAPI 后端，`runtime/` 负责智能体抽象与工具执行。
-*   **编排层**：`workflow/` 负责多智能体逻辑，配置位于 `entity/`。
+
+```
+agentdev/                 # Python 后端（单一包）
+├── entity/               #   工作流配置 dataclass、消息、枚举
+├── schema_registry/      #   节点/边/记忆 Schema 注册
+├── runtime/              #   节点与边执行、Provider、SDK
+├── workflow/             #   图编排（DAG、环路、执行器）
+├── server/               #   FastAPI 应用：routes/ + services/
+├── validation/           #   YAML/工作流校验（load_config）
+├── utils/                #   通用工具（日志、附件、路径）
+└── paths.py              #   仓库路径常量
+functions/                # 可扩展的 Python 工具与边函数
+workflows/                # API 提供的工作流 YAML
+templates/                # 生成的设计模板（design.yaml）
+scripts/                  # 维护脚本（python -m scripts.<name>）
+examples/                 # MCP 服务器示例
+frontend/                 # Vue 3 Web 控制台
+tests/  docs/             # pytest 测试、用户指南
+run.py  server_main.py    # CLI 运行入口、HTTP 服务入口
+```
+
+*   **核心系统**：`agentdev/server/` 承载 FastAPI 后端，`agentdev/runtime/` 负责智能体抽象与工具执行。
+*   **编排层**：`agentdev/workflow/` 负责多智能体逻辑，配置位于 `agentdev/entity/`。
 *   **前端**：`frontend/` 是 Vue 3 Web 控制台。
 *   **可扩展性**：`functions/` 用于自定义 Python 工具。
 
@@ -199,7 +220,7 @@ if result.final_message:
 ---
 
 ## 🌟 推荐工作流
-我们为常见场景提供了开箱即用的强大模板。所有可运行的工作流配置均位于 `yaml_instance/` 目录下。
+我们为常见场景提供了开箱即用的强大模板。所有可运行的工作流配置均位于 `workflows/` 目录下。
 *   **示例 (Demos)**：以 `demo_*.yaml` 命名的文件展示了特定功能或模块。
 *   **实现 (Implementations)**：直接命名的文件（如 `AgentDev_v1.yaml`）是完整的自研或复刻流程。如下所示：
 

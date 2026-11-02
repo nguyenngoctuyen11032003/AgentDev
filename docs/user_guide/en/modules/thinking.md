@@ -83,7 +83,7 @@ Memory retrieval results are passed to thinking functions via the `memory` param
 2. **Implement ThinkingManager**: Inherit from `ThinkingManagerBase`, implement `_before_gen_think` or `_after_gen_think`
 3. **Register mode**:
    ```python
-   from runtime.node.agent.thinking.registry import register_thinking_mode
+   from agentdev.runtime.node.agent.thinking.registry import register_thinking_mode
    
    register_thinking_mode(
        "my_thinking",
@@ -92,7 +92,7 @@ Memory retrieval results are passed to thinking functions via the `memory` param
        summary="Custom thinking mode description",
    )
    ```
-4. **Export template**: Run `python -m tools.export_design_template` to update frontend options
+4. **Export template**: Run `python -m scripts.export_design_template` to update frontend options
 
 ## 7. Best Practices
 

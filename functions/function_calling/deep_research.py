@@ -3,13 +3,13 @@
 import json
 import re
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional, Tuple
+from typing import Annotated, Any, Dict, List, Tuple
 
 from filelock import FileLock
 
-from entity.messages import MessageBlock, MessageBlockType
+from agentdev.entity.messages import MessageBlock, MessageBlockType
 from functions.function_calling.file import FileToolContext
-from utils.function_catalog import ParamMeta
+from agentdev.utils.function_catalog import ParamMeta
 
 # Constants for file paths (relative to workspace root)
 SEARCH_RESULTS_FILE = "deep_research/search_results.json"

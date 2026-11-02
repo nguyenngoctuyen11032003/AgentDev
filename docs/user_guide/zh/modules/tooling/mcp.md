@@ -58,7 +58,7 @@ nodes:
 运行期间 AgentDev 会保持该进程常驻，并通过 stdio 传输 MCP 数据帧。
 
 ## 4. FastMCP 示例服务器
-`mcp_example/mcp_server.py`：
+`examples/mcp_server.py`：
 ```python
 from fastmcp import FastMCP
 import random
@@ -74,7 +74,7 @@ if __name__ == "__main__":
 ```
 启动：
 ```bash
-uv run fastmcp run mcp_example/mcp_server.py --transport streamable-http --port 8010
+uv run fastmcp run examples/mcp_server.py --transport streamable-http --port 8010
 ```
 - 若以 Remote 模式使用，只需将 `server` 指向 `http://127.0.0.1:8010/mcp`。
 - 若以 Local 模式使用，可将 `command` 设置为 `uv run fastmcp run ...` 并保持 `transport=stdio`。

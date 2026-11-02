@@ -58,7 +58,7 @@ nodes:
 AgentDev keeps the process alive and relays MCP frames over stdio.
 
 ## 4. FastMCP sample server
-`mcp_example/mcp_server.py`:
+`examples/mcp_server.py`:
 ```python
 from fastmcp import FastMCP
 import random
@@ -74,7 +74,7 @@ if __name__ == "__main__":
 ```
 Launch:
 ```bash
-uv run fastmcp run mcp_example/mcp_server.py --transport streamable-http --port 8010
+uv run fastmcp run examples/mcp_server.py --transport streamable-http --port 8010
 ```
 - Remote mode: set `server` to `http://127.0.0.1:8010/mcp`.
 - Local mode: run the script with `transport=stdio` and point `command` to that invocation.

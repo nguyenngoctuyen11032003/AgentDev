@@ -9,14 +9,12 @@ issues) by patching only the WebSocketManager class directly.
 
 import asyncio
 import concurrent.futures
-import json
 import sys
 import threading
 import time
 from typing import List
 from unittest.mock import MagicMock
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -26,20 +24,20 @@ import pytest
 # Stub out heavy modules so we can import websocket_manager in isolation
 _stubs = {}
 for mod_name in (
-    "check", "check.check",
-    "runtime", "runtime.sdk", "runtime.bootstrap", "runtime.bootstrap.schema",
-    "server.services.workflow_run_service",
-    "server.services.message_handler",
-    "server.services.attachment_service",
-    "server.services.session_execution",
-    "server.services.session_store",
-    "server.services.artifact_events",
+    "agentdev.validation", "agentdev.validation.check",
+    "agentdev.runtime", "agentdev.runtime.sdk", "agentdev.runtime.bootstrap", "agentdev.runtime.bootstrap.schema",
+    "agentdev.server.services.workflow_run_service",
+    "agentdev.server.services.message_handler",
+    "agentdev.server.services.attachment_service",
+    "agentdev.server.services.session_execution",
+    "agentdev.server.services.session_store",
+    "agentdev.server.services.artifact_events",
 ):
     if mod_name not in sys.modules:
         _stubs[mod_name] = MagicMock()
         sys.modules[mod_name] = _stubs[mod_name]
 
-from server.services.websocket_manager import WebSocketManager  # noqa: E402
+from agentdev.server.services.websocket_manager import WebSocketManager  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Function Tooling Configuration Guide
 
-`FunctionToolConfig` lets agent nodes call Python functions defined in the repo. Implementation lives in `entity/configs/tooling.py`, `utils/function_catalog.py`, and `functions/function_calling/`.
+`FunctionToolConfig` lets agent nodes call Python functions defined in the repo. Implementation lives in `agentdev/entity/configs/node/tooling.py`, `agentdev/utils/function_catalog.py`, and `functions/function_calling/`.
 
 ## 1. Config Fields
 | Field | Description |
@@ -23,7 +23,7 @@
 - Provide Python type hints; for enums/descriptions use `typing.Annotated[..., ParamMeta(...)]`.
 - Parameters beginning with `_` or splats (`*args`/`**kwargs`) are hidden from the agent call.
 - The docstring’s first paragraph becomes the description (truncated to ~600 chars).
-- `utils/function_catalog.py` builds JSON Schemas at startup for the frontend/CLI.
+- `agentdev/utils/function_catalog.py` builds JSON Schemas at startup for the frontend/CLI.
 
 ## 3. Context Injection
 The executor passes `_context` into each function:
@@ -38,7 +38,7 @@ Functions can declare `_context: dict | None = None` and parse it (see `function
 ## 4. Example: Read Text File
 ```python
 from typing import Annotated
-from utils.function_catalog import ParamMeta
+from agentdev.utils.function_catalog import ParamMeta
 
 
 def read_text_file(
@@ -69,7 +69,7 @@ nodes:
 1. Add your function under `functions/function_calling/`.
 2. Supply type hints + `ParamMeta`; set `auto_fill: false` with custom `parameters` if you need manual JSON Schema.
 3. If the function needs extra packages, declare them in `pyproject.toml`/`requirements.txt`, or use the bundled `install_python_packages` sparingly.
-4. Run `python -m tools.export_design_template ...` so the frontend picks up new enums.
+4. Run `python -m scripts.export_design_template ...` so the frontend picks up new enums.
 
 ## 6. Debugging
 - If the frontend/CLI reports function `foo` not found, double-check the name and ensure it resides under `MAC_FUNCTIONS_DIR`.

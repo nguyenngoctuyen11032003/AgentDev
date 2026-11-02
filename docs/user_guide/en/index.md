@@ -20,13 +20,13 @@ This landing page helps operators, workflow authors, and extension developers fi
 
 ## 2. Product Overview (Backend Focus)
 - **Workflow orchestration engine**: Parses YAML DAGs, coordinates `model`, `python`, `tooling`, and `human` nodes inside a shared context, and writes node outputs into `WareHouse/<session>/`.
-- **Provider abstraction**: The `runtime/node/agent/providers/` layer encapsulates OpenAI, Gemini, and other APIs so each node can swap models, base URLs, credentials, plus optional `thinking` and `memories` settings.
+- **Provider abstraction**: The `agentdev/runtime/node/agent/providers/` layer encapsulates OpenAI, Gemini, and other APIs so each node can swap models, base URLs, credentials, plus optional `thinking` and `memories` settings.
 - **Real-time observability**: FastAPI + WebSocket streams node states, stdout/stderr, and artifact events to the Web UI, while structured logs land in `logs/` for centralized collection.
 - **Run asset management**: Every execution creates an isolated session; attachments, Python workspace, context snapshots, and summary outputs are downloadable for later review.
 
 ## 3. Architecture & Execution Flow
 1. **Entry**: Web UI and CLI call the FastAPI server exposed via `server_main.py` (e.g., `/api/workflow/execute`).
-2. **Validation/queueing**: `WorkflowRunService` validates YAML, creates a session, prepares `code_workspace/attachments/`, then hands the DAG to the scheduler in `workflow/`.
+2. **Validation/queueing**: `WorkflowRunService` validates YAML, creates a session, prepares `code_workspace/attachments/`, then hands the DAG to the scheduler in `agentdev/workflow/`.
 3. **Execution**: Node executors resolve dependencies, propagate context, call tools, and retrieve memories; `MemoryManager`, `ToolingConfig`, and `ThinkingManager` trigger inside agent nodes as needed.
 4. **Observability**: WebSocket pushes states, logs, and artifact events; JSON logs stay in `logs/`, and `WareHouse/` stores run assets.
 5. **Cleanup & download**: After completion you can bundle the session for download or fetch files individually via the attachment APIs; retention policies are deployment-specific.

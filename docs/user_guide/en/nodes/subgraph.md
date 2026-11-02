@@ -13,7 +13,7 @@ The Subgraph node allows embedding another workflow graph into the current workf
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `path` | string | Yes | Subgraph file path (relative to `yaml_instance/` or absolute path) |
+| `path` | string | Yes | Subgraph file path (relative to `workflows/` or absolute path) |
 
 ### Config Type Configuration
 
@@ -133,6 +133,6 @@ edges:
 
 ## Notes
 
-- Subgraph file paths support relative paths (based on `yaml_instance/`) and absolute paths
+- Subgraph file paths support relative paths (based on `workflows/`) and absolute paths
 - Avoid circular nesting (A references B, B references A)
 - The subgraph's `start` and `end` nodes determine how data flows in and out, which decides how the subgraph processes messages from the parent graph and which node's final output is returned to the parent graph

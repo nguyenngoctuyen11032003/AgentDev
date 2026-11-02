@@ -1,6 +1,6 @@
 # Function Tooling 配置指南
 
-`FunctionToolConfig` 允许 Agent 节点调用仓库中的 Python 函数。相关代码位于 `entity/configs/tooling.py`、`utils/function_catalog.py` 以及 `functions/function_calling/`。
+`FunctionToolConfig` 允许 Agent 节点调用仓库中的 Python 函数。相关代码位于 `agentdev/entity/configs/node/tooling.py`、`agentdev/utils/function_catalog.py` 以及 `functions/function_calling/`。
 
 ## 1. 配置字段
 | 字段 | 说明 |
@@ -24,7 +24,7 @@
   - 使用 Python 类型注解；若需枚举或描述，可使用 `typing.Annotated[..., ParamMeta(...)]`。
   - 不允许以 `_` 开头的参数暴露给 Agent；`*_args`、`**kwargs` 会被过滤。
   - 可以通过 docstring 的首段提供描述（自动截断为 600 字符）。
-- `utils/function_catalog.py` 会在启动时生成 JSON Schema，并向前端/CLI 暴露。
+- `agentdev/utils/function_catalog.py` 会在启动时生成 JSON Schema，并向前端/CLI 暴露。
 
 ## 3. 上下文注入
 执行器会对被调用的函数提供 `_context` 关键字参数，包含：
@@ -41,7 +41,7 @@
 ## 4. 示例：文件读取工具
 ```python
 from typing import Annotated
-from utils.function_catalog import ParamMeta
+from agentdev.utils.function_catalog import ParamMeta
 
 
 def read_text_file(
@@ -72,7 +72,7 @@ nodes:
 1. 在 `functions/function_calling/` 新建模块或函数。
 2. 使用类型注解 + `ParamMeta` 描述参数；如需禁止自动 Schema，可设置 `auto_fill: false` 并提供手写 `parameters`。
 3. 若函数依赖额外第三方库，可在仓库 `requirements.txt`/`pyproject.toml` 中声明，或在函数内调用 `install_python_packages`（同目录提供）动态安装。
-4. 运行 `python -m tools.export_design_template ...` 以刷新前端枚举。
+4. 运行 `python -m scripts.export_design_template ...` 以刷新前端枚举。
 
 ## 6. 调试与排错
 - 若前端/CLI 报告 “function 'xxx' not found”，检查函数名称与文件是否位于 `MAC_FUNCTIONS_DIR`（默认 `functions/function_calling/`）。

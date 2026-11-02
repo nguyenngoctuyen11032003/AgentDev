@@ -2,7 +2,6 @@
 
 import subprocess
 import sys
-from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -10,21 +9,21 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from runtime import sdk
-from entity.configs import Node
-from entity.configs.node.tooling import McpLocalConfig
-from entity.messages import Message, MessageRole
+from agentdev.runtime import sdk
+from agentdev.entity.configs import Node
+from agentdev.entity.configs.node.tooling import McpLocalConfig
+from agentdev.entity.messages import Message, MessageRole
 from functions.edge_processor import transformers
 from functions.function_calling.code_executor import execute_code
 from functions.function_calling import uv_related, video
-from runtime.node.agent.tool import tool_manager
-from runtime.node.executor.base import ExecutionContext
-from runtime.node.executor.python_executor import PythonNodeExecutor
-from server.routes import execute_sync, workflows
-from utils.attachments import AttachmentStore
-from utils.code_execution import UNSAFE_CODE_EXECUTION_ENV, require_unsafe_code_execution
-from utils.error_handler import add_exception_handlers
-from utils.exceptions import SecurityError
+from agentdev.runtime.node.agent.tool import tool_manager
+from agentdev.runtime.node.executor.base import ExecutionContext
+from agentdev.runtime.node.executor.python_executor import PythonNodeExecutor
+from agentdev.server.routes import execute_sync, workflows
+from agentdev.utils.attachments import AttachmentStore
+from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV, require_unsafe_code_execution
+from agentdev.utils.error_handler import add_exception_handlers
+from agentdev.utils.exceptions import SecurityError
 
 
 @pytest.fixture(autouse=True)
@@ -358,7 +357,7 @@ def _workflow(kind, code):
 @pytest.fixture
 def workflow_api(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    yaml_dir = tmp_path / "yaml_instance"
+    yaml_dir = tmp_path / "workflows"
     yaml_dir.mkdir()
     for module in (sdk, execute_sync, workflows):
         monkeypatch.setattr(module, "YAML_DIR", yaml_dir)

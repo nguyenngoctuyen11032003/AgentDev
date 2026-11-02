@@ -36,17 +36,17 @@ def server_main(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
         return stub
 
     for name in (
-        "runtime",
-        "runtime.bootstrap",
-        "runtime.bootstrap.schema",
-        "server",
-        "server.app",
+        "agentdev.runtime",
+        "agentdev.runtime.bootstrap",
+        "agentdev.runtime.bootstrap.schema",
+        "agentdev.server",
+        "agentdev.server.app",
     ):
         monkeypatch.setitem(sys.modules, name, _stub(name))
 
     # Expose ensure_schema_registry_populated as a no-op callable on its module.
-    stubs["runtime.bootstrap.schema"].ensure_schema_registry_populated = lambda: None
-    stubs["server.app"].app = MagicMock(name="app")
+    stubs["agentdev.runtime.bootstrap.schema"].ensure_schema_registry_populated = lambda: None
+    stubs["agentdev.server.app"].app = MagicMock(name="app")
 
     spec = importlib.util.spec_from_file_location(
         "server_main_under_test", SERVER_MAIN_PATH
@@ -75,8 +75,8 @@ class TestBuildReloadKwargs:
 
     def test_default_watches_source_dirs_only(self, server_main):
         kw = server_main.build_reload_kwargs(_args(reload=True))
-        assert "server" in kw["reload_dirs"]
-        assert "runtime" in kw["reload_dirs"]
+        assert "agentdev" in kw["reload_dirs"]
+        assert "functions" in kw["reload_dirs"]
         # The output dir that caused the bug must not be watched.
         assert "WareHouse" not in kw["reload_dirs"]
 
@@ -111,7 +111,7 @@ class TestBuildReloadKwargs:
         )
         assert kw["reload_excludes"] == ["*.md"]
         # Dirs keep their defaults.
-        assert "server" in kw["reload_dirs"]
+        assert "agentdev" in kw["reload_dirs"]
 
 
 class TestParserFlags:

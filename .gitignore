@@ -28,3 +28,7 @@ data/
 temp/
 WareHouse/
 
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/

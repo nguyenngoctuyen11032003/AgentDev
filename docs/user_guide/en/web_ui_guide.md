@@ -17,7 +17,7 @@ System homepage providing quick navigation links.
 View and manage all available workflow YAML files.
 
 **Features**:
-- Browse workflows in `yaml_instance/` directory
+- Browse workflows in `workflows/` directory
 - Preview YAML configuration content
 - Select workflow to execute or edit
 
@@ -90,7 +90,7 @@ When workflow contains `human` nodes:
 |-------|----------|
 | Page won't load | Confirm frontend `npm run dev` is running |
 | Cannot connect to backend | Confirm backend `uv run python server_main.py` is running |
-| Empty workflow list | Check `yaml_instance/` directory for YAML files |
+| Empty workflow list | Check `workflows/` directory for YAML files |
 | Execution unresponsive | Check browser DevTools Network/Console logs |
 | WebSocket disconnected | Refresh page to re-establish connection |
 

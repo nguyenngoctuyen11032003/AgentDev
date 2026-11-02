@@ -3,10 +3,9 @@
 from unittest.mock import MagicMock, patch
 import pytest
 
-from entity.configs.node.memory import Mem0MemoryConfig
-from runtime.node.agent.memory.memory_base import (
+from agentdev.entity.configs.node.memory import Mem0MemoryConfig
+from agentdev.runtime.node.agent.memory.memory_base import (
     MemoryContentSnapshot,
-    MemoryItem,
     MemoryWritePayload,
 )
 
@@ -35,10 +34,10 @@ def _make_store(user_id=None, agent_id=None, api_key="test-key"):
 
 def _make_mem0_memory(user_id=None, agent_id=None):
     """Create a Mem0Memory with a mocked client."""
-    with patch("runtime.node.agent.memory.mem0_memory._get_mem0_client") as mock_get:
+    with patch("agentdev.runtime.node.agent.memory.mem0_memory._get_mem0_client") as mock_get:
         mock_client = MagicMock()
         mock_get.return_value = mock_client
-        from runtime.node.agent.memory.mem0_memory import Mem0Memory
+        from agentdev.runtime.node.agent.memory.mem0_memory import Mem0Memory
         store = _make_store(user_id=user_id, agent_id=agent_id)
         memory = Mem0Memory(store)
         return memory, mock_client
@@ -374,7 +373,7 @@ class TestMem0MemoryPipelineTextCleaning:
 
     def test_clean_text_without_headers_unchanged(self):
         """Text without pipeline headers passes through unchanged."""
-        from runtime.node.agent.memory.mem0_memory import Mem0Memory
+        from agentdev.runtime.node.agent.memory.mem0_memory import Mem0Memory
         assert Mem0Memory._clean_pipeline_text("Just normal text") == "Just normal text"
 
 
@@ -417,7 +416,7 @@ class TestMem0MemoryConfig:
 
     def test_config_requires_api_key(self):
         """Config raises ConfigError when api_key is missing."""
-        from entity.configs.base import ConfigError
+        from agentdev.entity.configs.base import ConfigError
 
         data = {"agent_id": "a1"}
         with pytest.raises(ConfigError):
@@ -428,7 +427,7 @@ class TestMem0MemoryConstructor:
 
     def test_raises_on_wrong_config_type(self):
         """Mem0Memory raises ValueError when store has wrong config type."""
-        from runtime.node.agent.memory.mem0_memory import Mem0Memory
+        from agentdev.runtime.node.agent.memory.mem0_memory import Mem0Memory
 
         store = MagicMock()
         store.name = "bad_store"
@@ -439,7 +438,7 @@ class TestMem0MemoryConstructor:
 
     def test_import_error_when_mem0ai_missing(self):
         """Helpful ImportError when mem0ai is not installed."""
-        from runtime.node.agent.memory.mem0_memory import _get_mem0_client
+        from agentdev.runtime.node.agent.memory.mem0_memory import _get_mem0_client
 
         mem0_cfg = MagicMock(spec=Mem0MemoryConfig)
         mem0_cfg.api_key = "test"
