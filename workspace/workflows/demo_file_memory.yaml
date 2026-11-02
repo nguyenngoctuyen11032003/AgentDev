@@ -8,9 +8,10 @@ graph:
     - name: DocumentMemory
       type: file
       config:
-        index_path: tests/file_memory_test/file_memory_index.json
+        # Relative index_path -> storage/memory/; relative source paths -> project root
+        index_path: file_memory/user_guide_index.json
         file_sources:
-        - path: tests/file_memory_test
+        - path: docs/user_guide/en
           file_types:
           - .md
           recursive: false

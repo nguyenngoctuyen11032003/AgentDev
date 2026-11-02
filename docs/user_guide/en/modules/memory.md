@@ -14,7 +14,7 @@ memory:
   - name: convo_cache
     type: simple
     config:
-      memory_path: WareHouse/shared/simple.json
+      memory_path: shared/simple.json   # relative -> storage/memory/shared/simple.json
       embedding:
         provider: openai
         model: text-embedding-3-small
@@ -22,7 +22,7 @@ memory:
   - name: project_docs
     type: file
     config:
-      index_path: WareHouse/index/project_docs.json
+      index_path: index/project_docs.json   # relative -> storage/memory/index/project_docs.json
       file_sources:
         - path: docs/
           file_types: [".md", ".mdx"]
@@ -122,6 +122,7 @@ This schema lets multimodal outputs flow into Memory/Thinking modules without ex
 - `provider=openai` uses the official client; override `base_url` for compatibility layers.
 - `params` can include `use_chunking`, `chunk_strategy`, `max_length`, etc.
 - `provider=local` expects `params.model_path` and depends on `sentence-transformers`.
+- Anthropic Claude has no embedding model: agents may use `provider: anthropic`, but `embedding.provider` must stay `openai` (or an OpenAI-compatible endpoint) or `local`.
 
 ## 7. Troubleshooting & Best Practices
 - **Duplicate names** – The memory list enforces unique `memory[]` names. Duplicates raise `ConfigError`.

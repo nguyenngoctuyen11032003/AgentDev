@@ -1,13 +1,19 @@
 ﻿"""Graph orchestration adapted to AgentDev design_0.4.0 workflows."""
 
 import threading
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from agentdev.runtime.node.agent.memory import MemoryBase, MemoryFactory, MemoryManager
 from agentdev.runtime.node.agent.thinking import ThinkingManagerBase, ThinkingManagerFactory
 from agentdev.entity.configs import Node, EdgeLink, AgentConfig, ConfigError
 from agentdev.entity.configs.edge import EdgeConditionConfig
-from agentdev.entity.configs.node.memory import SimpleMemoryConfig
+from agentdev.entity.configs.node.memory import (
+    BlackboardMemoryConfig,
+    FileMemoryConfig,
+    SimpleMemoryConfig,
+)
+from agentdev.paths import MEMORY_DIR, PROJECT_ROOT
 from agentdev.entity.messages import Message, MessageRole
 from agentdev.runtime.node.executor.base import ExecutionContext
 from agentdev.runtime.node.executor.factory import NodeExecutorFactory
@@ -159,10 +165,7 @@ class GraphExecutor:
                 self.log_manager.error(error_msg)
                 raise ValidationError(error_msg, details={"memory_name": store.name})
 
-            simple_cfg = store.as_config(SimpleMemoryConfig)
-            if simple_cfg and (not simple_cfg.memory_path or simple_cfg.memory_path == "auto"):
-                path = self.graph.directory / f"memory_{store.name}.json"
-                simple_cfg.memory_path = str(path)
+            self._resolve_memory_paths(store)
 
             try:
                 memory_instance = MemoryFactory.create_memory(store)
@@ -178,6 +181,34 @@ class GraphExecutor:
                 logger = get_server_logger()
                 logger.log_exception(e, error_msg, memory_name=store.name)
                 raise WorkflowExecutionError(error_msg, details={"memory_name": store.name})
+
+    def _resolve_memory_paths(self, store) -> None:
+        """Make memory file paths absolute so they never depend on the CWD.
+
+        - ``auto`` / empty ``memory_path`` -> per-session file in the run directory.
+        - Relative ``memory_path`` / ``index_path`` (data the run writes) -> ``storage/memory/``.
+        - Relative ``file_sources[].path`` (documents the run reads) -> project root.
+        """
+
+        def _under(base: Path, value: str) -> str:
+            path = Path(value).expanduser()
+            return str(path if path.is_absolute() else base / path)
+
+        for cfg_type in (SimpleMemoryConfig, BlackboardMemoryConfig):
+            cfg = store.as_config(cfg_type)
+            if not cfg:
+                continue
+            if not cfg.memory_path or cfg.memory_path == "auto":
+                cfg.memory_path = str(self.graph.directory / f"memory_{store.name}.json")
+            else:
+                cfg.memory_path = _under(MEMORY_DIR, cfg.memory_path)
+
+        file_cfg = store.as_config(FileMemoryConfig)
+        if file_cfg:
+            if file_cfg.index_path:
+                file_cfg.index_path = _under(MEMORY_DIR, file_cfg.index_path)
+            for source in file_cfg.file_sources:
+                source.source_path = _under(PROJECT_ROOT, source.source_path)
 
     def _build_thinking_managers(self) -> None:
         """Build thinking managers for nodes that require them."""

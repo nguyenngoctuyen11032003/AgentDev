@@ -14,7 +14,7 @@ memory:
   - name: convo_cache
     type: simple
     config:
-      memory_path: WareHouse/shared/simple.json
+      memory_path: shared/simple.json   # 相对路径 -> storage/memory/shared/simple.json
       embedding:
         provider: openai
         model: text-embedding-3-small
@@ -22,7 +22,7 @@ memory:
   - name: project_docs
     type: file
     config:
-      index_path: WareHouse/index/project_docs.json
+      index_path: index/project_docs.json   # 相对路径 -> storage/memory/index/project_docs.json
       file_sources:
         - path: docs/
           file_types: [".md", ".mdx"]
@@ -124,6 +124,7 @@ nodes:
 - `provider=openai` 时使用 `openai.OpenAI` 客户端，可配置 `base_url` 以兼容兼容层。
 - `params` 支持 `use_chunking`, `chunk_strategy`, `max_length` 等自定义键。
 - `provider=local` 时需提供 `params.model_path`，依赖 `sentence-transformers`。
+- Anthropic Claude 没有 embedding 模型：Agent 可以使用 `provider: anthropic`，但 `embedding.provider` 仍需为 `openai`（或 OpenAI 兼容端点）或 `local`。
 
 ## 7. 排错与最佳实践
 - **重复命名**：内存列表会校验 `memory[]` 名称唯一；重复时抛出 `ConfigError`。

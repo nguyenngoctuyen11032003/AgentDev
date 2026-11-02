@@ -18,11 +18,14 @@ Repository layout::
         storage/             STORAGE_DIR (everything generated at runtime, gitignored)
             warehouse/       WAREHOUSE_DIR (per-session workflow output)
             db/              DATA_DIR (vuegraphs.db)
+            memory/          MEMORY_DIR (relative memory_path / index_path in workflows)
             logs/            LOGS_DIR
             temp/            TEMP_DIR
 
 Set ``AGENTDEV_HOME`` to point ``PROJECT_ROOT`` at another checkout, or
 ``AGENTDEV_STORAGE_DIR`` to keep runtime data somewhere else (e.g. a volume).
+``AGENTDEV_STORAGE_DIR`` may also be set in ``.env``; ``AGENTDEV_HOME`` must be a
+real environment variable because it decides where ``.env`` lives.
 
 Import these instead of counting ``Path(__file__).parents[N]`` so that moving a
 module never silently changes which directory it resolves to.
@@ -53,19 +56,45 @@ SKILLS_DIR = WORKSPACE_DIR / "skills"
 TEMPLATES_DIR = WORKSPACE_DIR / "templates"
 EXAMPLES_DIR = WORKSPACE_DIR / "examples"
 
+ENV_FILE = PROJECT_ROOT / ".env"
+
+
+def _read_dotenv_value(key: str) -> str | None:
+    """Read one key from ``ENV_FILE`` without mutating ``os.environ``.
+
+    ``paths`` is imported before ``env_loader.load_dotenv_file()`` runs, so a
+    value placed only in ``.env`` would otherwise be ignored here. Real
+    environment variables still take precedence (same rule as the loader).
+    """
+    try:
+        lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, value = stripped.split("=", 1)
+        if name.strip() == key:
+            return value.strip().strip('"').strip("'") or None
+    return None
+
+
 # Runtime / generated data, grouped under one gitignored ``storage/`` dir.
-_storage_override = os.environ.get("AGENTDEV_STORAGE_DIR")
-STORAGE_DIR = (
-    Path(_storage_override).expanduser().resolve()
-    if _storage_override
-    else PROJECT_ROOT / "storage"
-)
+# AGENTDEV_STORAGE_DIR may come from the real environment or from ``.env``;
+# a relative value is resolved against PROJECT_ROOT, never the CWD.
+_storage_override = os.environ.get("AGENTDEV_STORAGE_DIR") or _read_dotenv_value("AGENTDEV_STORAGE_DIR")
+if _storage_override:
+    _storage_path = Path(_storage_override).expanduser()
+    STORAGE_DIR = (_storage_path if _storage_path.is_absolute() else PROJECT_ROOT / _storage_path).resolve()
+else:
+    STORAGE_DIR = PROJECT_ROOT / "storage"
 WAREHOUSE_DIR = STORAGE_DIR / "warehouse"
 DATA_DIR = STORAGE_DIR / "db"
+MEMORY_DIR = STORAGE_DIR / "memory"
 LOGS_DIR = STORAGE_DIR / "logs"
 TEMP_DIR = STORAGE_DIR / "temp"
 VUEGRAPHS_DB_PATH = DATA_DIR / "vuegraphs.db"
-ENV_FILE = PROJECT_ROOT / ".env"
 
 # Backward-compatible aliases.
 REPO_ROOT = PROJECT_ROOT
