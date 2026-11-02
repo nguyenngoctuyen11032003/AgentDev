@@ -11,15 +11,15 @@ from fastapi import FastAPI, UploadFile
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from runtime import sdk
-from entity.graph_config import GraphConfig
-from server import state
-from server.routes import execute_sync, uploads, websocket
-from server.services.attachment_service import AttachmentService
-from server.services.websocket_manager import WebSocketManager
-from utils.exceptions import ValidationError
-from workflow.graph_context import GraphContext
-from workflow.runtime.runtime_builder import RuntimeBuilder
+from agentdev.runtime import sdk
+from agentdev.entity.graph_config import GraphConfig
+from agentdev.server import state
+from agentdev.server.routes import execute_sync, uploads, websocket
+from agentdev.server.services.attachment_service import AttachmentService
+from agentdev.server.services.websocket_manager import WebSocketManager
+from agentdev.utils.exceptions import ValidationError
+from agentdev.workflow.graph_context import GraphContext
+from agentdev.workflow.runtime.runtime_builder import RuntimeBuilder
 
 
 TRAVERSAL = "session_../../../functions/function_calling/pocplant"
@@ -37,7 +37,7 @@ INVALID_NAMES = [
     "session_\x00invalid",
     "session_\ninvalid",
 ]
-DEMO_YAML = Path(__file__).resolve().parents[1] / "yaml_instance/demo_loop_counter.yaml"
+DEMO_YAML = Path(__file__).resolve().parents[1] / "workflows/demo_loop_counter.yaml"
 
 
 @pytest.fixture

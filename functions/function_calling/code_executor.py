@@ -1,4 +1,4 @@
-from utils.code_execution import require_unsafe_code_execution
+from agentdev.utils.code_execution import require_unsafe_code_execution
 
 
 def execute_code(code: str, time_out: int = 60) -> str:

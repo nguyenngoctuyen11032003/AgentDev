@@ -4,16 +4,16 @@ import json
 from pathlib import Path
 from typing import List, Union
 
-from runtime.bootstrap.schema import ensure_schema_registry_populated
-from check.check import load_config
-from entity.graph_config import GraphConfig
-from entity.messages import Message
-from utils.attachments import AttachmentStore
-from utils.schema_exporter import build_schema_response, SchemaResolutionError
-from utils.task_input import TaskInputBuilder
-from utils.workspace_paths import resolve_workspace_path
-from workflow.graph_context import GraphContext
-from workflow.graph import GraphExecutor
+from agentdev.runtime.bootstrap.schema import ensure_schema_registry_populated
+from agentdev.validation.check import load_config
+from agentdev.entity.graph_config import GraphConfig
+from agentdev.entity.messages import Message
+from agentdev.utils.attachments import AttachmentStore
+from agentdev.utils.schema_exporter import build_schema_response, SchemaResolutionError
+from agentdev.utils.task_input import TaskInputBuilder
+from agentdev.utils.workspace_paths import resolve_workspace_path
+from agentdev.workflow.graph_context import GraphContext
+from agentdev.workflow.graph import GraphExecutor
 
 OUTPUT_ROOT = Path("WareHouse")
 
@@ -40,7 +40,7 @@ def parse_arguments():
     parser.add_argument(
         "--path",
         type=Path,
-        default=Path("yaml_instance/net_loop_test_included.yaml"),
+        default=Path("workflows/net_loop_test_included.yaml"),
         help="Path to the design_0.4.0 workflow file",
     )
     parser.add_argument(

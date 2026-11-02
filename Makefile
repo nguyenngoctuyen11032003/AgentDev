@@ -29,11 +29,11 @@ stop: ## Stop backend and frontend servers cross-platform
 
 .PHONY: sync
 sync: ## Sync Vue graphs to the server database
-	@uv run python tools/sync_vuegraphs.py
+	@uv run python -m scripts.sync_vuegraphs
 
 .PHONY: validate-yamls
 validate-yamls: ## Validate all YAML configuration files
-	@uv run python tools/validate_all_yamls.py
+	@uv run python -m scripts.validate_all_yamls
 
 # ==============================================================================
 # Help

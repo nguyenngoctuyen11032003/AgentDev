@@ -3,19 +3,19 @@ name: Validate YAML Workflows
 on:
   pull_request:
     paths:
-      - 'yaml_instance/**/*.yaml'
+      - 'workflows/**/*.yaml'
       - '.github/workflows/**/*.yml'
-      - 'tools/validate_all_yamls.py'
-      - 'check/**/*.py'
+      - 'scripts/validate_all_yamls.py'
+      - 'agentdev/**/*.py'
   
   push:
     branches:
       - main
     paths:
-      - 'yaml_instance/**/*.yaml'
+      - 'workflows/**/*.yaml'
       - '.github/workflows/**/*.yml'
-      - 'tools/validate_all_yamls.py'
-      - 'check/**/*.py'
+      - 'scripts/validate_all_yamls.py'
+      - 'agentdev/**/*.py'
   
   workflow_dispatch:
 
@@ -57,7 +57,7 @@ jobs:
         run: uv sync
       
       - name: Run YAML validation
-        run: uv run python tools/validate_all_yamls.py
+        run: uv run python scripts/validate_all_yamls.py
       
       - name: Report validation results
         if: always()
