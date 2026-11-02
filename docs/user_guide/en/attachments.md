@@ -18,7 +18,7 @@ Attachments are files that can be uploaded, downloaded, or registered during a s
     "size": 12345
   }
   ```
-- Files land in `WareHouse/<session>/code_workspace/attachments/` and are recorded in `attachments_manifest.json`.
+- Files land in `storage/warehouse/<session>/code_workspace/attachments/` and are recorded in `attachments_manifest.json`.
 
 ### 1.2 List attachments
 `GET /api/uploads/{session_id}`
@@ -55,13 +55,13 @@ Attachments are files that can be uploaded, downloaded, or registered during a s
 
 ### 2.3 Download an entire session
 `GET /api/sessions/{session_id}/download`
-- Packages `WareHouse/<session>/` into a zip for batch download.
+- Packages `storage/warehouse/<session>/` into a zip for batch download.
 
 ## 3. File Lifecycle
 1. Upload stage: files go under `code_workspace/attachments/`, and the manifest records `source`, `workspace_path`, `storage`, etc.
 2. Python nodes/tools can call `AttachmentStore.register_file()` to turn workspace files into attachments; `WorkspaceArtifactHook` syncs events.
 3. By default we retain all attachments for post-run downloads. Set `MAC_AUTO_CLEAN_ATTACHMENTS=1` to delete the `attachments/` directory after the session completes.
-4. WareHouse zip downloads do **not** delete originals; schedule your own archival/cleanup jobs.
+4. Warehouse zip downloads do **not** delete originals; schedule your own archival/cleanup jobs.
 
 ## 4. Size & Security
 - **Size limits**: No hard cap in backend; enforce via reverse proxy (`client_max_body_size`, `max_request_body_size`) or customize `AttachmentService.save_upload_file`.

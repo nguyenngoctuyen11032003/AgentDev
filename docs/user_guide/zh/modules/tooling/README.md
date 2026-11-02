@@ -1,7 +1,7 @@
 # Tooling 模块总览
 
 AgentDev 目前支持两类工具绑定到 Agent 节点：
-1. **Function Tooling**：调用仓库内的 Python 函数（`functions/function_calling/`），通过 JSON Schema 自动生成工具签名。
+1. **Function Tooling**：调用仓库内的 Python 函数（`workspace/functions/function_calling/`），通过 JSON Schema 自动生成工具签名。
 2. **MCP Tooling**：连接符合 Model Context Protocol 的外部服务，可直接复用 FastMCP、Claude Desktop 等工具生态。
 
 所有 Tooling 配置都挂载在 `AgentConfig.tooling`：
@@ -24,7 +24,7 @@ nodes:
 ```
 
 ## 1. 生命周期
-1. 解析阶段：`ToolingConfig` 根据 `type` 选择 `FunctionToolConfig`、`McpRemoteConfig` 或 `McpLocalConfig`，字段定义来自 `agentdev/entity/configs/node/tooling.py`。
+1. 解析阶段：`ToolingConfig` 根据 `type` 选择 `FunctionToolConfig`、`McpRemoteConfig` 或 `McpLocalConfig`，字段定义来自 `backend/agentdev/entity/configs/node/tooling.py`。
 2. 运行阶段：Agent 节点根据响应启用工具调用；当 LLM 选择某工具时，执行器会将 `_context`（附件仓库、workspace 路径等）注入函数或通过 MCP 发送请求。
 3. 结束阶段：工具输出写入 Agent 消息流，必要时注册为附件（如 `load_file`）。
 

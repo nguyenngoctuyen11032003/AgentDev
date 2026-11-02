@@ -58,7 +58,7 @@ nodes:
 运行期间 AgentDev 会保持该进程常驻，并通过 stdio 传输 MCP 数据帧。
 
 ## 4. FastMCP 示例服务器
-`examples/mcp_server.py`：
+`workspace/examples/mcp_server.py`：
 ```python
 from fastmcp import FastMCP
 import random
@@ -74,7 +74,7 @@ if __name__ == "__main__":
 ```
 启动：
 ```bash
-uv run fastmcp run examples/mcp_server.py --transport streamable-http --port 8010
+uv run --project backend fastmcp run workspace/examples/mcp_server.py --transport streamable-http --port 8010
 ```
 - 若以 Remote 模式使用，只需将 `server` 指向 `http://127.0.0.1:8010/mcp`。
 - 若以 Local 模式使用，可将 `command` 设置为 `uv run fastmcp run ...` 并保持 `transport=stdio`。
@@ -89,4 +89,4 @@ uv run fastmcp run examples/mcp_server.py --transport streamable-http --port 801
 ## 6. 调试步骤
 1. Remote：使用 curl 或 `fastmcp client` 测试 HTTP 端点；Local：先单独运行并确认 stdout 中有 `wait_for_log` 匹配的文本。
 2. 启动 AgentDev（可加 `--reload`），观察后端日志是否打印工具清单。
-3. 若调用失败，查看 Web UI 中的工具请求/响应，或在 `logs/` 中搜索对应 session 的结构化日志。
+3. 若调用失败，查看 Web UI 中的工具请求/响应，或在 `storage/logs/` 中搜索对应 session 的结构化日志。

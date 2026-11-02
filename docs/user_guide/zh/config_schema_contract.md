@@ -74,7 +74,7 @@
 
 ## 3. CLI 辅助
 ```bash
-python run.py --inspect-schema --schema-breadcrumbs '[{"node":"DesignConfig","field":"graph"}]'
+cd backend && uv run python cli.py --inspect-schema --schema-breadcrumbs '[{"node":"DesignConfig","field":"graph"}]'
 ```
 输出与 `/schema` 相同，便于在导出模板前调试 `FIELD_SPECS` 或注册表。
 

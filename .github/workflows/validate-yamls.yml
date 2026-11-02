@@ -3,19 +3,23 @@ name: Validate YAML Workflows
 on:
   pull_request:
     paths:
-      - 'workflows/**/*.yaml'
+      - 'workspace/workflows/**/*.yaml'
       - '.github/workflows/**/*.yml'
-      - 'scripts/validate_all_yamls.py'
-      - 'agentdev/**/*.py'
+      - 'backend/scripts/validate_all_yamls.py'
+      - 'backend/**/*.py'
+      - 'backend/pyproject.toml'
+      - 'backend/uv.lock'
   
   push:
     branches:
       - main
     paths:
-      - 'workflows/**/*.yaml'
+      - 'workspace/workflows/**/*.yaml'
       - '.github/workflows/**/*.yml'
-      - 'scripts/validate_all_yamls.py'
-      - 'agentdev/**/*.py'
+      - 'backend/scripts/validate_all_yamls.py'
+      - 'backend/**/*.py'
+      - 'backend/pyproject.toml'
+      - 'backend/uv.lock'
   
   workflow_dispatch:
 
@@ -23,6 +27,9 @@ jobs:
   validate:
     name: Validate YAML Configuration Files
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     
     steps:
       - name: Checkout repository
@@ -37,6 +44,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
+          cache-dependency-glob: 'backend/uv.lock'
 
       - name: Install system dependencies for pycairo
         run: |
@@ -48,8 +56,8 @@ jobs:
         with:
           path: |
             ~/.cache/uv
-            .venv
-          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+            backend/.venv
+          key: ${{ runner.os }}-uv-${{ hashFiles('backend/uv.lock') }}
           restore-keys: |
             ${{ runner.os }}-uv-
       
@@ -57,14 +65,12 @@ jobs:
         run: uv sync
       
       - name: Run YAML validation
-        run: uv run python scripts/validate_all_yamls.py
+        run: uv run python -m scripts.validate_all_yamls
       
-      - name: Report validation results
-        if: always()
-        run: |
-          if [ $? -eq 0 ]; then
-            echo "All YAML workflow files passed validation"
-          else
-            echo "YAML validation failed - check the logs above for details"
-            exit 1
-          fi
+      - name: Report validation success
+        if: success()
+        run: echo "All YAML workflow files passed validation"
+
+      - name: Report validation failure
+        if: failure()
+        run: echo "YAML validation failed - check the logs above for details"

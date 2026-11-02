@@ -220,10 +220,10 @@ The recursive execution strategy automatically handles such nested structures.
 
 | Module | Function |
 |--------|----------|
-| `agentdev/workflow/cycle_manager.py` | Tarjan algorithm implementation, cycle info management |
-| `agentdev/workflow/topology_builder.py` | Super node graph construction, topological sorting |
-| `agentdev/workflow/executor/cycle_executor.py` | Recursive cycle executor |
-| `agentdev/workflow/graph.py` | Main graph execution entry point |
+| `backend/agentdev/workflow/cycle_manager.py` | Tarjan algorithm implementation, cycle info management |
+| `backend/agentdev/workflow/topology_builder.py` | Super node graph construction, topological sorting |
+| `backend/agentdev/workflow/executor/cycle_executor.py` | Recursive cycle executor |
+| `backend/agentdev/workflow/graph.py` | Main graph execution entry point |
 
 ## 7. Changelog
 

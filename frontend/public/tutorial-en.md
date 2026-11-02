@@ -279,13 +279,13 @@ AgentDev supports two types of tools:
 
 #### 1. Function Tooling (Local Functions)
 
-Call Python functions in the repository (under `functions/function_calling/`):
+Call Python functions in the repository (under `workspace/functions/function_calling/`):
 
 ![agent_tooling_function_config.png](media/agent_tooling_function_config.png)
 
-`uv_related:All` in the figure means importing all functions from `functions/function_calling/uv_related.py`. Others import specific functions.
+`uv_related:All` in the figure means importing all functions from `workspace/functions/function_calling/uv_related.py`. Others import specific functions.
 
-To add a custom function, create a Python file under `functions/function_calling/` and use type annotations for parameters:
+To add a custom function, create a Python file under `workspace/functions/function_calling/` and use type annotations for parameters:
 
 ```python
 from typing import Annotated
@@ -294,11 +294,11 @@ from agentdev.utils.function_catalog import ParamMeta
 def my_tool(
     param1: Annotated[str, ParamMeta(description="Parameter description")],
     *,
-    _context: dict | None = None,  # Optional, for accessing context. The system injects this automatically and does not expose it to the model. See functions/function_calling/file.py for usage.
+    _context: dict | None = None,  # Optional, for accessing context. The system injects this automatically and does not expose it to the model. See workspace/functions/function_calling/file.py for usage.
 ) -> str:
     """Function description (will be shown to LLM)"""
     # The return value can be any type; the system will convert it to a string for the model.
-    # If the return value is MessageBlock or List[MessageBlock], multimodal information can be passed to the model (see load_file in functions/function_calling/file.py)
+    # If the return value is MessageBlock or List[MessageBlock], multimodal information can be passed to the model (see load_file in workspace/functions/function_calling/file.py)
     return "result"
 ```
 
@@ -353,9 +353,9 @@ There are three built-in Memory types:
 
 | Type        | Features                        | Use Case         | Needs Embedding | Example Config                        |
 |-------------|---------------------------------|------------------|----------------|---------------------------------------|
-| `simple`    | Vector search + semantic rerank | Conversation mem | Yes            | workflows/demo_simple_memory.yaml |
-| `file`      | File/directory vector index, RO | Knowledge base   | Yes            | workflows/demo_file_memory.yaml   |
-| `blackboard`| Simple log, time/length cutoff  | Broadcast board  | No             | workflows/subgraphs/reflexion_loop.yaml |
+| `simple`    | Vector search + semantic rerank | Conversation mem | Yes            | workspace/workflows/demo_simple_memory.yaml |
+| `file`      | File/directory vector index, RO | Knowledge base   | Yes            | workspace/workflows/demo_file_memory.yaml   |
+| `blackboard`| Simple log, time/length cutoff  | Broadcast board  | No             | workspace/workflows/subgraphs/reflexion_loop.yaml |
 
 2. Reference in Agent Nodes:
 Click Memory Attachments, select the Memory Store, and configure read/write permissions and retrieval stages.
@@ -404,9 +404,9 @@ Passthrough Nodes do nothing but pass messages downstream. **By default, only th
 
 **Key uses:**
 
-1. **Retain initial context as entry node**: Use with `Keep Message Input` on edges to ensure the original task is always preserved (e.g., `workflows/AgentDev_v1.yaml`)
+1. **Retain initial context as entry node**: Use with `Keep Message Input` on edges to ensure the original task is always preserved (e.g., `workspace/workflows/AgentDev_v1.yaml`)
 2. **Filter redundant outputs in loops**: Pass only the final result to control loop output and avoid context bloat
-3. **Simplify graph structure**: As a logical placeholder for organization and readability (e.g., `workflows/AgentDev_v1.yaml`)
+3. **Simplify graph structure**: As a logical placeholder for organization and readability (e.g., `workspace/workflows/AgentDev_v1.yaml`)
 
 ---
 
@@ -417,8 +417,8 @@ Literal Nodes output fixed text, ignoring all input. You can set the Message Rol
 ![literal.png](media/literal.png)
 
 **Typical uses:**
-- Inject fixed instructions or context (e.g., `workflows/AgentDev_v1.yaml`)
-- Test downstream nodes (e.g., `workflows/demo_dynamic.yaml`)
+- Inject fixed instructions or context (e.g., `workspace/workflows/AgentDev_v1.yaml`)
+- Test downstream nodes (e.g., `workspace/workflows/demo_dynamic.yaml`)
 - Fixed responses in conditional branches
 
 ---
@@ -436,7 +436,7 @@ Loop Counter Nodes limit the number of loop executions. It counts triggers and o
 
 > **Important**: Since no output is produced before the limit, the Loop Counter's edge must connect both to nodes inside the loop (to keep the loop going, but has no effect) and outside (to exit when the limit is reached).
 
-See: `workflows/AgentDev_v1.yaml`
+See: `workspace/workflows/AgentDev_v1.yaml`
 
 ---
 
@@ -455,7 +455,7 @@ Subgraph Nodes allow embedding another workflow graph into the current workflow 
 
 | Field                | Type   | Required | Description                                 |
 |----------------------|--------|----------|---------------------------------------------|
-| `Subgraph File Path` | string | Yes      | Subgraph file path (relative to `workflows/` or absolute) |
+| `Subgraph File Path` | string | Yes      | Subgraph file path (relative to `workspace/workflows/` or absolute) |
 
 **config type config** (inline definition):
 
@@ -474,7 +474,7 @@ Config items are the same as a normal graph.
 >   - `start`: Only needed if the subgraph is a loop.
 >   - `end`: List of exit nodes. The system checks these in order and returns the first with output as the subgraph result. If none, or not set, nodes with no successors are used as exits.
 
-See: `workflows/MACNet_optimize_sub.yaml`, `workflows/MACNet_Node_sub.yaml`, `workflows/MACNet_v1.yaml`.
+See: `workspace/workflows/MACNet_optimize_sub.yaml`, `workspace/workflows/MACNet_Node_sub.yaml`, `workspace/workflows/MACNet_v1.yaml`.
 
 ---
 
@@ -507,7 +507,7 @@ The condition determines whether the edge is on. If true, the edge is on (data c
 ### Function Conditions
 Some built-in functions: `true` (default, always on), `code_pass` (code succeeded), `code_fail` (code failed), `always_false` (always off, for testing)
 
-You can add custom functions in `functions/edge` and restart the backend to use them.
+You can add custom functions in `workspace/functions/edge` and restart the backend to use them.
 
 ![edge_condition_function.png](media/edge_condition_function.png)
 
@@ -533,13 +533,13 @@ Use Python regex to extract content from messages:
 | `No Match Behavior` | `pass`, `default`, `drop`    |
 | `Default Value`     | Used if `No Match Behavior=default` |
 
-**Example**: Extract code (see `workflows/demo_edge_transform.yaml`)
+**Example**: Extract code (see `workspace/workflows/demo_edge_transform.yaml`)
 
 ![edge_transform_regex.png](media/edge_transform_regex.png)
 
 #### 2. function
 
-Call Python functions in `functions/edge_processor/` for custom processing:
+Call Python functions in `workspace/functions/edge_processor/` for custom processing:
 
 | Config Item | Description |
 |-------------|-------------|
@@ -547,11 +547,11 @@ Call Python functions in `functions/edge_processor/` for custom processing:
 
 **Built-in functions:**
 - `uppercase_payload`: Convert message to uppercase
-- `code_save_and_run`: Save code to workspace and run `main.py` (see `workflows/MACNet_optimize_sub.yaml`)
+- `code_save_and_run`: Save code to workspace and run `main.py` (see `workspace/workflows/MACNet_optimize_sub.yaml`)
 
 ### Custom Processor Functions
 
-Create a Python file in `functions/edge_processor/` and define a function:
+Create a Python file in `workspace/functions/edge_processor/` and define a function:
 
 ```python
 from typing import Dict, Any
@@ -646,14 +646,14 @@ AgentDev uses a layered workspace structure to manage files:
 
 | Path                                             | Purpose                        |
 |--------------------------------------------------|--------------------------------|
-| `WareHouse/`                                     | Root directory for all sessions|
-| `WareHouse/<session>/`                           | Runtime data for a session     |
-| `WareHouse/<session>/code_workspace/`            | Python node code execution dir |
-| `WareHouse/<session>/code_workspace/attachments/`| User-uploaded files            |
-| `WareHouse/<session>/execution_logs.json`        | Execution logs (after run)     |
-| `WareHouse/<session>/node_outputs.yaml`          | Node output records (after run)|
-| `WareHouse/<session>/token_usage_<session>.json` | Token usage stats (after run)  |
-| `WareHouse/<session>/workflow_summary.yaml`      | Workflow summary (after run)   |
+| `storage/warehouse/`                                     | Root directory for all sessions|
+| `storage/warehouse/<session>/`                   | Runtime data for a session     |
+| `storage/warehouse/<session>/code_workspace/`            | Python node code execution dir |
+| `storage/warehouse/<session>/code_workspace/attachments/`| User-uploaded files            |
+| `storage/warehouse/<session>/execution_logs.json`        | Execution logs (after run)     |
+| `storage/warehouse/<session>/node_outputs.yaml`          | Node output records (after run)|
+| `storage/warehouse/<session>/token_usage_<session>.json` | Token usage stats (after run)  |
+| `storage/warehouse/<session>/workflow_summary.yaml`      | Workflow summary (after run)   |
 
 ---
 
@@ -661,7 +661,7 @@ AgentDev uses a layered workspace structure to manage files:
 
 Dynamic execution mode allows defining parallel processing at the edge level, supporting **Map** (fan-out) and **Tree** (reduction) modes.
 
-See `workflows/demo_dynamic.yaml`, `workflows/MACNet_Node_sub.yaml` for examples.
+See `workspace/workflows/demo_dynamic.yaml`, `workspace/workflows/MACNet_Node_sub.yaml` for examples.
 
 ## Mode Comparison
 
@@ -682,7 +682,7 @@ For summarization:
 ![dynamic_tree.png](media/dynamic_tree.png)
 ![dynamic_tree_split.png](media/dynamic_tree_split.png)
 `(?s).{1,2000}(?:\s|$)` splits input into segments of 2000 characters.
-See `workflows/demo_dynamic_tree.yaml`.
+See `workspace/workflows/demo_dynamic_tree.yaml`.
 
 ## Split Strategies
 

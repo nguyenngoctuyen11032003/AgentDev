@@ -19,16 +19,16 @@
 | [配置 Schema API 契约](config_schema_contract.md) | `/api/config/schema(*)` 请求示例、breadcrumbs 协议（用户可忽略）        |
 
 ## 2. 产品概览（后端视角）
-- **工作流调度引擎**：解析 YAML DAG，在统一上下文中协调 `model`、`python`、`tooling`、`human` 等节点，并把节点输出写入 `WareHouse/<session>/`。
-- **多 Provider 抽象**：`agentdev/runtime/node/agent/providers/` 层封装 OpenAI、Gemini 等 API，可在节点级别切换模型与鉴权，亦支持额外 `thinking` 与 `memories` 配置。
-- **实时可观测性**：FastAPI + WebSocket 将节点状态、stdout/stderr、工件事件推送至 Web UI；结构化日志写入 `logs/`，便于集中收集。
+- **工作流调度引擎**：解析 YAML DAG，在统一上下文中协调 `model`、`python`、`tooling`、`human` 等节点，并把节点输出写入 `storage/warehouse/<session>/`。
+- **多 Provider 抽象**：`backend/agentdev/runtime/node/agent/providers/` 层封装 OpenAI、Gemini 等 API，可在节点级别切换模型与鉴权，亦支持额外 `thinking` 与 `memories` 配置。
+- **实时可观测性**：FastAPI + WebSocket 将节点状态、stdout/stderr、工件事件推送至 Web UI；结构化日志写入 `storage/logs/`，便于集中收集。
 - **运行资产管理**：每次运行创建独立 Session，附件、Python workspace、context snapshot、输出摘要等均可下载。
 
 ## 3. 架构与运行流概览
-1. **入口**：Web UI 与 CLI 调用 `server_main.py` 暴露的 FastAPI（如 `/api/workflow/execute`）。
-2. **验证/入队**：`WorkflowRunService` 校验 YAML、创建 Session、准备 `code_workspace/attachments/`，随后调度器在 `agentdev/workflow/` 中运行 DAG。
+1. **入口**：Web UI 与 CLI 调用 `backend/main.py` 暴露的 FastAPI（如 `/api/workflow/execute`）。
+2. **验证/入队**：`WorkflowRunService` 校验 YAML、创建 Session、准备 `code_workspace/attachments/`，随后调度器在 `backend/agentdev/workflow/` 中运行 DAG。
 3. **执行阶段**：节点执行器负责依赖解析、上下文传递、工具调用、memory 检索；`MemoryManager`、`ToolingConfig`、`ThinkingManager` 会在模型节点内按需触发。
-4. **可观测性**：WebSocket 推送状态、日志、artifact 事件；`logs/` 存储 JSON 日志，`WareHouse/` 保存运行资产。
+4. **可观测性**：WebSocket 推送状态、日志、artifact 事件；`storage/logs/` 存储 JSON 日志，`storage/warehouse/` 保存运行资产。
 5. **清理与下载**：Session 结束后可选择打包下载或通过附件 API 逐项获取；保留策略由部署者自定。
 
 ## 4. 角色导航
@@ -36,8 +36,8 @@
 - **扩展开发者**：结合 [FIELD_SPECS](field_specs.md) 与 [Tooling 模块](modules/tooling/README.md) 了解注册流程，必要时参照 [配置 Schema API 契约](config_schema_contract.md) 调试 UI 交互（英文版见 `docs/en/config_schema_contract.md`）。
 
 ## 5. 常用术语
-- **Session**：一次完整运行的 ID（由时间戳+名称组成），贯穿 Web UI、后端和 `WareHouse/`。
-- **code_workspace**：Python 节点共享的目录，位于 `WareHouse/<session>/code_workspace/`，包含自动同步的附件。
+- **Session**：一次完整运行的 ID（由时间戳+名称组成），贯穿 Web UI、后端和 `storage/warehouse/`。
+- **code_workspace**：Python 节点共享的目录，位于 `storage/warehouse/<session>/code_workspace/`，包含自动同步的附件。
 - **Attachment**：用户上传或运行期间注册的文件，通过 REST/WS API 可查询/下载。
 - **Memory Store / Attachment**：Memory Store 定义存储实现；Memory Attachment 是模型节点引用 Memory Store 的规则（检索阶段、读写策略等）。
 - **Tooling**：模型节点绑定的工具执行环境（Function 或 MCP）。

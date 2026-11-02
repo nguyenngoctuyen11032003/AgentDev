@@ -31,6 +31,10 @@ Modifications made by Nguyễn Ngọc Tuyền (Apache-2.0 Section 4(b)):
     workflows, yaml_template → templates, tools → scripts,
     mcp_example → examples. Imports and path anchors were updated
     accordingly (agentdev/paths.py).
+  - Split the repository into backend/ (Python package, server_main.py →
+    backend/main.py, run.py → backend/cli.py, scripts, tests), frontend/
+    and workspace/ (workflows, functions, skills (was .agents/skills),
+    templates, examples).
   - Further changes are recorded in this repository's git history.
 
 The Inter typeface bundled under frontend/src/assets/styles/fonts/Inter/

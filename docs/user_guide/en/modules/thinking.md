@@ -92,7 +92,7 @@ Memory retrieval results are passed to thinking functions via the `memory` param
        summary="Custom thinking mode description",
    )
    ```
-4. **Export template**: Run `python -m scripts.export_design_template` to update frontend options
+4. **Export template**: Run `cd backend && uv run python -m scripts.export_design_template` to update frontend options
 
 ## 7. Best Practices
 

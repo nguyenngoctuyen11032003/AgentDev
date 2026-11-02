@@ -3,12 +3,12 @@
 This guide covers YAML structure, node types, provider configuration, edge conditions, and design template export so you can build and debug AgentDev DAGs efficiently. Content mirrors `docs/user_guide/workflow_authoring.md` with English copy for global contributors.
 
 ## 1. Prerequisites
-- Know the layout of `workflows/` and `templates/`.
+- Know the layout of `workspace/workflows/` and `workspace/templates/`.
 - Understand the core node types (`model`, `python`, `agent`, `human`, `subgraph`, `passthrough`, `literal`).
 - Review `FIELD_SPECS` (see [field_specs.md](field_specs.md)) and the Schema API contract ([config_schema_contract.md](config_schema_contract.md)) if you rely on dynamic forms in the frontend/IDE.
 
 ## 2. YAML Top-level Structure
-Every workflow file follows the `DesignConfig` root with only three keys: `version`, `vars`, and `graph`. The snippet below is adapted from `workflows/net_example.yaml` and can run as-is:
+Every workflow file follows the `DesignConfig` root with only three keys: `version`, `vars`, and `graph`. The snippet below is adapted from `workspace/workflows/net_example.yaml` and can run as-is:
 ```yaml
 version: 0.4.0
 vars:
@@ -51,7 +51,7 @@ graph:
             - ACCEPT
           case_sensitive: false
 ```
-- `version`: optional configuration version (defaults to `0.0.0`). Increment it whenever schema changes in `agentdev/entity/configs/graph.py` require template or migration updates.
+- `version`: optional configuration version (defaults to `0.0.0`). Increment it whenever schema changes in `backend/agentdev/entity/configs/graph.py` require template or migration updates.
 - `vars`: root-level key-value map. You can reference `${VAR}` anywhere in the file; fallback is the same-name environment variable. `GraphDefinition.from_dict` rejects nested `vars`, so keep this block at the top only.
 
 **Environment Variables & `.env` File**
@@ -78,9 +78,9 @@ The system automatically loads the `.env` file from the project root (if present
   - **Metadata**: `id` (required), `description`, `log_level` (default `DEBUG`), `is_majority_voting`, `initial_instruction`, and optional `organization`.
   - **Execution controls**: `start`/`end` entry lists (the system executes nodes listed in `start` at the beginning), plus `nodes` and `edges`. Provider/model/tooling settings now live inside each `node.config`; the legacy top-level `providers` table is deprecated. In the example the `keyword` condition on `Human Reviewer -> Article Writer` keeps looping unless the reviewer types `ACCEPT`.
   - **Shared resources**: `memory` defines stores available to `node.config.memories`. The validator ensures every attachment points to a declared store.
-  - **Schema references**: `templates/design.yaml` mirrors the latest `GraphDefinition` shape. After editing configs run `python -m scripts.export_design_template` or hit the Schema API to validate.
+  - **Schema references**: `workspace/templates/design.yaml` mirrors the latest `GraphDefinition` shape. After editing configs run `cd backend && uv run python -m scripts.export_design_template` or hit the Schema API to validate.
 
-Further reading: `docs/user_guide/en/field_specs.md` (field catalog), `docs/user_guide/en/runtime_ops.md` (runtime observability), and `templates/design.yaml` (generated baseline template).
+Further reading: `docs/user_guide/en/field_specs.md` (field catalog), `docs/user_guide/en/runtime_ops.md` (runtime observability), and `workspace/templates/design.yaml` (generated baseline template).
 
 ## 3. Node Type Cheatsheet
 | Type | Description                                                                                                                                                                  | Key fields | Detailed Docs |
@@ -94,7 +94,7 @@ Further reading: `docs/user_guide/en/field_specs.md` (field catalog), `docs/user
 | `loop_counter` | Guard node that limits loop iterations before releasing downstream edges.                                                                                                    | `max_iterations`, `reset_on_emit`, `message` | [loop_counter.md](nodes/loop_counter.md) |
 | `loop_timer` | Guard node that limits loop duration before releasing downstream edges.                                                                                                      | `max_duration`, `duration_unit`, `reset_on_emit`, `message`, `passthrough` | [loop_timer.md](nodes/loop_timer.md) |
 
-Fetch the full schema via `POST /api/config/schema` or inspect the dataclasses inside `agentdev/entity/configs/`.
+Fetch the full schema via `POST /api/config/schema` or inspect the dataclasses inside `backend/agentdev/entity/configs/`.
 
 ## 4. Providers & Agent Settings
 - When a node omits `provider`, the engine uses `globals.default_provider` (e.g., `openai`).
@@ -128,7 +128,7 @@ The Gemini Provider supports multi-modal input (images/video/audio are automatic
   edges:
     - source: router
       target: analyze
-      condition: should_analyze   # functions/edge/should_analyze.py
+      condition: should_analyze   # workspace/functions/edge/should_analyze.py
   ```
 - If a `condition` function raises, the scheduler marks the branch as failed and stops downstream execution.
 
@@ -136,7 +136,7 @@ The Gemini Provider supports multi-modal input (images/video/audio are automatic
 - Add `process` to an edge when you want to transform or filter the payload after the condition is met (e.g., extract a verdict, keep only structured fields, or rewrite text).
 - Structure mirrors `condition` (`type + config`). Built-ins include:
   - `regex_extract`: Python regex with optional `group`, `mode` (`replace_content`, `metadata`, `data_block`), `multiple`, and `on_no_match` (`pass`, `default`, `drop`).
-  - `function`: calls helpers under `functions/edge_processor/`. The handler signature is `def foo(payload: Message, **kwargs) -> Message | None`. Note: The Processor interface is now standardized, and `kwargs` includes `context: ExecutionContext`, allowing access to the current execution context.
+  - `function`: calls helpers under `workspace/functions/edge_processor/`. The handler signature is `def foo(payload: Message, **kwargs) -> Message | None`. Note: The Processor interface is now standardized, and `kwargs` includes `context: ExecutionContext`, allowing access to the current execution context.
 - Example:
   ```yaml
   - from: reviewer
@@ -155,7 +155,7 @@ The Gemini Provider supports multi-modal input (images/video/audio are automatic
 
 ## 6. Agent Node Advanced Features
 - **Tooling**: Configure `AgentConfig.tooling`; see the [Tooling module](modules/tooling/README.md) (Chinese for now).
-- **Thinking**: Enable staged reasoning via `AgentConfig.thinking` (e.g., chain-of-thought, reflection). Reference `agentdev/entity/configs/node/thinking.py` for parameters.
+- **Thinking**: Enable staged reasoning via `AgentConfig.thinking` (e.g., chain-of-thought, reflection). Reference `backend/agentdev/entity/configs/node/thinking.py` for parameters.
 - **Memories**: Attach `MemoryAttachmentConfig` through `AgentConfig.memories`; details live in the [Memory module](modules/memory.md).
 
 ## 7. Dynamic Execution (Map-Reduce/Tree)
@@ -206,9 +206,9 @@ This mode automatically builds a multi-level execution tree until the result cou
 ## 8. Design Template Export
 After editing configs or `FIELD_SPECS`, regenerate templates:
 ```bash
-python -m scripts.export_design_template \
-  --output templates/design.yaml \
-  --mirror frontend/public/design_0.4.0.yaml
+cd backend && uv run python -m scripts.export_design_template \
+  --output ../workspace/templates/design.yaml \
+  --mirror ../frontend/public/design_0.4.0.yaml
 ```
 - The script scans registered nodes, memories, tooling, and `FIELD_SPECS` to emit YAML templates plus the frontend mirror file.
 - Commit the generated files and notify frontend owners to refresh static assets.
@@ -216,7 +216,7 @@ python -m scripts.export_design_template \
 ## 9. CLI / API Execution Paths
 - **Web UI**: Choose a YAML file, fill run parameters, start execution, and monitor in the dashboard. *Recommended path.*
 - **HTTP**: `POST /api/workflow/execute` with `session_name`, `graph_path` or `graph_content`, `task_prompt`, optional `attachments`, and `log_level` (defaults to `INFO`, supports `INFO` or `DEBUG`).
-- **CLI**: `python run.py --path workflows/demo.yaml --name test_run`. Provide `TASK_PROMPT` via env var or respond to the CLI prompt.
+- **CLI**: `cd backend && uv run python cli.py --path ../workspace/workflows/demo.yaml --name test_run`. Provide `TASK_PROMPT` via env var or respond to the CLI prompt.
 
 For `POST /api/workflow/run` (JSON or SSE), upload attachments through
 `/api/uploads/{session_id}` first, then pass that exact ID as `attachment_session_id`
@@ -226,7 +226,7 @@ rejected. `session_name` still names the output run; it is independent of the up
 session. Local SDK and CLI file inputs are unchanged.
 
 Upload, WebSocket execution, and download routes map each raw session ID to
-`WareHouse/session_<session_id>`. For example, `foo` and `session_foo` use
+`storage/warehouse/session_<session_id>`. For example, `foo` and `session_foo` use
 `session_foo` and `session_session_foo`, respectively. Previously shared uploads
 for prefixed IDs must be uploaded again under the correct session.
 
@@ -237,6 +237,6 @@ symbolic links inside the session (including virtual environment interpreter lin
 and still reject a symbolic link used as the session root.
 
 ## 10. Debugging Tips
-- Use the Web UI context snapshots or `WareHouse/<session>/context.json` to inspect node I/O. Note that all node outputs are now standardized as `List[Message]`.
-- Leverage the Schema API breadcrumbs ([config_schema_contract.md](config_schema_contract.md)) or run `python run.py --inspect-schema` to view field specs quickly.
+- Use the Web UI context snapshots or `storage/warehouse/<session>/context.json` to inspect node I/O. Note that all node outputs are now standardized as `List[Message]`.
+- Leverage the Schema API breadcrumbs ([config_schema_contract.md](config_schema_contract.md)) or run `cd backend && uv run python cli.py --inspect-schema` to view field specs quickly.
 - Missing YAML placeholders trigger `ConfigError` during parsing with a precise path surfaced in both UI and CLI logs.

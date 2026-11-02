@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 
-# Virtual environments
+# Virtual environments (backend/.venv is matched by .venv/)
 .venv/
 venv/
 env/
@@ -17,13 +17,19 @@ frontend/.vscode/
 
 # OS
 .DS_Store
+Thumbs.db
 
 # Environment
 .env
 
-# Project Specific
-logs/
+# Frontend build output / dependencies
 node_modules/
+frontend/dist/
+
+# Runtime data (workflow output, sqlite db, logs, temp) - see backend/agentdev/paths.py
+storage/
+# Legacy runtime dirs from before storage/ existed
+logs/
 data/
 temp/
 WareHouse/

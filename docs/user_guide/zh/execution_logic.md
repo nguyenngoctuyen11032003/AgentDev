@@ -219,10 +219,10 @@ edges:
 
 | 模块 | 功能 |
 |------|------|
-| `agentdev/workflow/cycle_manager.py` | Tarjan 算法实现、环路信息管理 |
-| `agentdev/workflow/topology_builder.py` | 超级节点图构建、拓扑排序 |
-| `agentdev/workflow/executor/cycle_executor.py` | 递归式环路执行器 |
-| `agentdev/workflow/graph.py` | 图执行主入口 |
+| `backend/agentdev/workflow/cycle_manager.py` | Tarjan 算法实现、环路信息管理 |
+| `backend/agentdev/workflow/topology_builder.py` | 超级节点图构建、拓扑排序 |
+| `backend/agentdev/workflow/executor/cycle_executor.py` | 递归式环路执行器 |
+| `backend/agentdev/workflow/graph.py` | 图执行主入口 |
 
 ## 7. 变更记录
 

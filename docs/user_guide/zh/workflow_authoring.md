@@ -3,12 +3,12 @@
 本指南聚焦 YAML 结构、节点类型、Provider 配置、边条件与模板导出，帮助工作流作者快速构建与调试 DAG。
 
 ## 1. 必备背景
-- 熟悉 `workflows/` 与 `templates/` 的目录结构。
+- 熟悉 `workspace/workflows/` 与 `workspace/templates/` 的目录结构。
 - 了解基本节点类型（`model`、`python`、`agent`、`human`、`subgraph`、`passthrough`、`literal`）。
 - 理解 `FIELD_SPECS`（见 [field_specs.md](field_specs.md)）与 Schema API（见 [config_schema_contract.md](config_schema_contract.md)）可被前端/IDE 用于动态表单。
 
 ## 2. YAML 顶层结构
-所有工作流文件都遵循 `DesignConfig` 根结构，仅包含 `version`、`vars`、`graph` 三个键。下面示例节选自 `workflows/net_example.yaml`，可以直接运行：
+所有工作流文件都遵循 `DesignConfig` 根结构，仅包含 `version`、`vars`、`graph` 三个键。下面示例节选自 `workspace/workflows/net_example.yaml`，可以直接运行：
 ```yaml
 version: 0.4.0
 vars:
@@ -51,7 +51,7 @@ graph:
             - ACCEPT
           case_sensitive: false
 ```
-- `version`：配置版本号，缺省为 `0.0.0`。当 `agentdev/entity/configs/graph.py` 中的 Schema 发生破坏性调整时，用于与前端模板和迁移脚本对齐。
+- `version`：配置版本号，缺省为 `0.0.0`。当 `backend/agentdev/entity/configs/graph.py` 中的 Schema 发生破坏性调整时，用于与前端模板和迁移脚本对齐。
 - `vars`：根级键值对，可在任意字段使用 `${VAR}` 占位，若未命中则回退到同名环境变量。`GraphDefinition.from_dict` 会拒绝在子图或节点下声明 `vars`，因此请仅在顶层维护。
 
 **环境变量与 `.env` 文件**
@@ -76,11 +76,11 @@ graph:
 > 若占位符引用的变量在上述三个来源中均未定义，配置解析时将抛出 `ConfigError` 并指明出错路径。
 - `graph`：唯一必填段落，映射到 `GraphDefinition` dataclass。它包含：
   - **基础元信息**：`id`（必填）、`description`、`log_level`（默认 `DEBUG`）、`is_majority_voting`、`initial_instruction`、可选 `organization`。
-  - **执行控制**：`start`/`end`（入口出口列表；系统会在启动时执行 `start` 中的节点）、`nodes`、`edges`。`nodes` 与 `edges` 同步 `agentdev/entity/configs/node/*.py` 与 `agentdev/entity/configs/edge/edge.py`，所有 Provider、模型、Tooling 配置都挂在 `node.config` 内，不再在顶层维护 `providers` 表。上例通过 `keyword` 条件在 `Human Reviewer -> Article Writer` 边上避免输入 `ACCEPT` 时继续循环。
+  - **执行控制**：`start`/`end`（入口出口列表；系统会在启动时执行 `start` 中的节点）、`nodes`、`edges`。`nodes` 与 `edges` 同步 `backend/agentdev/entity/configs/node/*.py` 与 `backend/agentdev/entity/configs/edge/edge.py`，所有 Provider、模型、Tooling 配置都挂在 `node.config` 内，不再在顶层维护 `providers` 表。上例通过 `keyword` 条件在 `Human Reviewer -> Article Writer` 边上避免输入 `ACCEPT` 时继续循环。
   - **共享资源**：`memory`（定义 Memory store 列表，供模型节点的 `config.memories` 引用）。调度器会校验节点引用是否在 `graph.memory` 中声明。
-  - **Schema 参考**：`templates/design.yaml` 会实时反映 `GraphDefinition` 字段，建议在修改后运行 `python -m scripts.export_design_template` 或调用 Schema API 校验。
+  - **Schema 参考**：`workspace/templates/design.yaml` 会实时反映 `GraphDefinition` 字段，建议在修改后运行 `cd backend && uv run python -m scripts.export_design_template` 或调用 Schema API 校验。
 
-进一步阅读：`docs/user_guide/zh/field_specs.md`（字段精细描述）、`docs/user_guide/zh/runtime_ops.md`（运行期可观测性）、以及 `templates/design.yaml`（自动生成的基准模板）。
+进一步阅读：`docs/user_guide/zh/field_specs.md`（字段精细描述）、`docs/user_guide/zh/runtime_ops.md`（运行期可观测性）、以及 `workspace/templates/design.yaml`（自动生成的基准模板）。
 
 ## 3. 节点类型速览
 | 类型 | 描述                                       | 关键字段 | 详细文档 |
@@ -93,7 +93,7 @@ graph:
 | `literal` | 被触发时输出固定文本消息，忽略输入                        | `content`, `role`（`user`/`assistant`） | [literal.md](nodes/literal.md) |
 | `loop_counter` | 限制环路执行次数的控制节点                            | `max_iterations`, `reset_on_emit`, `message` | [loop_counter.md](nodes/loop_counter.md) |
 
-详细字段可在前端使用 Schema API (`POST /api/config/schema`) 动态查询，也可参照 `agentdev/entity/configs/` 中同名 dataclass。
+详细字段可在前端使用 Schema API (`POST /api/config/schema`) 动态查询，也可参照 `backend/agentdev/entity/configs/` 中同名 dataclass。
 
 
 ## 4. Provider 与 Agent 设置
@@ -131,7 +131,7 @@ Gemini Provider 支持多模态输入（图片/视频/音频会自动转换为 P
       condition:
         type: function
         config:
-          name: should_analyze   # functions/edge/should_analyze.py
+          name: should_analyze   # workspace/functions/edge/should_analyze.py
   ```
 - 当 `condition` 抛错时，调度器会记录错误并抛出 `WorkflowExecutionError`，导致该分支（通常是整个运行）终止，后继节点不会继续执行。
 - 通过注册中心可以声明更多条件类型，例如内置的 `keyword`（无需写 Python 函数）：
@@ -155,7 +155,7 @@ edges:
 - 场景：当条件成立后希望“先处理一下消息”，例如根据正则提取得分、只保留结构化字段或者调用自定义函数对文本重写。
 - YAML 字段：在任意边上新增 `process`，结构与 `condition` 相同（`type + config`），目前内置
   - `regex_extract`：基于 Python 正则。支持 `pattern`、`group`（名称或序号）、`mode`（`replace_content`、`metadata`、`data_block`）、`multiple`、`on_no_match`（`pass`/`default`/`drop`）等字段。
-  - `function`：调用 `functions/edge_processor/*.py` 中的处理函数。函数签名为 `def foo(payload: Message, **kwargs) -> Message | None`。现在Processor 接口已标准化，`kwargs` 中包含了 `context: ExecutionContext`，可访问当前执行上下文。
+  - `function`：调用 `workspace/functions/edge_processor/*.py` 中的处理函数。函数签名为 `def foo(payload: Message, **kwargs) -> Message | None`。现在Processor 接口已标准化，`kwargs` 中包含了 `context: ExecutionContext`，可访问当前执行上下文。
 - 运行时行为：
   - Processor 在条件通过且 `carry_data=true` 时执行，若返回 `None`，该边不会触发也不会向后继节点发送输入。
   - 日志中会在 `EDGE_PROCESS` 事件里显示 `process_label`、`process_type`，便于排查。
@@ -178,7 +178,7 @@ edges:
 
 ## 6. 模型节点高级特性
 - **Tooling**：在 `AgentConfig.tooling` 中配置，具体见 [Tooling 模块](modules/tooling/README.md)。
-- **Thinking**：在 `AgentConfig.thinking` 中开启，如 `chain-of-thought`、`reflection`（详见 `agentdev/entity/configs/node/thinking.py`）。
+- **Thinking**：在 `AgentConfig.thinking` 中开启，如 `chain-of-thought`、`reflection`（详见 `backend/agentdev/entity/configs/node/thinking.py`）。
 - **Memories**：`AgentConfig.memories` 绑定 `MemoryAttachmentConfig`，详见 [Memory 模块](modules/memory.md)。
 
 ## 7. 动态执行 (Map-Reduce/Tree)
@@ -229,9 +229,9 @@ dynamic:
 ## 8. 设计模板导出
 任意修改 Config/FIELD_SPECS 后，运行：
 ```bash
-python -m scripts.export_design_template \
-  --output templates/design.yaml \
-  --mirror frontend/public/design_0.4.0.yaml
+cd backend && uv run python -m scripts.export_design_template \
+  --output ../workspace/templates/design.yaml \
+  --mirror ../frontend/public/design_0.4.0.yaml
 ```
 - 命令会读取注册表（节点、memory、tooling 等）与 `FIELD_SPECS`，自动生成 YAML 模板与前端镜像。
 - 更新后请提交模板文件，并通知前端刷新静态资源。
@@ -239,14 +239,14 @@ python -m scripts.export_design_template \
 ## 9. CLI / API 运行
 - **Web UI**：访问前端页面 → 选择 YAML → 填写运行参数 → 启动 → 在面板监控。**我们建议您采用此方式运行。**
 - **HTTP**：`POST /api/workflow/execute`，payload 包含 `session_name`, `graph_path` 或 `graph_content`, `task_prompt`、可选的 `attachments`，以及 `log_level`（默认 `INFO`，支持 `INFO` 或 `DEBUG`）。
-- **CLI**：`python run.py --path workflows/demo.yaml --name test_run`（执行前可设置 `TASK_PROMPT` 环境变量或在 CLI 提示中输入）。
+- **CLI**：`cd backend && uv run python cli.py --path ../workspace/workflows/demo.yaml --name test_run`（执行前可设置 `TASK_PROMPT` 环境变量或在 CLI 提示中输入）。
 
 调用 `POST /api/workflow/run`（JSON 或 SSE）时，先通过 `/api/uploads/{session_id}`
 上传附件，再把同一个原始会话 ID 填入 `attachment_session_id`，将上传返回的附件 ID
 放入 `attachments`。兼容该会话中已登记的上传文件路径，但拒绝任意服务器文件路径。
 `session_name` 仍用于指定运行输出名称，与上传会话独立。本地 SDK 和 CLI 的文件输入不变。
 
-上传、WebSocket 运行和下载统一映射到 `WareHouse/session_<session_id>`：
+上传、WebSocket 运行和下载统一映射到 `storage/warehouse/session_<session_id>`：
 `foo` 对应 `session_foo`，`session_foo` 对应 `session_session_foo`。
 旧版本中因前缀合并而共用的附件，需要在正确的会话下重新上传。
 
@@ -255,6 +255,6 @@ agent 生成附件时，文件名和用于落盘的节点 ID 必须是单个路�
 （包括虚拟环境的解释器链接），但仍拒绝以符号链接作为会话根目录。
 
 ## 10. 调试建议
-- 使用 Web UI 的上下文快照或 WareHouse 中的 `context.json` 检查节点输入输出。注意所有节点输出现已统一为 `List[Message]` 结构。
-- 结合 [config_schema_contract.md](config_schema_contract.md) 的 breadcrumbs 功能，用 CLI `python run.py --inspect-schema` 快速查看字段定义。
+- 使用 Web UI 的上下文快照或 `storage/warehouse/` 中的 `context.json` 检查节点输入输出。注意所有节点输出现已统一为 `List[Message]` 结构。
+- 结合 [config_schema_contract.md](config_schema_contract.md) 的 breadcrumbs 功能，用 CLI `cd backend && uv run python cli.py --inspect-schema` 快速查看字段定义。
 - 若 YAML 占位符缺失，解析阶段会抛出 `ConfigError`，在 UI/CLI 中都可看到明确路径。

@@ -33,11 +33,11 @@ Agent 节点是 AgentDev 平台中最核心的节点类型，用于调用大语�
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | `false` | 是否为该节点启用 Agent Skills |
-| `allow` | list[object] | `[]` | 可选的技能白名单，来源于项目级 `.agents/skills/` 目录；每个条目使用 `name` |
+| `allow` | list[object] | `[]` | 可选的技能白名单，来源于项目级 `workspace/skills/` 目录；每个条目使用 `name` |
 
 ### Agent Skills 说明
 
-- 技能统一从固定的项目级 `.agents/skills/` 目录中发现。
+- 技能统一从固定的项目级 `workspace/skills/` 目录中发现。
 - 运行时会暴露两个内置技能工具：`activate_skill` 和 `read_skill_file`。
 - `read_skill_file` 只有在对应技能已经激活后才可用。
 - 技能 `SKILL.md` 的 frontmatter 可以包含可选的 `allowed-tools`，格式遵循 Agent Skills 规范，例如 `allowed-tools: execute_code`。
@@ -85,7 +85,7 @@ nodes:
       tooling:
         type: function  # 工具类型：function, mcp_remote, mcp_local
         config:
-          tools:  # 函数工具列表，来自 functions/function_calling/ 目录
+          tools:  # 函数工具列表，来自 workspace/functions/function_calling/ 目录
             - name: describe_available_files
             - name: load_file
           timeout: 20  # 可选：执行超时（秒）

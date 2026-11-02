@@ -1,6 +1,6 @@
 # Memory Module Guide
 
-This document explains AgentDev's memory system: memory list config, built-in store implementations, how agent nodes attach memories, and troubleshooting tips. Core code lives in `agentdev/entity/configs/node/memory.py` and `node/agent/memory/*.py`.
+This document explains AgentDev's memory system: memory list config, built-in store implementations, how agent nodes attach memories, and troubleshooting tips. Core code lives in `backend/agentdev/entity/configs/node/memory.py` and `backend/agentdev/runtime/node/agent/memory/*.py`.
 
 ## 1. Architecture
 1. **Memory Store** – Declared under `memory[]` in YAML with `name`, `type`, and `config`. Types are registered via `register_memory_store()` and point to concrete implementations.
@@ -132,5 +132,5 @@ This schema lets multimodal outputs flow into Memory/Thinking modules without ex
 ## 8. Extending Memory
 1. Implement a Config + Store (subclass `MemoryBase`).
 2. Register via `register_memory_store("my_store", config_cls=..., factory=..., summary="...")` in `node/agent/memory/registry.py`.
-3. Add `FIELD_SPECS`, then run `python -m scripts.export_design_template ...` so the frontend picks up the enum.
+3. Add `FIELD_SPECS`, then run `cd backend && uv run python -m scripts.export_design_template ...` so the frontend picks up the enum.
 4. Update this guide or ship a README detailing configuration knobs and boundaries.

@@ -3,24 +3,24 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
     {
         path: '/',
-        component: () => import('../pages/HomeView.vue')
+        component: () => import('@/views/HomeView.vue')
     },
     {
         path: '/tutorial',
-        component: () => import('../pages/TutorialView.vue'),
+        component: () => import('@/views/TutorialView.vue'),
         meta: { hideNavOnScroll: true }
     },
     {
         path: '/launch',
-        component: () => import('../pages/LaunchView.vue')
+        component: () => import('@/views/LaunchView.vue')
     },
     {
         path: '/batch-run',
-        component: () => import('../pages/BatchRunView.vue')
+        component: () => import('@/views/BatchRunView.vue')
     },
     {
         path: '/workflows/:name?',
-        component: () => import('../pages/WorkflowWorkbench.vue')
+        component: () => import('@/views/WorkflowWorkbench.vue')
     }
 ]
 

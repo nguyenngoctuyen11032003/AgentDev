@@ -33,11 +33,11 @@ The Agent node is the most fundamental node type in the AgentDev platform, used 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable Agent Skills discovery for this node |
-| `allow` | list[object] | `[]` | Optional allowlist of skills from the project-level `.agents/skills/` directory; each entry uses `name` |
+| `allow` | list[object] | `[]` | Optional allowlist of skills from the project-level `workspace/skills/` directory; each entry uses `name` |
 
 ### Agent Skills Notes
 
-- Skills are discovered from the fixed project-level `.agents/skills/` directory.
+- Skills are discovered from the fixed project-level `workspace/skills/` directory.
 - The runtime exposes two built-in skill tools: `activate_skill` and `read_skill_file`.
 - `read_skill_file` only works after the relevant skill has been activated.
 - Skill `SKILL.md` frontmatter may include optional `allowed-tools` using the Agent Skills spec format, for example `allowed-tools: execute_code`.
@@ -85,7 +85,7 @@ nodes:
       tooling:
         type: function  # Tool type: function, mcp_remote, mcp_local
         config:
-          tools:  # List of function tools from functions/function_calling/ directory
+          tools:  # List of function tools from workspace/functions/function_calling/ directory
             - name: describe_available_files
             - name: load_file
           timeout: 20  # Optional: execution timeout (seconds)
