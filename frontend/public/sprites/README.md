@@ -1,12 +1,12 @@
 # Character sprites
 
-144 crisp pixel-art sprites for the 12 workbench characters, top-down RPG style.
+156 crisp pixel-art sprites for the 13 workbench characters, top-down RPG style.
 
 ## Naming
 
 `{char}-{dir}-{frame}.png`
 
-- `char`: 1..12
+- `char`: 1..13
 - `dir`: `D` (down / facing the viewer), `L` (left), `R` (right), `U` (up / back)
 - `frame`: `1` = idle, `2` / `3` = walk cycle (play 2 → 1 → 3 → 1)
 
@@ -46,3 +46,14 @@ grid (gradient-profile period detection), centre-sampling each cell, snapping to
 per-character palette, a gentle +10 % saturation / soft-contrast pass, normalising onto
 the shared canvas and re-exporting with nearest-neighbour scaling. Originals are in git
 history (commit before this change) if a re-run is ever needed.
+
+## Character 13 (Nathan Nguyen)
+
+Built on character 9's rig so it shares the exact silhouette and walk cycle: recoloured
+(fair skin, black hair with a cool sheen, brown eyes, navy jacket, black trousers), spiky
+hair tufts trimmed, and a stand collar with white tee, zipper, red chest embroidery,
+camera strap and a Canon DSLR drawn on top of each direction.
+Character 13 is also the "hero" sprite: `assets/styles/heroSprite.css` adds an energy
+ring, rising motes and a rim light while idle, and a lagging afterimage plus speed streak
+while walking. Wrap the `<img>` in an element with class `hero-sprite` (plus `is-moving`
+and `hero-{D,L,R,U}`) and set `--hero-sprite: url(<current frame>)` on it.
