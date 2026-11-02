@@ -368,6 +368,15 @@ onBeforeUnmount(() => {
   transform: translateY(-50%) rotate(45deg);
 }
 
+/* Light theme: opaque card with a visible edge; mint hover is < 4.5:1 on white */
+:root[data-theme="light"] .rich-tooltip {
+  background: var(--surface-1);
+  box-shadow: 0 6px 20px rgb(var(--shade) / 0.3), 0 0 0 1px var(--line-4);
+}
+:root[data-theme="light"] .tooltip-learn-more:hover {
+  color: var(--accent-indigo-2);
+}
+
 /* Enter/leave animate only opacity + transform (compositor-only). The backdrop
    blur is suspended while animating so the compositor does not re-blur the
    backdrop every frame; it applies once the tooltip has settled. */

@@ -52,6 +52,7 @@
           <WorkflowNode
             :id="props.id"
             :data="props.data"
+            :sprite="nodeSpriteMap.get(props.id) || ''"
             @hover="onNodeHover"
             @leave="onNodeLeave"
           />
@@ -344,6 +345,7 @@ import yaml from 'js-yaml'
 import { fetchYaml, fetchVueGraph, postVuegraphs, updateYaml, postYamlNameChange, postYamlCopy } from '@/api/client.js'
 import { helpContent } from '@/utils/helpContent.js'
 import { configStore } from '@/stores/configStore.js'
+import { spriteFetcher } from '@/utils/spriteFetcher.js'
 
 const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
 
@@ -451,6 +453,26 @@ const isCreatingConnection = ref(false)
 
 // Start node ID
 const START_NODE_ID = '__start'
+
+// Map node IDs to mascot sprites shown above each node card.
+// Bindings stay stable while editing: only newly seen node ids get a character
+// and removed ids are dropped. The fetcher is reset only when a different workflow is loaded.
+const nodeSpriteMap = ref(new Map())
+
+const syncNodeSprites = () => {
+  const nextMap = new Map()
+  for (const node of nodes.value || []) {
+    if (!node?.id || node.id === START_NODE_ID) continue
+    nextMap.set(node.id, nodeSpriteMap.value.get(node.id) || spriteFetcher.fetchSprite(node.id, 'D', 1))
+  }
+  nodeSpriteMap.value = nextMap
+}
+
+// Rebuild whenever the set of node ids changes (add / remove / load / switch)
+watch(
+  () => (nodes.value || []).map(node => node?.id).join('\n'),
+  () => syncNodeSprites()
+)
 
 // Context menu state
 const contextMenuVisible = ref(false)
@@ -757,6 +779,12 @@ const onDeleteEdgeFromContext = async () => {
 const initializeWorkflow = async (name) => {
   if (!name) {
     return
+  }
+  // Reshuffle characters only when switching to a different workflow, so node ids
+  // keep their mascots while editing (and match LaunchView within the session)
+  if (currentWorkflowName.value && currentWorkflowName.value !== name) {
+    spriteFetcher.reset()
+    nodeSpriteMap.value = new Map()
   }
   currentWorkflowName.value = name
   console.log('Workflow initialized: ', currentWorkflowName.value)
@@ -2497,5 +2525,60 @@ const handleCopySubmit = async () => {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+/* ---------- Light theme: legible text and visible edges on white ---------- */
+/* Inactive tabs: #64748b sat at ~4.4:1 on the tinted bar */
+:root[data-theme="light"] .tab {
+  color: var(--text-soft-1);
+}
+
+:root[data-theme="light"] .tab:hover {
+  color: var(--text-1);
+}
+
+/* Active tab gradient text: the mint stop (#0f9d7a) is only ~3.4:1 on white */
+:root[data-theme="light"] .tab.active {
+  background: linear-gradient(135deg, #047857, #0369a1, #4338ca);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Primary buttons: near-white text on the mint stop was ~3.3:1; use darker stops */
+:root[data-theme="light"] .launch-button-primary,
+:root[data-theme="light"] .submit-button {
+  background: linear-gradient(135deg, #047857, #0369a1, #4338ca);
+  color: #fff;
+}
+
+:root[data-theme="light"] .launch-button-primary::before {
+  background: linear-gradient(135deg, #0369a1, #4338ca);
+}
+
+:root[data-theme="light"] .glass-button,
+:root[data-theme="light"] .glass-button:hover,
+:root[data-theme="light"] .cancel-button {
+  border-color: rgb(var(--ink) / 0.18);
+}
+
+:root[data-theme="light"] .cancel-button:hover {
+  border-color: rgb(var(--ink) / 0.28);
+}
+
+:root[data-theme="light"] .form-input {
+  border-color: rgb(var(--ink) / 0.2);
+}
+
+:root[data-theme="light"] .form-input:focus {
+  border-color: rgb(var(--accent-mint-rgb) / 0.7);
+}
+
+:root[data-theme="light"] .form-input::placeholder {
+  color: rgb(var(--ink) / 0.55);
+}
+
+:root[data-theme="light"] .yaml-error {
+  color: var(--danger-soft);
 }
 </style>

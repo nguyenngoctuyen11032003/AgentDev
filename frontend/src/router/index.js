@@ -21,6 +21,11 @@ const routes = [
     {
         path: '/workflows/:name?',
         component: () => import('@/views/WorkflowWorkbench.vue')
+    },
+    {
+        path: '/sprites',
+        name: 'sprite-gallery',
+        component: () => import('@/views/SpriteGalleryView.vue')
     }
 ]
 

@@ -1306,5 +1306,69 @@
       "drop": "Loại bỏ hoàn toàn dữ liệu khi regex không khớp.",
       "empty": "Trả về nội dung rỗng khi không tìm thấy kết quả khớp."
     }
+  },
+  "sprites": {
+    "characters": {
+      "1": {
+        "name": "Bơ",
+        "tagline": "Luôn tò mò chuyện mới"
+      },
+      "2": {
+        "name": "Mít",
+        "tagline": "Trầm tĩnh mà ấm áp"
+      },
+      "3": {
+        "name": "Đào",
+        "tagline": "Nắng hồng vui vẻ"
+      },
+      "4": {
+        "name": "Nấm",
+        "tagline": "Dịu dàng và chăm chỉ"
+      },
+      "5": {
+        "name": "Sóc",
+        "tagline": "Mơ mộng trên mây"
+      },
+      "6": {
+        "name": "Mơ",
+        "tagline": "Chắc chắn, đáng tin"
+      },
+      "7": {
+        "name": "Nắng",
+        "tagline": "Nụ cười rực rỡ nhất"
+      },
+      "8": {
+        "name": "Táo",
+        "tagline": "Không bao giờ lùi bước"
+      },
+      "9": {
+        "name": "Bin",
+        "tagline": "Ngầu nhưng không vội"
+      },
+      "10": {
+        "name": "Tí",
+        "tagline": "Thong thả, thư giãn"
+      },
+      "11": {
+        "name": "Cốm",
+        "tagline": "Sẵn sàng mọi cuộc vui"
+      },
+      "12": {
+        "name": "Mận",
+        "tagline": "Tóc xoăn tràn năng lượng"
+      }
+    },
+    "gallery": {
+      "title": "Thư viện nhân vật",
+      "subtitle": "Gặp gỡ 12 linh vật pixel làm cho workflow của bạn sống động hơn.",
+      "idle": "Đứng yên",
+      "walk": "Đi bộ",
+      "direction": "Hướng",
+      "frame": "Khung hình",
+      "character": "Nhân vật",
+      "preview_size": "Kích thước xem trước",
+      "copy_path": "Sao chép đường dẫn",
+      "copied": "Đã sao chép!"
+    }
   }
 }

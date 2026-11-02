@@ -1612,6 +1612,7 @@ const handleYAMLSelection = async (fileName) => {
     chatMessages.value = []
     setNodes([])
     setEdges([])
+    spriteFetcher.reset()
     nodeSpriteMap.value.clear()
     return
   }
@@ -1637,7 +1638,9 @@ const handleYAMLSelection = async (fileName) => {
       ? workflowYaml.value.graph.nodes
       : []
 
-    // Clear the previous node sprite map
+    // Clear the previous character bindings and node sprite map so bindings
+    // do not accumulate across workflow loads
+    spriteFetcher.reset()
     nodeSpriteMap.value.clear()
 
     // Fetch a sprite for each node (binding also preloads that character's frames)
@@ -1910,6 +1913,7 @@ onUnmounted(() => {
   unlockBodyScroll()
   resetConnectionState()
   cleanupRecording()
+  removeSpriteWalkerLayer()
 
   stopLoadingTimer()
   runningLoadingEntries.value = 0
@@ -2271,6 +2275,49 @@ const handleEdgeConditionMessage = (message) => {
   animateSpriteAlongEdge(edge)
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg'
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+// Escape a value for use inside a CSS attribute selector
+const escapeSelector = (value) =>
+  typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+    ? CSS.escape(value)
+    : String(value).replace(/["\\]/g, '\\$&')
+
+// Overlay <svg> that hosts the edge walkers. It lives inside the Vue Flow transformation
+// pane (same pan/zoom transform and coordinate space as the edge paths) but is stacked
+// above the node layer, otherwise the character would walk behind the node cards.
+let spriteWalkerLayer = null
+
+const getSpriteWalkerLayer = (edgeElement) => {
+  const pane = edgeElement.closest('.vue-flow__transformationpane')
+  if (!pane) return null
+
+  // Reuse the layer from a previous walk / workflow while it is still attached to this pane
+  if (spriteWalkerLayer && spriteWalkerLayer.parentNode === pane) return spriteWalkerLayer
+
+  let layer = pane.querySelector(':scope > svg.sprite-walker-layer')
+  if (!layer) {
+    layer = document.createElementNS(SVG_NS, 'svg')
+    layer.setAttribute('class', 'sprite-walker-layer')
+    layer.setAttribute('width', '100%')
+    layer.setAttribute('height', '100%')
+    layer.setAttribute('aria-hidden', 'true')
+    pane.appendChild(layer)
+  }
+  spriteWalkerLayer = layer
+  return layer
+}
+
+const removeSpriteWalkerLayer = () => {
+  if (spriteWalkerLayer) spriteWalkerLayer.remove()
+  spriteWalkerLayer = null
+}
+
 // Animate a sprite walking along an edge from source to target
 const animateSpriteAlongEdge = (edge) => {
   // Make sure the source node has a character bound so chat avatar and walker match
@@ -2278,9 +2325,9 @@ const animateSpriteAlongEdge = (edge) => {
     nameToSpriteMap.set(edge.source, spriteFetcher.fetchSprite(edge.source, 'D', 1))
   }
 
-  // Find edge path element in DOM
+  // Find edge element in DOM
   const edgeId = `${edge.source}-${edge.target}`
-  const edgeElement = document.querySelector(`[data-id="${edgeId}"]`)
+  const edgeElement = document.querySelector(`.vue-flow__edge[data-id="${escapeSelector(edgeId)}"]`)
   if (!edgeElement) {
     console.warn('Edge element not found in DOM for:', edgeId)
     return
@@ -2293,10 +2340,10 @@ const animateSpriteAlongEdge = (edge) => {
     return
   }
 
-  // Find the SVG element that contains this path
-  const svgElement = pathElement.closest('svg')
-  if (!svgElement) {
-    console.warn('SVG element not found for path')
+  // Overlay layer above the nodes that will host the walker
+  const layer = getSpriteWalkerLayer(edgeElement)
+  if (!layer) {
+    console.warn('Transformation pane not found for edge:', edgeId)
     return
   }
 
@@ -2322,7 +2369,9 @@ const animateSpriteAlongEdge = (edge) => {
   const WALK_CYCLE = [1, 2, 1, 3]
   const WALK_STEP_MS = 180
   const FADE_FRACTION = 0.1 // fade in/out over the first/last 10 % of the walk
-  const SVG_NS = 'http://www.w3.org/2000/svg'
+  const DIRECTION_HYSTERESIS = 1.25 // one axis must dominate by 25 % before the stance flips
+  const DIRECTION_CHECK_MS = 90 // re-evaluate the facing direction at most this often
+  const REDUCED_MOTION_MS = 600 // static idle sprite shown at the target when motion is reduced
 
   // Group that moves along the path: ground shadow + character
   const walker = document.createElementNS(SVG_NS, 'g')
@@ -2354,8 +2403,9 @@ const animateSpriteAlongEdge = (edge) => {
   // Ease-in-out so the character accelerates out of the source and settles into the target
   const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
 
-  // Derive the facing direction from the local tangent of the path
-  const directionAt = (length) => {
+  // Derive the facing direction from the local tangent of the path. Near-45° tangents keep
+  // the current axis (hysteresis) so the stance does not flicker between L/R and U/D.
+  const directionAt = (length, current) => {
     const eps = Math.min(4, pathLength * 0.02) || 1
     const a = Math.max(0, Math.min(pathLength, length))
     const b = a + eps <= pathLength ? a + eps : a - eps
@@ -2363,22 +2413,30 @@ const animateSpriteAlongEdge = (edge) => {
     const pb = pathElement.getPointAtLength(Math.max(a, b))
     const dx = pb.x - pa.x
     const dy = pb.y - pa.y
-    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'R' : 'L'
-    return dy >= 0 ? 'D' : 'U'
+    const ax = Math.abs(dx)
+    const ay = Math.abs(dy)
+    const horizontal = dx >= 0 ? 'R' : 'L'
+    const vertical = dy >= 0 ? 'D' : 'U'
+    if (ax > ay * DIRECTION_HYSTERESIS) return horizontal
+    if (ay > ax * DIRECTION_HYSTERESIS) return vertical
+    if (current === 'L' || current === 'R') return horizontal
+    if (current === 'U' || current === 'D') return vertical
+    return ax >= ay ? horizontal : vertical
   }
 
-  let direction = directionAt(0)
+  let direction = directionAt(0, null)
   let frame = WALK_CYCLE[0]
   spriteImage.setAttribute('href', spriteFetcher.fetchSprite(edge.source, direction, frame))
 
-  // Add to the same SVG as the path
-  svgElement.appendChild(walker)
+  // Add to the overlay layer (same coordinate space as the edge path)
+  layer.appendChild(walker)
 
   // Animation duration based on path length (longer paths = more time)
   const duration = Math.min(Math.max(pathLength * 0.02, 2000), 4000) // 2-4 seconds
 
   let startTime = null
   let rafId = null
+  let lastDirectionCheck = 0
 
   const cleanup = () => {
     if (rafId !== null) cancelAnimationFrame(rafId)
@@ -2386,9 +2444,47 @@ const animateSpriteAlongEdge = (edge) => {
     walker.remove()
   }
 
+  // Reduced motion: no walk along the path. Briefly show the idle sprite at the
+  // destination with a fade so the hand-off is still visible, then clean up.
+  if (prefersReducedMotion()) {
+    let endPoint
+    try {
+      endPoint = pathElement.getPointAtLength(pathLength)
+    } catch {
+      cleanup()
+      return
+    }
+    walker.setAttribute('transform', `translate(${endPoint.x}, ${endPoint.y})`)
+    spriteImage.setAttribute('href', spriteFetcher.fetchSprite(edge.source, 'D', 1))
+
+    const fadeStatic = (timestamp) => {
+      if (!layer.isConnected || !walker.isConnected) {
+        cleanup()
+        return
+      }
+      if (!startTime) startTime = timestamp
+      const progress = Math.min((timestamp - startTime) / REDUCED_MOTION_MS, 1)
+      let opacity = 1
+      if (progress < 0.3) {
+        opacity = progress / 0.3
+      } else if (progress > 0.7) {
+        opacity = (1 - progress) / 0.3
+      }
+      walker.setAttribute('opacity', opacity.toFixed(3))
+      if (progress < 1) {
+        rafId = requestAnimationFrame(fadeStatic)
+      } else {
+        cleanup()
+      }
+    }
+
+    rafId = requestAnimationFrame(fadeStatic)
+    return
+  }
+
   const animate = (timestamp) => {
-    // Guard against the SVG/path being torn down (view switch, graph reload)
-    if (!svgElement.isConnected || !pathElement.isConnected || !walker.isConnected) {
+    // Guard against the layer/path being torn down (view switch, graph reload)
+    if (!layer.isConnected || !pathElement.isConnected || !walker.isConnected) {
       cleanup()
       return
     }
@@ -2420,9 +2516,15 @@ const animateSpriteAlongEdge = (edge) => {
     }
     walker.setAttribute('opacity', opacity.toFixed(3))
 
-    // Walk cycle 1 -> 2 -> 1 -> 3, facing the local tangent of the path
+    // Walk cycle 1 -> 2 -> 1 -> 3, facing the local tangent of the path.
+    // The direction is only re-evaluated on a frame change (or every DIRECTION_CHECK_MS),
+    // never on every RAF, so the href does not churn on wobbly tangents.
     const targetFrame = WALK_CYCLE[Math.floor(elapsed / WALK_STEP_MS) % WALK_CYCLE.length]
-    const targetDirection = progress < 1 ? directionAt(distance) : direction
+    let targetDirection = direction
+    if (progress < 1 && (targetFrame !== frame || elapsed - lastDirectionCheck >= DIRECTION_CHECK_MS)) {
+      targetDirection = directionAt(distance, direction)
+      lastDirectionCheck = elapsed
+    }
 
     if (frame !== targetFrame || direction !== targetDirection) {
       frame = targetFrame
@@ -3227,13 +3329,12 @@ watch(
   filter: drop-shadow(0 1px 1px rgb(var(--shade) / 0.3));
 }
 
-@media (prefers-color-scheme: light) {
-  .profile-picture {
-    --avatar-bg: linear-gradient(145deg, rgb(var(--accent-indigo-rgb) / 0.55), rgba(201, 167, 235, 0.45) 55%, rgba(255, 180, 237, 0.45));
-    --avatar-base: rgb(var(--ink) / 0.9);
-    --avatar-border: rgba(30, 30, 50, 0.1);
-    --avatar-shadow: 0 2px 6px rgba(30, 30, 50, 0.12);
-  }
+/* Light theme is applied via :root[data-theme="light"] (configStore.applyTheme), not the OS preference */
+:root[data-theme="light"] .profile-picture {
+  --avatar-bg: linear-gradient(145deg, rgb(var(--accent-indigo-rgb) / 0.55), rgba(201, 167, 235, 0.45) 55%, rgba(255, 180, 237, 0.45));
+  --avatar-base: rgb(var(--panel-20) / 0.9);
+  --avatar-border: rgba(30, 30, 50, 0.1);
+  --avatar-shadow: 0 2px 6px rgba(30, 30, 50, 0.12);
 }
 
 .message-bubble {
@@ -4216,6 +4317,197 @@ watch(
 :root[data-theme="light"] .file-selector-input:focus {
   background-color: #fff;
   border-color: rgb(var(--accent-sky-rgb) / 0.55);
+}
+
+/* ---------- Light theme: legibility (low-alpha ink text is too faint on white) ---------- */
+:root[data-theme="light"] .back-button,
+:root[data-theme="light"] .chat-panel-toggle {
+  color: var(--text-soft-1);
+}
+:root[data-theme="light"] .chat-panel-toggle {
+  border-color: rgb(var(--ink) / 0.16);
+}
+:root[data-theme="light"] .user-name,
+:root[data-theme="light"] .message-timestamp,
+:root[data-theme="light"] .chat-notification .message-timestamp,
+:root[data-theme="light"] .attachment-meta,
+:root[data-theme="light"] .file-desc,
+:root[data-theme="light"] .file-empty,
+:root[data-theme="light"] .no-active-nodes,
+:root[data-theme="light"] .loading-entry-duration,
+:root[data-theme="light"] .artifact-status {
+  color: var(--text-muted-1);
+}
+:root[data-theme="light"] .section-label {
+  color: var(--text-soft-1);
+}
+:root[data-theme="light"] .task-input::placeholder {
+  color: var(--text-muted-1);
+}
+:root[data-theme="light"] .select-arrow {
+  color: var(--text-muted-1);
+}
+:root[data-theme="light"] .notification-text,
+:root[data-theme="light"] .artifact-filename,
+:root[data-theme="light"] .loading-timer {
+  color: var(--text-soft-3);
+}
+:root[data-theme="light"] .notification-content {
+  background: var(--surface-4);
+  border-color: rgb(var(--ink) / 0.12);
+}
+:root[data-theme="light"] .chat-notification-warning .notification-content {
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+:root[data-theme="light"] .chat-notification-warning .notification-text {
+  color: #92400e;
+}
+:root[data-theme="light"] .chat-notification-error .notification-content {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+:root[data-theme="light"] .chat-notification-error .notification-text {
+  color: #991b1b;
+}
+
+/* Bubbles / entries: give edges enough definition on white */
+:root[data-theme="light"] .message-bubble {
+  background: var(--surface-4);
+  border-color: rgb(var(--ink) / 0.12);
+}
+:root[data-theme="light"] .dialogue-right .message-bubble {
+  background: linear-gradient(135deg, rgb(var(--accent-indigo-rgb) / 0.1), rgb(var(--accent-indigo-rgb) / 0.06));
+  border-color: rgb(var(--accent-indigo-rgb) / 0.3);
+}
+:root[data-theme="light"] .message-bubble.loading-bubble {
+  background-color: var(--surface-4);
+  border-color: var(--accent-mint);
+}
+:root[data-theme="light"] .loading-entry.entry-running {
+  border-color: var(--accent-mint);
+}
+:root[data-theme="light"] .loading-entry {
+  background: #fff;
+  border-color: rgb(var(--ink) / 0.16);
+}
+:root[data-theme="light"] .loading-entry-label {
+  color: var(--text-1);
+}
+:root[data-theme="light"] .entry-done {
+  opacity: 1;
+  border-color: rgb(var(--ink) / 0.14);
+}
+
+/* Input controls */
+:root[data-theme="light"] .microphone-button,
+:root[data-theme="light"] .attachment-button,
+:root[data-theme="light"] .artifact-download-button {
+  background: #fff;
+  border-color: rgb(var(--ink) / 0.2);
+  color: var(--text-soft-3);
+}
+:root[data-theme="light"] .microphone-button:hover:not(:disabled),
+:root[data-theme="light"] .attachment-button:hover:not(:disabled),
+:root[data-theme="light"] .artifact-download-button:hover:not(:disabled) {
+  background: var(--surface-4);
+  border-color: rgb(var(--ink) / 0.35);
+  color: var(--text-1);
+}
+:root[data-theme="light"] .microphone-button.recording {
+  background: var(--surface-4);
+  border-color: var(--accent-mint);
+  color: var(--text-1);
+}
+:root[data-theme="light"] .attachment-count {
+  background: var(--accent-sky-2);
+  color: #fff;
+}
+:root[data-theme="light"] .remove-attachment,
+:root[data-theme="light"] .drag-overlay-content {
+  color: var(--accent-sky-2);
+}
+:root[data-theme="light"] .drag-overlay {
+  background: rgb(255 255 255 / 0.85);
+}
+:root[data-theme="light"] .attachment-modal,
+:root[data-theme="light"] .file-dropdown {
+  border-color: rgb(var(--ink) / 0.14);
+  box-shadow: 0 12px 32px -8px rgb(15 23 42 / 0.18);
+}
+:root[data-theme="light"] .attachment-item {
+  background: var(--surface-4);
+}
+:root[data-theme="light"] .file-option:hover {
+  background: var(--surface-4);
+}
+
+/* Right panel: status, toggle, active nodes */
+:root[data-theme="light"] .status-display,
+:root[data-theme="light"] .view-toggle,
+:root[data-theme="light"] .active-nodes-display {
+  background: var(--surface-4);
+}
+:root[data-theme="light"] .status-display {
+  color: var(--text-soft-1);
+}
+:root[data-theme="light"] .status-active {
+  color: var(--accent-indigo-2);
+  background: rgb(var(--accent-indigo-rgb) / 0.1);
+}
+:root[data-theme="light"] .toggle-button {
+  color: var(--text-soft-1);
+}
+:root[data-theme="light"] .toggle-button.active {
+  background: #fff;
+  color: var(--text-1);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.1);
+}
+:root[data-theme="light"] .active-node-item {
+  background: #fff;
+  border: 1px solid rgb(var(--ink) / 0.08);
+  color: var(--text-2);
+}
+:root[data-theme="light"] .node-dot {
+  box-shadow: none;
+}
+:root[data-theme="light"] .right-panel-fab {
+  color: var(--accent-indigo-2);
+}
+
+/* Primary buttons: white text needs a darker gradient than the pastel-tuned one */
+:root[data-theme="light"] .launch-button {
+  color: #fff;
+  background: linear-gradient(135deg, #0f766e, #0369a1, #4338ca);
+  background-size: 200% 100%;
+}
+:root[data-theme="light"] .cancel-button {
+  color: #fff;
+  background: linear-gradient(135deg, #c2410c, #b91c1c, #991b1b);
+  background-size: 200% 100%;
+}
+:root[data-theme="light"] .launch-button:disabled,
+:root[data-theme="light"] .cancel-button:disabled {
+  background: var(--surface-5);
+  color: var(--text-muted-1);
+}
+:root[data-theme="light"] .download-button {
+  background: #fff;
+  border-color: rgb(var(--ink) / 0.16);
+}
+:root[data-theme="light"] .download-button:hover:not(:disabled) {
+  background: var(--surface-4);
+  border-color: rgb(var(--ink) / 0.28);
+}
+:root[data-theme="light"] .settings-button {
+  color: var(--accent-indigo-2);
+}
+:root[data-theme="light"] .image-modal {
+  background: rgb(15 23 42 / 0.55);
+}
+:root[data-theme="light"] .image-modal-content {
+  background: rgb(255 255 255 / 0.96);
+  border-color: rgb(var(--ink) / 0.12);
 }
 
 </style>

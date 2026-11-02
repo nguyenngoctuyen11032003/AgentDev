@@ -2732,6 +2732,110 @@ defineExpose({
   width: 100%;
 }
 
+/* Light theme (applied via :root[data-theme="light"]) – contrast fixes.
+   Selectors below carry :root + attr, so they outrank the base :focus/:hover
+   rules; the matching :focus/:hover states are restated where needed. */
+:root[data-theme="light"] .submit-error {
+  background-color: rgb(220 38 38 / 0.08);
+  border-color: rgb(220 38 38 / 0.55);
+  color: var(--danger-soft);
+}
+
+:root[data-theme="light"] .close-button {
+  color: rgb(var(--ink) / 0.7);
+}
+
+:root[data-theme="light"] .close-button:hover {
+  color: var(--text-strong);
+}
+
+:root[data-theme="light"] .help-icon {
+  border-color: rgb(var(--ink) / 0.45);
+  color: var(--text-soft-1);
+}
+
+:root[data-theme="light"] .help-icon:hover {
+  border-color: var(--accent-indigo);
+  color: var(--accent-indigo);
+}
+
+:root[data-theme="light"] .form-input,
+:root[data-theme="light"] .form-textarea,
+:root[data-theme="light"] .form-select {
+  border-color: #8592a5;
+  background-color: #fff;
+}
+
+:root[data-theme="light"] .form-input:focus,
+:root[data-theme="light"] .form-textarea:focus,
+:root[data-theme="light"] .form-select:focus {
+  border-color: var(--accent-indigo);
+  background-color: #fff;
+}
+
+:root[data-theme="light"] .form-input::placeholder,
+:root[data-theme="light"] .form-textarea::placeholder {
+  color: var(--text-muted-1);
+}
+
+:root[data-theme="light"] .multi-select-option,
+:root[data-theme="light"] .var-item,
+:root[data-theme="light"] .list-item,
+:root[data-theme="light"] .child-node-item {
+  border-color: var(--neutral-1);
+}
+
+:root[data-theme="light"] .multi-select-option:hover,
+:root[data-theme="light"] .var-item:hover,
+:root[data-theme="light"] .list-item:hover,
+:root[data-theme="light"] .child-node-item:hover {
+  border-color: rgb(var(--accent-indigo-rgb) / 0.7);
+}
+
+:root[data-theme="light"] .add-child-button,
+:root[data-theme="light"] .add-list-button,
+:root[data-theme="light"] .add-var-button {
+  border-color: var(--neutral-1);
+  background-color: var(--surface-4);
+  color: var(--text-2);
+}
+
+:root[data-theme="light"] .add-child-button:hover:not(:disabled),
+:root[data-theme="light"] .add-list-button:hover,
+:root[data-theme="light"] .add-var-button:hover {
+  background-color: var(--surface-5);
+}
+
+:root[data-theme="light"] .add-child-button:disabled {
+  opacity: 0.7;
+  border-color: var(--line-4);
+  background-color: var(--surface-4);
+  color: var(--text-muted-1);
+}
+
+:root[data-theme="light"] .child-node-summary {
+  border-color: var(--line-4);
+  color: var(--text-soft-1);
+}
+
+:root[data-theme="light"] .child-node-hint {
+  color: var(--text-muted-1);
+}
+
+/* Pastel gradient + near-white label is unreadable on light bg: deepen the
+   gradient and use white text (>= 4.5:1 across the whole gradient). */
+:root[data-theme="light"] .submit-button,
+:root[data-theme="light"] .confirm-button {
+  background-image: linear-gradient(135deg, #0f766e, #0369a1, #4338ca);
+  color: #fff;
+}
+
+:root[data-theme="light"] .delete-button {
+  background-image: linear-gradient(135deg, #c2410c, #b91c1c, #991b1b);
+  border-color: transparent;
+  color: #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .submit-button,
   .delete-button {

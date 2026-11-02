@@ -342,6 +342,31 @@ const save = () => {
   border-color: var(--neutral-1);
 }
 
+/* ---------- Light theme: white-on-#4facfe is ~2.4:1, use a deeper blue ---------- */
+:root[data-theme="light"] .modal-content.settings-modal {
+  border-color: var(--line-4);
+  box-shadow: 0 10px 30px rgb(var(--shade) / 0.3);
+}
+:root[data-theme="light"] .settings-item {
+  border-bottom-color: var(--line-1);
+}
+:root[data-theme="light"] .checkbox-label input[type="checkbox"] {
+  accent-color: #0369a1;
+}
+:root[data-theme="light"] .confirm-button {
+  background: #0369a1;
+}
+:root[data-theme="light"] .confirm-button:hover {
+  background: #075985;
+}
+:root[data-theme="light"] .theme-switch {
+  border-color: var(--line-3);
+}
+:root[data-theme="light"] .theme-option.active {
+  background: var(--surface-1);
+  box-shadow: 0 1px 2px rgb(var(--shade) / 0.25), 0 0 0 1px rgb(var(--accent-sky-rgb) / 0.5);
+}
+
 /* Transitions: overlay fades, panel settles with a subtle scale (opacity +
    transform only, so both run on the compositor). The full-screen backdrop
    blur is suspended while animating so it is not re-blurred every frame. */

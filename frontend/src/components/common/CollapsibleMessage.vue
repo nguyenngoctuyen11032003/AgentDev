@@ -312,6 +312,29 @@ watch(() => props.htmlContent, () => {
     background-color: transparent;
 }
 
+/* Light theme: crisper edges for the copy button and code blocks */
+:root[data-theme="light"] .copy-btn {
+  background: var(--surface-1);
+  border-color: var(--line-4);
+  box-shadow: 0 1px 2px rgb(var(--shade) / 0.15);
+}
+:root[data-theme="light"] .copy-btn:hover {
+  background: var(--surface-4);
+}
+:root[data-theme="light"] .toggle-btn:hover {
+  background-color: rgb(37 99 235 / 0.08);
+}
+:root[data-theme="light"] .markdown-body :deep(pre) {
+  background-color: var(--surface-4);
+  border: 1px solid var(--line-3);
+}
+:root[data-theme="light"] .markdown-body :deep(code) {
+  background-color: rgb(var(--ink) / 0.07);
+}
+:root[data-theme="light"] .markdown-body :deep(pre code) {
+  background: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .copy-button-wrapper,
   .copy-btn,

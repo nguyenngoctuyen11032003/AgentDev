@@ -316,6 +316,24 @@ const cubes = Array.from({ length: 80 }, (_, i) => ({
   }
 }
 
+/* ---------- Light theme: deeper gradients so text clears WCAG AA on white ---------- */
+:root[data-theme="light"] .title-highlight {
+  background: linear-gradient(90deg, #047857, #0369a1, #4338ca);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+:root[data-theme="light"] .introduction {
+  color: var(--text-soft-1);
+}
+
+:root[data-theme="light"] .get-started-btn {
+  color: #fff;
+  background: linear-gradient(90deg, #047857, #0369a1, #4338ca);
+  background-size: 200% 100%;
+}
+
   @media (max-width: 768px) {
   .title {
     font-size: 42px;

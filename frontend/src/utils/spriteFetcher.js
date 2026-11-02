@@ -32,8 +32,9 @@ export class SpriteFetcher {
     // Cache of preloaded Image objects keyed by sprite path.
     // Keeping a reference prevents the browser from evicting them early.
     this.preloadedImages = new Map()
-    // Characters whose 12 frames have already been requested
-    this.preloadedCharacters = new Set()
+    // Characters whose 12 frames have already been requested, with the priority
+    // they were requested at ('low' = bulk warm-up, 'high' = bound to a node).
+    this.preloadedCharacters = new Map()
     // Whether a lazy "preload everything" pass has been scheduled
     this.preloadAllScheduled = false
   }
@@ -106,11 +107,30 @@ export class SpriteFetcher {
       }
     }
 
-    // Skip the network work when already warmed up or when not in a browser (SSR/tests).
-    if (this.preloadedCharacters.has(character) || typeof Image === 'undefined') {
+    // Nothing to do outside a browser (SSR/tests).
+    if (typeof Image === 'undefined') return paths
+
+    const mode = lowPriority ? 'low' : 'high'
+    const current = this.preloadedCharacters.get(character)
+
+    // Already requested at this priority (or higher): nothing more to do.
+    if (current === 'high' || current === mode) return paths
+
+    this.preloadedCharacters.set(character, mode)
+
+    // Upgrade: the frames were already requested by the low-priority bulk pass,
+    // so bump the pending requests and decode the cached images instead of refetching.
+    if (current === 'low') {
+      for (const path of paths) {
+        const img = this.preloadedImages.get(path)
+        if (!img) continue
+        if ('fetchPriority' in img) img.fetchPriority = 'high'
+        if (decode && typeof img.decode === 'function') {
+          img.decode().catch(() => {})
+        }
+      }
       return paths
     }
-    this.preloadedCharacters.add(character)
 
     for (const path of paths) {
       if (this.preloadedImages.has(path)) continue
@@ -173,7 +193,7 @@ export class SpriteFetcher {
       unassignedCount: this.unassignedCharacters.length,
       nodeCharacterMap: Object.fromEntries(this.nodeCharacterMap),
       unassignedCharacters: [...this.unassignedCharacters].sort((a, b) => a - b),
-      preloadedCharacters: [...this.preloadedCharacters].sort((a, b) => a - b)
+      preloadedCharacters: [...this.preloadedCharacters.keys()].sort((a, b) => a - b)
     }
   }
 

@@ -11,6 +11,7 @@
             <router-link to="/workflows">{{ $t('nav.workflows') }}</router-link>
             <router-link to="/launch" target="_blank" rel="noopener">{{ $t('nav.launch') }}</router-link>
             <router-link to="/batch-run" target="_blank" rel="noopener">{{ $t('nav.laboratory') }}</router-link>
+            <router-link to="/sprites">{{ $t('sprites.gallery.title') }}</router-link>
         </nav>
         <div class="sidebar-actions">
             <button class="settings-nav-btn" @click="showSettingsModal = true" :title="$t('settings.title')" :aria-label="$t('settings.title')">
@@ -218,6 +219,20 @@ onUnmounted(() => {
     background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
+}
+
+/* Light theme: the token gradient starts at #0f9d7a (~3.2:1 on the light bg),
+   too faint for 14-16px text. Use a deeper gradient that clears 4.5:1 end to end. */
+:root[data-theme="light"] .sidebar-brand-name,
+:root[data-theme="light"] .sidebar-nav a.router-link-active {
+    background: linear-gradient(90deg, #047857, #0369a1, #4338ca);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+:root[data-theme="light"] .sidebar {
+    border-bottom-color: var(--line-4);
 }
 
 .settings-nav-btn {

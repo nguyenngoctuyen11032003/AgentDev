@@ -109,3 +109,15 @@
   box-sizing: border-box;
   background-color: transparent;
 }
+
+/* Light theme: neutral code surfaces with a visible edge instead of a grey wash */
+:root[data-theme="light"] .markdown-body code {
+  background-color: rgb(var(--ink) / 0.07);
+}
+:root[data-theme="light"] .markdown-body pre {
+  background-color: var(--surface-4);
+  border: 1px solid var(--line-3);
+}
+:root[data-theme="light"] .markdown-body pre code {
+  background: transparent;
+}

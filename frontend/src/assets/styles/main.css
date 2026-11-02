@@ -138,19 +138,19 @@
   --line-3: #d5dbe4;
   --line-4: #cfd6e0;
   --line-5: #d5dbe4;
-  --neutral-1: #94a3b8;
+  --neutral-1: #8391a5;
   --canvas-dot: #c3cbd6;
 
-  --text-muted-1: #64748b;
-  --text-muted-2: #64748b;
-  --text-muted-3: #64748b;
-  --text-muted-4: #64748b;
-  --text-muted-5: #64748b;
-  --text-muted-6: #6b7280;
-  --text-muted-7: #6b7280;
-  --text-muted-8: #6b7280;
-  --text-muted-9: #6b7280;
-  --text-muted-10: #6b7280;
+  --text-muted-1: #556274;
+  --text-muted-2: #556274;
+  --text-muted-3: #556274;
+  --text-muted-4: #556274;
+  --text-muted-5: #556274;
+  --text-muted-6: #5b6472;
+  --text-muted-7: #5b6472;
+  --text-muted-8: #5b6472;
+  --text-muted-9: #5b6472;
+  --text-muted-10: #5b6472;
   --text-soft-1: #475569;
   --text-soft-2: #475569;
   --text-soft-3: #334155;
@@ -161,17 +161,17 @@
   --text-strong: #0f172a;
   --text-glow: rgba(15, 23, 42, 0.5);
 
-  --accent-mint: #0f9d7a;
-  --accent-sky: #0284c7;
+  --accent-mint: #047857;
+  --accent-sky: #0369a1;
   --accent-indigo: #4f46e5;
-  --accent-mint-2: #0f9d7a;
-  --accent-mint-3: #0f9d7a;
+  --accent-mint-2: #047857;
+  --accent-mint-3: #047857;
   --accent-green-1: #15803d;
-  --accent-green-2: #16a34a;
+  --accent-green-2: #15803d;
   --accent-sky-2: #0369a1;
   --accent-sky-3: #0369a1;
-  --accent-sky-4: #0284c7;
-  --accent-sky-5: #0284c7;
+  --accent-sky-4: #0369a1;
+  --accent-sky-5: #0369a1;
   --accent-blue-1: #2563eb;
   --accent-blue-2: #2563eb;
   --accent-blue-3: #2563eb;
@@ -179,17 +179,17 @@
   --accent-indigo-3: #4338ca;
   --accent-indigo-4: #4338ca;
   --accent-indigo-5: #4f46e5;
-  --cyan: #0891b2;
+  --cyan: #0e7490;
   --cyan-2: #0e7490;
   --cyan-3: #0e7490;
-  --cyan-4: #0d9488;
+  --cyan-4: #0f766e;
   --cyan-5: #0369a1;
   --cyan-deep: #0e7490;
 
-  --danger: #dc2626;
-  --danger-2: #dc2626;
-  --danger-3: #dc2626;
-  --danger-4: #dc2626;
+  --danger: #c81e1e;
+  --danger-2: #c81e1e;
+  --danger-3: #c81e1e;
+  --danger-4: #c81e1e;
   --danger-soft: #b91c1c;
   --warn-soft-1: #b45309;
   --warn-soft-2: #b45309;
@@ -223,11 +223,11 @@
   --chip-136: 203 213 225;
   --neutral-160: 148 163 184;
   --neutral-100: 148 163 184;
-  --accent-mint-rgb: 15 157 122;
-  --accent-sky-rgb: 2 132 199;
+  --accent-mint-rgb: 4 120 87;
+  --accent-sky-rgb: 3 105 161;
   --accent-indigo-rgb: 79 70 229;
-  --cyan-rgb: 8 145 178;
-  --cyan-rgb-2: 8 145 178;
+  --cyan-rgb: 14 116 144;
+  --cyan-rgb-2: 14 116 144;
 }
 
 /* =========================================================

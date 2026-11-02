@@ -565,6 +565,56 @@ const handleFormGeneratorSubmit = async (payload) => {
   background-color: var(--line-4);
 }
 
+/* ---------- Light theme: lift low-alpha text/borders and deepen the pastel CTA ---------- */
+:root[data-theme="light"] .search-container {
+  background-color: var(--surface-1);
+  border-color: var(--line-4);
+}
+:root[data-theme="light"] .search-container:hover,
+:root[data-theme="light"] .search-container:focus-within {
+  background-color: var(--surface-1);
+  border-color: var(--neutral-1);
+}
+:root[data-theme="light"] .search-icon {
+  color: var(--text-muted-3);
+}
+:root[data-theme="light"] .search-input::placeholder {
+  color: var(--text-muted-3);
+}
+:root[data-theme="light"] .create-btn {
+  color: #fff;
+  background: linear-gradient(90deg, #047857, #0369a1, #4338ca);
+  background-size: 200% 100%;
+}
+:root[data-theme="light"] .file-item {
+  background-color: var(--surface-1);
+  border-color: var(--line-4);
+  box-shadow: 0 1px 2px rgb(var(--shade) / 0.1);
+}
+:root[data-theme="light"] .file-item:hover {
+  background-color: var(--surface-1);
+  border-color: var(--neutral-1);
+}
+:root[data-theme="light"] .file-item.active {
+  border-color: rgb(var(--accent-indigo-rgb) / 0.6);
+}
+:root[data-theme="light"] .file-description,
+:root[data-theme="light"] .loading,
+:root[data-theme="light"] .error-message,
+:root[data-theme="light"] .empty-state {
+  color: var(--text-muted-3);
+}
+:root[data-theme="light"] .file-arrow {
+  color: var(--neutral-1);
+}
+:root[data-theme="light"] .file-item:hover .file-arrow,
+:root[data-theme="light"] .file-item.active .file-arrow {
+  color: var(--accent-indigo);
+}
+:root[data-theme="light"] .workflow-list::before {
+  opacity: 0.08;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .create-btn,
   .file-item:hover::before {

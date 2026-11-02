@@ -432,5 +432,73 @@ onMounted(() => {
 :root[data-theme="light"] .tutorial-view :deep(.markdown-body strong) {
   color: var(--text-strong);
 }
+/* Light: --cyan (#0891b2) is ~3.7:1 on white; use the deeper cyan (>= 5:1) for
+   small accent text and drop the neon glows that blur text on a light background. */
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body) {
+  border-color: rgb(var(--cyan-rgb) / 0.28);
+  box-shadow: 0 1px 3px rgb(var(--shade) / 0.12);
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body h1),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body h2),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body h3),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body h4),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body h5),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body h6) {
+  color: var(--cyan-2);
+  text-shadow: none;
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body h1) {
+  border-bottom-color: rgb(var(--cyan-rgb) / 0.35);
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body h2) {
+  border-bottom-color: rgb(var(--cyan-rgb) / 0.28);
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body a),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body code),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body pre code),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body table th),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body .copy-code-btn) {
+  color: var(--cyan-2);
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body a:hover) {
+  color: var(--text-strong);
+  text-shadow: none;
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body code) {
+  background: rgb(var(--cyan-rgb) / 0.08);
+  border-color: rgb(var(--cyan-rgb) / 0.3);
+  box-shadow: none;
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body pre) {
+  background: var(--surface-4);
+  border-color: rgb(var(--cyan-rgb) / 0.3);
+  box-shadow: none;
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body pre code) {
+  background: transparent;
+  border: 0;
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body .copy-code-btn) {
+  background: var(--surface-1);
+  border-color: rgb(var(--cyan-rgb) / 0.45);
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body .copy-code-btn:hover) {
+  background: var(--cyan-2);
+  color: #fff;
+  border-color: var(--cyan-2);
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body blockquote) {
+  border-left-color: var(--cyan-2);
+  background: rgb(var(--cyan-rgb) / 0.06);
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body table th),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body table td) {
+  border-color: rgb(var(--cyan-rgb) / 0.28);
+}
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body img),
+:root[data-theme="light"] .tutorial-view :deep(.markdown-body video) {
+  border-color: var(--line-3);
+  box-shadow: 0 1px 4px rgb(var(--shade) / 0.18);
+}
 
 </style>

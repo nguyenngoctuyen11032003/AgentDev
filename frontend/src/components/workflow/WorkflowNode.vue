@@ -9,7 +9,6 @@
  */
 const WALK_CYCLE = [1, 2, 1, 3] // 1 -> 2 -> 1 -> 3 (classic 4-step pixel-art gait)
 const WALK_STEP_MS = 180
-const WALK_STEP_REDUCED_MS = 420
 
 const walkers = new Set()
 let rafId = null
@@ -219,8 +218,14 @@ watch(
 const startWalking = () => {
   if (walker) return
 
+  // Reduced motion: no walk cycle at all, the sprite simply stays on its idle frame
+  if (prefersReducedMotion()) {
+    applyFrame(1)
+    return
+  }
+
   walker = {
-    stepMs: prefersReducedMotion() ? WALK_STEP_REDUCED_MS : WALK_STEP_MS,
+    stepMs: WALK_STEP_MS,
     step: 0,
     lastStep: 0,
     visible: false,
@@ -389,6 +394,7 @@ onUnmounted(() => {
   /* Palette fallbacks (overridden by getNodeStyles via inline vars) */
   --node-gradient: linear-gradient(135deg, var(--accent-indigo), var(--accent-sky), var(--accent-green-1));
   --node-shadow-color: rgb(var(--accent-sky-rgb) / 0.5);
+  --node-text-gradient: linear-gradient(135deg, var(--accent-indigo), var(--accent-sky), var(--accent-green-1));
 
   position: absolute;
   /* Anchor by the feet so the sprite height never affects the offset */
@@ -525,6 +531,12 @@ onUnmounted(() => {
   background: var(--node-gradient);
   filter: brightness(1.25);
   animation: sprite-dot-bounce 1.1s ease-in-out infinite;
+}
+
+/* Light theme: pastel dots vanish on the white pill; use the saturated palette twin */
+:root[data-theme="light"] .sprite-working i {
+  background: var(--node-text-gradient);
+  filter: none;
 }
 
 .sprite-working i:nth-child(2) {

@@ -2673,4 +2673,145 @@ watch(viewMode, async (mode) => {
   border-color: rgb(var(--accent-sky-rgb) / 0.55);
 }
 
+/* ---------- Light theme: legibility (WCAG AA) ---------- */
+/* Faint ink-alpha labels (0.3-0.5) fall below 3:1 on white — raise to >= 0.72 (~7:1). */
+:root[data-theme="light"] .section-label,
+:root[data-theme="light"] .manual-title,
+:root[data-theme="light"] .metric-title,
+:root[data-theme="light"] .progress-label,
+:root[data-theme="light"] .file-upload-button,
+:root[data-theme="light"] .batch-settings-modal .setting-desc,
+:root[data-theme="light"] .status-display {
+  color: rgb(var(--ink) / 0.72);
+}
+:root[data-theme="light"] .manual-title:hover {
+  color: rgb(var(--ink) / 0.9);
+}
+:root[data-theme="light"] .info-icon {
+  opacity: 0.85;
+}
+:root[data-theme="light"] .manual-item {
+  color: rgb(var(--ink) / 0.82);
+}
+:root[data-theme="light"] .progress-text {
+  color: rgb(var(--ink) / 0.85);
+}
+:root[data-theme="light"] .log-placeholder,
+:root[data-theme="light"] .file-empty,
+:root[data-theme="light"] .file-desc,
+:root[data-theme="light"] .user-name,
+:root[data-theme="light"] .no-active-nodes {
+  color: rgb(var(--ink) / 0.62);
+}
+:root[data-theme="light"] .select-arrow {
+  color: rgb(var(--ink) / 0.55);
+}
+
+/* Log timestamps: #16a34a / #0284c7 are < 4.5:1 on white — use the deeper shades. */
+:root[data-theme="light"] .log-timestamp-completed {
+  color: var(--accent-green-1);
+}
+:root[data-theme="light"] .log-timestamp-default {
+  color: var(--accent-sky-2);
+}
+
+/* Manual code samples: slate-tinted block was muddy; use a clean light surface. */
+:root[data-theme="light"] .manual-example pre {
+  background-color: var(--surface-4);
+  border-color: rgb(var(--ink) / 0.12);
+  color: rgb(var(--ink) / 0.88);
+}
+:root[data-theme="light"] .manual-item code {
+  background-color: rgb(var(--accent-indigo-rgb) / 0.08);
+}
+
+/* View toggle: inactive text was ~2.9:1 and the active pill was barely distinguishable. */
+:root[data-theme="light"] .view-toggle {
+  background: rgb(var(--ink) / 0.06);
+}
+:root[data-theme="light"] .toggle-button {
+  color: rgb(var(--ink) / 0.68);
+}
+:root[data-theme="light"] .toggle-button:hover:not(.active) {
+  color: rgb(var(--ink) / 0.9);
+}
+:root[data-theme="light"] .toggle-button.active {
+  background: #fff;
+  color: var(--text-1);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.1), 0 0 0 1px rgb(var(--ink) / 0.06);
+}
+
+/* Control borders: ink/0.1 nearly disappears on white. */
+:root[data-theme="light"] .file-upload-button,
+:root[data-theme="light"] .download-button,
+:root[data-theme="light"] .file-selector-input,
+:root[data-theme="light"] .batch-settings-modal .setting-input,
+:root[data-theme="light"] .batch-settings-modal .setting-select {
+  border-color: rgb(var(--ink) / 0.2);
+}
+:root[data-theme="light"] .file-upload-button,
+:root[data-theme="light"] .download-button {
+  background-color: #fff;
+}
+:root[data-theme="light"] .file-upload-button:hover:not(:disabled),
+:root[data-theme="light"] .download-button:hover:not(:disabled) {
+  background-color: var(--surface-4);
+  border-color: rgb(var(--ink) / 0.3);
+}
+
+/* Launch button: near-white text on the light-theme mint (#0f9d7a) was ~3.3:1.
+   Deepen the gradient and use pure white text (>= 5:1 across the gradient). */
+:root[data-theme="light"] .launch-button:not(:disabled) {
+  color: #fff;
+  background: linear-gradient(135deg, #047857, #0369a1, #4338ca);
+  background-size: 200% 100%;
+}
+/* Cancel (red) button: #f3f5f9 on #e07152 was ~3:1. */
+:root[data-theme="light"] .button-section .cancel-button:not(:disabled) {
+  color: #fff;
+  background: linear-gradient(135deg, #c2410c, #b91c1c, #991b1b);
+  background-size: 200% 100%;
+}
+:root[data-theme="light"] .launch-button:disabled,
+:root[data-theme="light"] .button-section .cancel-button:disabled {
+  background: var(--surface-5);
+  color: rgb(var(--ink) / 0.45);
+}
+
+/* Progress shimmer: dark-navy sweep looks like a smudge on light; use a white sheen. */
+:root[data-theme="light"] .progress-fill.processing::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(255 255 255 / 0.25) 50%,
+    rgb(255 255 255 / 0.65) 60%,
+    rgb(255 255 255 / 0.25) 70%,
+    transparent 100%
+  );
+}
+
+/* Settings modal confirm: #fff on #4facfe is ~2.3:1. */
+:root[data-theme="light"] .batch-settings-modal .confirm-button {
+  background: var(--accent-blue-1);
+}
+:root[data-theme="light"] .batch-settings-modal .confirm-button:hover {
+  background: #1d4ed8;
+}
+:root[data-theme="light"] .batch-settings-modal .cancel-button {
+  border-color: rgb(var(--ink) / 0.25);
+}
+
+/* Modal surfaces: give them a visible edge on the light overlay. */
+:root[data-theme="light"] .column-guide-modal,
+:root[data-theme="light"] .batch-settings-modal,
+:root[data-theme="light"] .file-dropdown {
+  border-color: rgb(var(--ink) / 0.14);
+  box-shadow: 0 20px 40px -12px rgb(15 23 42 / 0.25);
+}
+:root[data-theme="light"] .column-guide-modal-overlay,
+:root[data-theme="light"] .batch-settings-modal-overlay {
+  background: rgb(15 23 42 / 0.4);
+}
+
 </style>
