@@ -205,9 +205,15 @@ class ClaudeCliProvider(ModelProvider):
             # Attachments stay outside the user's project: staged in a temp folder exposed read-only via --add-dir.
             staged = stage_attachments(conversation, staging)
             has_files = absolutize_attachments(staged, staging)
+            settings = dict(_NATIVE_SETTINGS)
+            skills_readable = "SKILL.md" in flatten_conversation(conversation) and SKILLS_DIR.is_dir()
+            if skills_readable:
+                # Skills are read-only reference: --add-dir plus acceptEdits would otherwise let the agent edit
+                # the shared skill library. Edit(path) rules cover every file-editing tool (verified, 2.1.317).
+                settings["permissions"] = {"deny": [f"Edit({SKILLS_DIR.as_posix()}/**)"]}
             settings_file = os.path.join(staging, "agentdev_settings.json")
             with open(settings_file, "w", encoding="utf-8") as fh:
-                json.dump(_NATIVE_SETTINGS, fh)
+                json.dump(settings, fh)
             base = [
                 client.path, "-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
                 "--tools", ",".join(tools), "--strict-mcp-config",
@@ -219,7 +225,7 @@ class ClaudeCliProvider(ModelProvider):
                 base += ["--allowedTools", CLAUDE_SHELL_TOOL]
             if has_files:
                 base += ["--add-dir", staging]
-            if "SKILL.md" in flatten_conversation(conversation) and SKILLS_DIR.is_dir():
+            if skills_readable:
                 # Ticked skills are listed by path in the system prompt; let the agent read them (read-only use).
                 base += ["--add-dir", str(SKILLS_DIR)]
             if self.model_name:

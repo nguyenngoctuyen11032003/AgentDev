@@ -382,3 +382,28 @@ def test_invoke_provider_passes_native_only_to_supporting_providers(tmp_path):
     executor._invoke_provider(Plain(), None, [], [], {}, [], node, native=native)
     executor._invoke_provider(Fake(), None, [], [], {}, [], node)
     assert seen == [native, None, None]
+
+
+def test_claude_native_skills_are_readable_but_not_editable(workspace):
+    from agentdev.paths import SKILLS_DIR
+
+    captured = {}
+
+    def fake_run(argv, *args, **kwargs):
+        with open(_arg(argv, "--settings"), encoding="utf-8") as fh:
+            captured["settings"] = json.load(fh)
+        captured["argv"] = argv
+        return _done(out=_claude_stream())
+
+    conv = [Message(role=MessageRole.USER, content=f"- fe: UI (file: {SKILLS_DIR.as_posix()}/fe/SKILL.md)")]
+    native = NativeRunContext(workspace=str(workspace))
+    with patch(RUN, side_effect=fake_run):
+        ClaudeCliProvider(_cfg()).call_model(CliClient("claude"), conv, [], tool_specs=None, native=native)
+    if SKILLS_DIR.is_dir():
+        assert str(SKILLS_DIR) in captured["argv"]
+        assert captured["settings"]["permissions"]["deny"] == [f"Edit({SKILLS_DIR.as_posix()}/**)"]
+
+    # No skills listed: no extra directory and no deny rule.
+    with patch(RUN, side_effect=fake_run):
+        ClaudeCliProvider(_cfg()).call_model(CliClient("claude"), _conv(), [], tool_specs=None, native=native)
+    assert "permissions" not in captured["settings"] and "--add-dir" not in captured["argv"]

@@ -1021,7 +1021,7 @@
     "presence_penalty": "Penalizes words based on their presence to encourage new topics.",
     "frequency_penalty": "Penalizes words based on their frequency to reduce repetition.",
     "prompt": "Enter the specific prompt or detailed instruction for this node's task.",
-    "description": "Human-readable narrative explaining this workflow or node's goal.",
+    "description": "Describes the purpose of this workflow or node. For an agent: its task description and working rules, followed on every task; the first line helps the team lead route work.",
     "graph": "The underlying definition and configuration of the graph.",
     "nodes": "The sequence of processing nodes contained in this workflow.",
     "edges": "Directed data edges defining how nodes connect.",

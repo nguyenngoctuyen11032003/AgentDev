@@ -1021,7 +1021,7 @@
     "presence_penalty": "Giảm ưu tiên cho các từ đã xuất hiện, khuyến khích model nói về chủ đề mới.",
     "frequency_penalty": "Giảm ưu tiên cho các từ xuất hiện nhiều lần, giúp hạn chế lặp lại.",
     "prompt": "Prompt hoặc chỉ dẫn chi tiết cho nhiệm vụ của nút này.",
-    "description": "Mô tả dễ hiểu về mục đích của quy trình hoặc nút này.",
+    "description": "Mô tả mục đích của quy trình hoặc nút. Với agent: đây là phần mô tả nhiệm vụ và quy tắc làm việc, agent làm theo ở mọi nhiệm vụ; dòng đầu giúp trưởng nhóm giao đúng việc.",
     "graph": "Định nghĩa và cấu hình của sơ đồ quy trình.",
     "nodes": "Danh sách các nút xử lý trong quy trình này.",
     "edges": "Các liên kết có hướng, xác định cách các nút kết nối và truyền dữ liệu cho nhau.",
