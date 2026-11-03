@@ -52,7 +52,7 @@ function ensureSharedEdgeDefs() {
 
 <script setup>
 import { computed, ref, nextTick, watch, onMounted } from 'vue'
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, MarkerType } from '@vue-flow/core'
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, MarkerType } from '@vue-flow/core'
 import { useVueFlow } from '@vue-flow/core'
 import RichTooltip from '@/components/common/RichTooltip.vue'
 import { getEdgeHelp } from '@/utils/helpContent.js'
@@ -178,6 +178,20 @@ const edgeStyle = computed(() => {
       stroke: 'url(#outgoingEdgeGradient)',
       strokeWidth: 1.4,
       transition: 'stroke 120ms ease, stroke-width 120ms ease',
+    }
+  }
+
+  if (props.data?.virtual) {
+    // Delegation link (lead -> team member): decorative, not an executable edge.
+    // Dashed so it never reads as a real (executable) edge.
+    return {
+      ...baseStyle,
+      stroke: 'var(--text-muted-2)',
+      strokeWidth: 1.4,
+      strokeOpacity: 0.75,
+      strokeDasharray: '6 5',
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
     }
   }
 
@@ -368,6 +382,20 @@ const path = computed(() => {
   const sourceWidth = sourceNode?.dimensions.width
   const targetHeight = targetNode?.dimensions.height
   const targetWidth = targetNode?.dimensions.width
+
+  // Org-chart link (lead -> team member): orthogonal elbow with rounded corners
+  if (props.data?.virtual) {
+    return getSmoothStepPath({
+      sourceX: props.sourceX,
+      sourceY: props.sourceY,
+      targetX: props.targetX,
+      targetY: props.targetY,
+      sourcePosition: props.sourcePosition,
+      targetPosition: props.targetPosition,
+      borderRadius: 16,
+      offset: 28,
+    })
+  }
 
   // Check if this is a self-loop edge (source === target)
   const isSelfLoop = props.source === props.target
@@ -650,7 +678,15 @@ const tooltipY = computed(() => {
   return (props.sourceY + props.targetY) / 2
 })
 
-const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
+// Team links are not executable edges, so the generic edge help would be misleading for them
+const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS && !props.data?.virtual)
+
+// Native hover title for a team link ("<member> is a team member of <lead>")
+const teamLinkTitle = computed(() =>
+  props.data?.kind === 'team'
+    ? t('components.workflow_edge.team_link', { member: props.data.member, lead: props.data.lead })
+    : ''
+)
 
 </script>
 
@@ -672,6 +708,17 @@ const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
     :animated="false"
     class="nodrag nopan"
   />
+  <!-- Wide invisible hit area so the team-link title shows on hover -->
+  <path
+    v-if="teamLinkTitle"
+    :d="edgePath"
+    fill="none"
+    stroke="transparent"
+    stroke-width="12"
+    class="team-link-hit"
+  >
+    <title>{{ teamLinkTitle }}</title>
+  </path>
   <!-- Tooltip-enabled hover area at edge midpoint -->
   <EdgeLabelRenderer v-if="shouldShowTooltip">
     <RichTooltip :content="edgeHelpContent" placement="top">
@@ -701,6 +748,10 @@ const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
 </template>
 
 <style scoped>
+.team-link-hit {
+  pointer-events: stroke;
+}
+
 @keyframes edge-dash {
   to { stroke-dashoffset: -20; }
 }

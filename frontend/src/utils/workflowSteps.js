@@ -30,7 +30,9 @@ export function buildSteps(graph, spriteMap = new Map()) {
         dept,
         color: DEPARTMENT_COLOR[dept] || DEPARTMENT_COLOR.eng || '#64b5f6',
         model: modelOf(node),
-        role: roleSnippet(node.config?.role || node.description),
+        // The node's short description is written for people (and in the UI language);
+        // the role is a long English system prompt, only a fallback
+        role: roleSnippet(node.description || node.config?.role),
         sprite: spriteMap.get(node.id) || ''
       }
     })

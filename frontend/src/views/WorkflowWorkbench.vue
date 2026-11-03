@@ -27,8 +27,17 @@
         @refresh-workflows="handleRefreshWorkflows"
       />
       <div v-else class="placeholder">
-        <div class="placeholder-title"> {{ $t('workbench.select_workflow') }}</div>
+        <div class="placeholder-title">{{ $t('workbench.select_workflow') }}</div>
         <div class="placeholder-subtitle">{{ $t('workbench.choose_workflow') }}</div>
+        <div class="placeholder-actions">
+          <button type="button" class="ph-btn primary" @click="workflowListRef?.openCreate?.()">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            {{ $t('workbench.create_new') }}
+          </button>
+          <button type="button" class="ph-btn" @click="handleSelect('software_company')">
+            {{ $t('workbench.open_template') }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -46,7 +55,10 @@ const workflowListRef = ref(null)
 
 const normalizeName = (name) => name?.replace?.('.yaml', '') ?? ''
 const selectedWorkflow = ref(normalizeName(route.params.name))
-const isSidebarOpen = ref(true)
+// The list is an overlay drawer: open it only when there is nothing to show yet. Opening
+// /workflows/<name> directly used to leave it open on top of the graph, hiding the
+// workflow name, the Graph/YAML tabs and the left part of the canvas.
+const isSidebarOpen = ref(!selectedWorkflow.value)
 
 watch(
   () => route.params.name,
@@ -222,8 +234,60 @@ const handleRefreshWorkflows = async () => {
 .placeholder-subtitle {
   position: relative;
   z-index: 1;
+  max-width: 46ch;
   font-size: 14px;
+  line-height: 1.6;
   color: rgb(var(--ink-softer) / 0.6);
+}
+
+.placeholder-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.ph-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 11px;
+  background: rgb(var(--ink) / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.12);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ph-btn:hover {
+  background: rgb(var(--ink) / 0.1);
+}
+
+.ph-btn.primary {
+  background: var(--accent-sky);
+  box-shadow: none;
+  color: #05141f;
+}
+
+.ph-btn.primary:hover {
+  filter: brightness(1.06);
+}
+
+:root[data-theme="light"] .ph-btn.primary {
+  color: #fff;
+}
+
+.ph-btn:focus-visible {
+  outline: 2px solid var(--accent-sky);
+  outline-offset: 2px;
 }
 
 /* ---------- Light theme: solid text colors, visible edges, no glow ---------- */

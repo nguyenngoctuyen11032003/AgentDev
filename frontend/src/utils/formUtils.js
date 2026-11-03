@@ -18,10 +18,63 @@ export const getSchemaFields = (modal) => {
   return modal?.schema?.fields || []
 }
 
+// Display layout per config class, so forms read in the order people fill them in. Only the
+// presentation changes: field names, values and the saved YAML are exactly the backend schema's.
+//   order    - these fields first, in this order (others keep their schema order after them)
+//   basic    - shown without opening "Advanced" even if the schema marks them advanced
+//   advanced - moved under "Advanced" (rarely changed)
+//   trailing - rendered after the inline config block (FormGenerator only)
+const FORM_LAYOUT = {
+  // Create/edit node: what it is, its name and purpose, then its configuration, then looks
+  Node: {
+    order: ['type', 'id', 'description'],
+    basic: ['description'],
+    advanced: ['context_window'],
+    trailing: ['mascot']
+  },
+  // Agent: the account decides which models exist, so it comes before the model
+  AgentConfig: {
+    order: ['connection', 'name', 'role', 'skills', 'team', 'native_mode']
+  },
+  GraphDefinition: {
+    order: ['id', 'description', 'initial_instruction']
+  }
+}
+
+const layoutCache = new WeakMap()
+
+const applyLayout = (schemaNode, fields) => {
+  const layout = FORM_LAYOUT[schemaNode]
+  if (!layout) return fields
+  const basic = new Set(layout.basic || [])
+  const advanced = new Set(layout.advanced || [])
+  const rank = new Map((layout.order || []).map((name, i) => [name, i]))
+  return fields
+    .map((field, index) => {
+      let next = field
+      if (basic.has(field.name) && field.advance) next = { ...field, advance: false }
+      else if (advanced.has(field.name) && !field.advance && !field.required) next = { ...field, advance: true }
+      return { field: next, index }
+    })
+    .sort((a, b) => {
+      const ra = rank.has(a.field.name) ? rank.get(a.field.name) : Infinity
+      const rb = rank.has(b.field.name) ? rank.get(b.field.name) : Infinity
+      return ra === rb ? a.index - b.index : ra - rb
+    })
+    .map((entry) => entry.field)
+}
+
+export const getTrailingFieldNames = (modal) => FORM_LAYOUT[modal?.schema?.node]?.trailing || []
+
 // Fields flagged `hidden` in the schema (raw API-key credentials) are kept in the YAML
 // when present but never shown: agents sign in through account connections instead.
 export const getDisplayFields = (modal) => {
-  return getSchemaFields(modal).filter(field => !field?.hidden)
+  const fields = getSchemaFields(modal)
+  const cached = layoutCache.get(fields)
+  if (cached) return cached
+  const result = applyLayout(modal?.schema?.node, fields.filter(field => !field?.hidden))
+  if (fields && typeof fields === 'object') layoutCache.set(fields, result)
+  return result
 }
 
 export const determineRouteControllerField = (modal, field) => {
@@ -94,9 +147,10 @@ export const childNodeButtonLabel = (modal, field) => {
   if (isListField(field)) {
     return t('dynamic_form_field.add_entry')
   }
+  const child = getFieldLabel(field) || field.childNode
   return modal.formData[field.name]
-    ? t('dynamic_form_field.edit_child', { child: field.childNode })
-    : t('dynamic_form_field.configure_child', { child: field.childNode })
+    ? t('dynamic_form_field.edit_child', { child })
+    : t('dynamic_form_field.configure_child', { child })
 }
 
 export const conditionalChildButtonLabel = (modal, field) => {

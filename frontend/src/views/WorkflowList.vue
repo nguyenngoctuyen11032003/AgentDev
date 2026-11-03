@@ -11,8 +11,8 @@
         <input 
           type="text" 
           v-model="searchQuery" 
-          :placeholder="$t('common.search')"
-          :aria-label="$t('common.search')"
+          :placeholder="$t('workflow_list.search_placeholder')"
+          :aria-label="$t('workflow_list.search_placeholder')"
           class="search-input"
         />
       </div>
@@ -51,7 +51,7 @@
           @click="goToWorkflowView(file.name)"
         >
           <div class="file-info">
-            <div class="file-name">{{ file.name }}</div>
+            <div class="file-name" :title="file.name">{{ displayName(file.name) }}</div>
             <div class="file-description">{{ localizedWorkflowDescription(file.name, file.description) }}</div>
           </div>
           <div class="file-arrow">→</div>
@@ -70,7 +70,9 @@
       <FormGenerator
         v-if="showFormGenerator"
         :breadcrumbs="[{node: 'DesignConfig', field: 'graph'}]"
-        :recursive="false"  
+        :recursive="false"
+        :title="$t('workflow_list.create_title')"
+        :submit-label="$t('workflow_list.create')"
         @close="closeFormGenerator"
         @submit="handleFormGeneratorSubmit"
       />
@@ -167,8 +169,13 @@ onBeforeUnmount(() => {
 
 // Expose loadWorkflows method for parent components
 defineExpose({
-  loadWorkflows
+  loadWorkflows,
+  // lets the workbench's empty state open the same "create workflow" form
+  openCreate: () => openFormGenerator()
 })
+
+// Files are listed by their workflow name; the .yaml extension is implementation detail
+const displayName = (fileName) => String(fileName || '').replace(/\.ya?ml$/i, '')
 
 // Sorted once per data/locale change; filtering below only runs on the sorted list
 const sortedFiles = computed(() => {
@@ -309,18 +316,17 @@ const handleFormGeneratorSubmit = async (payload) => {
   border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 15px;
   padding: 10px 12px;
-  /* Wide enough for longer placeholders such as Vietnamese "Tìm kiếm" */
-  width: 100px;
+  /* Takes the room left by the create button: the placeholder is always readable */
+  flex: 1;
+  min-width: 0;
   min-height: 20px;
-  transition: width 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .search-container:hover,
 .search-container:focus-within {
   background-color: rgb(var(--ink) / 0.08);
   border-color: rgb(var(--ink) / 0.2);
-  width: 160px;
-  box-shadow: 0 4px 15px rgb(var(--shade) / 0.1);
 }
 
 .search-icon {

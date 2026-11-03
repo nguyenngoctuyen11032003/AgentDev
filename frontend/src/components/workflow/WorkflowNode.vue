@@ -145,6 +145,11 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  // Org-chart info of a team workflow: { parent, depth, members }
+  team: {
+    type: Object,
+    default: null,
+  },
 })
 
 // Expose hover events so parent can highlight edges
@@ -310,6 +315,10 @@ onUnmounted(() => {
         <div v-if="nodeDescription" class="workflow-node-description">
           {{ nodeDescription }}
         </div>
+        <div v-if="team && (team.members.length || team.parent)" class="node-team">
+          <span v-if="team.members.length" class="team-chip is-lead">{{ $t('components.workflow_node.team_lead', { n: team.members.length }) }}</span>
+          <span v-if="team.parent" class="team-chip" :title="team.parent">{{ $t('components.workflow_node.member_of', { name: team.parent }) }}</span>
+        </div>
 
         <Handle
           id="source"
@@ -356,6 +365,10 @@ onUnmounted(() => {
       </div>
       <div v-if="nodeDescription" class="workflow-node-description">
         {{ nodeDescription }}
+      </div>
+      <div v-if="team && (team.members.length || team.parent)" class="node-team">
+        <span v-if="team.members.length" class="team-chip is-lead">{{ $t('components.workflow_node.team_lead', { n: team.members.length }) }}</span>
+        <span v-if="team.parent" class="team-chip" :title="team.parent">{{ $t('components.workflow_node.member_of', { name: team.parent }) }}</span>
       </div>
 
       <Handle
@@ -634,5 +647,37 @@ onUnmounted(() => {
   .sprite-figure {
     transition: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Org-chart chips (team leads and who they report to)
+ * ------------------------------------------------------------------------- */
+.node-team {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.team-chip {
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--text-muted-6);
+  background: rgb(var(--ink) / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.12);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.team-chip.is-lead {
+  color: var(--text-strong);
+  background: rgb(var(--ink) / 0.1);
+  box-shadow: inset 0 0 0 1px var(--node-shadow-color);
 }
 </style>
