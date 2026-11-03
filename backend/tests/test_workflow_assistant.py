@@ -255,6 +255,8 @@ def test_repair_loop_fixes_on_second_try(turn_env):
     assert repair["content"].startswith("Your proposal failed validation:")
     assert "Ghost" in repair["content"]
     assert repair["content"].endswith("Return the corrected full JSON.")
+    # The corrected reply replaces the first one in the chat, so it must be written for the user.
+    assert "write it for the user, in their language" in repair["content"]
     assert call.calls[1][1][-2] == {"role": "assistant", "content": call.texts[0]}
 
 
@@ -486,3 +488,29 @@ def test_not_signed_in(turn_env, monkeypatch):
         wa.run_turn(vendor="anthropic", workflow=None, messages=[{"role": "user", "content": "x"}],
                     pending_yaml=None, request_id="r")
     assert info.value.code == "not_signed_in"
+
+
+# Real-model run (Task 8): Codex wrote two edges with the same from/to. The runtime keeps only the
+# last one (Node.add_successor updates the existing link), so the first silently disappears.
+DUPLICATE_EDGE_YAML = VALID_YAML.replace(
+    "    - {from: Frontend, to: Bug Fixer}\n",
+    "    - {from: Frontend, to: Bug Fixer, trigger: false}\n    - {from: Frontend, to: Bug Fixer}\n",
+)
+
+
+def test_duplicate_edge_is_repaired(turn_env):
+    call = FakeCall(_reply("v1", _proposal(DUPLICATE_EDGE_YAML)), _reply("v2", _proposal()))
+    out = _turn(call)
+    assert len(call.calls) == 2
+    repair = call.calls[1][1][-1]["content"]
+    assert "Frontend → Bug Fixer" in repair and "only the last one" in repair
+    assert out["proposal"] is not None and out["reply"] == "v2"
+
+
+def test_duplicate_edge_already_in_saved_file_is_not_an_error(turn_env):
+    (turn_env / "tong_dai.yaml").write_text(DUPLICATE_EDGE_YAML, encoding="utf-8")
+    edited = DUPLICATE_EDGE_YAML.replace("role: Fix bugs", "role: Fix bugs fast")
+    call = FakeCall(_reply("ok", _proposal(edited, kind="edit")))
+    out = _turn(call, text="sửa role Bug Fixer", workflow="tong_dai.yaml")
+    assert len(call.calls) == 1
+    assert out["proposal"] is not None

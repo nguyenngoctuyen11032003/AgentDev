@@ -22,6 +22,10 @@ graph:
 - `end` is required unless exactly one node has no outgoing edge. Always write both `start` and `end`.
 - Node ids: unique, short, Title Case, spaces allowed (`QA Tester`, `Revision Guard`). The same exact id is
   used in `start`, `end`, `edges[].from/to` and `team.members`. Keep ids in English unless the user asks.
+- Text the user reads in the app is written in the user's language: `graph.description`, every node
+  `description` (shown on the canvas and the workflow list), a human node's `config.description` and a
+  loop_counter `message`. The examples below are in English only for brevity. `role` prompts may stay in
+  English, but tell agents that talk to the user to answer in the user's language.
 
 ## Nodes
 
@@ -91,7 +95,10 @@ A proposal is always exactly one file: never invent a new file for a subgraph.
   Also `regex: ["^PASS"]` and `case_sensitive` (default true). Write the `any`/`none` pair so exactly one
   branch fires, and tell the source agent in its `role` to start its reply with the keyword.
 - Function condition: `condition: code_pass` (also `code_fail`, `need_reflection_loop`, `should_stop_loop`).
-- Every cycle needs a way out: a keyword branch to a node outside the loop and/or a `loop_counter`.
+- Every cycle needs a way out: a keyword branch to a node outside the loop and/or a `loop_counter`. A limit
+  the user states ("at most 3 times") is always a `loop_counter`; never make an agent count rounds itself.
+- At most one edge per (`from`, `to`) pair: a second one replaces the first at run time. A conditional
+  edge already carries data when it matches, so one edge is enough between two nodes.
 
 ## Teams (a lead delegates at run time)
 

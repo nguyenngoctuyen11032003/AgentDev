@@ -205,6 +205,18 @@ def parse_model_output(text: str) -> dict:
 # ---------------------------------------------------------------------------- validation
 
 
+def _duplicate_edges(data: Any) -> List[Tuple[str, str]]:
+    """(from, to) pairs that appear on more than one edge of ``graph.edges``, in first-seen order."""
+    graph = data.get("graph") if isinstance(data, dict) else None
+    edges = graph.get("edges") if isinstance(graph, dict) else None
+    seen: Dict[Tuple[str, str], int] = {}
+    for edge in edges if isinstance(edges, list) else []:
+        if isinstance(edge, dict):
+            pair = (str(edge.get("from")), str(edge.get("to")))
+            seen[pair] = seen.get(pair, 0) + 1
+    return [pair for pair, count in seen.items() if count > 1]
+
+
 def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str],
                     last_user_text: str) -> Tuple[Optional[dict], List[str]]:
     """(proposal for the client, []) when valid, else (None, errors to send back to the model)."""
@@ -248,15 +260,21 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
     report = static_check_data(data)
     errors = [f"{c['id']}: {c.get('detail') or 'failed'}" for c in report["checks"]
               if c["status"] == FAIL and c["id"] != "accounts"]
-    if errors:
-        return None, errors
-
     old = None
     if kind == "edit" and saved_text is not None:
         try:
             old = yaml.safe_load(saved_text)
         except yaml.YAMLError:
             old = None  # a broken saved file: diff as if every node were new
+
+    # 4. Duplicate edges. The runtime keeps one link per (from, to) pair, so a second edge between the
+    # same nodes silently replaces the first. Pairs already duplicated in the saved file are left alone:
+    # merging them would be an unrequested change.
+    already = set(_duplicate_edges(old))
+    errors += [f"edges: {src} → {dst} appears more than once; the runtime keeps only the last one. "
+               "Merge them into one edge." for src, dst in _duplicate_edges(data) if (src, dst) not in already]
+    if errors:
+        return None, errors
     diff = diff_workflows(old if isinstance(old, dict) else None, data)
     # Removed/changed nodes the user never named (edit only).
     warnings = list(unrequested_changes(diff, last_user_text)) if kind == "edit" else []
@@ -272,7 +290,11 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
 
 
 def _repair_request(errors: List[str]) -> str:
+    # The user never sees this exchange: the corrected ``reply`` replaces the first one, so it must still
+    # be written for them (seen in a real run: "Merged the duplicate connections..." in English).
     return "Your proposal failed validation:\n" + "\n".join(f"- {e}" for e in errors) + \
+        "\nThe user does not see this check: your new `reply` replaces the previous one, so write it for " \
+        "the user, in their language, as if it were your first answer, without mentioning the fix." \
         "\nReturn the corrected full JSON."
 
 
