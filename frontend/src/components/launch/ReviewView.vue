@@ -676,7 +676,7 @@ const ago = (seconds) => {
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
 
 .tab-count {
@@ -1068,7 +1068,7 @@ const ago = (seconds) => {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
 
 span.tag { cursor: default; }

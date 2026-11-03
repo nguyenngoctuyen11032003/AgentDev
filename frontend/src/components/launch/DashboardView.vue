@@ -660,7 +660,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   border: 2px solid rgb(var(--ink) / 0.15);
   background: var(--surface-1);
   font-variant-numeric: tabular-nums;
-  transition: all 0.3s;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
 }
 
 .pipe-step.is-done .pipe-node { color: #fff; border-color: var(--ok); background: var(--ok); }

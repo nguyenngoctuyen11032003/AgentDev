@@ -83,6 +83,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fetchWorkflowsWithDesc } from '@/api/client.js'
+import { onWorkflowChanged } from '@/utils/workflowSync.js'
 import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
 import FormGenerator from '@/components/form/FormGenerator.vue'
 
@@ -131,19 +132,38 @@ onBeforeUnmount(() => {
   }
 })
 
-const loadWorkflows = async () => {
-  loading.value = true
-  error.value = null
+let loadSeq = 0
+// `silent` refreshes in the background (no spinner, list stays on screen)
+const loadWorkflows = async ({ silent = false } = {}) => {
+  const seq = ++loadSeq
+  if (!silent) {
+    loading.value = true
+    error.value = null
+  }
 
   const result = await fetchWorkflowsWithDesc()
+  if (seq !== loadSeq) return
   if (result.success) {
     yamlFiles.value = result.workflows
-  } else {
+    error.value = null
+  } else if (!silent) {
     error.value = result.error
   }
 
   loading.value = false
 }
+
+// Created / renamed / copied / re-described in any tab: refresh the list quietly
+let syncTimer = null
+const stopWorkflowSync = onWorkflowChanged((detail) => {
+  if (detail?.kind === 'graph') return
+  clearTimeout(syncTimer)
+  syncTimer = setTimeout(() => loadWorkflows({ silent: true }), 250)
+})
+onBeforeUnmount(() => {
+  clearTimeout(syncTimer)
+  stopWorkflowSync()
+})
 
 // Expose loadWorkflows method for parent components
 defineExpose({

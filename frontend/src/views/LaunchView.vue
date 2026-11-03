@@ -44,7 +44,9 @@
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
-          <div v-show="viewMode === 'chat' || isChatPanelOpen" class="chat-panel-content">
+          <!-- Kept laid out while collapsed (hidden via CSS) so the panel can slide on the
+               compositor and reopening a long chat never re-lays out every message -->
+          <div class="chat-panel-content" :inert="viewMode !== 'chat' && !isChatPanelOpen ? true : undefined">
             <div class="chat-header">
               <div class="chat-header-main">
                 <span class="chat-header-title" :title="currentSessionTitle">{{ currentSessionTitle }}</span>
@@ -3898,7 +3900,8 @@ watch(
   display: flex;
   flex-direction: row;
   pointer-events: none;
-  transition: width 0.3s ease;
+  /* Slide with transform only: no layout or text re-wrapping while it moves */
+  transition: transform 0.3s cubic-bezier(0.22, 0.8, 0.24, 1);
 }
 
 /* Full-screen chat mode */
@@ -3919,7 +3922,13 @@ watch(
 }
 
 .chat-panel-collapsed {
-  width: 0;
+  transform: translateX(-100%);
+}
+
+/* Hide the slid-out content once the slide has finished (and show it at once on open) */
+.chat-panel-collapsed .chat-panel-content {
+  visibility: hidden;
+  transition: visibility 0s linear 0.3s;
 }
 
 .chat-panel-content {
