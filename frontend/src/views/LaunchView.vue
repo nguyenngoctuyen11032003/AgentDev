@@ -4318,7 +4318,11 @@ const processMessage = async (msg) => {
     // WORKFLOW_END log line already said the run is over: only say it when nothing did.
     const endLine = t('launch.log_events.workflow_end')
     const last = chatMessages.value[chatMessages.value.length - 1]
-    if (!(last?.type === 'notification' && last.message === endLine)) addChatNotification(t('launch.workflow_completed'), { at })
+    const isEndLine = last?.type === 'notification' && last.message === endLine
+    if (runTracker.state.plan) {
+      // The turn ended with a plan waiting for approval: "finished" would mislead
+      if (isEndLine) chatMessages.value.pop()
+    } else if (!isEndLine) addChatNotification(t('launch.workflow_completed'), { at })
     runTracker.finish('completed', { summary: formatErrorDetail(msg.data?.summary), tokenUsage: msg.data?.token_usage })
     status.value = 'Completed'
     isWorkflowRunning.value = false

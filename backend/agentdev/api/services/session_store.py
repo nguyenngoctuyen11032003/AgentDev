@@ -117,6 +117,9 @@ def awaiting_plan(session: WorkflowSession) -> bool:
     # By status, not by executor: the plan turn is saved while its run is still being wrapped up.
     if session.status in _LIVE_STATUSES:
         return False
+    # A run started after the plan (approval) that was stopped or interrupted: not waiting any more
+    if session.status in (SessionStatus.CANCELLED, SessionStatus.ERROR):
+        return False
     turns = session.turns
     return bool(turns) and isinstance(turns[-1], dict) and turns[-1].get("kind") == "plan"
 

@@ -15,6 +15,9 @@ from agentdev.utils.attachments import AttachmentRecord, AttachmentStore
 from agentdev.utils.human_prompt import PromptChannel
 
 
+_ALWAYS_EXCLUDED_DIRS = frozenset({".playwright-cli", "node_modules", ".git", "__pycache__", ".venv"})
+
+
 @dataclass
 class WorkspaceArtifact:
     """Represents a file artifact detected by the workspace hook."""
@@ -214,7 +217,10 @@ class WorkspaceArtifactHook:
     def _is_excluded(self, rel_path: Path) -> bool:
         if not rel_path.parts:
             return False
-        return rel_path.parts[0] in self.exclude_dirs
+        if rel_path.parts[0] in self.exclude_dirs:
+            return True
+        # Tool scratch and dependency folders are never deliverables (e.g. playwright-cli page dumps)
+        return any(part in _ALWAYS_EXCLUDED_DIRS for part in rel_path.parts)
 
     def _register_artifact(
         self,
