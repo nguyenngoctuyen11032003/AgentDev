@@ -6,6 +6,34 @@ from agentdev.utils.exceptions import ValidationError
 from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.api.services.session_store import WorkflowSessionStore
 
+# Error contract for {"type": "error", "data": {...}} WebSocket messages:
+#   fatal: true  -> the run itself failed/ended (sent by WorkflowRunService); buffered for replay.
+#   fatal: false -> a rejected client message; the run (if any) keeps going; never buffered.
+# Non-fatal ``code`` values:
+#   invalid_json      - the socket message was not JSON
+#   unknown_type      - unknown socket message ``type``
+#   empty_input       - human_input with no text and no attachments
+#   not_waiting       - human_input while no node is waiting for it
+#   session_not_found - human_input for an unknown session
+#   invalid_input     - other rejected human_input
+#   message_failed    - unexpected error while handling a socket message
+#   run_in_progress   - a launch while a run is already live in this session
+# Fatal ``code`` values: start_failed, validation_error, run_failed.
+
+
+def client_error(message: str, code: str) -> Dict[str, Any]:
+    """A non-fatal error about a client message; the run keeps going."""
+    return {"type": "error", "data": {"message": message, "code": code, "fatal": False}}
+
+
+def _validation_code(exc: Exception) -> str:
+    text = str(exc).lower()
+    if "not waiting" in text:
+        return "not_waiting"
+    if "session not found" in text:
+        return "session_not_found"
+    return "invalid_input"
+
 
 class MessageHandler:
     """Routes WebSocket messages to the appropriate handlers."""
@@ -34,7 +62,7 @@ class MessageHandler:
         else:
             await websocket_manager.send_message(
                 session_id,
-                {"type": "error", "data": {"message": f"Unknown message type: {message_type}"}},
+                client_error(f"Unknown message type: {message_type}", "unknown_type"),
             )
 
     async def _handle_cancel(self, session_id: str, websocket_manager):
@@ -52,10 +80,7 @@ class MessageHandler:
             attachments = payload.get("attachments") or []
 
             if not user_input and not attachments:
-                await websocket_manager.send_message(
-                    session_id,
-                    {"type": "error", "data": {"message": "Empty input"}},
-                )
+                await websocket_manager.send_message(session_id, client_error("Empty input", "empty_input"))
                 return
 
             self.session_controller.provide_human_input(
@@ -70,16 +95,10 @@ class MessageHandler:
             )
 
         except ValidationError as exc:
-            await websocket_manager.send_message(
-                session_id,
-                {"type": "error", "data": {"message": str(exc)}},
-            )
+            await websocket_manager.send_message(session_id, client_error(str(exc), _validation_code(exc)))
         except Exception as exc:
             self.logger.error("Error handling human input for session %s: %s", session_id, exc)
-            await websocket_manager.send_message(
-                session_id,
-                {"type": "error", "data": {"message": str(exc)}},
-            )
+            await websocket_manager.send_message(session_id, client_error(str(exc), "message_failed"))
 
     async def _handle_ping(self, session_id: str, websocket_manager):
         await websocket_manager.handle_heartbeat(session_id)

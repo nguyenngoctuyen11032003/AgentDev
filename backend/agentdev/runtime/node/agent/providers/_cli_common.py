@@ -13,6 +13,7 @@ from agentdev.connections import cli_auth
 from agentdev.connections.security import MODEL_NAME_RE
 from agentdev.entity.messages import Message, MessageRole, ToolCallPayload
 from agentdev.entity.tool_spec import ToolSpec
+from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled, current_cancel_event  # noqa: F401
 
 _LABELS = {MessageRole.USER: "User", MessageRole.ASSISTANT: "Assistant", MessageRole.TOOL: "Tool"}
 
@@ -225,8 +226,12 @@ def trim(text: str, limit: int = 500) -> str:
 
 
 def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str) -> subprocess.CompletedProcess:
+    """Run a vendor CLI. Raises ``CliCancelled`` (CLI tree killed) when the enclosing
+    ``cli_cancel_scope`` event is set while it runs."""
     try:
-        return cli_auth.run_capture(cmd, input=prompt, timeout=timeout, cwd=cwd, env=cli_auth.cli_env())
+        return cli_auth.run_capture(
+            cmd, input=prompt, timeout=timeout, cwd=cwd, env=cli_auth.cli_env(), cancel_event=current_cancel_event()
+        )
     except subprocess.TimeoutExpired as exc:
         raise CliTimeoutError(f"`{name}` CLI timed out after {timeout}s") from exc
     except (FileNotFoundError, PermissionError) as exc:
@@ -264,7 +269,9 @@ def make_tempdir() -> Any:
 # Attachments (images, PDFs, documents) for the text-only CLI prompt
 # ---------------------------------------------------------------------------
 
-MAX_INLINE_TEXT_BYTES = 100 * 1024
+# Text attachments are inlined in the prompt, which is resent on every tool-loop step: past this size
+# only the head is inlined and the full file is staged next to the call.
+MAX_INLINE_TEXT_BYTES = 20 * 1024
 MAX_STAGED_FILE_BYTES = 30 * 1024 * 1024
 _TEXT_MIME_PREFIXES = ("text/",)
 _TEXT_MIME_TYPES = {
@@ -281,8 +288,11 @@ _TEXT_SUFFIXES = {
 class StagedAttachment:
     """An attachment made available to a CLI call: inlined text, or a file copied into its cwd."""
 
-    def __init__(self, name: str, mime: str, kind: str, rel_path: str = "", text: str = "", size: int = 0):
+    def __init__(self, name: str, mime: str, kind: str, rel_path: str = "", text: str = "", size: int = 0,
+                 truncated: bool = False, source_path: str = ""):
         self.name = name
+        self.truncated = truncated  # text holds only the head of the file
+        self.source_path = source_path  # original location (media files are not copied)
         self.mime = mime
         self.kind = kind  # "text" | "image" | "pdf" | "media" | "file"
         self.rel_path = rel_path
@@ -345,6 +355,13 @@ def stage_attachments(conversation: List[Message], cwd: str) -> List[StagedAttac
             name = re.sub(r"[^\w.\- ]+", "_", name).strip() or "attachment"
             mime = (ref.mime_type or "").lower()
             kind = _kind_of(name, mime)
+            if kind == "media":
+                # Audio/video cannot be viewed by the CLI: never read or copy it (up to 30MB per call),
+                # just describe it.
+                local = getattr(ref, "local_path", None) or ""
+                size = ref.size or (os.path.getsize(local) if local and os.path.isfile(local) else 0)
+                staged.append(StagedAttachment(name, mime, "media", size=size, source_path=local))
+                continue
             data = _attachment_bytes(ref)
             if data is None:
                 staged.append(StagedAttachment(name, mime, "missing", size=ref.size or 0))
@@ -352,6 +369,10 @@ def stage_attachments(conversation: List[Message], cwd: str) -> List[StagedAttac
             if kind == "text" and len(data) <= MAX_INLINE_TEXT_BYTES:
                 staged.append(StagedAttachment(name, mime, "text", text=data.decode("utf-8", errors="replace"), size=len(data)))
                 continue
+            head = ""
+            if kind == "text":
+                # Large text: inline only the head; the full file is staged below.
+                head = data[:MAX_INLINE_TEXT_BYTES].decode("utf-8", errors="ignore")
             folder = os.path.join(cwd, "attachments")
             os.makedirs(folder, exist_ok=True)
             target = os.path.join(folder, name)
@@ -363,7 +384,7 @@ def stage_attachments(conversation: List[Message], cwd: str) -> List[StagedAttac
             with open(target, "wb") as fh:
                 fh.write(data)
             rel = os.path.relpath(target, cwd).replace(os.sep, "/")
-            staged.append(StagedAttachment(name, mime, "text" if kind == "text" else kind, rel_path=rel, size=len(data)))
+            staged.append(StagedAttachment(name, mime, kind, rel_path=rel, size=len(data), text=head, truncated=bool(head)))
     return staged
 
 
@@ -374,13 +395,19 @@ def attachments_section(staged: List[StagedAttachment], *, can_read_files: bool)
     lines = ["[Attached files]"]
     for item in staged:
         size_kb = max(1, item.size // 1024) if item.size else 0
-        if item.kind == "text" and item.text:
+        if item.kind == "text" and item.text and item.truncated:
+            # The staged copy sits in the CLI's working dir (Claude: Read tool; Codex: read-only sandbox).
+            note = (f"(truncated; full file at `{item.rel_path}`, read it if needed)" if item.rel_path
+                    else f"(truncated to the first {MAX_INLINE_TEXT_BYTES // 1024} KB)")
+            lines.append(f"--- {item.name} ({size_kb} KB) ---\n{item.text}\n... {note}\n--- end of {item.name} ---")
+        elif item.kind == "text" and item.text:
             lines.append(f"--- {item.name} ({size_kb} KB) ---\n{item.text}\n--- end of {item.name} ---")
         elif item.kind == "missing":
             lines.append(f"- {item.name}: the file could not be loaded.")
         elif item.kind == "media":
-            lines.append(f"- {item.name} ({item.mime or 'media'}, {size_kb} KB) at `{item.rel_path}`: audio/video cannot be "
-                         "viewed directly; work from its name and the user's description, and say so if you need a transcript.")
+            where = f" (original file: `{item.source_path}`)" if item.source_path else ""
+            lines.append(f"- {item.name} ({item.mime or 'media'}, {size_kb} KB){where}: audio/video cannot be viewed "
+                         "directly; work from its name and the user's description, and say so if you need a transcript.")
         elif can_read_files:
             lines.append(f"- {item.name} ({item.mime or item.kind}, {size_kb} KB) at `{item.rel_path}`: open it with the Read tool.")
         else:

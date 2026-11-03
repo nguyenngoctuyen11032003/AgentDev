@@ -235,7 +235,7 @@ const liveCounts = computed(() => {
   let running = 0
   let waiting = 0
   for (const item of props.sessions) {
-    if (item.status === 'running') running += 1
+    if (item.status === 'running' || item.status === 'cancelling') running += 1
     else if (item.status === 'waiting_for_input') waiting += 1
   }
   return { running, waiting }
@@ -278,7 +278,7 @@ const groups = computed(() => {
     }
     const group = byKey.get(key)
     group.items.push(item)
-    if (item.status === 'running') group.running += 1
+    if (item.status === 'running' || item.status === 'cancelling') group.running += 1
     else if (item.status === 'waiting_for_input') group.waiting += 1
     if (item.session_id === props.activeId) group.hasActive = true
   }
@@ -532,6 +532,8 @@ const commitRename = (item) => {
 .status-completed { border: none; background: rgb(var(--ink) / 0.35); }
 .status-error { border: none; background: #f87171; }
 .status-cancelled { border-color: #f87171; }
+/* Stop pressed, still winding down */
+.status-cancelling { border: none; background: #fbbf24; animation: session-pulse 1.4s ease-in-out infinite; }
 
 @keyframes session-pulse { 50% { opacity: 0.45; } }
 

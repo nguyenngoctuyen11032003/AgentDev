@@ -9,6 +9,8 @@ Responsible for running agent nodes, including
 
 import asyncio
 import base64
+import contextvars
+import copy
 import json
 import threading
 import traceback
@@ -48,6 +50,7 @@ from agentdev.runtime.node.agent.account_fallback import (
 )
 from agentdev.runtime.node.agent.providers._native import NativeRunContext
 from agentdev.runtime.node.agent.team import (
+    DELEGATE_TOOL,
     MODEL_ERROR_PREFIX,
     TEAM_TOOL_SOURCE,
     TeamDelegation,
@@ -55,7 +58,9 @@ from agentdev.runtime.node.agent.team import (
     is_delegated_call,
     latest_user_message,
     resolve_members,
+    team_digest,
 )
+from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled, cli_cancel_scope
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV, require_unsafe_code_execution
 from agentdev.utils.exceptions import (
     SecurityError,
@@ -66,6 +71,7 @@ from agentdev.utils.exceptions import (
 from agentdev.utils.workspace_paths import is_link, resolve_workspace_path, validate_path_component
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
 from agentdev.runtime.node.agent.providers._cli_common import CliTimeoutError
+from concurrent.futures import CancelledError as FutureCancelledError, ThreadPoolExecutor
 
 # Extra attempts for a CLI call that ran into its timeout (see _execute_with_retry).
 MAX_CLI_TIMEOUT_RETRIES = 1
@@ -81,6 +87,42 @@ AGENTDEV_INSTALL_ROOT = Path(__file__).resolve().parents[5]
 
 
 MAX_ERROR_REASON_CHARS = 300
+
+# Sent (with no tools offered) when the tool loop limit is hit and the last reply has no text for the user.
+TOOL_LIMIT_STATUS_PROMPT = (
+    "The tool call limit for this request has been reached, so no more tools can be used. "
+    "Without calling any tool, give the user a concise status report: what has been done, what is still open, "
+    "and what they could do next."
+)
+TOOL_LIMIT_SKIPPED_RESULT = "Not executed: the tool call limit for this request was reached."
+
+# The user equips an agent with skills (e.g. frontend design) so its work follows those standards.
+# Treat them as the agent's professional playbook: load every skill that matches the task's domain
+# before working, follow it, and check the result against it.
+_SKILL_WORKFLOW = (
+    "1. Before you start any real task (building, writing, designing, reviewing, analysing, planning), compare it "
+    "with every skill listed below. Every skill whose domain matches the work you are about to do yourself (for "
+    "example a frontend/UI skill for any UI, page, component or styling work) MUST be loaded first, all of them "
+    "in one turn. Do not load skills for parts of the work you delegate (the member applies their own skills) or "
+    "skills unrelated to the task: each loaded skill takes context for the rest of the task.\n"
+    "2. Treat a loaded skill as your binding standard for that kind of work: follow its process, rules, "
+    "conventions and checklists over your own habits. Your role and task description still set the scope; when "
+    "they explicitly conflict with a skill, they win.\n"
+    "3. Before you answer, check your result against each loaded skill's rules and checklist and fix what does "
+    "not meet them.\n"
+    "4. In your answer or report, name the skills you applied in one short line.\n"
+    "Skip skills only for greetings, small talk and simple factual questions."
+)
+SKILL_USAGE_RULES = (
+    "# Your skills (professional standards for your work)\n"
+    "Load a skill with `activate_skill` (and `read_skill_file` for files it references). Never assume a skill's "
+    "contents before loading it, and never claim to have used a skill you did not load.\n" + _SKILL_WORKFLOW
+)
+NATIVE_SKILL_USAGE_RULES = (
+    "# Your skills (professional standards for your work)\n"
+    "Load a skill by reading its SKILL.md file below (read-only reference; it may sit outside the project folder), "
+    "plus any file it points to. Never assume a skill's contents before reading it.\n" + _SKILL_WORKFLOW
+)
 
 
 class ModelCallError(WorkflowExecutionError):
@@ -119,25 +161,29 @@ class _NodeToolContext(dict):
 
 class AgentNodeExecutor(NodeExecutor):
     """Executor that runs agent nodes."""
-    
+
     def execute(self, node: Node, inputs: List[Message]) -> List[Message]:
         """Execute an agent node.
-        
+
         Args:
             node: Agent node definition
             inputs: Input messages collected from upstream nodes
-        
+
         Returns:
             Agent output messages
         """
         self._ensure_not_cancelled()
         if node.node_type != "agent":
             raise ValueError(f"Node {node.id} is not an agent node")
-        
-        agent_config = node.as_config(AgentConfig)
-        if not agent_config:
+
+        base_config = node.as_config(AgentConfig)
+        if not base_config:
             raise ValueError(f"Node {node.id} missing agent config")
-        
+        # Per-run copy: account binding and fallback switches must not change the node's saved config
+        # (the user's chosen account and model stay as they were for the next run).
+        agent_config = copy.copy(base_config)
+        self._run_configs()[node.id] = agent_config
+
         try:
             # Every agent runs on a signed-in account (see connections.autobind for older YAML).
             if not agent_config.connection:
@@ -162,16 +208,18 @@ class AgentNodeExecutor(NodeExecutor):
             self._active_teams()[node.id] = team
             # Native mode: the vendor CLI's own agent works in the project folder; no AgentDev tools/skills.
             native = self._resolve_native_mode(node, agent_config, provider_class)
+            native_skills: AgentSkillManager | None = None
             if native is not None:
-                external_tool_specs, skill_manager = [], None
+                # The native CLI agent cannot call activate_skill: list the ticked skills' files instead.
+                external_tool_specs, native_skills, skill_manager = [], skill_manager, None
 
             provider = provider_class(agent_config)
             client = provider.create_client()
 
             if input_mode is AgentInputMode.PROMPT:
-                conversation = self._prepare_prompt_messages(node, input_data, skill_manager)
+                conversation = self._prepare_prompt_messages(node, input_data, skill_manager, native_skills)
             else:
-                conversation = self._prepare_message_conversation(node, inputs, skill_manager)
+                conversation = self._prepare_message_conversation(node, inputs, skill_manager, native_skills)
             call_options = self._prepare_call_options(node)
             tool_specs = self._merge_skill_tool_specs(external_tool_specs, skill_manager)
             if team is not None:
@@ -258,9 +306,11 @@ class AgentNodeExecutor(NodeExecutor):
                 content=final_message,
                 source=node.id,
             )]
-            
+
         except (SecurityError, WorkflowCancelledError):
             raise
+        except CliCancelled as exc:
+            raise WorkflowCancelledError("Workflow execution cancelled") from exc
         except Exception as e:
             # Reached only after retries and account fallback (_invoke_provider) gave up.
             # An error is never passed on as if it were the agent's answer.
@@ -275,6 +325,9 @@ class AgentNodeExecutor(NodeExecutor):
                     source=node.id,
                     metadata={"model_error": True, "error": reason},
                 )]
+            salvaged = self._team_failure_summary(node, reason)
+            if salvaged is not None:
+                return [salvaged]
             raise ModelCallError(
                 f"Agent '{node.id}' could not get an answer from its model ({node.model_name}): {reason}",
                 node_id=node.id,
@@ -283,17 +336,42 @@ class AgentNodeExecutor(NodeExecutor):
         finally:
             self._active_teams().pop(node.id, None)
             self._provider_overrides().pop(node.id, None)
-    
+            self._run_configs().pop(node.id, None)
+
+    def _team_failure_summary(self, node: Node, reason: str) -> Message | None:
+        """The top lead's model failed after its team did work: report that work instead of losing it."""
+        team = self._active_teams().get(node.id)
+        if team is None or is_delegated_call():
+            return None
+        digest = team_digest(team.state)
+        if not digest:
+            return None
+        lines = [
+            f"{MODEL_ERROR_PREFIX} {node.id} could not finish: the model call failed ({reason}).",
+            "The team had already done this work:",
+        ]
+        for entry in digest:
+            report = " ".join(str(entry.get("report") or "").split())
+            lines.append(f"- {entry['member']}: {entry.get('task', '')}\n  Report: {report}")
+        lines.append("Ask again to continue from here, or switch the lead to another account.")
+        return self._build_message(
+            role=MessageRole.ASSISTANT,
+            content="\n".join(lines),
+            source=node.id,
+            metadata={"model_error": True, "error": reason, "partial_team_results": True},
+        )
+
     def _prepare_prompt_messages(
         self,
         node: Node,
         input_data: str,
         skill_manager: AgentSkillManager | None,
+        native_skills: AgentSkillManager | None = None,
     ) -> List[Message]:
         """Prepare the prompt-style message sequence."""
         messages: List[Message] = []
 
-        system_prompt = self._build_system_prompt(node, skill_manager)
+        system_prompt = self._build_system_prompt(node, skill_manager, native_skills)
         if system_prompt:
             messages.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
 
@@ -314,10 +392,11 @@ class AgentNodeExecutor(NodeExecutor):
         node: Node,
         inputs: List[Message],
         skill_manager: AgentSkillManager | None,
+        native_skills: AgentSkillManager | None = None,
     ) -> List[Message]:
         messages: List[Message] = []
 
-        system_prompt = self._build_system_prompt(node, skill_manager)
+        system_prompt = self._build_system_prompt(node, skill_manager, native_skills)
         if system_prompt:
             messages.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
 
@@ -328,7 +407,7 @@ class AgentNodeExecutor(NodeExecutor):
             messages.append(Message(role=MessageRole.USER, content=""))
 
         return messages
-    
+
     def _prepare_call_options(self, node: Node) -> Dict[str, Any]:
         """Prepare model call options (excluding conversation messages)."""
         call_options: Dict[str, Any] = {}
@@ -361,10 +440,16 @@ class AgentNodeExecutor(NodeExecutor):
         )
         return manager
 
-    def _build_system_prompt(self, node: Node, skill_manager: AgentSkillManager | None) -> str | None:
+    def _build_system_prompt(
+        self,
+        node: Node,
+        skill_manager: AgentSkillManager | None,
+        native_skills: AgentSkillManager | None = None,
+    ) -> str | None:
         parts: List[str] = []
-        if node.role:
-            parts.append(node.role)
+        profile = self._agent_profile_section(node)
+        if profile:
+            parts.append(profile)
 
         team = self._active_teams().get(node.id)
         if team is not None:
@@ -373,16 +458,7 @@ class AgentNodeExecutor(NodeExecutor):
         if skill_manager is not None:
             skills_xml = skill_manager.build_available_skills_xml()
             if skills_xml:
-                parts.append(
-                    "\n".join(
-                        [
-                            "Agent Skills: when one clearly fits the task, load it with `activate_skill` before following it "
-                            "(and `read_skill_file` for files it references). Do not assume a skill's contents before loading "
-                            "it; skip skills for greetings and simple questions.",
-                            skills_xml,
-                        ]
-                    )
-                )
+                parts.append("\n".join([SKILL_USAGE_RULES, skills_xml]))
             else:
                 warning_lines = skill_manager.discovery_warnings()
                 warning_text = "\n".join(f"- {warning}" for warning in warning_lines[:5])
@@ -396,6 +472,11 @@ class AgentNodeExecutor(NodeExecutor):
                     ).strip()
                 )
 
+        if native_skills is not None:
+            listing = native_skills.build_skill_file_listing()
+            if listing:
+                parts.append(NATIVE_SKILL_USAGE_RULES + "\n" + listing)
+
         rules = self._response_rules_section()
         if rules:
             parts.append(rules)
@@ -403,6 +484,29 @@ class AgentNodeExecutor(NodeExecutor):
         if not parts:
             return None
         return "\n\n".join(part for part in parts if part)
+
+    @staticmethod
+    def _agent_profile_section(node: Node) -> str:
+        """The agent's own brief: "Vai trò và nhiệm vụ" (role) and "Mô tả nhiệm vụ" (description).
+
+        Both are written by the user to define how this agent works, so both reach the model as
+        binding instructions, not only the role.
+        """
+        role = (node.role or "").strip()
+        description = (node.description or "").strip()
+        if not role and not description:
+            return ""
+        if role and not description:
+            return role  # unchanged prompt for agents that only set a role
+        sections = ["# Your role and responsibilities", role or "(see the task description below)"]
+        if description and description != role:
+            sections += [
+                "# Your task description and working rules",
+                "Set by the user for this agent. Follow it on every task: it defines your scope, how you work "
+                "and what a correct result looks like.",
+                description,
+            ]
+        return "\n\n".join(sections)
 
     @staticmethod
     def _response_rules_section() -> str:
@@ -485,29 +589,54 @@ class AgentNodeExecutor(NodeExecutor):
         # "current node" attribute on the tracker, which parallel team members would overwrite.
         self._ensure_not_cancelled()
 
-        agent_config = node.as_config(AgentConfig)
+        agent_config = self._run_config(node)
         retry_policy = self._resolve_retry_policy(node, agent_config)
+        cancel_event = getattr(self.context, "cancel_event", None)
 
         def _call_provider() -> ModelResponse:
+            self._ensure_not_cancelled()
             active_provider, active_client = self._provider_overrides().get(node.id, (provider, client))
             extra = {"native": native} if native is not None and getattr(active_provider, "supports_native_mode", False) else {}
-            return active_provider.call_model(
-                active_client,
-                conversation=conversation,
-                timeline=timeline,
-                tool_specs=tool_specs or None,
-                **call_options,
-                **extra,
-            )
+            try:
+                # Lets a CLI provider kill its subprocess as soon as the run is stopped.
+                with cli_cancel_scope(cancel_event):
+                    return active_provider.call_model(
+                        active_client,
+                        conversation=conversation,
+                        timeline=timeline,
+                        tool_specs=tool_specs or None,
+                        **call_options,
+                        **extra,
+                    )
+            except WorkflowCancelledError:
+                raise
+            except CliCancelled as exc:
+                raise WorkflowCancelledError("Workflow execution cancelled") from exc
+            except Exception as exc:
+                # A call that failed because the run was stopped is a cancellation, not a model error.
+                if cancel_event is not None and cancel_event.is_set():
+                    raise WorkflowCancelledError("Workflow execution cancelled") from exc
+                raise
 
         last_input = ''.join(msg.text_content() for msg in conversation) if conversation else ""
         self._record_model_call(node, last_input, None, CallStage.BEFORE)
         try:
             response = self._execute_with_retry(node, retry_policy, _call_provider)
-        except Exception as exc:
-            if not is_exhaustion_error(exc) or not self._fail_over(node, agent_config, exc):
-                raise
-            response = self._execute_with_retry(node, retry_policy, _call_provider)
+        except WorkflowCancelledError:
+            raise
+        except Exception as first_exc:
+            # Claude -> Codex -> Gemini ...: keep switching while accounts run out and another one is left.
+            exc: BaseException = first_exc
+            while True:
+                if not is_exhaustion_error(exc) or not self._fail_over(node, agent_config, exc):
+                    raise exc
+                try:
+                    response = self._execute_with_retry(node, retry_policy, _call_provider)
+                    break
+                except WorkflowCancelledError:
+                    raise
+                except Exception as next_exc:
+                    exc = next_exc
         self.log_manager.debug(response.str_raw_response())
         self._record_model_call(node, last_input, response, CallStage.AFTER)
         return response
@@ -550,6 +679,8 @@ class AgentNodeExecutor(NodeExecutor):
         timeouts_seen = {"count": 0}
 
         def _should_retry(exc: BaseException) -> bool:
+            if isinstance(exc, (WorkflowCancelledError, CliCancelled)):
+                return False
             if is_quota_error(exc) or not retry_config.should_retry(exc):
                 return False
             if isinstance(exc, CliTimeoutError):
@@ -600,7 +731,7 @@ class AgentNodeExecutor(NodeExecutor):
         default_retry = AgentRetryConfig(path=retry_path)
         agent_config.retry = default_retry
         return default_retry
-    
+
     def _apply_pre_generation_thinking(
         self,
         node: Node,
@@ -648,7 +779,7 @@ class AgentNodeExecutor(NodeExecutor):
         else:
             content = thinking_result if isinstance(thinking_result, str) else thinking_result.text_content()
             conversation[-1] = conversation[-1].with_content(content)
-    
+
     def _apply_memory_retrieval(
         self,
         node: Node,
@@ -671,7 +802,7 @@ class AgentNodeExecutor(NodeExecutor):
                 last_message = conversation[-1]
                 merged_content = f"{retrieved_memory.formatted_text}\n\n{last_message.text_content()}"
                 conversation[-1] = last_message.with_content(merged_content)
-    
+
     def _retrieve_memory(
         self,
         node: Node,
@@ -706,8 +837,8 @@ class AgentNodeExecutor(NodeExecutor):
         )
 
         return retrieved_memory
-    
-    
+
+
     def _handle_tool_calls(
         self,
         node: Node,
@@ -739,6 +870,13 @@ class AgentNodeExecutor(NodeExecutor):
                 self.log_manager.warning(
                     f"[Node: {node.id}] Tool call limit {loop_limit} reached, returning last assistant response"
                 )
+                if not assistant_message.text_content().strip():
+                    report = self._tool_limit_status_report(
+                        node, provider, client, conversation, timeline, call_options, assistant_message
+                    )
+                    if report is not None:
+                        trace_messages.append(self._clone_with_source(report, node.id))
+                        return self._finalize_tool_trace(report, trace_messages, False, node.id)
                 return self._finalize_tool_trace(assistant_message, trace_messages, False, node.id)
 
             iteration += 1
@@ -764,6 +902,110 @@ class AgentNodeExecutor(NodeExecutor):
             )
             assistant_message = follow_up_response.message
 
+    def _tool_limit_status_report(
+        self,
+        node: Node,
+        provider: ModelProvider,
+        client: Any,
+        conversation: List[Message],
+        timeline: List[Any],
+        call_options: Dict[str, Any],
+        assistant_message: Message,
+    ) -> Message | None:
+        """One last call with no tools so the user gets a status report instead of an empty answer."""
+        # Answer the pending tool calls first: API providers reject a tool call without a result.
+        for call in assistant_message.tool_calls or []:
+            conversation.append(
+                Message(
+                    role=MessageRole.TOOL,
+                    content=TOOL_LIMIT_SKIPPED_RESULT,
+                    tool_call_id=call.id,
+                    metadata={"tool_name": call.function_name, "source": node.id},
+                )
+            )
+            timeline.append(
+                FunctionCallOutputEvent(
+                    call_id=call.id or call.function_name or "tool_call",
+                    function_name=call.function_name,
+                    output_text=TOOL_LIMIT_SKIPPED_RESULT,
+                )
+            )
+        prompt = Message(role=MessageRole.USER, content=TOOL_LIMIT_STATUS_PROMPT, metadata={"source": node.id})
+        conversation.append(prompt)
+        timeline.append(prompt)
+        try:
+            response = self._invoke_provider(provider, client, conversation, timeline, call_options, [], node)
+        except WorkflowCancelledError:
+            raise
+        except Exception as exc:
+            self.log_manager.warning(
+                f"[Node: {node.id}] Status report after the tool call limit failed: {_short_error(exc)}",
+                node_id=node.id,
+            )
+            return None
+        message = response.message
+        if message.tool_calls or not message.text_content().strip():
+            text = message.text_content().strip()
+            if not text:
+                return None
+            message = Message(role=MessageRole.ASSISTANT, content=text, metadata=dict(message.metadata or {}))
+        return message
+
+    def _parallel_delegations(
+        self,
+        node: Node,
+        tool_calls: List[ToolCallPayload],
+        spec_map: Dict[str, ToolSpec],
+    ) -> Dict[int, tuple]:
+        """Run 2+ ``delegate_task`` calls of one reply at the same time (as ``delegate_parallel`` does).
+
+        Returns ``{index: (tool message, events)}``; results keep the order of the calls. Empty when the
+        team runs one member at a time (``max_parallel`` 1) or there is only one delegation.
+        """
+        team = self._active_teams().get(node.id)
+        if team is None:
+            return {}
+        indices = [
+            idx
+            for idx, call in enumerate(tool_calls)
+            if call.function_name == DELEGATE_TOOL
+            and (spec_map.get(call.function_name) is not None)
+            and spec_map[call.function_name].metadata.get("source") == TEAM_TOOL_SOURCE
+        ]
+        workers = min(int(getattr(team, "max_parallel", 1) or 1), len(indices))
+        if len(indices) < 2 or workers < 2:
+            return {}
+        cancel_event = getattr(self.context, "cancel_event", None)
+
+        def run_one(idx: int) -> tuple:
+            # contextvars do not cross threads: each worker enters the cancel scope itself.
+            with cli_cancel_scope(cancel_event):
+                call = tool_calls[idx]
+                events: List[Any] = []
+                arguments = self._parse_tool_call_arguments(call.arguments)
+                message = self._run_team_tool(node, call, call.function_name, arguments, events)
+                return message, events
+
+        results: Dict[int, tuple] = {}
+        cancelled: Optional[BaseException] = None
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=f"lead-{node.id}") as pool:
+            # A fresh context copy per worker: it keeps the delegation depth of this call chain.
+            futures = [(idx, pool.submit(contextvars.copy_context().run, run_one, idx)) for idx in indices]
+            for idx, future in futures:
+                try:
+                    results[idx] = future.result()
+                except (WorkflowCancelledError, CliCancelled) as exc:
+                    cancelled = cancelled or exc
+                    for _, pending in futures:
+                        pending.cancel()
+                except FutureCancelledError:
+                    pass
+        if cancelled is not None:
+            if isinstance(cancelled, WorkflowCancelledError):
+                raise cancelled
+            raise WorkflowCancelledError("Workflow execution cancelled") from cancelled
+        return results
+
     def _execute_tool_batch(
         self,
         node: Node,
@@ -775,22 +1017,26 @@ class AgentNodeExecutor(NodeExecutor):
         messages: List[Message] = []
         events: List[Any] = []
         model = node.as_config(AgentConfig)
-        
+
         # Build map for fast lookup
         spec_map = {spec.name: spec for spec in tool_specs}
         configs = model.tooling if model else []
+        # Skill instructions go after every tool result of the batch (a tool result must directly
+        # follow its call), as the last message of the conversation.
+        skill_followups: List[Message] = []
+        delegated = self._parallel_delegations(node, tool_calls, spec_map)
 
         with self._node_tool_context(node) as tool_context:
-            for tool_call in tool_calls:
+            for call_index, tool_call in enumerate(tool_calls):
                 self._ensure_not_cancelled()
                 tool_name = tool_call.function_name
                 arguments = self._parse_tool_call_arguments(tool_call.arguments)
-                
+
                 # Resolve tool config
                 spec = spec_map.get(tool_name)
                 tool_config = None
                 execution_name = tool_name
-                
+
                 if spec:
                     idx = spec.metadata.get("_config_index")
                     if idx is not None and 0 <= idx < len(configs):
@@ -799,6 +1045,11 @@ class AgentNodeExecutor(NodeExecutor):
                     execution_name = spec.metadata.get("original_name", tool_name)
 
                 if spec and spec.metadata.get("source") == TEAM_TOOL_SOURCE:
+                    if call_index in delegated:
+                        team_message, team_events = delegated[call_index]
+                        messages.append(team_message)
+                        events.extend(team_events)
+                        continue
                     messages.append(self._run_team_tool(node, tool_call, tool_name, arguments, events))
                     continue
 
@@ -813,7 +1064,8 @@ class AgentNodeExecutor(NodeExecutor):
                             CallStage.BEFORE,
                         )
                         with self.log_manager.tool_timer(node.id, tool_name):
-                            result = self._execute_skill_tool(tool_name, arguments, skill_manager)
+                            raw_result = self._execute_skill_tool(tool_name, arguments, skill_manager)
+                        result, followup = self._skill_tool_result(tool_name, raw_result, node.id)
 
                         tool_message = self._build_tool_message(
                             result,
@@ -822,10 +1074,8 @@ class AgentNodeExecutor(NodeExecutor):
                             tool_name=tool_name,
                         )
                         events.append(self._build_function_call_output_event(tool_call, result))
-                        system_message = self._build_skill_followup_message(tool_name, result, node.id)
-                        if system_message is not None:
-                            messages.append(system_message)
-                            events.append(system_message)
+                        if followup is not None:
+                            skill_followups.append(followup)
                         self.log_manager.record_tool_call(
                             node.id,
                             tool_name,
@@ -834,6 +1084,10 @@ class AgentNodeExecutor(NodeExecutor):
                             {"arguments": arguments},
                             CallStage.AFTER,
                         )
+                    except WorkflowCancelledError:
+                        raise
+                    except CliCancelled as exc:
+                        raise WorkflowCancelledError("Workflow execution cancelled") from exc
                     except Exception as exc:
                         self.log_manager.record_tool_call(
                             node.id,
@@ -860,15 +1114,14 @@ class AgentNodeExecutor(NodeExecutor):
                     messages.append(tool_message)
                     continue
 
-                active_skill = skill_manager.active_skill() if skill_manager is not None else None
-                if (
-                    active_skill is not None
-                    and active_skill.allowed_tools
-                    and execution_name not in active_skill.allowed_tools
-                ):
+                # Only allowed-tools entries naming tools of this agent are enforced; the rest
+                # (Claude Code syntax such as "Bash(npx x *)", unknown names) are advisory. With several
+                # skills active, their lists combine (see allowed_tools_for_active).
+                enforced_tools = skill_manager.allowed_tools_for_active() if skill_manager is not None else ()
+                if enforced_tools and execution_name not in enforced_tools:
                     error_msg = (
-                        f"Tool '{tool_name}' is not allowed by active skill "
-                        f"'{active_skill.name}'. Allowed tools: {list(active_skill.allowed_tools)}"
+                        f"Tool '{tool_name}' is not allowed by the active skills. "
+                        f"Allowed tools: {list(enforced_tools)}"
                     )
                     self.log_manager.record_tool_call(
                         node.id,
@@ -893,13 +1146,13 @@ class AgentNodeExecutor(NodeExecutor):
                     )
                     messages.append(tool_message)
                     continue
-                
+
                 if not tool_config:
                      # Fallback check: if we have 1 config, maybe it's that one? 
                      # But strict routing is safer. If spec not found, it's a hallucination or error.
                      # We proceed and let tool_manager raise error or handle it.
                      # But execute_tool requires tool_config. 
-                     
+
                      # Construct a helpful error message
                      error_msg = f"Tool '{tool_name}' configuration not found."
                      self.log_manager.record_tool_call(
@@ -966,6 +1219,10 @@ class AgentNodeExecutor(NodeExecutor):
                         {"arguments": arguments},
                         CallStage.AFTER,
                     )
+                except WorkflowCancelledError:
+                    raise
+                except CliCancelled as exc:
+                    raise WorkflowCancelledError("Workflow execution cancelled") from exc
                 except Exception as exc:
                     self.log_manager.record_tool_call(
                         node.id,
@@ -991,6 +1248,9 @@ class AgentNodeExecutor(NodeExecutor):
 
                 messages.append(tool_message)
 
+        for followup in skill_followups:
+            messages.append(followup)
+            events.append(followup)
         return messages, events
 
     @contextmanager
@@ -1008,6 +1268,20 @@ class AgentNodeExecutor(NodeExecutor):
                     overrides = {}
                     self._overrides_by_node = overrides
         return overrides
+
+    def _run_configs(self) -> Dict[str, AgentConfig]:
+        configs = getattr(self, "_run_configs_by_node", None)
+        if configs is None:
+            with _NODE_STATE_LOCK:
+                configs = getattr(self, "_run_configs_by_node", None)
+                if configs is None:
+                    configs = {}
+                    self._run_configs_by_node = configs
+        return configs
+
+    def _run_config(self, node: Node) -> AgentConfig | None:
+        """This run's copy of the node's agent config (account switches live here), else the saved one."""
+        return self._run_configs().get(node.id) or node.as_config(AgentConfig)
 
     def _bind_account(self, node: Node, agent_config: AgentConfig):
         creds = resolve_connection(agent_config.connection)
@@ -1091,12 +1365,19 @@ class AgentNodeExecutor(NodeExecutor):
     def _switch_account(self, node: Node, agent_config: AgentConfig, conn_id: str, *, notify: bool) -> None:
         from agentdev.connections.store import get_store
 
-        conn = get_store().get(conn_id)
+        # agent_config is this run's copy (see execute): the node's saved config is never changed.
+        store = get_store()
+        conn = store.get(conn_id)
         previous = agent_config.connection
         agent_config.connection = conn_id
         if conn is not None:
-            previous_vendor = getattr(get_store().get(previous or ""), "vendor", None)
-            if conn.vendor != previous_vendor:
+            original = node.as_config(AgentConfig)
+            original_vendor = getattr(store.get(getattr(original, "connection", None) or ""), "vendor", None)
+            previous_vendor = getattr(store.get(previous or ""), "vendor", None)
+            if original is not None and original is not agent_config and conn.vendor == original_vendor:
+                # Back on the vendor the user picked: use the model the user chose, not a default.
+                agent_config.name = original.name
+            elif conn.vendor != previous_vendor:
                 # The model name belongs to the old vendor; use the new account's default model.
                 agent_config.name = default_model_for(conn) or agent_config.name
         if notify:
@@ -1166,7 +1447,8 @@ class AgentNodeExecutor(NodeExecutor):
         missing = [m for m in team_config.members if m not in {mem.node_id for mem in members}]
         if missing:
             self.log_manager.warning(f"[Node: {node.id}] Team members not found or not agents: {missing}", node_id=node.id)
-        state = get_team_state(self.context.global_state)
+        cancel_event = getattr(self.context, "cancel_event", None)
+        state = get_team_state(self.context.global_state, cancel_event=cancel_event)
         delegated = is_delegated_call()
         if not delegated:
             # The lead talking to the user sets the language members write user-facing text in.
@@ -1183,6 +1465,7 @@ class AgentNodeExecutor(NodeExecutor):
             max_review_rounds=team_config.max_review_rounds,
             plan_approval=team_config.plan_approval,
             max_parallel=team_config.max_parallel,
+            cancel_event=cancel_event,
         )
 
     def _run_team_tool(
@@ -1200,6 +1483,10 @@ class AgentNodeExecutor(NodeExecutor):
                 raise ValueError("This agent does not lead a team")
             with self.log_manager.tool_timer(node.id, tool_name):
                 result = team.execute(tool_name, arguments)
+        except WorkflowCancelledError:
+            raise
+        except CliCancelled as exc:
+            raise WorkflowCancelledError("Workflow execution cancelled") from exc
         except Exception as exc:
             self.log_manager.record_tool_call(
                 node.id, tool_name, False, None, {"error": str(exc), "arguments": arguments}, CallStage.AFTER
@@ -1223,6 +1510,21 @@ class AgentNodeExecutor(NodeExecutor):
         )
         return self._build_tool_message(result, tool_call, node_id=node.id, tool_name=tool_name)
 
+    def _skill_tool_result(self, tool_name: str, result: Any, node_id: str) -> tuple[Any, Message | None]:
+        """(tool result, follow-up message) for a skill tool.
+
+        ``activate_skill`` answers with a short acknowledgement; the skill text goes once, in the
+        follow-up message. Re-activating a skill that is already loaded adds nothing.
+        """
+        if tool_name != "activate_skill" or not isinstance(result, dict):
+            return result, None
+        name = result.get("skill_name", "unknown-skill")
+        ack: Dict[str, Any] = {"skill": name, "loaded": True}
+        if result.get("already_active"):
+            ack["already_active"] = True
+            return ack, None
+        return ack, self._build_skill_followup_message(tool_name, result, node_id)
+
     def _build_skill_followup_message(
         self,
         tool_name: str,
@@ -1241,13 +1543,22 @@ class AgentNodeExecutor(NodeExecutor):
         tool_constraint = ""
         if isinstance(allowed_tools, list) and allowed_tools:
             tool_constraint = f"\n\nOnly use these external tools while this skill is active: {allowed_tools}"
+        files = result.get("files")
+        if isinstance(files, list) and files:
+            tool_constraint += (
+                "\n\nFiles in this skill (read the ones its instructions point to, or that fit the task, with "
+                f"`read_skill_file`): {', '.join(str(item) for item in files)}"
+            )
 
+        # A user-role message, not SYSTEM: CLI providers hoist system messages to the top of the prompt,
+        # while the skill belongs at the end of the conversation, after the call that loaded it.
         return Message(
-            role=MessageRole.SYSTEM,
+            role=MessageRole.USER,
             content=(
+                f"[Skill instructions: {skill_name}]\n"
                 f"Activated Agent Skill `{skill_name}`. "
                 "Follow its instructions for the current task until they are completed or no longer relevant.\n\n"
-                f"{instructions}{tool_constraint}"
+                f"{instructions}{tool_constraint}\n[End skill instructions]"
             ),
             metadata={"source": node_id, "skill_name": skill_name, "skill_activation": True},
         )
@@ -1265,7 +1576,11 @@ class AgentNodeExecutor(NodeExecutor):
             skill_name = str(arguments.get("skill_name", "")).strip()
             if not skill_name:
                 raise ValueError("skill_name is required")
-            return skill_manager.activate_skill(skill_name)
+            already_active = skill_manager.is_activated(skill_name)
+            result = dict(skill_manager.activate_skill(skill_name))
+            if already_active:
+                result["already_active"] = True
+            return result
 
         if tool_name == "read_skill_file":
             skill_name = str(arguments.get("skill_name", "")).strip()
@@ -1555,7 +1870,7 @@ class AgentNodeExecutor(NodeExecutor):
         if not ext:
             ext = ".bin"
         return f"{attachment.attachment_id or 'generated'}{ext}"
-    
+
     def _guess_mime_from_data_uri(self, data_uri: Optional[str]) -> Optional[str]:
         if not data_uri or not data_uri.startswith("data:"):
             return None
@@ -1645,15 +1960,15 @@ class AgentNodeExecutor(NodeExecutor):
             conversation.append(
                 Message(role=MessageRole.USER, content=content, metadata={"source": node_id})
             )
-    
+
     def _update_memory(self, node: Node, input_data: str, inputs: List[Message], result: Message | str) -> None:
         """Update the memory store with the latest conversation."""
         memory_manager = self.context.get_memory_manager(node.id)
         if not memory_manager:
             return
-        
+
         stage = AgentExecFlowStage.FINISHED_STAGE
-        
+
         input_snapshot = MemoryContentSnapshot.from_messages(inputs)
         output_snapshot = MemoryContentSnapshot.from_message(result)
         payload = MemoryWritePayload(
@@ -1665,7 +1980,7 @@ class AgentNodeExecutor(NodeExecutor):
 
         with self.log_manager.memory_timer(node.id, "UPDATE", stage.value):
             memory_manager.update(payload)
-        
+
         # Record the memory update
         normalized_result = result.text_content() if isinstance(result, Message) else str(result)
         self.log_manager.record_memory_operation(

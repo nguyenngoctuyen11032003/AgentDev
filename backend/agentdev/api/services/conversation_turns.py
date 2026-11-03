@@ -41,6 +41,50 @@ STATUS_NOTES = {
 }
 
 
+def _attachment_entry(item: Any) -> Any:
+    """A stored attachment reference: a plain name, or ``{"name", "path"}`` when its path is known.
+
+    Only references are kept, never file contents: a follow-up lead re-reads the file when it needs it.
+    """
+    if isinstance(item, dict):
+        name = str(item.get("name") or "").strip()
+        path = str(item.get("path") or "").strip()
+        if not path:
+            return name or None
+        return {"name": name or path.replace("\\", "/").rsplit("/", 1)[-1], "path": path}
+    return str(item).strip() if item else None
+
+
+def attachment_refs(attachment_ids: Iterable[str], manifest: Optional[Dict[str, Any]]) -> List[Any]:
+    """Attachment references for ``make_turn`` from an attachment manifest (id -> {"ref": {...}}).
+
+    Keeps the stored file's path (``ref.local_path``) so a later turn can point the lead at the file.
+    """
+    refs: List[Any] = []
+    for attachment_id in attachment_ids or []:
+        ref = ((manifest or {}).get(attachment_id) or {}).get("ref") or {}
+        name = str(ref.get("name") or attachment_id)
+        path = str(ref.get("local_path") or "")
+        refs.append({"name": name, "path": path} if path else name)
+    return refs
+
+
+def _render_attachments(attachments: List[Any]) -> str:
+    rendered = []
+    for item in attachments:
+        entry = _attachment_entry(item)
+        if isinstance(entry, dict):
+            rendered.append(f"{entry['name']} (path: {entry['path']})")
+        elif entry:
+            rendered.append(entry)
+    if not rendered:
+        return ""
+    return (
+        f"(attached: {', '.join(rendered)}. Contents are not repeated here; re-read a file with your file "
+        "tools if you need it.)"
+    )
+
+
 def _clip(text: str, limit: int) -> str:
     """Keep the start and the end of long text (60% / 40%) with an omission marker in between."""
     return clip_middle(text, limit)
@@ -62,7 +106,7 @@ def make_turn(
     turn: Dict[str, Any] = {
         "user": (user_text or "").strip(),
         "answer": (answer or "").strip(),
-        "attachments": [str(name) for name in attachments or [] if name],
+        "attachments": [e for e in (_attachment_entry(a) for a in attachments or []) if e],
     }
     items = [e for e in exchanges or [] if isinstance(e, dict)]
     delegations = [e for e in items if e.get("kind") == DELEGATION_KIND]
@@ -102,9 +146,9 @@ def _render_team(entries: List[Any], budget: int) -> List[str]:
 
 def _render_turn(index: int, turn: Dict[str, Any], *, latest: bool = False, team_budget: int = 0) -> str:
     user = _clip(str(turn.get("user") or ""), MAX_LATEST_USER_CHARS if latest else MAX_USER_CHARS) or "(no text)"
-    attachments = turn.get("attachments") or []
-    if attachments:
-        user += f"\n(attached: {', '.join(str(a) for a in attachments)})"
+    attached = _render_attachments(list(turn.get("attachments") or []))
+    if attached:
+        user += f"\n{attached}"
     lines = [f"--- Turn {index} ---", f"User: {user}"]
     for exchange in (turn.get("exchanges") or [])[-MAX_EXCHANGES:]:
         if not isinstance(exchange, dict):

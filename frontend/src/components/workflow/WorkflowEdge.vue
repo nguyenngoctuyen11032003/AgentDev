@@ -181,6 +181,19 @@ const edgeStyle = computed(() => {
     }
   }
 
+  if (props.data?.virtual && props.data?.active) {
+    // Delegation link while the member works on a task from the lead (Launch view)
+    return {
+      ...baseStyle,
+      stroke: 'var(--accent-indigo-2, #818cf8)',
+      strokeWidth: 2.4,
+      strokeOpacity: 1,
+      strokeDasharray: '6 5',
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+    }
+  }
+
   if (props.data?.virtual) {
     // Delegation link (lead -> team member): decorative, not an executable edge.
     // Dashed so it never reads as a real (executable) edge.

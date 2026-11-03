@@ -19,7 +19,7 @@ from agentdev.connections.store import Connection, get_store
 # transient 429 / "rate limit" errors are retried normally instead, and generic words such as
 # "quota" or "limit reached" also occur in stack traces and in the model's own output.
 QUOTA_PATTERN = re.compile(
-    r"usage limit reached|hit your usage limit|reached your (?:usage|weekly|daily|monthly|5-hour) limit|"
+    r"usage limit reached|hit your (?:usage |weekly |daily |monthly |session |5-hour |opus |sonnet )?limit\b|reached your (?:usage|weekly|daily|monthly|5-hour) limit|"
     r"usage_limit_reached|(?:5-hour|weekly|session) limit reached|credit balance is too low|out of credits|"
     r"insufficient_quota|exceeded your current quota|quota exceeded for quota metric|resource_exhausted.*quota",
     re.IGNORECASE,

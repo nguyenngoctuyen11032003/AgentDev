@@ -54,7 +54,7 @@
                   <span v-if="currentProjectName" class="chat-header-project" :title="$t('launch.sessions.project_label', { name: currentProjectName })">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>{{ currentProjectName }}
                   </span>
-                  {{ selectedFile.replace(/\.ya?ml$/i, '') }} · {{ getTranslatedStatus(status) }}
+                  {{ selectedFile.replace(/\.ya?ml$/i, '') }} · {{ isStopping ? $t('launch.stopping') : getTranslatedStatus(status) }}
                 </span>
               </div>
               <div class="chat-header-actions">
@@ -80,6 +80,14 @@
               </div>
             </div>
             <div class="chat-box">
+              <!-- This session is open in another tab: nothing reconnects by itself (the tabs
+                   would take it from each other forever); the button takes it back here -->
+              <div v-if="replacedSessionId" class="replaced-banner" role="status">
+                <span class="replaced-banner-text">{{ $t('launch.replaced_by_other_tab') }}</span>
+                <button type="button" class="replaced-banner-button" @click="takeOverSession">
+                  {{ $t('launch.take_over_here') }}
+                </button>
+              </div>
               <div class="chat-messages" ref="chatMessagesRef" @click="handleChatClick">
                 <!-- Empty session: say who answers and what to do, like a new Claude / Codex chat -->
                 <div v-if="!chatMessages.length && selectedFile && !isReconnecting" class="chat-empty">
@@ -342,7 +350,7 @@
                   v-model="taskPrompt"
                   class="task-input"
                   rows="1"
-                  :disabled="!isConnectionReady || (isWorkflowRunning && status !== 'Waiting for input...')"
+                  :disabled="!isConnectionReady || isStopping || (isWorkflowRunning && status !== 'Waiting for input...')"
                   :placeholder="composerPlaceholder"
                   ref="taskInputRef"
                   @input="autoResizeTaskInput"
@@ -360,7 +368,7 @@
                       :aria-label="$t('launch.upload_file')"
                       aria-haspopup="menu"
                       :aria-expanded="showAttachMenu"
-                      :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || (isWorkflowRunning && status !== 'Waiting for input...')"
+                      :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || isStopping || (isWorkflowRunning && status !== 'Waiting for input...')"
                       @click="showAttachMenu = !showAttachMenu"
                     >
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -394,7 +402,7 @@
                     :class="{ glow: shouldGlow && !isStopMode, 'is-stop': isStopMode }"
                     :title="buttonLabel"
                     :aria-label="buttonLabel"
-                    :disabled="!isStopMode && (loading || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady))"
+                    :disabled="isStopping || (!isStopMode && (loading || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady)))"
                     @click="isStopMode ? cancelWorkflow() : handleButtonClick()"
                   >
                     <svg v-if="isStopMode" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -459,6 +467,7 @@
             :active-nodes="activeNodes"
             :status="status"
             :workflow-name="selectedFile ? selectedFile.replace(/\.yaml$/i, '') : ''"
+            :tracker="runTracker.state"
             :visible="viewMode === 'office'"
           />
         </div>
@@ -484,6 +493,7 @@
             @open-session="openSessionInChat"
             @rework="handleRework"
             @reviewed="refreshSessions"
+            @pending-count="reviewPendingFromView = $event"
           />
         </div>
 
@@ -499,6 +509,21 @@
             :visible="viewMode === 'dashboard'"
             @open-session="openSession"
           />
+        </div>
+
+        <!-- The views stay one click away while the control panel is folded away -->
+        <div v-show="viewMode !== 'chat' && !isRightPanelOpen" class="view-toggle view-dock" role="toolbar" :aria-label="$t('launch.view')">
+          <button
+            v-for="option in viewOptions"
+            :key="option.mode"
+            type="button"
+            class="toggle-button"
+            :class="{ active: viewMode === option.mode }"
+            @click="selectView(option.mode)"
+          >
+            {{ $t(option.label) }}
+            <span v-if="option.mode === 'review' && reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
+          </button>
         </div>
 
         <!-- Right panel floating toggle (bottom-right of canvas) -->
@@ -573,53 +598,21 @@
 
           <label class="section-label">{{ $t('launch.status') }}</label>
           <div class="status-display" :class="{ 'status-active': status === 'Running...' }">
-            {{ getTranslatedStatus(status) }}
+            {{ isStopping ? $t('launch.stopping') : getTranslatedStatus(status) }}
           </div>
 
           <label class="section-label">{{ $t('launch.view') }}</label>
           <div class="view-toggle">
             <button
+              v-for="option in viewOptions"
+              :key="option.mode"
+              type="button"
               class="toggle-button"
-              :class="{ active: viewMode === 'chat' }"
-              @click="viewMode = 'chat'"
+              :class="{ active: viewMode === option.mode }"
+              @click="selectView(option.mode)"
             >
-              {{ $t('launch.chat') }}
-            </button>
-            <button
-              class="toggle-button"
-              :class="{ active: viewMode === 'graph' }"
-              @click="switchToGraph"
-            >
-              {{ $t('launch.graph') }}
-            </button>
-            <button
-              class="toggle-button"
-              :class="{ active: viewMode === 'office' }"
-              @click="viewMode = 'office'"
-            >
-              {{ $t('launch.office.view') }}
-            </button>
-            <button
-              class="toggle-button"
-              :class="{ active: viewMode === 'board' }"
-              @click="viewMode = 'board'"
-            >
-              {{ $t('launch.board.view') }}
-            </button>
-            <button
-              class="toggle-button"
-              :class="{ active: viewMode === 'dashboard' }"
-              @click="viewMode = 'dashboard'"
-            >
-              {{ $t('launch.dashboard.view') }}
-            </button>
-            <button
-              class="toggle-button"
-              :class="{ active: viewMode === 'review' }"
-              @click="viewMode = 'review'"
-            >
-              {{ $t('launch.review.view') }}
-              <span v-if="reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
+              {{ $t(option.label) }}
+              <span v-if="option.mode === 'review' && reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
             </button>
           </div>
 
@@ -629,14 +622,14 @@
               class="launch-button"
               :class="{ glow: shouldGlow, 'is-sending': isWorkflowRunning }"
               @click="handlePanelRunClick"
-              :disabled="loading || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady)">
+              :disabled="loading || isStopping || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady)">
               <!-- The composer's own button is the stop button; this one only ever sends -->
               {{ panelRunLabel }}
             </button>
 
             <button
               class="cancel-button"
-              :disabled="!isRunActive"
+              :disabled="!isRunActive || isStopping"
               @click="cancelWorkflow"
             >
               {{ $t('common.cancel') }}
@@ -704,7 +697,7 @@ import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import { onWorkflowChanged, workflowKey } from '@/utils/workflowSync.js'
 import OfficeView from '@/components/office/OfficeView.vue'
 import SessionSidebar from '@/components/launch/SessionSidebar.vue'
-import { computeTeamLinks } from '@/utils/teamLinks.js'
+import { computeTeamLinks, layoutOrgTree } from '@/utils/teamLinks.js'
 import yaml from 'js-yaml'
 import MarkdownIt from 'markdown-it'
 import SettingsModal from '@/components/common/SettingsModal.vue'
@@ -1364,10 +1357,23 @@ watch(viewMode, (mode) => {
   if (mode in visitedViews) visitedViews[mode] = true
 }, { immediate: true })
 // Outside the chat the control panel floats over the view: after picking a view, get it
-// out of the way (the button at the bottom right brings it back)
+// out of the way (the button at the bottom right brings it back). The view buttons stay on
+// screen meanwhile, in a small bar at the bottom right (see .view-dock).
 watch(viewMode, (mode) => {
   if (mode !== 'chat') isRightPanelOpen.value = false
 })
+const viewOptions = [
+  { mode: 'chat', label: 'launch.chat' },
+  { mode: 'graph', label: 'launch.graph' },
+  { mode: 'office', label: 'launch.office.view' },
+  { mode: 'board', label: 'launch.board.view' },
+  { mode: 'dashboard', label: 'launch.dashboard.view' },
+  { mode: 'review', label: 'launch.review.view' }
+]
+const selectView = (mode) => {
+  if (mode === 'graph') switchToGraph()
+  else viewMode.value = mode
+}
 // Content stays clear of the chat panel that floats over the canvas
 const insetStyle = computed(() => ({ '--inset-left': isChatPanelOpen.value ? 'min(380px, 50%)' : '0px' }))
 // The person who answers in the chat of a team workflow: the top lead (a lead nobody
@@ -1582,6 +1588,25 @@ const hasUnseenMessages = ref(false)
 let pendingOpenSessionId = null
 // Set when Stop was pressed here, so the server's confirmation adds no second notice
 let locallyCancelled = false
+// Stop was pressed and the server has not confirmed it yet: the composer stays locked
+const isStopping = ref(false)
+let stopFallbackTimer = null
+const STOP_FALLBACK_MS = 20000
+const endStopping = () => {
+  clearTimeout(stopFallbackTimer)
+  stopFallbackTimer = null
+  isStopping.value = false
+}
+// An answer sent over the socket, until the server acknowledges it (input_received) or
+// turns it down (non-fatal error): then it is put back in the composer
+let pendingInput = null
+// A follow-up that was posted, until the server starts it (workflow_started) or turns it
+// down because a run is still going (run_in_progress): `undo` puts everything back
+let pendingLaunch = null
+let workflowStartedCount = 0
+let launchRejectedCount = 0
+// This session was opened in another tab: the banner offers to take it back here
+const replacedSessionId = ref('')
 
 const filteredWorkflowFiles = computed(() => {
   // If the file search box is untouched, return all workflows
@@ -1603,11 +1628,11 @@ const hasComposerContent = computed(() =>
 const isWaitingForInput = computed(() => status.value === 'Waiting for input...')
 // A run the server is working on, also while it waits for your answer (it can be stopped then too)
 const isRunActive = computed(() =>
-  isWorkflowRunning.value && (status.value === 'Running...' || isWaitingForInput.value)
+  isWorkflowRunning.value && (status.value === 'Running...' || status.value === 'Launching...' || isWaitingForInput.value)
 )
 // While the workflow is working the composer button turns into a Stop button; while it waits
 // for your answer it becomes Send again as soon as you type one.
-const isStopMode = computed(() => isRunActive.value && !(isWaitingForInput.value && hasComposerContent.value))
+const isStopMode = computed(() => isStopping.value || (isRunActive.value && !(isWaitingForInput.value && hasComposerContent.value)))
 
 // A finished run (completed, cancelled or failed) whose composer holds a new message continues
 // the same session as a follow-up turn; with an empty composer the button relaunches instead.
@@ -1679,6 +1704,7 @@ const handlePanelRunClick = async () => {
 
 // Button label computed property
 const buttonLabel = computed(() => {
+  if (isStopping.value) return t('launch.stopping')
   if (isStopMode.value) {
     return t('common.cancel')
   }
@@ -1727,8 +1753,12 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
   ws = null
   isConnectionReady.value = false
 
+  pendingInput = null
+  pendingLaunch = null
   if (!keepSession) {
     locallyCancelled = false
+    endStopping()
+    replacedSessionId.value = ''
     sessionId = null
     hasLaunched.value = false
     isWorkflowRunning.value = false
@@ -1738,6 +1768,7 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
     chatMessages.value = []
     nodesLoadingMessagesMap.clear()
     delegatedNodes.clear()
+    refreshTeamEdges()
     nameToSpriteMap.clear()
     nodeSpriteMap.value.clear()
     officeRef.value?.reset()
@@ -1969,6 +2000,21 @@ const addDialogue = (name, message, at = null) => {
 // Team members currently working on a task delegated by a lead agent (their output is not a
 // chat message): member id -> lead id
 const delegatedNodes = new Map()
+// The graph shows the generated team links (no saved layout): they light up while a member
+// works on a delegated task
+let graphHasTeamFallback = false
+const refreshTeamEdges = () => {
+  if (!graphHasTeamFallback) return
+  let changed = false
+  const next = edges.value.map((edge) => {
+    if (edge.data?.kind !== 'team') return edge
+    const active = delegatedNodes.get(edge.data.member) === edge.data.lead
+    if (Boolean(edge.data.active) === active) return edge
+    changed = true
+    return { ...edge, data: { ...edge.data, active } }
+  })
+  if (changed) setEdges(next)
+}
 
 // Backend log time (ISO, local) in ms; live UI events without one happen "now"
 const eventTime = (at) => {
@@ -2371,6 +2417,7 @@ const handleYAMLSelection = async (fileName) => {
 
 // Handle button clicks
 const handleButtonClick = () => {
+  if (isStopping.value) return
   if (isWorkflowRunning.value) {
     // Only an answer to a pending question can be sent while a run is live (or launching)
     if (!isWaitingForInput.value) return
@@ -2402,7 +2449,9 @@ const handleButtonClick = () => {
 
 // Send human input
 const sendHumanInput = () => {
-  if (!ws) {
+  // A closed (or still opening) socket would drop the answer silently: keep it in the box
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    toast.warning(t('launch.errors.input_not_sent'))
     return false
   }
 
@@ -2424,8 +2473,14 @@ const sendHumanInput = () => {
     }
   }
 
-  clearUploadedAttachments()
-  ws.send(JSON.stringify(message))
+  try {
+    ws.send(JSON.stringify(message))
+  } catch (sendError) {
+    console.warn('Failed to send human input:', sendError)
+    toast.warning(t('launch.errors.input_not_sent'))
+    return false
+  }
+  const waitingIds = Object.entries(runTracker.state.nodes).filter(([, node]) => node.waiting).map(([id]) => id)
   runTracker.inputSent(trimmedInput)
 
   const fullMessage = []
@@ -2436,12 +2491,38 @@ const sendHumanInput = () => {
     fullMessage.push(t('launch.attachments_line', { names: attachmentNames.join(', ') }))
   }
 
-  if (fullMessage.length) {
-    addDialogue(USER_SENDER, fullMessage.join('\n\n'))
-  }
+  const bubble = fullMessage.length ? addDialogue(USER_SENDER, fullMessage.join('\n\n')) : null
 
+  // The text leaves the box now; the attachments stay until the server has the answer, and
+  // both come back if it turns the answer down (see restorePendingInput)
+  pendingInput = { text: trimmedInput, attachments: [...uploadedAttachments.value], bubble, statusBefore: status.value, waitingIds }
   taskPrompt.value = ''
   return true
+}
+
+// The server has the answer: the attachments it carried leave the composer
+const confirmPendingInput = () => {
+  if (!pendingInput) return
+  const sentIds = new Set(pendingInput.attachments.map((attachment) => attachment.attachmentId))
+  const current = uploadedAttachments.value
+  if (sentIds.size && current.length && current.every((attachment) => sentIds.has(attachment.attachmentId))) {
+    clearUploadedAttachments()
+  }
+  pendingInput = null
+}
+
+// The server turned the answer down: take back the bubble and the input count, and put the
+// text back in the composer (unless something new was typed meanwhile)
+const restorePendingInput = (code = '') => {
+  if (!pendingInput) return
+  const { text, bubble, statusBefore, waitingIds } = pendingInput
+  pendingInput = null
+  const index = bubble ? chatMessages.value.indexOf(bubble) : -1
+  if (index > -1) chatMessages.value.splice(index, 1)
+  runTracker.undoInput(code === 'not_waiting' ? [] : waitingIds)
+  if (!taskPrompt.value.trim()) taskPrompt.value = text
+  // Still waiting for an answer unless the server said it was not
+  if (code !== 'not_waiting' && status.value === 'Running...' && statusBefore === 'Waiting for input...') status.value = statusBefore
 }
 
 // Establish a WebSocket connection
@@ -2577,11 +2658,12 @@ const establishWebSocketConnection = (options = {}) => {
     pendingOpenSessionId = null
     // The same session was opened in another tab (the server keeps one socket per session,
     // see websocket_manager.connect): reconnecting here would just take it back from that
-    // tab, and so on forever. Stay put and say so; picking the session again reopens it here.
+    // tab, and so on forever. Stay put and say so; the banner's "open here" takes it back,
+    // only when clicked.
     if (event?.code === 1000 && String(event.reason || '').startsWith('Replaced')) {
       isReconnecting.value = false
       resetConnectionState({ closeSocket: true, keepSession: Boolean(lostSession) })
-      addChatNotification(t('launch.replaced_by_other_tab'), { type: 'warning' })
+      replacedSessionId.value = lostSession || ''
       toast.info(t('launch.replaced_by_other_tab'))
       return
     }
@@ -2618,14 +2700,26 @@ const scheduleReconnect = (lostSession) => {
     autoReconnecting = true
   }, delay)
 }
+// The session moved to another tab: take it back here (the newest socket wins on the
+// server). Like an automatic reconnect, the chat stays until the server replays it.
+const takeOverSession = () => {
+  const target = replacedSessionId.value
+  if (!target) return
+  replacedSessionId.value = ''
+  establishWebSocketConnection({ sessionId: target })
+  autoReconnecting = true
+}
+
 // Set while an automatic reconnect is in flight: the chat is cleared only once the server
 // answers (it then replays the whole session), so a failed retry leaves it on screen.
 const clearReplayedState = () => {
   locallyCancelled = false
+  endStopping()
   chatMessages.value = []
   nodesLoadingMessagesMap.clear()
   activeNodes.value = []
   delegatedNodes.clear()
+  refreshTeamEdges()
   officeRef.value?.reset()
   runTracker.reset()
 }
@@ -2751,8 +2845,10 @@ const startNewSession = async (target = null) => {
 
 // ---------------------------------------------------------------- review & rework
 // Finished runs nobody has accepted or sent back yet (badge on the "Review" view)
-const reviewPendingCount = computed(
-  () => sessions.value.filter((s) => s.status === 'completed' && (s.review?.verdict || 'pending') === 'pending').length
+// Once the review view has looked, its own count wins: it leaves out plain Q&A runs
+const reviewPendingFromView = ref(null)
+const reviewPendingCount = computed(() =>
+  reviewPendingFromView.value ?? sessions.value.filter((s) => s.status === 'completed' && (s.review?.verdict || 'pending') === 'pending').length
 )
 const isReworking = ref(false)
 
@@ -3003,6 +3099,8 @@ onUnmounted(() => {
   unlockBodyScroll()
   resetConnectionState()
   removeSpriteWalkerLayer()
+  // Free the blob URLs of attachment thumbnails
+  Object.keys(attachmentPreviews.value).forEach(dropAttachmentPreview)
 
   stopLoadingTimer()
   runningLoadingEntries.value = 0
@@ -3084,16 +3182,21 @@ const generateNodesAndEdges = async ({ fit = false } = {}) => {
       ? workflowYaml.value.graph.edges
       : []
 
-    const generatedNodes = yamlNodes.map((node, index) => ({
-      id: node.id,
-      type: 'workflow-node',
-      label: node.id,
-      position: {
-        x: 20 + (index % 5) * 200,
-        y: 10 + Math.floor(index / 5) * 150
-      },
-      data: node
-    }))
+    // A team (lead -> members) is laid out as an org chart, like the editor does; anyone
+    // outside it keeps the plain grid below the chart
+    const teamLinks = computeTeamLinks(yamlNodes, yamlEdges)
+    const treePositions = teamLinks.length ? layoutOrgTree(teamLinks, { originX: 20, originY: 10, gapY: 170 }) : new Map()
+    const treeBottom = Math.max(-Infinity, ...[...treePositions.values()].map((pos) => pos.y))
+    const gridTop = Number.isFinite(treeBottom) ? treeBottom + 170 : 10
+    let gridIndex = 0
+    const generatedNodes = yamlNodes.map((node) => {
+      let position = treePositions.get(node.id)
+      if (!position) {
+        position = { x: 20 + (gridIndex % 5) * 200, y: gridTop + Math.floor(gridIndex / 5) * 150 }
+        gridIndex += 1
+      }
+      return { id: node.id, type: 'workflow-node', label: node.id, position, data: node }
+    })
 
     const generatedEdges = yamlEdges.map(edge => ({
       id: `${edge.from}-${edge.to}`,
@@ -3110,8 +3213,27 @@ const generateNodesAndEdges = async ({ fit = false } = {}) => {
       data: edge
     }))
 
+    // Visual-only delegation links (never YAML edges); lit while the member works on a task
+    const teamEdges = teamLinks.map((link) => ({
+      id: `team:${link.from}->${link.to}`,
+      source: link.from,
+      target: link.to,
+      type: 'workflow-edge',
+      selectable: false,
+      focusable: false,
+      data: { virtual: true, kind: 'team', lead: link.from, member: link.to, active: delegatedNodes.get(link.to) === link.from },
+      markerEnd: {
+        type: MarkerType.Arrow,
+        width: 14,
+        height: 14,
+        color: 'var(--text-muted-2)',
+        strokeWidth: 1.2,
+      }
+    }))
+
     setNodes(generatedNodes)
-    setEdges(generatedEdges)
+    setEdges([...generatedEdges, ...teamEdges])
+    graphHasTeamFallback = teamEdges.length > 0
   } catch (error) {
     console.error('Error generating nodes and edges from YAML:', error)
   }
@@ -3184,6 +3306,9 @@ const loadVueFlowGraph = async ({ fit = false } = {}) => {
     }
 
     syncNodeAndEdgeData()
+    // A saved layout may carry the team links too: they light up the same way
+    graphHasTeamFallback = edges.value.some((edge) => edge.data?.kind === 'team')
+    refreshTeamEdges()
 
     if (shouldFit) {
       await nextTick()
@@ -3251,7 +3376,7 @@ const launchWorkflow = async () => {
 
   shouldGlow.value = false
   // A failed follow-up leaves a finished session as it was (not a draft "waiting for launch")
-  const statusBefore = ['Completed', 'Cancelled', 'Error'].includes(status.value) ? status.value : 'Waiting for launch...'
+  const statusBefore = ['Completed', 'Cancelled', 'Error', 'Failed'].includes(status.value) ? status.value : 'Waiting for launch...'
   // The run is live from the moment it is posted: the server may already stream its first
   // events (a question, an error, even the end) before the POST returns, and those must win
   // over what happens below. This also stops a second launch while this one is in flight.
@@ -3259,6 +3384,8 @@ const launchWorkflow = async () => {
   isWorkflowRunning.value = true
   locallyCancelled = false
   const trackerBefore = JSON.parse(JSON.stringify(runTracker.state))
+  const startedBefore = workflowStartedCount
+  const rejectedBefore = launchRejectedCount
   runTracker.begin(trimmedPrompt, attachmentNames)
   // A launch that did not happen puts everything back as it was
   const undoLaunch = () => {
@@ -3291,6 +3418,22 @@ const launchWorkflow = async () => {
     })
 
     if (response.ok) {
+      // The server may still turn it down over the socket (run_in_progress) before it
+      // starts: until workflow_started, this puts the turn and the message back
+      const undoRejected = () => {
+        undoLaunch()
+        status.value = statusBefore
+        if (!taskPrompt.value.trim()) taskPrompt.value = trimmedPrompt
+      }
+      if (launchRejectedCount !== rejectedBefore && workflowStartedCount === startedBefore) {
+        // Already turned down while the request was in flight
+        undoRejected()
+        return
+      }
+      if (status.value === 'Launching...' && workflowStartedCount === startedBefore) {
+        pendingLaunch = { undo: undoRejected }
+      }
+
       // Clear uploaded attachments
       clearUploadedAttachments()
 
@@ -3696,10 +3839,20 @@ const processMessage = async (msg) => {
     const parts = [text.trim(), names.length ? t('launch.attachments_line', { names: names.join(', ') }) : '']
     addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'), at)
     // The first message of a run is the task, later ones are replies to the agents; a message
-    // after a finished run opens the next turn of the session (kept with the earlier ones)
-    if (runTracker.state.task && !runTracker.state.outcome) runTracker.inputSent(text, at ?? undefined)
-    else runTracker.begin(text, names, at ?? undefined)
+    // after a finished run opens the next turn of the session (kept with the earlier ones).
+    // A reply only answers a question that is pending: a request while nobody waits is a new
+    // turn, even when the turn before never recorded its end (e.g. the server restarted).
+    const tracker = runTracker.state
+    const awaitingAnswer = Object.values(tracker.nodes).some((node) => node.waiting)
+    if (tracker.task && !tracker.outcome && awaitingAnswer) runTracker.inputSent(text, at ?? undefined)
+    else runTracker.begin(text, names, at ?? undefined, { closeOpen: true })
     return
+  }
+
+  // The posted request really started: it can no longer be turned down
+  if (msg.type === 'workflow_started') {
+    workflowStartedCount += 1
+    pendingLaunch = null
   }
 
   // Session resumed after reconnection — sync final UI state
@@ -3741,11 +3894,19 @@ const processMessage = async (msg) => {
       'completed': 'Completed',
       'error': 'Error',
       'cancelled': 'Cancelled',
+      // Stop was pressed and the run is winding down: locked until workflow_cancelled
+      'cancelling': 'Running...',
     }
     status.value = statusMap[data.status] || 'Connected'
 
-    if (data.status === 'running' || data.status === 'waiting_for_input') {
+    if (data.status === 'running' || data.status === 'waiting_for_input' || data.status === 'cancelling') {
       isWorkflowRunning.value = true
+      if (data.status === 'cancelling') startStopping()
+    } else if (runTracker.state.task && !runTracker.state.outcome) {
+      // The replay never recorded the end of the last turn, but the server is not running it:
+      // close it, so the next request starts a turn of its own
+      const outcome = { completed: 'completed', error: 'error' }[data.status] || 'cancelled'
+      runTracker.finish(outcome, { error: outcome === 'error' ? formatErrorDetail(data.error_message) : '' })
     }
 
     if (data.status === 'waiting_for_input') {
@@ -3947,6 +4108,7 @@ const processMessage = async (msg) => {
       // Team member picked up a task from its lead: one compact line, no member chatter in the chat.
       if (delegatedBy && nodeId) {
         delegatedNodes.set(nodeId, delegatedBy)
+        refreshTeamEdges()
         touchWorkingTurns()
         officeRef.value?.handoff(delegatedBy, nodeId, { visit: true })
         runTracker.handoff(delegatedBy, nodeId, msg.data.timestamp)
@@ -4020,6 +4182,7 @@ const processMessage = async (msg) => {
         settleNodeTurn(nodeId, null, eventAt)
         // The lead summarises for the user; the member's full report stays in Tasks / Overview / Review.
         delegatedNodes.delete(nodeId)
+        refreshTeamEdges()
         touchWorkingTurns()
         officeRef.value?.handoff(nodeId, delegatedBy, { visit: true })
         runTracker.handoff(nodeId, delegatedBy, msg.data.timestamp)
@@ -4058,24 +4221,43 @@ const processMessage = async (msg) => {
     status.value = 'Completed'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
+    endStopping()
+    pendingLaunch = null
   }
 
-  // Workflow cancelled (e.g., from server-side cancellation)
+  // The server has the answer that was sent (also acknowledges a cancel request)
+  if (msg.type === 'input_received') {
+    if (msg.data?.message !== 'Cancellation requested') confirmPendingInput()
+    return
+  }
+
+  // Workflow cancelled: from the server, or the confirmation that Stop really stopped it
   if (msg.type === 'workflow_cancelled') {
-    // Stopped from here: the notice is already in the chat, the server only confirms it
-    if (!locallyCancelled) addChatNotification(formatErrorDetail(msg.data?.message) || t('launch.workflow_cancelled'), { at })
-    locallyCancelled = false
-    if (runTracker.state.outcome !== 'cancelled') runTracker.finish('cancelled', { summary: formatErrorDetail(msg.data?.message) })
-    status.value = 'Cancelled'
-    isWorkflowRunning.value = false
-    sessionIdToDownload = sessionId
+    const message = locallyCancelled ? t('launch.workflow_cancelled') : formatErrorDetail(msg.data?.message) || t('launch.workflow_cancelled')
+    markRunCancelled(message, { at, summary: formatErrorDetail(msg.data?.message) })
   }
 
   // Handle direct error messages (e.g., workflow execution errors)
   if (msg.type === 'error' && msg.data?.code === 'run_in_progress') {
-    // A follow-up was turned down because a run is still going: a notice, not a failure;
-    // the live run (and its state here) carries on
-    toast.warning(t('launch.run_in_progress'))
+    // A follow-up was turned down because a run is still going: a notice, not a failure.
+    // The turn it opened here (and its message) is taken back; the live run carries on.
+    launchRejectedCount += 1
+    if (pendingLaunch) {
+      pendingLaunch.undo()
+      pendingLaunch = null
+    }
+    if (!isReconnecting.value) toast.warning(t('launch.run_in_progress'))
+    return
+  }
+  if (msg.type === 'error' && msg.data?.fatal === false) {
+    // A request was turned down (an answer nobody waits for, an empty or malformed message):
+    // say so, but the run and its state carry on; a turned-down answer goes back in the box
+    restorePendingInput(msg.data?.code || '')
+    if (!isReconnecting.value) {
+      const code = msg.data?.code || ''
+      const known = code && te(`launch.errors.codes.${code}`)
+      toast.warning(known ? t(`launch.errors.codes.${code}`) : errorWithDetail('launch.errors.request_rejected', msg.data?.message))
+    }
     return
   }
   if (msg.type === 'error') {
@@ -4085,33 +4267,64 @@ const processMessage = async (msg) => {
     status.value = 'Error'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
+    endStopping()
+    pendingInput = null
+    pendingLaunch = null
   }
 }
 
-// Cancel the currently running workflow (also while it waits for the user's answer)
+// The run is over after a stop: notice, run record, status, and the open activity rows
+const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
+  endStopping()
+  locallyCancelled = false
+  pendingInput = null
+  pendingLaunch = null
+  if (message) addChatNotification(message, at ? { at } : {})
+  if (runTracker.state.task && !runTracker.state.outcome) runTracker.finish('cancelled', { summary })
+  status.value = 'Cancelled'
+  isWorkflowRunning.value = false
+  sessionIdToDownload = sessionId
+  for (const nodeId of [...nodesLoadingMessagesMap.keys()]) {
+    settleNodeTurn(nodeId)
+  }
+}
+
+// Stop the running workflow (also while it waits for the user's answer, or is launching).
+// The run only counts as stopped once the server confirms it (workflow_cancelled); until
+// then the composer stays locked and says "Stopping…". If no confirmation comes, the run is
+// marked stopped here after a while so the screen never stays locked.
 const cancelWorkflow = () => {
-  if (!isRunActive.value || !ws) {
+  if (!isRunActive.value || isStopping.value) {
     return
   }
-  locallyCancelled = true
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    toast.warning(t('launch.errors.stop_not_sent'))
+    return
+  }
 
-  // Send cancel request through WebSocket so the server stops the workflow
   try {
     ws.send(JSON.stringify({ type: 'cancel' }))
   } catch (sendError) {
     console.warn('Failed to send cancel message:', sendError)
+    toast.warning(t('launch.errors.stop_not_sent'))
+    return
   }
 
-  addChatNotification(t('launch.workflow_cancelled'))
-  runTracker.finish('cancelled')
-  status.value = 'Cancelled'
-  isWorkflowRunning.value = false
-  sessionIdToDownload = sessionId
+  locallyCancelled = true
+  addChatNotification(t('launch.stopping'))
+  startStopping()
+}
 
-  // Finish all loading messages
-  for (const nodeId of [...nodesLoadingMessagesMap.keys()]) {
-    settleNodeTurn(nodeId)
-  }
+// "Stopping…": locked until the server confirms the stop, marked stopped here after a while
+// if it never does (also used when a reopened session is still winding down: "cancelling")
+const startStopping = () => {
+  isStopping.value = true
+  clearTimeout(stopFallbackTimer)
+  stopFallbackTimer = setTimeout(() => {
+    stopFallbackTimer = null
+    if (!isStopping.value) return
+    markRunCancelled(t('launch.stop_unconfirmed'))
+  }, STOP_FALLBACK_MS)
 }
 
 // Download logs
@@ -5638,6 +5851,26 @@ watch(
   z-index: 11;
 }
 
+/* View buttons while the control panel is folded away: left of the panel toggle */
+.view-toggle.view-dock {
+  position: absolute;
+  bottom: 24px;
+  right: 88px;
+  z-index: 11;
+  max-width: calc(100% - 112px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  background: rgb(var(--panel-26) / 0.97);
+  border: 1px solid rgb(var(--periwinkle-2) / 0.3);
+  box-shadow: 0 3px 12px rgb(var(--shade) / 0.4);
+}
+
+.view-toggle.view-dock .toggle-button {
+  flex: none;
+  padding: 6px 10px;
+}
+
 .right-panel-fab:hover {
   background: rgb(var(--panel-40c) / 0.95);
   color: var(--accent-indigo-2);
@@ -5803,6 +6036,40 @@ watch(
 }
 
 /* View Toggle */
+/* The session moved to another tab */
+.replaced-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgb(var(--periwinkle-2) / 0.35);
+  background: rgb(var(--periwinkle-2) / 0.12);
+  color: var(--text-1);
+  font-size: 13px;
+}
+
+.replaced-banner-text {
+  flex: 1;
+  min-width: 160px;
+}
+
+.replaced-banner-button {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-indigo-2);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.replaced-banner-button:hover {
+  filter: brightness(1.1);
+}
+
 .view-toggle {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));

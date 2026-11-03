@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import WebSocket, WebSocketException
 
-from agentdev.api.services.message_handler import MessageHandler
+from agentdev.api.services.message_handler import MessageHandler, client_error
 from agentdev.api.services.attachment_service import AttachmentService
 from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.api.services.session_history import SessionHistoryStore
@@ -49,6 +49,11 @@ def _with_timestamp(message: Dict[str, Any]) -> Dict[str, Any]:
     return {**message, "ts": datetime.now(timezone.utc).isoformat()}
 
 
+def _is_non_fatal_error(message: Dict[str, Any]) -> bool:
+    data = message.get("data") if message.get("type") == "error" else None
+    return isinstance(data, dict) and data.get("fatal") is False
+
+
 class WebSocketManager:
     SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 
@@ -64,6 +69,9 @@ class WebSocketManager:
         self.connection_timestamps: Dict[str, float] = {}
         self._owner_loop: Optional[asyncio.AbstractEventLoop] = None
         self._gc_task: Optional[asyncio.Task] = None
+        # Live messages for a socket that is still replaying the buffer, keyed by id(socket);
+        # flushed in order once the replay is done so nothing overtakes older history.
+        self._replay_queues: Dict[int, list] = {}
         self.session_store = session_store or WorkflowSessionStore(history=SessionHistoryStore())
         self.session_controller = session_controller or SessionExecutionController(self.session_store)
         self.attachment_service = attachment_service or AttachmentService()
@@ -100,8 +108,14 @@ class WebSocketManager:
                 except Exception:
                     pass
 
+            # Register the socket, start queueing live messages and snapshot the buffer in
+            # one synchronous step: every message is then either replayed or queued, once.
             self.active_connections[session_id] = websocket
             self.connection_timestamps[session_id] = time.time()
+            queue: list = []
+            self._replay_queues[id(websocket)] = queue
+            session = self.session_store.get_session(session_id)
+            messages_to_replay = list(session.message_buffer) if session else []
             logging.info("WebSocket reconnected to existing session: %s", session_id)
 
             # Always start the GC loop (idempotent)
@@ -112,27 +126,27 @@ class WebSocketManager:
             def still_current() -> bool:
                 return self.active_connections.get(session_id) is websocket
 
-            # Send connection confirmation
-            await self._send_to(
-                websocket,
-                session_id,
-                {"type": "connection", "data": {"session_id": session_id, "status": "connected", "resumed": True}},
-            )
-
-            # Replay all buffered messages (snapshot to avoid including messages
-            # that arrive during replay)
-            session = self.session_store.get_session(session_id)
-            if session:
-                messages_to_replay = list(session.message_buffer)
+            try:
+                await self._send_to(
+                    websocket,
+                    session_id,
+                    {"type": "connection", "data": {"session_id": session_id, "status": "connected", "resumed": True}},
+                )
                 for msg in messages_to_replay:
                     if not still_current():
                         return session_id
                     await self._send_to(websocket, session_id, msg)
 
-            # Send session state snapshot
-            snapshot = self.session_store.get_session_snapshot(session_id)
-            if snapshot and still_current():
-                await self._send_to(websocket, session_id, {"type": "session_resumed", "data": snapshot})
+                snapshot = self.session_store.get_session_snapshot(session_id)
+                if snapshot and still_current():
+                    await self._send_to(websocket, session_id, {"type": "session_resumed", "data": snapshot})
+
+                # Live messages that arrived meanwhile, in order (more may arrive while flushing)
+                while queue and still_current():
+                    await self._send_to(websocket, session_id, queue.pop(0))
+            finally:
+                # No await between the last empty check and this: nothing can be lost.
+                self._replay_queues.pop(id(websocket), None)
 
             return session_id
 
@@ -171,12 +185,17 @@ class WebSocketManager:
     async def send_message(self, session_id: str, message: Dict[str, Any]) -> None:
         message = _with_timestamp(message)
         encoded = _encode_ws_message(message)
-        # Buffer business messages for reconnection replay (exclude transport messages)
-        if message.get("type") not in ("connection", "pong"):
+        # Buffer business messages for reconnection replay (exclude transport messages and
+        # non-fatal errors: a rejected click must not reappear as a failure on replay)
+        if message.get("type") not in ("connection", "pong") and not _is_non_fatal_error(message):
             self.session_store.record_message(session_id, message, encoded)
 
         if session_id in self.active_connections:
             websocket = self.active_connections[session_id]
+            queue = self._replay_queues.get(id(websocket))
+            if queue is not None:
+                queue.append(message)
+                return
             try:
                 await websocket.send_text(encoded)
             except Exception as exc:
@@ -270,16 +289,10 @@ class WebSocketManager:
             data = json.loads(message)
             await self.message_handler.handle_message(session_id, data, self)
         except json.JSONDecodeError:
-            await self.send_message(
-                session_id,
-                {"type": "error", "data": {"message": "Invalid JSON format"}},
-            )
+            await self.send_message(session_id, client_error("Invalid JSON format", "invalid_json"))
         except Exception as exc:
             logging.error("Error handling message from %s: %s", session_id, exc)
-            await self.send_message(
-                session_id,
-                {"type": "error", "data": {"message": str(exc)}},
-            )
+            await self.send_message(session_id, client_error(str(exc), "message_failed"))
 
     def _start_gc(self) -> None:
         """Start the background GC task if not already running."""

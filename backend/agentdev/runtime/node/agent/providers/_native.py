@@ -57,8 +57,8 @@ def native_preamble(workspace: str, *, can_edit: bool, can_run_commands: bool, v
         "[Native agent mode]",
         f"You are working directly in the project folder `{workspace}` (your current working directory). "
         "Use your own built-in tools to explore, read, search and edit the project files there.",
-        "- Stay inside this folder: never read or change files outside it (attached files listed below are the "
-        "only exception, and are read-only input).",
+        "- Stay inside this folder: never read or change files outside it (attached files listed below and the "
+        "SKILL.md files of your listed skills are the only exceptions, and are read-only input).",
     ]
     if not can_edit:
         lines.append("- Your sandbox is read-only: you cannot change files. Investigate, then describe the exact "

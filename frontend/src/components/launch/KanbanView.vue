@@ -11,7 +11,8 @@
         </span>
         <span v-if="steps.length" class="kb-progress" :title="$t('launch.board.progress_hint')">
           <span class="kb-progress-track"><span class="kb-progress-fill" :style="{ width: `${progress}%` }"></span></span>
-          <template v-if="teamMode">{{ $t('launch.board.progress_team', { done: teamTasksDone, total: delegatedRuns.length, people: teamPeople }) }}</template>
+          <template v-if="teamMode && !delegatedRuns.length">{{ $t('launch.dashboard.chat_only') }}</template>
+          <template v-else-if="teamMode">{{ $t('launch.board.progress_team', { done: teamTasksDone, total: delegatedRuns.length, people: teamPeople }) }}</template>
           <template v-else>{{ $t('launch.board.progress', { done: doneCount, total: steps.length }) }}</template>
         </span>
         <span v-if="view.startedAt" class="kb-time">
@@ -78,7 +79,7 @@
             </div>
             <p class="card-text" :class="turn.current || !showTurnTags ? 'clamp-8' : 'clamp-3'">{{ turn.task.text || '—' }}</p>
             <div v-if="turn.task.attachments.length" class="chips">
-              <span v-for="name in turn.task.attachments" :key="name" class="chip">📎 {{ name }}</span>
+              <span v-for="(name, i) in turn.task.attachments" :key="`${i}-${name}`" class="chip">📎 {{ name }}</span>
             </div>
             <div v-if="turn.inputs" class="card-foot">{{ $t('launch.board.replies', { n: turn.inputs }) }}</div>
           </article>
@@ -328,6 +329,16 @@ const shownTurns = computed(() => {
 watch(turns, (list) => {
   if (turnFilter.value !== 'all' && !list.some((turn) => turn.number === turnFilter.value)) turnFilter.value = 'all'
 })
+// The tracker was reset (another session, a new draft): no filter carries over
+watch(
+  () => props.tracker?.turn || 0,
+  (turn, previous) => {
+    if (turn === 0 || turn < previous) {
+      turnFilter.value = 'all'
+      for (const key of Object.keys(memberFilter)) delete memberFilter[key]
+    }
+  }
+)
 const view = computed(() => combineTurns(shownTurns.value))
 const newestFirst = computed(() => [...shownTurns.value].reverse())
 const requestTurns = computed(() => newestFirst.value.filter((turn) => turn.task))

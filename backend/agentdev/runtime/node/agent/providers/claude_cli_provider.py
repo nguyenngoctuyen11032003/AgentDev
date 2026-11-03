@@ -7,6 +7,7 @@ import os
 import logging
 from typing import Any, List, Optional
 
+from agentdev.paths import SKILLS_DIR
 from agentdev.connections.cli_auth import find_cli
 from agentdev.entity.messages import Message, MessageRole
 from agentdev.entity.tool_spec import ToolSpec
@@ -62,11 +63,43 @@ _NATIVE_SETTINGS = {"autoMemoryEnabled": False, "disableAllHooks": True}
 
 def _raise_claude_error(detail: str) -> None:
     detail = trim(detail)
-    if "login" in detail.lower() or "authenticat" in detail.lower():
-        raise CliProviderError(f"`claude` CLI is not logged in: {detail}")
+    # Quota first (like Codex): a limit message may mention the login/account and must still trigger fallback.
     if looks_like_quota(detail):
         raise QuotaExceededError(f"Claude account limit reached: {detail}")
+    if "login" in detail.lower() or "authenticat" in detail.lower():
+        raise CliProviderError(f"`claude` CLI is not logged in: {detail}")
     raise CliProviderError(f"`claude` CLI error: {detail}")
+
+
+def _stream_error_text(stdout: str) -> str:
+    """Error text of a ``stream-json`` run: only ``result`` / error events, never the model's own text or
+    the file contents carried by tool results (those may mention "usage limit" and are not errors)."""
+    parts: List[str] = []
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = str(event.get("type") or "")
+        if kind == "result":
+            if event.get("is_error") or str(event.get("subtype") or "").startswith("error"):
+                parts.append(str(event.get("result") or event.get("subtype") or ""))
+        elif "error" in kind:
+            err = event.get("error")
+            parts.append(json.dumps(err, ensure_ascii=False) if isinstance(err, (dict, list)) else str(err or event.get("message") or ""))
+        elif kind == "assistant" and event.get("error"):
+            # API-level failure surfaced on a synthetic assistant message (e.g. rate_limit / billing_error).
+            parts.append(str(event.get("error")))
+            message = event.get("message")
+            for block in (message.get("content") if isinstance(message, dict) else None) or []:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(str(block.get("text") or ""))
+    return chr(10).join(p for p in parts if p)
 
 
 class ClaudeCliProvider(ModelProvider):
@@ -134,12 +167,7 @@ class ClaudeCliProvider(ModelProvider):
         except (ValueError, TypeError):
             pass
         if isinstance(data, dict) and data.get("is_error"):
-            detail = trim(str(data.get("result") or err))
-            if "login" in detail.lower() or "authenticat" in detail.lower():
-                raise CliProviderError(f"`claude` CLI is not logged in: {detail}")
-            if looks_like_quota(detail):
-                raise QuotaExceededError(f"Claude account limit reached: {detail}")
-            raise CliProviderError(f"`claude` CLI error: {detail}")
+            _raise_claude_error(str(data.get("result") or err))
         if proc.returncode != 0:
             if looks_like_quota(err):
                 raise QuotaExceededError(f"Claude account limit reached: {trim(err)}")
@@ -191,6 +219,9 @@ class ClaudeCliProvider(ModelProvider):
                 base += ["--allowedTools", CLAUDE_SHELL_TOOL]
             if has_files:
                 base += ["--add-dir", staging]
+            if "SKILL.md" in flatten_conversation(conversation) and SKILLS_DIR.is_dir():
+                # Ticked skills are listed by path in the system prompt; let the agent read them (read-only use).
+                base += ["--add-dir", str(SKILLS_DIR)]
             if self.model_name:
                 base += ["--model", validate_model_name(self.model_name)]
             preamble = native_preamble(native.workspace, can_edit=True, can_run_commands=native.allow_commands,
@@ -209,8 +240,9 @@ class ClaudeCliProvider(ModelProvider):
         result, changed = read_claude_stream(out, native)
         if result is None:
             if proc.returncode != 0:
-                if looks_like_quota(err) or looks_like_quota(out[-2000:]):
-                    raise QuotaExceededError(f"Claude account limit reached: {trim(err or out[-500:])}")
+                errors_text = err + chr(10) + _stream_error_text(out)
+                if looks_like_quota(errors_text):
+                    raise QuotaExceededError(f"Claude account limit reached: {trim(errors_text)}")
                 raise CliProviderError(f"`claude` CLI exited with code {proc.returncode}: {trim(err or out[-500:])}")
             raise CliProviderError("`claude` CLI returned no result")
         text = str(result.get("result") or "")

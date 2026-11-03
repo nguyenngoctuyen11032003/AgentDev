@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 DETECT_TIMEOUT = 10
@@ -52,6 +54,16 @@ def kill_process_tree(proc: subprocess.Popen) -> None:
         pass
 
 
+_POLL_INTERVAL = 0.2
+
+
+def _cancelled_error(cmd: List[str]) -> Exception:
+    # Imported lazily: the providers package imports this module.
+    from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled
+
+    return CliCancelled(f"`{os.path.basename(str(cmd[0])) if cmd else 'cli'}` CLI stopped by the user")
+
+
 def run_capture(
     cmd: List[str],
     *,
@@ -59,12 +71,17 @@ def run_capture(
     timeout: float = DETECT_TIMEOUT,
     cwd: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> "subprocess.CompletedProcess[str]":
-    """Run a CLI with a hard timeout that also kills child processes.
+    """Run a CLI with a hard timeout (and an optional cancel event) that also kills child processes.
 
     ``subprocess.run`` only kills the direct child on timeout and then waits on the pipes,
-    which hangs forever when a grandchild still holds them (Windows .cmd shims).
+    which hangs forever when a grandchild still holds them (Windows .cmd shims). Here stdin is
+    fed and stdout/stderr are drained by threads while the main thread polls every 0.2s for
+    exit, timeout (-> ``subprocess.TimeoutExpired``) or cancellation (-> ``CliCancelled``).
     """
+    if cancel_event is not None and cancel_event.is_set():
+        raise _cancelled_error(cmd)
     kwargs: Dict[str, Any] = {}
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -82,16 +99,64 @@ def run_capture(
         env=env if env is not None else cli_env(),
         **kwargs,
     )
-    try:
-        out, err = proc.communicate(input, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        kill_process_tree(proc)
+    chunks: Dict[str, List[str]] = {"out": [], "err": []}
+
+    def _drain(stream: Any, key: str) -> None:
         try:
-            proc.communicate(timeout=5)
+            chunks[key].append(stream.read())
+        except (OSError, ValueError):
+            pass
+
+    def _feed() -> None:
+        try:
+            proc.stdin.write(input)  # type: ignore[union-attr]
+        except (OSError, ValueError):
+            pass  # the CLI exited / closed stdin early
+        try:
+            proc.stdin.close()  # type: ignore[union-attr]
+        except (OSError, ValueError):
+            pass
+
+    threads = [
+        threading.Thread(target=_drain, args=(proc.stdout, "out"), daemon=True),
+        threading.Thread(target=_drain, args=(proc.stderr, "err"), daemon=True),
+    ]
+    if input is not None:
+        threads.append(threading.Thread(target=_feed, daemon=True))
+    for thread in threads:
+        thread.start()
+
+    def _abort() -> None:
+        kill_process_tree(proc)
+        # The pipe threads are daemons: give them a moment, but don't hold up a stop for long
+        # (a killed grandchild's pipe can stay open for seconds on Windows).
+        for thread in threads:
+            thread.join(0.3)
+        try:
+            proc.wait(1)
         except Exception:  # noqa: BLE001
             pass
-        raise
-    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+
+    deadline = time.monotonic() + timeout
+    # Wait for the process to exit and for the pipes to close (a grandchild may still hold them).
+    while proc.poll() is None or any(t.is_alive() for t in threads):
+        if cancel_event is not None and cancel_event.is_set():
+            _abort()
+            raise _cancelled_error(cmd)
+        if time.monotonic() >= deadline:
+            _abort()
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        if proc.poll() is None:
+            try:
+                proc.wait(_POLL_INTERVAL)
+            except subprocess.TimeoutExpired:
+                pass
+        else:
+            for thread in threads:
+                thread.join(_POLL_INTERVAL)
+                if thread.is_alive():
+                    break
+    return subprocess.CompletedProcess(cmd, proc.returncode, "".join(chunks["out"]), "".join(chunks["err"]))
 
 
 def _run(path: str, args: List[str], timeout: float = DETECT_TIMEOUT) -> Tuple[int, str, str]:

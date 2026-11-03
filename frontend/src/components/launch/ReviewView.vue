@@ -100,7 +100,7 @@
               <h4>{{ $t('launch.review.request') }}</h4>
               <p class="pre">{{ originalTask(digest.task?.text) || '—' }}</p>
               <div v-if="digest.task?.attachments?.length" class="chips">
-                <span v-for="name in digest.task.attachments" :key="name" class="chip">📎 {{ name }}</span>
+                <span v-for="(name, i) in digest.task.attachments" :key="`${i}-${name}`" class="chip">📎 {{ name }}</span>
               </div>
               <details v-if="digest.replies.length" class="replies">
                 <summary>{{ $t('launch.review.replies', { n: digest.replies.length }) }}</summary>
@@ -258,7 +258,7 @@ const props = defineProps({
   busy: { type: Boolean, default: false },
   visible: { type: Boolean, default: true }
 })
-const emit = defineEmits(['open-session', 'rework', 'reviewed'])
+const emit = defineEmits(['open-session', 'rework', 'reviewed', 'pending-count'])
 
 const { t, te, locale } = useI18n()
 
@@ -286,7 +286,16 @@ const query = ref('')
 const selectedId = ref('')
 
 const verdictOf = (item) => item?.review?.verdict || 'pending'
-const isPending = (item) => item.status === 'completed' && verdictOf(item) === 'pending'
+// Only a run that did work needs a review: something was handed to another agent or files
+// changed. A plain question answered by the lead alone does not wait in "pending".
+// session id -> { at: updated_at, work: boolean }, read from each run's digest
+const workCache = reactive(new Map())
+const didWork = (data) => Boolean(data && ((data.files?.length || 0) > 0 || (data.steps?.length || 0) > 1))
+const workOf = (item) => {
+  const known = workCache.get(item.session_id)
+  return known && known.at === item.updated_at ? known.work : null // null: not known yet
+}
+const isPending = (item) => item.status === 'completed' && verdictOf(item) === 'pending' && workOf(item) !== false
 
 const byId = computed(() => new Map(props.sessions.map((item) => [item.session_id, item])))
 // A rework run points back to the run it redoes (review.rework_session_id on the parent)
@@ -325,6 +334,36 @@ const queue = computed(() => {
     })
     .filter((s) => !q || `${s.title} ${s.yaml_file} ${s.projects?.[0]?.name || ''}`.toLowerCase().includes(q))
 })
+
+// Learn which unreviewed runs did work, newest first, one digest at a time (only while the
+// view is open, and only for the latest runs: older ones stay in the queue until opened)
+const WORK_SCAN_LIMIT = 30
+let scanning = false
+const scanWork = async () => {
+  if (scanning || !props.visible) return
+  scanning = true
+  try {
+    const candidates = props.sessions
+      .filter((s) => s.status === 'completed' && verdictOf(s) === 'pending')
+      .slice(0, WORK_SCAN_LIMIT)
+    for (const item of candidates) {
+      if (!props.visible) break
+      if (workOf(item) !== null) continue
+      try {
+        const data = await fetchSessionDigest(item.session_id)
+        workCache.set(item.session_id, { at: item.updated_at, work: didWork(data?.digest) })
+      } catch {
+        // unknown stays in the queue
+        workCache.set(item.session_id, { at: item.updated_at, work: true })
+      }
+    }
+  } finally {
+    scanning = false
+  }
+}
+watch(() => [props.visible, props.sessions], () => { scanWork() }, { immediate: true })
+// The Launch view's badge shows the same count as the "pending" tab
+watch(() => tabs.value[0].count, (count) => emit('pending-count', count), { immediate: true })
 
 const emptyText = computed(() =>
   activeTab.value === 'pending' ? t('launch.review.empty_pending') : t('launch.review.empty')
@@ -382,6 +421,8 @@ const load = async (id) => {
   loading.value = true
   try {
     const data = await fetchSessionDigest(id)
+    const item = byId.value.get(id)
+    if (item) workCache.set(id, { at: item.updated_at, work: didWork(data.digest) })
     if (seq === loadSeq) digest.value = data.digest
   } catch (error) {
     if (seq === loadSeq) loadError.value = error?.message || String(error)
@@ -547,11 +588,14 @@ const verdictTone = (item) => {
   if (item.status === 'error') return 'error'
   if (item.status === 'cancelled') return 'cancelled'
   const verdict = verdictOf(item)
+  if (verdict === 'pending' && workOf(item) === false) return 'completed'
   return verdict === 'approved' ? 'completed' : verdict === 'rework' ? 'rework' : 'waiting'
 }
 const verdictLabel = (item) => {
   const tone = verdictTone(item)
   if (tone === 'error' || tone === 'cancelled') return t(`launch.board.states.${tone}`)
+  // A Q&A-only run never waits for review: say so instead of "Chờ duyệt"
+  if (verdictOf(item) === 'pending' && workOf(item) === false) return t('launch.dashboard.chat_only')
   return t(`launch.review.verdict_${verdictOf(item)}`)
 }
 const sessionStatusLabel = (status) => {

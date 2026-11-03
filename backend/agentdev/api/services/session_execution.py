@@ -6,10 +6,16 @@ import time
 from concurrent.futures import Future
 from typing import Any, Dict, Optional
 
-from agentdev.utils.exceptions import ValidationError, TimeoutError as CustomTimeoutError, WorkflowCancelledError
+from agentdev.utils.exceptions import ValidationError, WorkflowCancelledError
 from agentdev.utils.structured_logger import LogType, get_server_logger
 
 from .session_store import SessionStatus, WorkflowSessionStore
+
+# What the waiting agent gets when nobody answers in time: the run goes on instead of failing.
+NO_REPLY_TEXT = (
+    "[No reply from the user within the time limit. Proceed with your recommended "
+    "default and state the assumption you made.]"
+)
 
 
 class SessionExecutionController:
@@ -90,8 +96,10 @@ class SessionExecutionController:
                 session_id=session_id,
                 timeout_duration=timeout,
             )
-            raise CustomTimeoutError("Input timeout", operation="wait_for_human_input", timeout_duration=timeout)
+            return {"text": NO_REPLY_TEXT, "attachments": [], "timed_out": True}
         finally:
+            if session.status == SessionStatus.WAITING_FOR_INPUT:
+                session.status = SessionStatus.RUNNING
             session.waiting_for_input = False
             session.current_node_id = None
             session.pending_input_data = None

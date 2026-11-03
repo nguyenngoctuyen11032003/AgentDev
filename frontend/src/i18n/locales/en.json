@@ -251,7 +251,8 @@
         "waiting_for_input": "Waiting for you",
         "completed": "Completed",
         "error": "Error",
-        "cancelled": "Cancelled"
+        "cancelled": "Cancelled",
+        "cancelling": "Stopping…"
       },
       "ago": {
         "now": "just now",
@@ -406,7 +407,20 @@
       "project_upload_failed": "Could not upload project \"{name}\"",
       "project_empty_title": "Folder \"{name}\" has no files to upload",
       "project_empty_detail": "Folders such as node_modules, .git, dist and build are skipped automatically.",
-      "project_too_many_hint": "Largest folders: {folders}. Add the ones that are not code to the project's .gitignore and upload again."
+      "project_too_many_hint": "Largest folders: {folders}. Add the ones that are not code to the project's .gitignore and upload again.",
+      "input_not_sent": "Not connected to the server: your message was not sent and is still in the box.",
+      "stop_not_sent": "Not connected to the server: the stop request was not sent.",
+      "request_rejected": "The server turned the request down.",
+      "request_rejected_detail": "The server turned the request down: {detail}",
+      "codes": {
+        "invalid_json": "The message could not be read by the server. Please send it again.",
+        "unknown_type": "The server did not recognise this request.",
+        "empty_input": "The message is empty.",
+        "not_waiting": "Nobody is waiting for an answer right now: your message was not sent.",
+        "session_not_found": "This session no longer exists on the server.",
+        "invalid_input": "The message is not valid.",
+        "message_failed": "The server could not process the message. Please try again."
+      }
     },
     "input_from_header": "— Input from {source} ({role}) —",
     "input_source_task": "task",
@@ -662,7 +676,8 @@
       "turns_sub": "{n} turns · newest first",
       "col_request": "Request",
       "col_tasks": "Tasks",
-      "turn_now": "Current turn"
+      "turn_now": "Current turn",
+      "chat_only": "Conversation only, no tasks handed out"
     },
     "review": {
       "view": "Review",
@@ -785,7 +800,7 @@
     "question_tag": "Question",
     "reply_placeholder": "Reply to {name}...",
     "reply_placeholder_any": "Type your answer...",
-    "replaced_by_other_tab": "This session is open in another tab. Click it in the history to open it here again.",
+    "replaced_by_other_tab": "This session is open in another tab. Open it here to continue in this tab.",
     "run_in_progress": "The previous turn is still running. Wait for it to finish, or press Stop and send again.",
     "jump_to_latest": "New messages",
     "run_new_turn": "Run new turn",
@@ -798,7 +813,10 @@
       "title": "Start a new session?",
       "message": "The current session is finished and stays in the history. To continue in this session, type a message in the chat box and send it.",
       "confirm": "Start new session"
-    }
+    },
+    "stopping": "Stopping…",
+    "stop_unconfirmed": "Stopped here: the server has not confirmed the stop yet.",
+    "take_over_here": "Open here"
   },
   "form_generator": {
     "advanced_settings": "Advanced Settings",

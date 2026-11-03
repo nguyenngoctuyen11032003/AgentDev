@@ -14,6 +14,9 @@ from agentdev.paths import SKILLS_ROOT
 
 DEFAULT_SKILLS_ROOT = SKILLS_ROOT
 MAX_SKILL_FILE_BYTES = 128 * 1024
+MAX_LISTED_SKILL_FILES = 60
+_LISTED_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".py", ".js", ".ts", ".sh", ".html", ".css"}
+_TOOL_ENTRY = re.compile(r"[^\s,()]+(?:\([^)]*\))?")
 
 
 class SkillValidationError(ValueError):
@@ -91,7 +94,8 @@ def _parse_optional_str_list(value: object, path: Path, field_name: str) -> List
     if value is None:
         return []
     if isinstance(value, str):
-        return [item for item in value.split() if item]
+        # "Read, Bash(npx impeccable *)" / "Read Grep": keep "Tool(pattern with spaces)" in one piece.
+        return _TOOL_ENTRY.findall(value)
     if not isinstance(value, list):
         raise SkillValidationError(f"{path}: {field_name} must be a list of strings")
 
@@ -208,12 +212,66 @@ class AgentSkillManager:
             self._skill_content_cache[skill.name] = cached
         self._activation_state[skill.name] = True
         self._current_skill_name = skill.name
+        # No absolute server path: the model loads skills by name and reads files via read_skill_file.
         return {
             "skill_name": skill.name,
-            "path": str(skill.skill_file),
             "instructions": cached,
-            "allowed_tools": list(skill.allowed_tools),
+            "allowed_tools": list(self.enforced_tools(skill)),
+            "files": self.skill_files(skill.name),
         }
+
+    def skill_files(self, skill_name: str, limit: int = MAX_LISTED_SKILL_FILES) -> List[str]:
+        """Relative paths of the skill's other text files (references, examples), for read_skill_file."""
+        skill = self._get_skill(skill_name)
+        found: List[str] = []
+        for path in sorted(skill.skill_dir.rglob("*")):
+            if len(found) >= limit:
+                found.append("…")
+                break
+            rel = path.relative_to(skill.skill_dir)
+            if (
+                not path.is_file()
+                or rel.as_posix() == "SKILL.md"
+                or any(part.startswith(".") or part == "__pycache__" for part in rel.parts)
+                or path.suffix.lower() not in _LISTED_SUFFIXES
+            ):
+                continue
+            found.append(rel.as_posix())
+        return found
+
+    def allowed_tools_for_active(self) -> tuple[str, ...]:
+        """Tools the activated skills restrict the agent to, or () for no restriction.
+
+        Several skills can be active at once (e.g. a frontend skill and a testing skill). A restriction
+        only holds when every active skill declares one, and then their tools are combined: one skill's
+        narrow list must not block the tools another active skill needs.
+        """
+        active = [skill for skill in self.discover() if self.is_activated(skill.name)]
+        if not active:
+            return ()
+        lists = [self.enforced_tools(skill) for skill in active]
+        if any(not tools for tools in lists):
+            return ()
+        combined: List[str] = []
+        for tools in lists:
+            combined.extend(name for name in tools if name not in combined)
+        return tuple(combined)
+
+    def enforced_tools(self, skill: SkillMetadata) -> tuple[str, ...]:
+        """The skill's allowed-tools entries that name tools this agent has.
+
+        Entries in Claude Code syntax (``Bash(npx x *)``) or naming tools AgentDev does not have are
+        advisory: they never hide the skill and never restrict the agent's tools.
+        """
+        return tuple(name for name in skill.allowed_tools if name in self.available_tool_names)
+
+    def build_skill_file_listing(self) -> str:
+        """Name, short description and SKILL.md path of each skill, for agents that read files themselves."""
+        lines = []
+        for skill in self.discover():
+            path = skill.skill_file.as_posix()
+            lines.append(f"- {skill.name}: {summarise_description(skill.description)} (file: {path})")
+        return "\n".join(lines)
 
     def read_skill_file(self, skill_name: str, relative_path: str) -> Dict[str, str]:
         skill = self._get_skill(skill_name)
@@ -317,20 +375,9 @@ class AgentSkillManager:
         raise ValueError(f"Skill '{skill_name}' not found")
 
     def _is_skill_compatible(self, skill: SkillMetadata) -> bool:
-        if not skill.allowed_tools:
-            return True
-        if not self.available_tool_names:
-            self._warn(
-                f"Skipping skill '{skill.name}': skill declares allowed-tools "
-                f"{list(skill.allowed_tools)} but this agent has no bound external tools."
-            )
-            return False
-        if not any(tool_name in self.available_tool_names for tool_name in skill.allowed_tools):
-            self._warn(
-                f"Skipping skill '{skill.name}': none of its allowed-tools "
-                f"{list(skill.allowed_tools)} are configured on this agent."
-            )
-            return False
+        # allowed-tools is advisory (see enforced_tools): skills imported from Claude Code declare tools
+        # such as "Bash(npx impeccable *)" or "Read" that AgentDev agents do not have, and the skill's
+        # instructions are still useful. Dropping them silently hid skills the user had ticked.
         return True
 
     def _warn(self, message: str) -> None:

@@ -231,6 +231,7 @@ import {
   orderSteps,
 } from '@/utils/officeLayout.js'
 import { computeTeamLinks } from '@/utils/teamLinks.js'
+import { stepStatus } from '@/utils/runTracker.js'
 
 const props = defineProps({
   // Workflow graph from the YAML (`graph`: nodes, edges, start)
@@ -244,6 +245,9 @@ const props = defineProps({
   workflowName: { type: String, default: '' },
   // false while the view is hidden: no animation frames, characters snap into place
   visible: { type: Boolean, default: true },
+  // Run record of the session (runTracker state): who worked, waits or is done, in every
+  // turn, replays included. The events above only animate; the status comes from here.
+  tracker: { type: Object, default: null },
 })
 
 const { t, te } = useI18n()
@@ -435,10 +439,28 @@ const syncAgents = () => {
 }
 
 // ---------------------------------------------------------------- state
+// id -> 'working' | 'waiting' | 'done' from the run record: the current turn first, then
+// anyone who worked in an earlier turn of the session counts as done
+const trackerStates = computed(() => {
+  const tracker = props.tracker
+  const states = {}
+  if (!tracker) return states
+  for (const turn of tracker.turns || []) {
+    for (const [id, node] of Object.entries(turn.nodes || {})) if (node?.runs?.length) states[id] = 'done'
+  }
+  for (const [id, node] of Object.entries(tracker.nodes || {})) {
+    const status = stepStatus(node)
+    if (status === 'working' || status === 'waiting') states[id] = status
+    else if (status !== 'todo') states[id] = 'done'
+  }
+  return states
+})
+
 const computeState = (agent) => {
-  if (waitingIds.value.has(agent.id)) return 'waiting'
-  if (props.activeNodes.includes(agent.id)) return 'working'
-  if (hasRun.has(agent.id)) return 'done'
+  const tracked = trackerStates.value[agent.id]
+  if (waitingIds.value.has(agent.id) || tracked === 'waiting') return 'waiting'
+  if (props.activeNodes.includes(agent.id) || tracked === 'working') return 'working'
+  if (hasRun.has(agent.id) || tracked === 'done') return 'done'
   return 'idle'
 }
 
@@ -1030,6 +1052,7 @@ defineExpose({ activity, nodeEnd, handoff, waitingInput, brief, reset })
 watch(() => props.graph, () => { syncAgents(); refreshStates(); settleHidden() }, { immediate: true })
 watch(() => props.spriteMap, () => { for (const a of agents.value) a.character = characterFor(a.id) }, { deep: true })
 watch(() => [...props.activeNodes], () => { refreshStates(); settleHidden() })
+watch(trackerStates, () => { refreshStates(); settleHidden() })
 watch(() => props.status, (status) => {
   if (status !== 'Waiting for input...' && waitingIds.value.size) waitingIds.value = new Set()
   refreshStates()

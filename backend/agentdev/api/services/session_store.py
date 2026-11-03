@@ -11,6 +11,10 @@ from agentdev.api.services.artifact_events import ArtifactEventQueue
 from agentdev.api.services.session_history import SessionHistoryStore, make_title
 
 
+class SessionBusyError(RuntimeError):
+    """A run is live in this session; its session object must not be replaced."""
+
+
 # Older turns are never shown to a follow-up run, so there is no point keeping them
 MAX_STORED_TURNS = 50
 
@@ -21,6 +25,8 @@ class SessionStatus(Enum):
     IDLE = "idle"
     RUNNING = "running"
     WAITING_FOR_INPUT = "waiting_for_input"
+    # Cancel requested; the run is still winding down. CANCELLED once it really ended.
+    CANCELLING = "cancelling"
     COMPLETED = "completed"
     ERROR = "error"
     CANCELLED = "cancelled"
@@ -45,6 +51,9 @@ class WorkflowSession:
     executor: Optional[Any] = None
     graph: Optional[Any] = None
     current_node_id: Optional[str] = None
+    # Set synchronously when a launch is accepted, before the first await, so a second
+    # launch can't slip in before ``executor`` exists. Cleared when the run ends.
+    starting: bool = False
 
     # Human input tracking
     waiting_for_input: bool = False
@@ -75,8 +84,18 @@ class WorkflowSession:
 
     def append_message(self, message: Dict[str, Any]) -> None:
         if len(self.message_buffer) >= self.MAX_BUFFER_SIZE:
-            self.message_buffer.pop(0)
+            # Evict the oldest message that is not what the user typed: a replay of a
+            # long conversation must still show the message that started each turn.
+            index = next(
+                (i for i, item in enumerate(self.message_buffer) if not _is_pinned(item)),
+                0,
+            )
+            self.message_buffer.pop(index)
         self.message_buffer.append(message)
+
+
+def _is_pinned(message: Any) -> bool:
+    return isinstance(message, dict) and message.get("type") == "user_message"
 
 
 class WorkflowSessionStore:
@@ -136,7 +155,7 @@ class WorkflowSessionStore:
         error_message = meta.get("error_message")
         # The executor of an unfinished run died with the previous process.
         # A draft (IDLE: projects added, never launched) simply stays a draft.
-        interrupted = status in (SessionStatus.RUNNING, SessionStatus.WAITING_FOR_INPUT)
+        interrupted = status in (SessionStatus.RUNNING, SessionStatus.WAITING_FOR_INPUT, SessionStatus.CANCELLING)
         if interrupted:
             status = SessionStatus.CANCELLED
             error_message = "Interrupted by a server restart"
@@ -152,7 +171,9 @@ class WorkflowSessionStore:
             error_message=error_message,
             projects=list(meta.get("projects") or []),
         )
-        session.message_buffer = self.history.load_messages(session_id, WorkflowSession.MAX_BUFFER_SIZE)
+        # Load everything and apply the same eviction as live, so turn-start user messages survive.
+        for message in self.history.load_messages(session_id, 0):
+            session.append_message(message)
         session.turns = self.history.load_turns(session_id)
         self._sessions[session_id] = session
         if interrupted:
@@ -198,6 +219,8 @@ class WorkflowSessionStore:
             title=make_title(task_prompt or title_hint or "", fallback=yaml_file),
         )
         draft = self._sessions.get(session_id)
+        if draft is not None and (draft.executor is not None or draft.starting):
+            raise SessionBusyError(f"Session {session_id} has a run in progress")
         if draft is not None:
             # Launching a draft keeps the projects and history gathered before the launch
             session.projects = list(draft.projects)

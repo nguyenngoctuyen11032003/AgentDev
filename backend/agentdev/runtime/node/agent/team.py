@@ -11,8 +11,10 @@ overview) still sees their NODE_START / NODE_END events, tagged with ``delegated
 from __future__ import annotations
 
 import contextvars
+import os
+import re
 import threading
-from concurrent.futures import CancelledError, ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, CancelledError, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Set, Tuple
@@ -25,8 +27,17 @@ TEAM_TOOL_SOURCE = "agent_team_internal"
 DELEGATE_TOOL = "delegate_task"
 DELEGATE_PARALLEL_TOOL = "delegate_parallel"
 ASK_USER_TOOL = "ask_user"
-MAX_MEMBER_RESULT_CHARS = 16_000
-MAX_HISTORY_CHARS = 3_000
+# A member's report as the lead sees it; the full text stays in the team state (``log`` / ``history``).
+MAX_MEMBER_RESULT_CHARS = 4_000
+# The one earlier report repeated in a member's brief.
+MAX_HISTORY_CHARS = 1_000
+# Member runs allowed in one run across ALL leads (top lead + sub-leads), so nested teams cannot
+# multiply their own limits (20 x 25 x 10). Overridable per run (``global_state``) or by env var.
+DEFAULT_MAX_MEMBER_RUNS = 40
+MAX_MEMBER_RUNS_KEY = "team_max_member_runs"
+MAX_MEMBER_RUNS_ENV = "AGENTDEV_TEAM_MAX_MEMBER_RUNS"
+# How often a parallel delegation checks the cancel event while waiting for its members.
+CANCEL_POLL_SECONDS = 0.2
 MAX_DELEGATION_DEPTH = 3
 
 # Workers start their answer with this when only the user can decide something.
@@ -64,6 +75,8 @@ class TeamMember:
     summary: str
     # Members this member leads in turn (a sub-lead such as a PM), so the top lead can route named work.
     manages: tuple = ()
+    # Skills ticked on the member (e.g. a frontend skill), so the lead routes work to the right specialist.
+    skills: tuple = ()
 
 
 @dataclass
@@ -82,8 +95,14 @@ class TeamState:
     log: List[Dict[str, str]] = field(default_factory=list)
     # Members' tasks and reports from earlier turns of the conversation (seeded from the turns).
     earlier: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
-    # Language of the user's newest message ("Vietnamese", "Chinese", "English"); "" when unknown.
+    # Language of the user's newest message ("Vietnamese", "English", "Chinese", "Japanese", "Korean");
+    # "" when unknown.
     user_language: str = ""
+    # Shared member-run budget of the whole run (all leads together).
+    max_member_runs: int = DEFAULT_MAX_MEMBER_RUNS
+    member_runs: int = 0
+    # The run's cancel event (threading.Event), when the caller provides one.
+    cancel_event: Any = field(default=None, repr=False, compare=False)
     lock: Any = field(default_factory=threading.RLock, repr=False, compare=False)
 
     @property
@@ -109,10 +128,42 @@ class TeamState:
             return list(self.earlier.get(member) or [])[-count:]
 
     def set_user_language(self, text: str) -> None:
+        """Set the language from ``text``; a too short / ambiguous text keeps the current language."""
         language = detect_language(text)
         if language:
             with self.lock:
                 self.user_language = language
+
+    def log_failure(self, member: str, task: str, reason: str) -> None:
+        """Record a delegation that produced no report (in ``log`` for the digest, not in ``history``)."""
+        with self.lock:
+            self.log.append({"member": member, "task": task, "report": f"[failed] {reason}"})
+
+    def reserve_member_runs(self, count: int) -> None:
+        """Count ``count`` member runs against the run-wide budget, all or nothing."""
+        with self.lock:
+            left = self.max_member_runs - self.member_runs
+            if left <= 0 or count > left:
+                raise ValueError(
+                    f"Team budget exhausted: this run already used {self.member_runs} of its "
+                    f"{self.max_member_runs} member runs (shared by all leads)"
+                    + (f"; {count} more were requested but only {left} remain" if left > 0 else "")
+                    + ". Do not delegate any more: finish with what you have and report the current status, "
+                    "including what is still open."
+                )
+            self.member_runs += count
+
+    def refund_member_runs(self, count: int) -> None:
+        with self.lock:
+            self.member_runs = max(0, self.member_runs - count)
+
+    def member_runs_left(self) -> int:
+        with self.lock:
+            return self.max_member_runs - self.member_runs
+
+    def is_cancelled(self) -> bool:
+        event = self.cancel_event
+        return bool(event is not None and event.is_set())
 
     def seed_earlier_turns(self, turns: Any) -> None:
         """Remember what each member did in earlier turns (the ``team`` digest of each turn)."""
@@ -177,32 +228,78 @@ def clip_middle(text: Optional[str], limit: int, head_ratio: float = 0.6) -> str
     return text[:head].rstrip() + marker + (text[len(text) - tail:].lstrip() if tail > 0 else "")
 
 
-_VIETNAMESE_LETTERS = set("ăâđêôơưĂÂĐÊÔƠƯ")
+# Letters only Vietnamese uses (besides the tone-marked ones in U+1EA0..U+1EF9).
+_VIETNAMESE_LETTERS = set("ăâđêôơưĂÂĐÊÔƠƯàáảãạèéẻẽẹìíỉĩịòóỏõọùúủũụỳýỷỹỵÀÁÃÈÉÌÍÒÓÕÙÚÝ")
+# Frequent Vietnamese words typed without diacritics ("toi muon lam web ban hang").
+_VIETNAMESE_PLAIN_WORDS = frozenset(
+    "toi ban khong ko dc duoc lam cho voi nhung cua la mot cac nay thi va de minh giup sua loi "
+    "muon hang them xoa tao viet trang roi chua nao gi sao vay nhe nha oi anh em chi bao nhieu "
+    "dang nhap xuat tim kiem cai dat chay xem hay nen phai neu khi trong ngoai tren duoi hon nua lai "
+    "den tu ra vao biet hieu giao dien du tinh nang chuc".split()
+)
+_WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
+# Below this many words an unaccented Latin text ("ok", "go ahead") says little about the language.
+_MIN_LATIN_WORDS = 3
+_VIETNAMESE_RATIO = 0.3
+
+
+def _is_vietnamese_char(ch: str) -> bool:
+    return 0x1EA0 <= ord(ch) <= 0x1EF9 or ch in _VIETNAMESE_LETTERS
+
+
+def _is_cjk_char(ch: str) -> bool:
+    code = ord(ch)
+    return 0x3040 <= code <= 0x31FF or 0x3400 <= code <= 0x9FFF or 0xAC00 <= code <= 0xD7AF or 0xFF66 <= code <= 0xFF9D
 
 
 def detect_language(text: Optional[str]) -> str:
-    """Rough guess of the language of ``text``: "Vietnamese", "Chinese", "English" or "" (no letters)."""
-    vietnamese = chinese = latin = 0
-    for ch in text or "":
+    """Guess the language of ``text``: "Vietnamese", "English", "Chinese", "Japanese", "Korean" or "".
+
+    "" means unknown: no letters, or a short unaccented text ("ok", "go ahead") that could be any
+    Latin-script language. Vietnamese is recognised by the share of Vietnamese words (accented, or
+    common words typed without diacritics), so one accented name in an English sentence stays English.
+    """
+    text = text or ""
+    kana = hangul = han = 0
+    for ch in text:
         code = ord(ch)
-        if 0x1EA0 <= code <= 0x1EF9 or ch in _VIETNAMESE_LETTERS:
-            vietnamese += 1
+        if 0x3040 <= code <= 0x30FF or 0x31F0 <= code <= 0x31FF or 0xFF66 <= code <= 0xFF9D:
+            kana += 1
+        elif 0xAC00 <= code <= 0xD7AF or 0x1100 <= code <= 0x11FF or 0x3130 <= code <= 0x318F:
+            hangul += 1
         elif 0x4E00 <= code <= 0x9FFF or 0x3400 <= code <= 0x4DBF:
-            chinese += 1
-        elif ch.isascii() and ch.isalpha():
-            latin += 1
-    if vietnamese and vietnamese >= chinese:
-        return "Vietnamese"
-    if chinese:
+            han += 1
+    words = [w.lower() for w in _WORD_RE.findall(text) if not any(_is_cjk_char(c) for c in w)]
+    cjk = kana + hangul + han
+    # CJK text is dense: one character weighs about as much as a short Latin word.
+    if cjk and cjk >= len(words):
+        if hangul and hangul >= kana:
+            return "Korean"
+        if kana:
+            return "Japanese"
         return "Chinese"
-    return "English" if latin else ""
+    if not words:
+        return ""
+    accented = sum(1 for w in words if any(_is_vietnamese_char(c) for c in w))
+    plain = sum(1 for w in words if w in _VIETNAMESE_PLAIN_WORDS)
+    if (accented + plain) / len(words) >= _VIETNAMESE_RATIO and (accented + plain) >= 2:
+        return "Vietnamese"
+    if accented and len(words) == 1:
+        return "Vietnamese"
+    if len(words) < _MIN_LATIN_WORDS and not accented:
+        return ""
+    return "English"
+
+
+_EARLIER_USER_PREFIXES = ("User: ", "User replied: ")
 
 
 def latest_user_message(text: Optional[str]) -> str:
-    """The user's newest message in a lead's input: the part after the follow-up header, if any.
+    """The text to detect the user's language from: the newest message in a lead's input.
 
-    A short plain-ASCII reply ("ok") says little about the language, so the whole input
-    (earlier turns included) is returned for it instead.
+    In a follow-up run that is the part after the new-message header. When it is too short or
+    ambiguous ("ok"), the user's latest earlier message with a clear language is returned instead
+    (the previous turn's language is kept), never the whole transcript with the assistant's answers.
     """
     text = text or ""
     start = text.rfind(NEW_MESSAGE_MARKER)
@@ -210,9 +307,13 @@ def latest_user_message(text: Optional[str]) -> str:
         return text
     end = text.find("]", start)
     latest = text[end + 1:] if end >= 0 else text[start:]
-    if latest.strip() and (not latest.isascii() or len(latest.strip()) > 40):
+    if detect_language(latest):
         return latest
-    return text
+    for line in reversed(text[:start].splitlines()):
+        for prefix in _EARLIER_USER_PREFIXES:
+            if line.startswith(prefix) and detect_language(line[len(prefix):]):
+                return line[len(prefix):]
+    return latest
 
 
 def team_digest(state: Any) -> List[Dict[str, str]]:
@@ -257,9 +358,18 @@ def resolve_members(lead_id: str, team_members: List[str], nodes: Mapping[str, A
                 title=node_id,
                 summary=_first_line(description) or _first_line(role) or "General team member",
                 manages=tuple(_sub_team(node_id, node, nodes)),
+                skills=tuple(_member_skills(node)),
             )
         )
     return members
+
+
+def _member_skills(node: Any) -> List[str]:
+    """Names of the skills ticked on a member (empty when skills are off or every skill is allowed)."""
+    skills = getattr(getattr(node, "config", None), "skills", None)
+    if not skills or not getattr(skills, "enabled", False):
+        return []
+    return [name for name in (getattr(skills, "allow", None) or []) if isinstance(name, str) and name]
 
 
 def _sub_team(node_id: str, node: Any, nodes: Mapping[str, Any]) -> List[str]:
@@ -275,13 +385,12 @@ LEAD_PROTOCOL = """\
 # You lead a team
 The user is your client. They talk ONLY to you; your team members never talk to the user.
 
-## First, sort the message
-- Greeting, small talk, a question about you, or a knowledge/advice question ("X vs Y?", "how does Z work?"): answer it yourself, right away — no tools, no delegation, no plan. Keep it short (a greeting: 1–3 sentences).
-- Anything you can answer well yourself (an explanation, a question about earlier work, a short review): answer directly. Delegate only when the work needs a member's role or tools.
+## First, classify the message (silently) and act on it
+(a) Question, greeting or small talk, advice ("X vs Y?", "how does Z work?"), or anything you can answer well yourself (an explanation, a question about earlier work, a short review): answer it yourself, right away: no delegation, no plan (delegate only when the work needs a member's role or tools; otherwise answer directly). Keep it short (a greeting: 1-3 sentences).
+(b) Bug fix or small, clear change (one function, a config, a text or style tweak): no plan, no approval round. Look at the relevant files if a project is attached, then delegate it directly to the right specialist (e.g. the bug fixer, then QA only if it is worth testing), or do it yourself if it needs no member.
+(c) New project or significant new feature: see the plan rule below.
 - "Can you build X?": say yes (or what is not possible) and propose a concrete default in a few lines (what you would build, key features, stack) so the user can just say "ok".
 - Work on an existing project (attached files or a project folder): look at the relevant files with your read tools BEFORE planning or delegating, and base the plan and briefs on what is really there.
-- Small, clear task (a bug fix, one function, a small change): no plan, no approval round — delegate it directly to the right member (or do it yourself if it needs no member).
-- New project or significant feature: see the plan rule below.
 - Follow-up message: decisions, plans and answers in the earlier conversation still stand, and "What the team did" there lists your members' earlier work. If your last answer proposed a plan or asked a question and the user now approves ("ok", "đồng ý", "duyệt", "go ahead"…) or answers it, act on it immediately, with the changes they asked for — do not re-plan or ask for approval again.
 
 ## How you work
@@ -291,25 +400,27 @@ The user is your client. They talk ONLY to you; your team members never talk to 
 {parallel_rule}4. Chain work through yourself: pass one member's result to the next (e.g. analysis → fix → test → acceptance review). If a review or test fails, send it back for a fix, at most {max_rounds} rounds, then report the situation to the user.
 5. When a member's reply starts with "{marker}", only the user can decide: ask them with `ask_user` (the options and your recommendation), then continue.
 6. Finish with ONE short report to the user: the outcome in the first line, then only what applies — what was done, result/checks (tests, QA), files, open issues or next step. Do not paste members' output.
+Member reports reach you clipped to about {report_chars} characters (the full text is kept); if you need a detail that was cut, ask that member for exactly that detail.
 
 ## Rules
 - The user's technology choices are binding. If one is clearly wrong for the goal, say so with reasons and a better option, and let the user decide — never silently switch.
 - {plan_rule}
 - Report only what members actually produced; if something failed or was not checked, say so.
 - No process narration ("I will now call…"), no internal tool, node or model names.
-- You have at most {max_delegations} delegations for this request; plan accordingly.
-
+- You have at most {max_delegations} delegations for this request, and the whole team (sub-teams included) shares a budget of {max_member_runs} member runs per request; plan accordingly.
+{language_rule}
 ## Your team
 {roster}
 """
 
 PLAN_RULE_ON = (
-    "New project or significant new feature, not approved yet: do not build anything and do not use `ask_user` for "
-    "it. END YOUR TURN with a concise plan as your answer — what will be built, stack, the steps and who does what, "
-    "open questions each with your recommended default — and ask the user to approve or change it (e.g. \"Reply ok "
-    "to start, or tell me what to change.\"). Their next message continues from your plan. Skip the plan when the "
-    "user already approved (now or earlier in the conversation) or said to go ahead, and for small tasks, bug fixes "
-    "and questions."
+    "Plan rule — only for (c) a NEW project or significant new feature, not approved yet: do not build anything and "
+    "do not use `ask_user` for it. END YOUR TURN with a concise plan as your answer — what will be built, stack, the "
+    "steps and who does what, open questions each with your recommended default — and ask the user to approve or "
+    "change it (e.g. \"Reply ok to start, or tell me what to change.\"). Their next message continues from your plan. "
+    "Skip the plan when the user already approved (now or earlier in the conversation) or said to go ahead "
+    "(\"làm luôn\", \"just do it\", \"go ahead\"), and for small tasks, bug fixes and questions: those go straight "
+    "to work."
 )
 PLAN_RULE_OFF = "Proceed without asking for plan approval; ask the user only for real decisions."
 
@@ -323,7 +434,7 @@ PARALLEL_RULE = (
 
 MEMBER_PROTOCOL = """\
 # You are a member of a team
-Your lead ({lead}) assigns you tasks. Do exactly the task in the brief, using your skills, and report back to the lead.
+Your lead ({lead}) assigns you tasks. Do exactly the task in the brief, the way your role and task description define, applying every one of your skills that matches the task (load it first), and report back to the lead.
 - Report: what you did, the result (files changed, findings, test results), and anything unresolved. Concise and factual; no greeting, no recap of the brief.
 - Report only what you actually did and observed. Never claim a test passed or a file exists unless you ran or checked it; say "not run" / "not verified" otherwise.
 - If you cannot continue without a decision only the user can make (scope, budget, a technology choice, conflicting requirements), start your reply with "{marker}" followed by the question, the options and your recommendation.
@@ -345,7 +456,7 @@ SUB_LEAD_SYSTEM = """\
 Another lead assigns you work and you report back to them. You never talk to the user: your reply goes to the lead who assigned the work.
 
 ## How you work
-1. Decide who on your team does what, in which order, and how many times. Do not call members the task does not need. If the brief names a specific person, that person does the work: delegate to them if they are on your team, otherwise to the member who leads them. Never do a named person's work yourself; do it yourself only when it is a one-line answer within your own role.
+1. Decide who on your team does what, in which order, and how many times. Give each piece of work to the member whose role, description and skills match it (for example UI work to the member with frontend skills). Do not call members the task does not need. If the brief names a specific person, that person does the work: delegate to them if they are on your team, otherwise to the member who leads them. Never do a named person's work yourself; do it yourself only when it is a one-line answer within your own role.
 2. Delegate with `delegate_task`. Give each member a self-contained brief: goal, relevant context and earlier results, constraints, and what to hand back. Members only see your brief.
 {parallel_rule}3. Chain work through yourself (e.g. build → test → review). If a review or test fails, send it back for a fix, at most {max_rounds} rounds.
 4. If something only the user can decide comes up (including a member reply that starts with "{marker}"), stop and start your reply with "{marker}" followed by the question, the options and your recommendation; your lead will ask the user.
@@ -359,7 +470,7 @@ Another lead assigns you work and you report back to them. You never talk to the
 # Prepended to the system prompt of every agent that answers a person (not members briefed by a lead).
 USER_RESPONSE_RULES = """\
 # How you answer
-- Language: reply in the language of the user's NEWEST message (Vietnamese → Vietnamese, English → English), even though these instructions are in English. Keep code, file names and technical terms as they are.
+- Language: reply in the language of the user's NEWEST message (Vietnamese → Vietnamese, also when typed without diacritics; English → English; 日本語 → 日本語; 中文 → 中文; 한국어 → 한국어), even though these instructions are in English. If that message is too short to tell ("ok"), keep the language of the conversation. Keep code, file names and technical terms as they are.
 - Answer first: the first sentence answers the question or states the result; then only the detail that helps. A greeting or simple question gets a few sentences; "N points" gets exactly N points; "short" / "ngắn gọn" means under ~100 words.
 - No filler: no preamble, no restating the question, no extra sections nobody asked for, no generic closing offers. Use bullets or short headings only when they help scanning.
 - Be accurate: never invent facts, files, numbers or results. If you are unsure, say so briefly and how to check.
@@ -382,8 +493,14 @@ class TeamDelegation:
         plan_approval: bool,
         max_parallel: int = 1,
         delegated: bool = False,
+        cancel_event: Any = None,
     ) -> None:
         self.lead_id = lead_id
+        # The run's cancel event (e.g. ``context.cancel_event``); also stored on the shared state so
+        # sub-leads created without it still see it.
+        self.cancel_event = cancel_event
+        if cancel_event is not None and state.cancel_event is None:
+            state.cancel_event = cancel_event
         # True for a sub-lead: it reports to the lead that briefed it, so no user-facing protocol or ask_user.
         self.delegated = delegated
         self.members = members
@@ -405,7 +522,9 @@ class TeamDelegation:
     # ---- prompt ----
     def system_prompt_section(self) -> str:
         roster = "\n".join(
-            f"- `{m.node_id}`: {m.summary}" + (f" — leads: {', '.join(m.manages)}" if m.manages else "")
+            f"- `{m.node_id}`: {m.summary}"
+            + (f" — skills: {', '.join(m.skills)}" if m.skills else "")
+            + (f" — leads: {', '.join(m.manages)}" if m.manages else "")
             for m in self.members
         ) or "- (no members configured)"
         parallel_rule = PARALLEL_RULE.format(max_parallel=self.max_parallel) if self.parallel_enabled else ""
@@ -417,12 +536,19 @@ class TeamDelegation:
                 max_delegations=self.max_delegations,
                 roster=roster,
             )
+        language = self.state.user_language
+        language_rule = (
+            f"- The user writes in {language}: reply in {language}, answer directly, no filler.\n" if language else ""
+        )
         return LEAD_PROTOCOL.format(
             max_rounds=self.max_review_rounds,
             marker=DECISION_MARKER,
             plan_rule=PLAN_RULE_ON if self.plan_approval else PLAN_RULE_OFF,
             parallel_rule=parallel_rule,
             max_delegations=self.max_delegations,
+            max_member_runs=self.state.max_member_runs,
+            report_chars=MAX_MEMBER_RESULT_CHARS,
+            language_rule=language_rule,
             roster=roster,
         )
 
@@ -519,10 +645,17 @@ class TeamDelegation:
         if not task:
             raise ValueError(f"task is required (member '{member}')")
 
-    def _reserve(self, count: int) -> None:
-        """Count ``count`` delegations against the limit, all or nothing."""
+    def _check_depth(self) -> None:
         if self.state.depth >= MAX_DELEGATION_DEPTH:
             raise ValueError("Delegation is nested too deeply; do this task yourself or report back.")
+
+    def _cancelled(self) -> bool:
+        event = self.cancel_event
+        return bool(event is not None and event.is_set()) or self.state.is_cancelled()
+
+    def _reserve(self, count: int) -> None:
+        """Count ``count`` delegations against this lead's limit and the run-wide budget, all or nothing."""
+        self._check_depth()
         with self._lock:
             left = self.max_delegations - self.delegations
             if left <= 0:
@@ -534,7 +667,14 @@ class TeamDelegation:
                     f"Delegation limit: only {left} of {self.max_delegations} delegations left, but {count} tasks were "
                     "given. Send fewer tasks or report the current status to the user."
                 )
+            self.state.reserve_member_runs(count)  # raises when the run-wide budget is exhausted
             self.delegations += count
+
+    def _refund(self, count: int) -> None:
+        """Give back delegations whose member run crashed or was cancelled."""
+        with self._lock:
+            self.delegations = max(0, self.delegations - count)
+        self.state.refund_member_runs(count)
 
     def _delegations_left(self) -> int:
         with self._lock:
@@ -542,26 +682,47 @@ class TeamDelegation:
 
     def _delegate(self, member: str, task: str) -> Dict[str, Any]:
         self._check_member(member, task)
-        self._reserve(1)
         result = self._run_member(member, task)
         result["delegations_left"] = self._delegations_left()
+        result["team_runs_left"] = self.state.member_runs_left()
         return result
 
     def _run_member(self, member: str, task: str) -> Dict[str, Any]:
-        """Run one member and record its report. Safe to call concurrently for different members."""
+        """Claim, reserve and run one member. Safe to call concurrently for different members."""
+        self._check_depth()
         if not self.state.claim(member):
             raise ValueError(f"'{member}' is already working on another task right now; wait for its report first.")
         try:
+            self._reserve(1)  # after the claim: a busy member never uses up a delegation
+        except BaseException:
+            self.state.release(member)
+            raise
+        return self._execute_member(member, task)
+
+    def _execute_member(self, member: str, task: str) -> Dict[str, Any]:
+        """Run a member already claimed and reserved; release it, and refund + log when it fails."""
+        try:
+            if self._cancelled():
+                raise WorkflowCancelledError("Workflow execution cancelled")
             brief = self._compose_brief(member, task)
             with _nested_delegation():
                 outputs = self.runner(
                     member, [Message(role=MessageRole.USER, content=brief, metadata={"source": self.lead_id})], self.lead_id
                 )
+        except WorkflowCancelledError:
+            self._refund(1)
+            self.state.log_failure(member, task, "cancelled")
+            raise
+        except Exception as exc:
+            self._refund(1)
+            self.state.log_failure(member, task, f"{exc.__class__.__name__}: {exc}")
+            raise
         finally:
             self.state.release(member)
 
-        report = "\n\n".join(msg.text_content() for msg in outputs if msg is not None).strip() or "(no output)"
-        failed = next((m for m in outputs if m is not None and (m.metadata or {}).get("model_error")), None)
+        outputs = [m for m in outputs or [] if m is not None]
+        report = "\n\n".join(msg.text_content() for msg in outputs).strip() or "(no output)"
+        failed = next((m for m in outputs if (m.metadata or {}).get("model_error")), None)
         if failed is not None:
             reason = str((failed.metadata or {}).get("error") or report)
             self.state.add_report(member, task, f"[failed: model error] {reason}")
@@ -571,12 +732,18 @@ class TeamDelegation:
                 "member, or tell the user it is blocked.",
                 "needs_user_decision": False,
             }
-        self.state.add_report(member, task, report)
-        return {
+        self.state.add_report(member, task, report)  # the full report stays in the team state
+        result: Dict[str, Any] = {
             "member": member,
             "report": _truncate(report, MAX_MEMBER_RESULT_CHARS),
             "needs_user_decision": report.lstrip().upper().startswith(DECISION_MARKER),
         }
+        if len(report) > MAX_MEMBER_RESULT_CHARS:
+            result["note"] = (
+                f"Report clipped to {MAX_MEMBER_RESULT_CHARS} of {len(report)} characters; the full text is kept. "
+                f"If you need a detail that was cut, ask {member} for exactly that detail."
+            )
+        return result
 
     def _parse_parallel_tasks(self, raw_tasks: Any) -> List[Tuple[str, str]]:
         if not isinstance(raw_tasks, list) or len(raw_tasks) < 2:
@@ -602,60 +769,110 @@ class TeamDelegation:
         if not self.parallel_enabled:
             raise ValueError("Parallel delegation is disabled for this team; use delegate_task.")
         tasks = self._parse_parallel_tasks(raw_tasks)
-        self._reserve(len(tasks))
+        self._check_depth()
+        results: List[Optional[Dict[str, Any]]] = [None] * len(tasks)
+        claimed: List[int] = []
+        for idx, (member, _task) in enumerate(tasks):
+            if self.state.claim(member):
+                claimed.append(idx)
+            else:
+                results[idx] = {
+                    "member": member,
+                    "error": f"'{member}' is already working on another task right now; wait for its report first.",
+                    "needs_user_decision": False,
+                }
+        if claimed:
+            try:
+                self._reserve(len(claimed))  # after the claims; all or nothing
+            except BaseException:
+                for idx in claimed:
+                    self.state.release(tasks[idx][0])
+                raise
 
         def run_one(member: str, task: str) -> Dict[str, Any]:
             try:
-                return self._run_member(member, task)
+                return self._execute_member(member, task)
             except WorkflowCancelledError:
                 raise
             except Exception as exc:  # one failure must not lose the other members' reports
                 return {"member": member, "error": str(exc) or exc.__class__.__name__, "needs_user_decision": False}
 
-        results: List[Dict[str, Any]] = []
         cancelled: Optional[WorkflowCancelledError] = None
-        workers = min(self.max_parallel, len(tasks))
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=f"team-{self.lead_id}") as pool:
-            # Each worker runs in a copy of this context: it inherits the current delegation depth and
-            # only bumps its own copy, so sibling members do not count against each other's depth.
-            futures = [pool.submit(contextvars.copy_context().run, run_one, member, task) for member, task in tasks]
-            for (member, _task), future in zip(tasks, futures):
-                try:
-                    results.append(future.result())
-                except WorkflowCancelledError as exc:
-                    cancelled = cancelled or exc
-                    for pending in futures:
-                        pending.cancel()  # tasks not started yet never start
-                except CancelledError:
-                    results.append({"member": member, "error": "cancelled", "needs_user_decision": False})
+        if claimed:
+            pool = ThreadPoolExecutor(
+                max_workers=min(self.max_parallel, len(claimed)), thread_name_prefix=f"team-{self.lead_id}"
+            )
+            try:
+                # Each worker runs in a copy of this context: it inherits the current delegation depth and
+                # only bumps its own copy, so sibling members do not count against each other's depth.
+                index_of = {pool.submit(contextvars.copy_context().run, run_one, *tasks[idx]): idx for idx in claimed}
+                pending = set(index_of)
+                while pending:
+                    done, pending = wait(pending, timeout=CANCEL_POLL_SECONDS, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        idx = index_of[future]
+                        try:
+                            results[idx] = future.result()
+                        except WorkflowCancelledError as exc:
+                            cancelled = cancelled or exc
+                        except CancelledError:
+                            results[idx] = {"member": tasks[idx][0], "error": "cancelled", "needs_user_decision": False}
+                    if cancelled is None and self._cancelled():
+                        cancelled = WorkflowCancelledError("Workflow execution cancelled")
+                    if cancelled is not None:
+                        for future in pending:
+                            if future.cancel():  # never started: free the member and its delegation
+                                member, task = tasks[index_of[future]]
+                                self.state.release(member)
+                                self._refund(1)
+                                self.state.log_failure(member, task, "cancelled")
+                        break
+            finally:
+                # On cancel do not wait: running members stop on the cancel event themselves.
+                pool.shutdown(wait=cancelled is None, cancel_futures=True)
         if cancelled is not None:
             raise cancelled
 
+        final = [r for r in results if r is not None]
         return {
-            "results": results,
-            "failed": [r["member"] for r in results if "error" in r],
-            "needs_user_decision": any(r.get("needs_user_decision") for r in results),
+            "results": final,
+            "failed": [r["member"] for r in final if "error" in r],
+            "needs_user_decision": any(r.get("needs_user_decision") for r in final),
             "delegations_left": self._delegations_left(),
+            "team_runs_left": self.state.member_runs_left(),
         }
 
     def _compose_brief(self, member: str, task: str) -> str:
         info = next((m for m in self.members if m.node_id == member), None)
         if info is not None and info.manages:
-            parts = [SUB_LEAD_PROTOCOL.format(lead=self.lead_id, team=", ".join(info.manages), marker=DECISION_MARKER)]
+            # A sub-lead's system prompt already holds its protocol (SUB_LEAD_SYSTEM); do not repeat it.
+            parts = [f"# Assigned by {self.lead_id}\nRun this with your team and report back to {self.lead_id}."]
         else:
             parts = [MEMBER_PROTOCOL.format(lead=self.lead_id, marker=DECISION_MARKER)]
-        earlier = self.state.earlier_reports(member)
-        if earlier:
-            lines = ["# Your tasks and reports from earlier messages of this conversation (context; files may have changed since)"]
-            for item in earlier:
-                lines.append(f"## Task\n{_truncate(item['task'], 800)}\n## Your report\n{_truncate(item['report'], MAX_HISTORY_CHARS)}")
-            parts.append("\n\n".join(lines))
-        previous = self.state.recent(member, 2)
-        if previous:
-            lines = ["# Your last tasks and reports for the current request"]
-            for item in previous:
-                lines.append(f"## Task\n{_truncate(item['task'], 800)}\n## Your report\n{_truncate(item['report'], MAX_HISTORY_CHARS)}")
-            parts.append("\n\n".join(lines))
+        current = self.state.recent(member, MAX_DIGEST_ENTRIES)
+        earlier = self.state.earlier_reports(member, MAX_DIGEST_ENTRIES)
+        # One relevant earlier report (the latest of this request, else of an earlier message), clipped;
+        # the member's other earlier tasks only as a one-line digest.
+        relevant: Optional[Dict[str, str]] = None
+        heading = ""
+        others: List[Dict[str, str]] = []
+        if current:
+            relevant, others = current[-1], earlier + current[:-1]
+            heading = "# Your last task and report for the current request"
+        elif earlier:
+            relevant, others = earlier[-1], earlier[:-1]
+            heading = (
+                "# Your last task and report from earlier messages of this conversation "
+                "(context; files may have changed since)"
+            )
+        if relevant is not None:
+            parts.append(
+                f"{heading}\n## Task\n{clip_middle(relevant.get('task'), 400, head_ratio=1.0)}\n"
+                f"## Your report\n{clip_middle(relevant.get('report'), MAX_HISTORY_CHARS)}"
+            )
+        if others:
+            titles = "; ".join(_first_line(item.get("task"), 80) for item in others[-5:])
+            parts.append(f"# Your other earlier tasks (titles only): {titles}")
         if self.state.user_language:
             parts.append(
                 f"# Language\nWrite user-facing text and documents (UI text, docs, messages) in {self.state.user_language}. "
@@ -687,13 +904,26 @@ class TeamDelegation:
         return {"answer": answer}
 
 
-def get_team_state(global_state: Dict[str, Any]) -> TeamState:
+def _max_member_runs(global_state: Mapping[str, Any]) -> int:
+    for value in (global_state.get(MAX_MEMBER_RUNS_KEY), os.environ.get(MAX_MEMBER_RUNS_ENV)):
+        try:
+            number = int(value) if value is not None and not isinstance(value, bool) else 0
+        except (TypeError, ValueError):
+            number = 0
+        if number > 0:
+            return number
+    return DEFAULT_MAX_MEMBER_RUNS
+
+
+def get_team_state(global_state: Dict[str, Any], cancel_event: Any = None) -> TeamState:
     state = global_state.get("_team_state")
     if not isinstance(state, TeamState):
-        state = TeamState()
+        state = TeamState(max_member_runs=_max_member_runs(global_state))
         # Earlier turns of the conversation, when the run's caller provides them (see WebSocketGraphExecutor).
         state.seed_earlier_turns(global_state.get(CONVERSATION_TURNS_KEY))
         global_state["_team_state"] = state
+    if cancel_event is not None and state.cancel_event is None:
+        state.cancel_event = cancel_event
     return state
 
 

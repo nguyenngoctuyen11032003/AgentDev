@@ -8,8 +8,9 @@
           <circle class="ring-fill" cx="60" cy="60" r="52" :style="{ strokeDashoffset: ringOffset }" />
         </svg>
         <div class="ring-text">
-          <strong>{{ progress }}%</strong>
-          <span v-if="teamMode">{{ $t('launch.dashboard.tasks_of', { done: teamTasksDone, total: delegatedRuns.length }) }}</span>
+          <strong>{{ noTasks ? '—' : `${progress}%` }}</strong>
+          <span v-if="noTasks">{{ $t('launch.dashboard.chat_only') }}</span>
+          <span v-else-if="teamMode">{{ $t('launch.dashboard.tasks_of', { done: teamTasksDone, total: delegatedRuns.length }) }}</span>
           <span v-else>{{ $t('launch.dashboard.done_of', { done: doneCount, total: steps.length }) }}</span>
         </div>
       </div>
@@ -309,7 +310,11 @@ const involved = computed(() => steps.value.filter((s) => runsOf(s.id).length ||
 const shownSteps = computed(() => (teamMode.value && involved.value.length ? involved.value : steps.value))
 const idleCount = computed(() => steps.value.length - shownSteps.value.length)
 
+// A team turn where the lead only answered (nobody was handed a task): no progress to show
+const noTasks = computed(() => teamMode.value && delegatedRuns.value.length === 0)
+
 const progress = computed(() => {
+  if (noTasks.value) return 0
   if (session.value.outcome === 'completed') return 100
   if (teamMode.value) {
     const total = delegatedRuns.value.length
@@ -353,8 +358,8 @@ const kpis = computed(() => {
     ? {
         key: 'progress',
         label: t('launch.dashboard.kpi_tasks'),
-        value: `${teamTasksDone.value}/${delegatedRuns.value.length}`,
-        sub: t('launch.dashboard.kpi_people', { n: involved.value.length, total: steps.value.length })
+        value: noTasks.value ? '—' : `${teamTasksDone.value}/${delegatedRuns.value.length}`,
+        sub: noTasks.value ? t('launch.dashboard.chat_only') : t('launch.dashboard.kpi_people', { n: involved.value.length, total: steps.value.length })
       }
     : {
         key: 'progress',

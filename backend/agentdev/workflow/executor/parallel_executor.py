@@ -1,6 +1,8 @@
 """Parallel execution helpers that eliminate duplicated code."""
 
 import concurrent.futures
+
+from agentdev.utils.exceptions import WorkflowCancelledError
 from typing import Any, Callable, List, Tuple
 
 from agentdev.utils.log_manager import LogManager
@@ -114,6 +116,8 @@ class ParallelExecutor:
                 try:
                     future.result()
                     self.log_manager.debug(f"{item_desc_func(item)} completed successfully")
+                except WorkflowCancelledError:
+                    raise  # a user stop is not an error; don't log it as one
                 except Exception as e:
                     self.log_manager.error(f"{item_desc_func(item)} failed: {str(e)}")
                     raise
@@ -136,6 +140,8 @@ class ParallelExecutor:
             try:
                 executor_func(item)
                 self.log_manager.debug(f"{item_desc_func(item)} completed successfully")
+            except WorkflowCancelledError:
+                raise  # a user stop is not an error; don't log it as one
             except Exception as e:
                 self.log_manager.error(f"{item_desc_func(item)} failed: {str(e)}")
                 raise

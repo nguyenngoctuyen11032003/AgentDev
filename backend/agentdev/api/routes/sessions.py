@@ -25,7 +25,7 @@ from agentdev.utils.workspace_paths import (
 router = APIRouter()
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
-_ACTIVE_STATUSES = {SessionStatus.RUNNING, SessionStatus.WAITING_FOR_INPUT}
+_ACTIVE_STATUSES = {SessionStatus.RUNNING, SessionStatus.WAITING_FOR_INPUT, SessionStatus.CANCELLING}
 
 
 class SessionUpdateRequest(BaseModel):

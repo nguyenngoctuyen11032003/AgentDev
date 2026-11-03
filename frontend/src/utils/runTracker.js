@@ -150,6 +150,19 @@ export function createRunTracker() {
     pushEvent('input', '', time, { text: preview(text).slice(0, 140) })
   }
 
+  // The server turned an answer down: it does not count (its event goes too)
+  // `stillWaiting`: steps that keep waiting for an answer
+  const undoInput = (stillWaiting = []) => {
+    if (state.inputs > 0) state.inputs -= 1
+    for (const id of stillWaiting) if (state.nodes[id]) state.nodes[id].waiting = true
+    for (let i = state.events.length - 1; i >= 0; i -= 1) {
+      if (state.events[i].kind === 'input') {
+        state.events.splice(i, 1)
+        break
+      }
+    }
+  }
+
   // A lead's delegate call names the member and the task just before the member starts
   const assign = (memberId, task) => {
     if (!memberId || !task) return
@@ -161,8 +174,11 @@ export function createRunTracker() {
     pushEvent('handoff', from, time, { target: to })
   }
 
-  const begin = (text, attachments = [], at) => {
+  // `closeOpen`: a turn that never recorded its end (the server went away mid-run) is
+  // closed as stopped, so the new request starts its own turn instead of joining it
+  const begin = (text, attachments = [], at, { closeOpen = false } = {}) => {
     const time = toMs(at)
+    if (closeOpen && state.task && !state.outcome) finish('cancelled', { at: lastEventAt() || undefined })
     // A new task in a finished session is its next turn: the finished one is kept
     if (state.outcome) archiveTurn()
     const previous = state.turns[state.turns.length - 1]
@@ -237,7 +253,7 @@ export function createRunTracker() {
     state.inputs = 0
   }
 
-  return { state, begin, nodeStart, activity, nodeEnd, waitingInput, inputSent, assign, handoff, finish, reset }
+  return { state, begin, nodeStart, activity, nodeEnd, waitingInput, inputSent, undoInput, assign, handoff, finish, reset }
 }
 
 // ---------------------------------------------------------------- derived views
