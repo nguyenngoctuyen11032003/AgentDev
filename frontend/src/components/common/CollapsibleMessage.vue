@@ -1,6 +1,6 @@
 <template>
   <div class="collapsible-message">
-    <div v-if="rawContent" class="copy-button-wrapper">
+    <div v-if="rawContent" class="copy-button-wrapper" :class="{ 'is-copied': copyStatus === 'copied' }">
       <button 
         class="copy-btn" 
         @click="copyToClipboard" 
@@ -14,6 +14,7 @@
           <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12"></polyline>
         </svg>
+        <span v-if="copyStatus === 'copied'" class="copy-label">{{ $t('components.collapsible_message.copied') }}</span>
       </button>
     </div>
     <div 
@@ -45,6 +46,10 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { toast } from '@/utils/toast.js'
+
+const { t } = useI18n()
 
 const props = defineProps({
   htmlContent: {
@@ -112,6 +117,7 @@ const copyToClipboard = async () => {
     }, 2000)
   } catch (err) {
     console.error('Failed to copy text: ', err)
+    toast.error(t('components.collapsible_message.copy_failed'))
   }
 }
 
@@ -171,8 +177,15 @@ watch(() => props.htmlContent, () => {
   transition: opacity 0.2s ease;
 }
 
-.collapsible-message:hover .copy-button-wrapper {
+.collapsible-message:hover .copy-button-wrapper,
+.copy-button-wrapper.is-copied {
   opacity: 1;
+}
+
+.copy-label {
+  margin-left: 4px;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .copy-btn {
