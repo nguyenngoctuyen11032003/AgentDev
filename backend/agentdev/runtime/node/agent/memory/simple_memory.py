@@ -14,8 +14,7 @@ from agentdev.runtime.node.agent.memory.memory_base import (
     MemoryItem,
     MemoryWritePayload,
 )
-import faiss
-import numpy as np
+from agentdev.runtime.node.agent.memory.keyword_search import rank_by_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,7 @@ class SimpleMemory(MemoryBase):
     def load(self) -> None:
         if self.memory_path and os.path.exists(self.memory_path) and self.memory_path.endswith(".json"):
             try:
-                with open(self.memory_path) as file:
+                with open(self.memory_path, encoding="utf-8") as file:
                     raw_data = json.load(file)
                 contents = []
                 for raw in raw_data:
@@ -86,8 +85,10 @@ class SimpleMemory(MemoryBase):
 
     def save(self) -> None:
         if self.memory_path and self.memory_path.endswith(".json"):
-            os.makedirs(os.path.dirname(self.memory_path), exist_ok=True)
-            with open(self.memory_path, "w") as file:
+            directory = os.path.dirname(self.memory_path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            with open(self.memory_path, "w", encoding="utf-8") as file:
                 json.dump([item.to_dict() for item in self.contents], file, indent=2, ensure_ascii=False)
 
     def retrieve(
@@ -97,9 +98,15 @@ class SimpleMemory(MemoryBase):
         top_k: int,
         similarity_threshold: float,
     ) -> List[MemoryItem]:
-        if self.count_memories() == 0 or not self.embedding:
+        if self.count_memories() == 0 or not query or not (query.text or "").strip():
             return []
-        
+
+        if not self.embedding:
+            return self._retrieve_by_keywords(query.text, top_k, similarity_threshold)
+
+        import faiss
+        import numpy as np
+
         # Build an optimized query for retrieval
         query_text = self.retrieve_prompt.format(input=query.text)
         query_text = self._extract_key_content(query_text)
@@ -126,7 +133,8 @@ class SimpleMemory(MemoryBase):
                 valid_items.append(item)
         
         if not memory_embeddings:
-            return []
+            # Items were stored without vectors (keyword mode): stay useful.
+            return self._retrieve_by_keywords(query.text, top_k, similarity_threshold)
             
         memory_embeddings = np.array(memory_embeddings, dtype=np.float32)
 
@@ -158,6 +166,17 @@ class SimpleMemory(MemoryBase):
         
         return results
     
+    def _retrieve_by_keywords(self, query_text: str, top_k: int, similarity_threshold: float) -> List[MemoryItem]:
+        """Keyless BM25 retrieval over stored memory summaries."""
+        ranked = rank_by_keywords(
+            query_text,
+            self.contents,
+            text_of=lambda item: item.content_summary,
+            top_k=top_k,
+            similarity_threshold=similarity_threshold,
+        )
+        return [item for item, _ in ranked]
+
     def _calculate_semantic_similarity(self, query: str, content: str) -> float:
         """Compute a semantic similarity value."""
         # Enhanced semantic similarity computation
@@ -241,9 +260,6 @@ class SimpleMemory(MemoryBase):
             return max(0.1, ideal_ratio_max / ratio)
 
     def update(self, payload: MemoryWritePayload) -> None:
-        if not self.embedding:
-            return
-
         snapshot = payload.output_snapshot
         if not snapshot or not snapshot.text.strip():
             return
@@ -263,13 +279,17 @@ class SimpleMemory(MemoryBase):
             if existing_hash == content_hash:
                 return
 
-        embedding_vector = self.embedding.get_embedding(extracted_content)
-        if isinstance(embedding_vector, list):
-            embedding_vector = np.array(embedding_vector, dtype=np.float32)
-        if embedding_vector is None:
-            return
-        embedding_array = np.array(embedding_vector, dtype=np.float32).reshape(1, -1)
-        faiss.normalize_L2(embedding_array)
+        embedding_list = None
+        if self.embedding:
+            import faiss
+            import numpy as np
+
+            embedding_vector = self.embedding.get_embedding(extracted_content)
+            if embedding_vector is None:
+                return
+            embedding_array = np.array(embedding_vector, dtype=np.float32).reshape(1, -1)
+            faiss.normalize_L2(embedding_array)
+            embedding_list = embedding_array.tolist()[0]
 
         metadata = {
             "agent_role": payload.agent_role,
@@ -282,7 +302,7 @@ class SimpleMemory(MemoryBase):
             id=f"{content_hash}_{int(time.time())}",
             content_summary=extracted_content,
             metadata=metadata,
-            embedding=embedding_array.tolist()[0],
+            embedding=embedding_list,
             input_snapshot=payload.input_snapshot,
             output_snapshot=snapshot,
         )

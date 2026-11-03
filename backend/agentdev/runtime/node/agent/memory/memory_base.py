@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+import logging
 import time
 
 from agentdev.entity.configs import MemoryAttachmentConfig, MemoryStoreConfig
@@ -9,6 +10,9 @@ from agentdev.entity.configs.node.memory import FileMemoryConfig, SimpleMemoryCo
 from agentdev.entity.enums import AgentExecFlowStage
 from agentdev.entity.messages import Message, MessageBlock
 from agentdev.runtime.node.agent.memory.embedding import EmbeddingBase, EmbeddingFactory
+from agentdev.runtime.node.agent.memory.keyword_search import tokenize
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -204,9 +208,18 @@ class MemoryBase:
         elif file_cfg and file_cfg.embedding:
             embedding_cfg = file_cfg.embedding
 
-        self.embedding: EmbeddingBase | None = (
-            EmbeddingFactory.create_embedding(embedding_cfg) if embedding_cfg else None
-        )
+        # Embedding is optional; without it stores use keyword (BM25) retrieval.
+        self.embedding: EmbeddingBase | None = None
+        if embedding_cfg:
+            try:
+                self.embedding = EmbeddingFactory.create_embedding(embedding_cfg)
+            except Exception as exc:  # e.g. sentence-transformers missing / bad model path
+                logger.warning(
+                    "Memory store '%s': embedding unavailable (%s); using keyword retrieval.",
+                    self.name,
+                    exc,
+                )
+                self.embedding = None
 
     def count_memories(self) -> int:
         return len(self.contents)
@@ -298,7 +311,7 @@ class MemoryManager:
             length_factor = 0.8
         else:
             length_factor = 1.0
-        query_words = set(query.lower().split())
-        content_words = set(memory_item.content_summary.lower().split())
+        query_words = set(tokenize(query))
+        content_words = set(tokenize(memory_item.content_summary))
         relevance = len(query_words & content_words) / len(query_words) if query_words else 0.0
         return 0.7 * time_decay * length_factor + 0.3 * relevance

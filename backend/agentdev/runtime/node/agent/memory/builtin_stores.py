@@ -3,7 +3,6 @@
 from agentdev.entity.configs.node.memory import (
     BlackboardMemoryConfig,
     FileMemoryConfig,
-    Mem0MemoryConfig,
     SimpleMemoryConfig,
     MemoryStoreConfig,
 )
@@ -17,14 +16,14 @@ register_memory_store(
     "simple",
     config_cls=SimpleMemoryConfig,
     factory=lambda store: SimpleMemory(store),
-    summary="In-memory store that resets between runs; best for testing",
+    summary="Lightweight store of past outputs with keyword retrieval (no API key); persists when memory_path is set",
 )
 
 register_memory_store(
     "file",
     config_cls=FileMemoryConfig,
     factory=lambda store: FileMemory(store),
-    summary="Persists documents on disk and supports embedding search",
+    summary="Indexes local files on disk; keyword search by default (no API key)",
 )
 
 register_memory_store(
@@ -32,19 +31,6 @@ register_memory_store(
     config_cls=BlackboardMemoryConfig,
     factory=lambda store: BlackboardMemory(store),
     summary="Shared blackboard memory allowing multiple nodes to read/write",
-)
-
-
-def _create_mem0_memory(store):
-    from agentdev.runtime.node.agent.memory.mem0_memory import Mem0Memory
-    return Mem0Memory(store)
-
-
-register_memory_store(
-    "mem0",
-    config_cls=Mem0MemoryConfig,
-    factory=_create_mem0_memory,
-    summary="Mem0 managed memory with semantic search and graph relationships",
 )
 
 

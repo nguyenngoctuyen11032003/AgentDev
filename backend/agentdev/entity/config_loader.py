@@ -7,6 +7,7 @@ import yaml
 
 from agentdev.connections.autobind import bind_default_connections
 from agentdev.entity.configs import DesignConfig, ConfigError
+from agentdev.entity.configs.node.memory import strip_legacy_memory_embeddings
 from agentdev.utils.env_loader import load_dotenv_file, build_env_var_map
 from agentdev.utils.vars_resolver import resolve_design_placeholders
 
@@ -16,6 +17,8 @@ def prepare_design_mapping(data: Mapping[str, Any], *, source: str | None = None
     env_lookup = build_env_var_map()
     prepared = dict(data)
     bind_default_connections(prepared, env_lookup)
+    # Legacy API-key embedding blocks are dropped before ${VAR} resolution (keyword retrieval instead).
+    strip_legacy_memory_embeddings(prepared)
     resolve_design_placeholders(prepared, env_lookup=env_lookup, path=source or "root")
     return prepared
 

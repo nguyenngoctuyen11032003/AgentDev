@@ -1,5 +1,6 @@
 """Memory-related configuration dataclasses."""
 
+import logging
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Mapping
 
@@ -25,58 +26,124 @@ from agentdev.entity.configs.base import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+# Embedding providers that run without any third-party API key.
+SUPPORTED_EMBEDDING_PROVIDERS = ("local",)
+
+REMOVED_MEMORY_STORE_TYPES = {
+    "mem0": (
+        "Mem0 memory is no longer supported (it required a third-party API key). "
+        "Use a 'simple', 'file' or 'blackboard' memory store instead."
+    ),
+}
+
+_warned_embedding_providers: set[str] = set()
+
+
+def _warn_ignored_embedding(provider: str, path: str) -> None:
+    key = provider or "<unset>"
+    if key in _warned_embedding_providers:
+        return
+    _warned_embedding_providers.add(key)
+    logger.warning(
+        "Ignoring embedding provider '%s' at %s: API-key embeddings are no longer supported; "
+        "memory falls back to keyword retrieval. Remove the 'embedding' block (or use provider 'local').",
+        key,
+        path,
+    )
+
+
+def _is_supported_embedding(raw: Any) -> bool:
+    if not isinstance(raw, Mapping):
+        return False
+    provider = raw.get("provider", "local")
+    return isinstance(provider, str) and provider.strip().lower() in SUPPORTED_EMBEDDING_PROVIDERS
+
+
+def parse_optional_embedding(mapping: Mapping[str, Any], path: str) -> "EmbeddingConfig | None":
+    """Parse an optional ``embedding`` block.
+
+    Embedding is optional: without it memory uses keyword (BM25) retrieval. Legacy
+    blocks that point at an API-key provider (e.g. ``openai``) are ignored with a
+    warning instead of failing, so old workflows keep running.
+    """
+    raw = mapping.get("embedding")
+    if raw is None:
+        return None
+    embedding_path = extend_path(path, "embedding")
+    if not _is_supported_embedding(raw):
+        provider = raw.get("provider") if isinstance(raw, Mapping) else None
+        _warn_ignored_embedding(str(provider or ""), embedding_path)
+        return None
+    return EmbeddingConfig.from_dict(raw, path=embedding_path)
+
+
+def strip_legacy_memory_embeddings(data: Any) -> None:
+    """Drop unsupported (API-key) embedding blocks from a raw design mapping, in place.
+
+    Runs before ``${VAR}`` placeholder resolution so a legacy block such as
+    ``api_key: ${API_KEY}`` cannot fail the load when that variable is unset.
+    """
+    if not isinstance(data, dict):
+        return
+    graph = data.get("graph")
+    if not isinstance(graph, dict):
+        return
+    stores = graph.get("memory")
+    if not isinstance(stores, list):
+        return
+    for idx, store in enumerate(stores):
+        if not isinstance(store, dict):
+            continue
+        config = store.get("config")
+        if not isinstance(config, dict) or config.get("embedding") is None:
+            continue
+        raw = config["embedding"]
+        if not _is_supported_embedding(raw):
+            provider = raw.get("provider") if isinstance(raw, Mapping) else None
+            _warn_ignored_embedding(str(provider or ""), f"graph.memory[{idx}].config.embedding")
+            config.pop("embedding", None)
+
+
 @dataclass
 class EmbeddingConfig(BaseConfig):
-    provider: str
-    model: str
-    api_key: str | None = None
-    base_url: str | None = None
+    """Optional, keyless embedding provider (local sentence-transformers model)."""
+
+    provider: str = "local"
+    model: str | None = None
     params: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any], *, path: str) -> "EmbeddingConfig":
         mapping = require_mapping(data, path)
-        provider = require_str(mapping, "provider", path)
-        model = require_str(mapping, "model", path)
-        api_key = optional_str(mapping, "api_key", path)
-        base_url = optional_str(mapping, "base_url", path)
+        provider = (optional_str(mapping, "provider", path) or "local").strip().lower()
+        if provider not in SUPPORTED_EMBEDDING_PROVIDERS:
+            raise ConfigError(
+                f"unsupported embedding provider '{provider}'; only 'local' is supported "
+                "(or omit embedding to use keyword retrieval)",
+                extend_path(path, "provider"),
+            )
+        model = optional_str(mapping, "model", path)
         params = optional_dict(mapping, "params", path) or {}
-        return cls(provider=provider, model=model, api_key=api_key, base_url=base_url, params=params, path=path)
+        return cls(provider=provider, model=model, params=params, path=path)
 
     FIELD_SPECS = {
         "provider": ConfigFieldSpec(
             name="provider",
             display_name="Embedding Provider",
             type_hint="str",
-            required=True,
-            default="openai",
-            description="Embedding provider",
+            required=False,
+            default="local",
+            enum=list(SUPPORTED_EMBEDDING_PROVIDERS),
+            description="Local embedding model (requires sentence-transformers); no API key needed",
         ),
         "model": ConfigFieldSpec(
             name="model",
             display_name="Embedding Model",
             type_hint="str",
-            required=True,
-            default="text-embedding-3-small",
-            description="Embedding model name",
-        ),
-        "api_key": ConfigFieldSpec(
-            name="api_key",
-            display_name="API Key",
-            type_hint="str",
             required=False,
-            description="API key",
-            default="${API_KEY}",
-            advance=True,
-        ),
-        "base_url": ConfigFieldSpec(
-            name="base_url",
-            display_name="Base URL",
-            type_hint="str",
-            required=False,
-            description="Custom Base URL",
-            default="${BASE_URL}",
-            advance=True,
+            description="sentence-transformers model name or local path (params.model_path also works)",
         ),
         "params": ConfigFieldSpec(
             name="params",
@@ -84,7 +151,7 @@ class EmbeddingConfig(BaseConfig):
             type_hint="dict[str, Any]",
             required=False,
             default={},
-            description="Embedding parameters (temperature, etc.)",
+            description="Embedding parameters (model_path, device, etc.)",
             advance=True,
         ),
     }
@@ -164,9 +231,7 @@ class SimpleMemoryConfig(BaseConfig):
     def from_dict(cls, data: Mapping[str, Any], *, path: str) -> "SimpleMemoryConfig":
         mapping = require_mapping(data, path)
         memory_path = optional_str(mapping, "memory_path", path)
-        embedding_cfg = None
-        if "embedding" in mapping and mapping["embedding"] is not None:
-            embedding_cfg = EmbeddingConfig.from_dict(mapping["embedding"], path=extend_path(path, "embedding"))
+        embedding_cfg = parse_optional_embedding(mapping, path)
         return cls(memory_path=memory_path, embedding=embedding_cfg, path=path)
 
     FIELD_SPECS = {
@@ -183,7 +248,7 @@ class SimpleMemoryConfig(BaseConfig):
             display_name="Embedding Configuration",
             type_hint="EmbeddingConfig",
             required=False,
-            description="Optional embedding configuration",
+            description="Optional local embedding model. Leave empty to use keyword (BM25) retrieval, which needs no API key or extra packages",
             child=EmbeddingConfig,
         ),
     }
@@ -209,9 +274,7 @@ class FileMemoryConfig(BaseConfig):
         if index_path is None:
             index_path = optional_str(mapping, "memory_path", path)
 
-        embedding_cfg = None
-        if "embedding" in mapping and mapping["embedding"] is not None:
-            embedding_cfg = EmbeddingConfig.from_dict(mapping["embedding"], path=extend_path(path, "embedding"))
+        embedding_cfg = parse_optional_embedding(mapping, path)
 
         return cls(index_path=index_path, file_sources=sources, embedding=embedding_cfg, path=path)
 
@@ -221,7 +284,7 @@ class FileMemoryConfig(BaseConfig):
             display_name="Index Path",
             type_hint="str",
             required=False,
-            description="Vector index storage path",
+            description="Index storage path",
             advance=True,
         ),
         "file_sources": ConfigFieldSpec(
@@ -237,7 +300,7 @@ class FileMemoryConfig(BaseConfig):
             display_name="Embedding Configuration",
             type_hint="EmbeddingConfig",
             required=False,
-            description="Embedding used for file memory",
+            description="Optional local embedding model. Leave empty to use keyword (BM25) retrieval, which needs no API key or extra packages",
             child=EmbeddingConfig,
         ),
     }
@@ -280,75 +343,6 @@ class BlackboardMemoryConfig(BaseConfig):
 
 
 @dataclass
-class Mem0MemoryConfig(BaseConfig):
-    """Configuration for Mem0 managed memory service."""
-
-    api_key: str = ""
-    org_id: str | None = None
-    project_id: str | None = None
-    user_id: str | None = None
-    agent_id: str | None = None
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any], *, path: str) -> "Mem0MemoryConfig":
-        mapping = require_mapping(data, path)
-        api_key = require_str(mapping, "api_key", path)
-        org_id = optional_str(mapping, "org_id", path)
-        project_id = optional_str(mapping, "project_id", path)
-        user_id = optional_str(mapping, "user_id", path)
-        agent_id = optional_str(mapping, "agent_id", path)
-        return cls(
-            api_key=api_key,
-            org_id=org_id,
-            project_id=project_id,
-            user_id=user_id,
-            agent_id=agent_id,
-            path=path,
-        )
-
-    FIELD_SPECS = {
-        "api_key": ConfigFieldSpec(
-            name="api_key",
-            display_name="Mem0 API Key",
-            type_hint="str",
-            required=True,
-            description="Mem0 API key (get one from app.mem0.ai)",
-            default="${MEM0_API_KEY}",
-        ),
-        "org_id": ConfigFieldSpec(
-            name="org_id",
-            display_name="Organization ID",
-            type_hint="str",
-            required=False,
-            description="Mem0 organization ID for scoping",
-            advance=True,
-        ),
-        "project_id": ConfigFieldSpec(
-            name="project_id",
-            display_name="Project ID",
-            type_hint="str",
-            required=False,
-            description="Mem0 project ID for scoping",
-            advance=True,
-        ),
-        "user_id": ConfigFieldSpec(
-            name="user_id",
-            display_name="User ID",
-            type_hint="str",
-            required=False,
-            description="User ID for user-scoped memories. Mutually exclusive with agent_id in API calls.",
-        ),
-        "agent_id": ConfigFieldSpec(
-            name="agent_id",
-            display_name="Agent ID",
-            type_hint="str",
-            required=False,
-            description="Agent ID for agent-scoped memories. Mutually exclusive with user_id in API calls.",
-        ),
-    }
-
-
-@dataclass
 class MemoryStoreConfig(BaseConfig):
     name: str
     type: str
@@ -359,6 +353,9 @@ class MemoryStoreConfig(BaseConfig):
         mapping = require_mapping(data, path)
         name = require_str(mapping, "name", path)
         store_type = require_str(mapping, "type", path)
+        removed = REMOVED_MEMORY_STORE_TYPES.get(store_type.strip().lower())
+        if removed:
+            raise ConfigError(removed, extend_path(path, "type"))
         try:
             schema = get_memory_store_schema(store_type)
         except SchemaLookupError as exc:

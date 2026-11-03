@@ -1,18 +1,20 @@
+"""Optional, keyless embedding providers for memory stores.
+
+Embedding is optional: memory stores without one use keyword (BM25) retrieval
+(see ``keyword_search``). The only provider is ``local`` (sentence-transformers),
+which runs on this machine without any API key.
+"""
+
 from abc import ABC, abstractmethod
 import re
 import logging
 from typing import List
 
-import openai
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-)
-
 from agentdev.entity.configs import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
+
+_warned_providers: set[str] = set()
 
 
 class EmbeddingBase(ABC):
@@ -68,107 +70,33 @@ class EmbeddingBase(ABC):
 
 class EmbeddingFactory:
     @staticmethod
-    def create_embedding(embedding_config: EmbeddingConfig) -> EmbeddingBase:
-        model = embedding_config.provider
-        if model == 'openai':
-            return OpenAIEmbedding(embedding_config)
-        elif model == 'local':
+    def create_embedding(embedding_config: EmbeddingConfig | None) -> "EmbeddingBase | None":
+        """Build the configured embedding, or ``None`` to use keyword retrieval."""
+        if embedding_config is None:
+            return None
+        provider = (embedding_config.provider or "").strip().lower()
+        if provider == "local":
             return LocalEmbedding(embedding_config)
-        else:
-            raise ValueError(f"Unsupported embedding model: {model}")
-
-class OpenAIEmbedding(EmbeddingBase):
-    def __init__(self, embedding_config: EmbeddingConfig):
-        super().__init__(embedding_config)
-        self.base_url = embedding_config.base_url
-        self.api_key = embedding_config.api_key
-        self.model_name = embedding_config.model or "text-embedding-3-small"  # Default model
-        self.max_length = embedding_config.params.get('max_length', 8191)
-        self.use_chunking = embedding_config.params.get('use_chunking', False)
-        self.chunk_strategy = embedding_config.params.get('chunk_strategy', 'average')
-        self._fallback_dim = 1536  # Default; updated after first successful call
-
-        if self.base_url:
-            self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
-        else:
-            self.client = openai.OpenAI(api_key=self.api_key)
-
-    @retry(wait=wait_random_exponential(min=2, max=5), stop=stop_after_attempt(10))
-    def get_embedding(self, text):
-        # Preprocess the text
-        processed_text = self._preprocess_text(text)
-        
-        if not processed_text:
-            logger.warning("Empty text after preprocessing")
-            return [0.0] * self._fallback_dim
-        
-        # Handle long text via chunking
-        if self.use_chunking and len(processed_text) > self.max_length:
-            return self._get_chunked_embedding(processed_text)
-        
-        # Truncate text
-        truncated_text = processed_text[:self.max_length]
-        
-        try:
-            response = self.client.embeddings.create(
-                input=truncated_text, 
-                model=self.model_name,
-                encoding_format="float"
+        if provider not in _warned_providers:
+            _warned_providers.add(provider)
+            logger.warning(
+                "Embedding provider '%s' is not supported (API-key embeddings were removed); "
+                "using keyword retrieval instead.",
+                provider or "<unset>",
             )
-            embedding = response.data[0].embedding
-            self._fallback_dim = len(embedding)
-            return embedding
-        except Exception as e:
-            logger.error(f"Error getting embedding: {e}")
-            return [0.0] * self._fallback_dim
+        return None
 
-    def _get_chunked_embedding(self, text: str) -> List[float]:
-        """Chunk long text, embed each chunk, then aggregate."""
-        chunks = self._chunk_text(text, self.max_length // 2)  # Halve the chunk length
-        
-        if not chunks:
-            return [0.0] * self._fallback_dim
-        
-        chunk_embeddings = []
-        for chunk in chunks:
-            try:
-                response = self.client.embeddings.create(
-                    input=chunk,
-                    model=self.model_name,
-                    encoding_format="float"
-                )
-                chunk_embeddings.append(response.data[0].embedding)
-            except Exception as e:
-                logger.warning(f"Error getting chunk embedding: {e}")
-                continue
-        
-        if not chunk_embeddings:
-            return [0.0] * self._fallback_dim
-        
-        # Aggregation strategy
-        if self.chunk_strategy == 'average':
-            # Mean aggregation
-            return [sum(chunk[i] for chunk in chunk_embeddings) / len(chunk_embeddings) 
-                   for i in range(len(chunk_embeddings[0]))]
-        elif self.chunk_strategy == 'weighted':
-            # Weighted aggregation (earlier chunks weigh more)
-            weights = [1.0 / (i + 1) for i in range(len(chunk_embeddings))]
-            total_weight = sum(weights)
-            return [sum(chunk[i] * weights[j] for j, chunk in enumerate(chunk_embeddings)) / total_weight 
-                   for i in range(len(chunk_embeddings[0]))]
-        else:
-            # Default to the first chunk
-            return chunk_embeddings[0]
 
 class LocalEmbedding(EmbeddingBase):
     def __init__(self, embedding_config: EmbeddingConfig):
         super().__init__(embedding_config)
-        self.model_path = embedding_config.params.get('model_path')
-        self.device = embedding_config.params.get('device', 'cpu')
+        params = embedding_config.params or {}
+        self.model_path = params.get('model_path') or embedding_config.model
+        self.device = params.get('device', 'cpu')
         self._fallback_dim = 768  # Default; updated after first successful call
         
         if not self.model_path:
-            raise ValueError("LocalEmbedding requires model_path parameter")
+            raise ValueError("LocalEmbedding requires a model (or params.model_path)")
         
         # Load the local embedding model (e.g., sentence-transformers)
         try:

@@ -1,5 +1,5 @@
 """Tests for memory embedding dimension consistency."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from agentdev.runtime.node.agent.memory.memory_base import MemoryContentSnapshot, MemoryItem
 from agentdev.runtime.node.agent.memory.simple_memory import SimpleMemory
 
@@ -99,59 +99,3 @@ class TestSimpleMemoryRetrieveMixedDimensions:
             similarity_threshold=-1.0,
         )
         assert results == []
-
-
-class TestOpenAIEmbeddingDynamicFallback:
-
-    def test_fallback_uses_model_dimension_after_success(self):
-        """After a successful call the fallback dimension MUST match the model."""
-        from agentdev.runtime.node.agent.memory.embedding import OpenAIEmbedding
-
-        cfg = MagicMock()
-        cfg.base_url = "http://localhost:11434/v1"
-        cfg.api_key = "test"
-        cfg.model = "test-model"
-        cfg.params = {}
-
-        emb = OpenAIEmbedding(cfg)
-        assert emb._fallback_dim == 1536  # default before any call
-
-        # Simulate a successful 768-dim response
-        mock_data = MagicMock()
-        mock_data.embedding = [0.1] * 768
-        mock_response = MagicMock()
-        mock_response.data = [mock_data]
-
-        with patch.object(emb.client.embeddings, "create", return_value=mock_response):
-            result = emb.get_embedding("hello world")
-
-        assert len(result) == 768
-        assert emb._fallback_dim == 768  # updated after success
-
-    def test_fallback_zero_vector_matches_cached_dim(self):
-        """After caching dim, fallback zero-vectors MUST use that dim."""
-        from agentdev.runtime.node.agent.memory.embedding import OpenAIEmbedding
-
-        cfg = MagicMock()
-        cfg.base_url = "http://localhost:11434/v1"
-        cfg.api_key = "test"
-        cfg.model = "test-model"
-        cfg.params = {}
-
-        emb = OpenAIEmbedding(cfg)
-
-        # Simulate successful 512-dim call
-        mock_data = MagicMock()
-        mock_data.embedding = [0.1] * 512
-        mock_response = MagicMock()
-        mock_response.data = [mock_data]
-
-        with patch.object(emb.client.embeddings, "create", return_value=mock_response):
-            emb.get_embedding("first call")
-
-        # Now simulate a failure — fallback should be 512-dim
-        with patch.object(emb.client.embeddings, "create", side_effect=Exception("API down")):
-            fallback = emb.get_embedding("failing call")
-
-        assert len(fallback) == 512
-        assert all(v == 0.0 for v in fallback)
