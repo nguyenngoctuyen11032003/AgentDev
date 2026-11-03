@@ -66,6 +66,7 @@ class GraphExecutor:
         session_id: Optional[str] = None,
         workspace_hook_factory: Optional[Callable[[RuntimeContext], Any]] = None,
         cancel_event: Optional[threading.Event] = None,
+        workspace_root: Optional[Path] = None,
     ) -> None:
         """Initialize executor with graph context instance."""
         self.majority_result = None
@@ -74,7 +75,9 @@ class GraphExecutor:
         self.logger = self._create_logger()
         self._cancel_event = cancel_event or threading.Event()
         self._cancel_reason: Optional[str] = None
-        runtime = RuntimeBuilder(graph).build(logger=self.logger, session_id=session_id)
+        runtime = RuntimeBuilder(graph).build(
+            logger=self.logger, session_id=session_id, workspace_root=workspace_root
+        )
         if workspace_hook_factory:
             runtime.workspace_hook = workspace_hook_factory(runtime)
         self.runtime_context = runtime

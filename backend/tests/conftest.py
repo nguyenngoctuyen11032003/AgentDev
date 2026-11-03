@@ -19,6 +19,7 @@ _WAREHOUSE_ATTRS = (
     ("agentdev.entity.graph_config", "WAREHOUSE_DIR"),
 )
 _LOGS_ATTRS = (("agentdev.utils.structured_logger", "LOGS_DIR"),)
+_SESSIONS_ATTRS = (("agentdev.api.services.session_history", "SESSIONS_DIR"),)
 
 
 def _patch_loaded(monkeypatch, targets, value) -> None:
@@ -33,5 +34,6 @@ def _patch_loaded(monkeypatch, targets, value) -> None:
 def _isolate_runtime_dirs(tmp_path, monkeypatch):
     _patch_loaded(monkeypatch, _WAREHOUSE_ATTRS, tmp_path / "WareHouse")
     _patch_loaded(monkeypatch, _LOGS_ATTRS, tmp_path / "logs")
+    _patch_loaded(monkeypatch, _SESSIONS_ATTRS, tmp_path / "sessions")
     monkeypatch.setenv("VUEGRAPHS_DB_PATH", str(tmp_path / "data" / "vuegraphs.db"))
     yield

@@ -135,3 +135,34 @@ def test_deeply_nested_paths_beyond_windows_max_path(service):
 
     record = service.finalize_project(SESSION, "deep")
     assert record.extra["file_count"] == 1
+
+
+def test_clone_project_copies_latest_state_into_another_session(service, tmp_path):
+    service.create_project(SESSION, "my-app")
+    _save(service, "my-app", [("src/main.js", b"v1"), ("README.md", b"hi")])
+    # The agent edited the project during the first session
+    (_project_dir(tmp_path, "my-app") / "src" / "main.js").write_bytes(b"v2 edited")
+
+    record = service.clone_project(SESSION, "my-app", "sess2")
+
+    target = tmp_path / "session_sess2" / "code_workspace" / "projects" / "my-app"
+    assert (target / "src" / "main.js").read_bytes() == b"v2 edited"
+    assert (target / "README.md").read_bytes() == b"hi"
+    assert record.extra["project_id"] == "my-app"
+    assert record.extra["file_count"] == 2
+    assert record.ref.name == "my-app/"
+
+
+@pytest.mark.parametrize("source, project", [("../x", "my-app"), (SESSION, "../etc"), (SESSION, "missing")])
+def test_clone_project_rejects_bad_or_unknown_sources(service, source, project):
+    service.create_project(SESSION, "my-app")
+    _save(service, "my-app", [("a.txt", b"a")])
+    with pytest.raises(ValidationError):
+        service.clone_project(source, project, "sess2")
+
+
+def test_clone_project_needs_a_different_target(service):
+    service.create_project(SESSION, "my-app")
+    _save(service, "my-app", [("a.txt", b"a")])
+    with pytest.raises(ValidationError):
+        service.clone_project(SESSION, "my-app", SESSION)

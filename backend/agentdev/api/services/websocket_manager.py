@@ -13,6 +13,7 @@ from fastapi import WebSocket, WebSocketException
 from agentdev.api.services.message_handler import MessageHandler
 from agentdev.api.services.attachment_service import AttachmentService
 from agentdev.api.services.session_execution import SessionExecutionController
+from agentdev.api.services.session_history import SessionHistoryStore
 from agentdev.api.services.session_store import WorkflowSessionStore, SessionStatus
 from agentdev.api.services.workflow_run_service import WorkflowRunService
 from agentdev.utils.exceptions import ValidationError
@@ -55,7 +56,7 @@ class WebSocketManager:
         self.connection_timestamps: Dict[str, float] = {}
         self._owner_loop: Optional[asyncio.AbstractEventLoop] = None
         self._gc_task: Optional[asyncio.Task] = None
-        self.session_store = session_store or WorkflowSessionStore()
+        self.session_store = session_store or WorkflowSessionStore(history=SessionHistoryStore())
         self.session_controller = session_controller or SessionExecutionController(self.session_store)
         self.attachment_service = attachment_service or AttachmentService()
         self.workflow_run_service = workflow_run_service or WorkflowRunService(
@@ -81,8 +82,8 @@ class WebSocketManager:
         if self._owner_loop is None:
             self._owner_loop = asyncio.get_running_loop()
 
-        # --- Reconnect to existing session ---
-        if session_id and self.session_store.has_session(session_id):
+        # --- Reconnect to existing session (live, or saved on disk before a restart) ---
+        if session_id and self.session_store.restore_session(session_id):
             # If an old WebSocket is still tied to this session, close it first
             if session_id in self.active_connections:
                 old_ws = self.active_connections[session_id]
@@ -101,7 +102,7 @@ class WebSocketManager:
             # Send connection confirmation
             await self._send_raw(
                 session_id,
-                {"type": "connection", "data": {"session_id": session_id, "status": "connected"}},
+                {"type": "connection", "data": {"session_id": session_id, "status": "connected", "resumed": True}},
             )
 
             # Replay all buffered messages (snapshot to avoid including messages
@@ -146,19 +147,35 @@ class WebSocketManager:
         logging.info("WebSocket disconnected (session preserved): %s", session_id)
 
     async def send_message(self, session_id: str, message: Dict[str, Any]) -> None:
+        encoded = _encode_ws_message(message)
         # Buffer business messages for reconnection replay (exclude transport messages)
         if message.get("type") not in ("connection", "pong"):
-            session = self.session_store.get_session(session_id)
-            if session:
-                session.append_message(message)
+            self.session_store.record_message(session_id, message, encoded)
 
         if session_id in self.active_connections:
             websocket = self.active_connections[session_id]
             try:
-                await websocket.send_text(_encode_ws_message(message))
+                await websocket.send_text(encoded)
             except Exception as exc:
                 traceback.print_exc()
                 logging.error("Failed to send message to %s: %s", session_id, exc)
+
+    def record_user_message(self, session_id: str, text: str, attachment_ids: Optional[list] = None) -> None:
+        """Buffer what the user typed so a replay shows both sides of the conversation.
+
+        The browser renders its own message immediately, so this is stored but not sent.
+        """
+        names = []
+        if attachment_ids:
+            try:
+                manifest = self.attachment_service.list_attachment_manifests(session_id)
+            except Exception:
+                manifest = {}
+            for attachment_id in attachment_ids:
+                ref = (manifest.get(attachment_id) or {}).get("ref") or {}
+                names.append(ref.get("name") or attachment_id)
+        message = {"type": "user_message", "data": {"text": text or "", "attachments": names}}
+        self.session_store.record_message(session_id, message, _encode_ws_message(message))
 
     async def _send_raw(self, session_id: str, message: Dict[str, Any]) -> None:
         """Send a message without buffering. Used for replay and connection management."""

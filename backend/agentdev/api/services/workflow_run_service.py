@@ -15,6 +15,7 @@ from agentdev.utils.workspace_paths import session_directory_name
 from agentdev.workflow.graph_context import GraphContext
 
 from agentdev.api.services.attachment_service import AttachmentService
+from agentdev.api.services.local_projects import opened_project_folder
 from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.api.services.session_store import SessionStatus, WorkflowSessionStore
 from agentdev.api.services.websocket_executor import WebSocketGraphExecutor
@@ -84,6 +85,7 @@ class WorkflowRunService:
                 attachments=attachments,
             )
             self.session_store.update_session_status(session_id, SessionStatus.RUNNING)
+            websocket_manager.record_user_message(session_id, task_prompt, attachments)
 
             await websocket_manager.send_message(
                 session_id,
@@ -167,6 +169,7 @@ class WorkflowRunService:
                 websocket_manager,
                 self.session_store,
                 cancel_event=cancel_event,
+                workspace_root=opened_project_folder(session),
             )
 
             if session:

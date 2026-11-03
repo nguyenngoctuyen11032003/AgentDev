@@ -1,6 +1,7 @@
 """Builder that assembles the runtime context for workflow execution."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from agentdev.runtime.node.agent import ToolManager
@@ -21,7 +22,15 @@ class RuntimeBuilder:
 
     graph: GraphContext
 
-    def build(self, logger: Optional[WorkflowLogger] = None, *, session_id: Optional[str] = None) -> RuntimeContext:
+    def build(
+        self,
+        logger: Optional[WorkflowLogger] = None,
+        *,
+        session_id: Optional[str] = None,
+        workspace_root: Optional[Path] = None,
+    ) -> RuntimeContext:
+        """``workspace_root``: a project folder opened in place (agents edit it directly);
+        attachments still live in the session directory."""
         tool_manager = ToolManager()
         function_manager = get_function_manager(EDGE_FUNCTION_DIR)
         processor_function_manager = get_function_manager(EDGE_PROCESSOR_FUNCTION_DIR)
@@ -29,7 +38,12 @@ class RuntimeBuilder:
         log_manager = LogManager(logger)
         token_tracker = TokenTracker(workflow_id=self.graph.name)
 
-        code_workspace = resolve_workspace_path(self.graph.directory, "code_workspace")
+        if workspace_root is not None:
+            code_workspace = Path(workspace_root).resolve()
+            if not code_workspace.is_dir():
+                raise FileNotFoundError(f"Project folder not found: {code_workspace}")
+        else:
+            code_workspace = resolve_workspace_path(self.graph.directory, "code_workspace")
         attachments_dir = resolve_workspace_path(self.graph.directory, "code_workspace", "attachments")
         code_workspace.mkdir(parents=True, exist_ok=True)
         attachments_dir.mkdir(parents=True, exist_ok=True)

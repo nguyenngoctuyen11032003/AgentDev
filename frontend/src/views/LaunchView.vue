@@ -11,6 +11,23 @@
       </button>
     </div>
     <div class="content">
+      <!-- Session history: switch between runs and pick up where you left off -->
+      <SessionSidebar
+        :sessions="sessions"
+        :active-id="activeSessionId"
+        :draft="draftWorkflow"
+        :draft-project="currentProjectName"
+        :project-workflows="projectWorkflows"
+        :collapsed="!isSessionSidebarOpen"
+        @select="openSession"
+        @new="startNewSession"
+        @add-project="handleAddProject"
+        @delete-group="handleDeleteGroup"
+        @rename="handleRenameSession"
+        @delete="handleDeleteSession"
+        @toggle="isSessionSidebarOpen = !isSessionSidebarOpen"
+      />
+
       <!-- Left panel -->
       <div class="left-panel">
         <!-- Chat Panel: fullscreen in chat mode, overlay in graph -->
@@ -28,6 +45,38 @@
             </svg>
           </button>
           <div v-show="viewMode === 'chat' || isChatPanelOpen" class="chat-panel-content">
+            <div class="chat-header">
+              <div class="chat-header-main">
+                <span class="chat-header-title" :title="currentSessionTitle">{{ currentSessionTitle }}</span>
+                <span v-if="selectedFile" class="chat-header-sub">
+                  <span v-if="currentProjectName" class="chat-header-project" :title="$t('launch.sessions.project_label', { name: currentProjectName })">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>{{ currentProjectName }}
+                  </span>
+                  {{ selectedFile.replace(/\.ya?ml$/i, '') }} · {{ getTranslatedStatus(status) }}
+                </span>
+              </div>
+              <div class="chat-header-actions">
+                <button
+                  type="button"
+                  class="chat-header-btn"
+                  :class="{ active: isSessionSidebarOpen }"
+                  :title="$t('launch.sessions.history')"
+                  :aria-label="$t('launch.sessions.history')"
+                  @click="isSessionSidebarOpen = !isSessionSidebarOpen"
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l3 3"></path></svg>
+                </button>
+                <button
+                  type="button"
+                  class="chat-header-btn"
+                  :title="newSessionLabel"
+                  :aria-label="newSessionLabel"
+                  @click="startNewSession()"
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-4.2-7.6"></path><path d="M12 8v8M8 12h8"></path></svg>
+                </button>
+              </div>
+            </div>
             <div class="chat-box">
               <div class="chat-messages" ref="chatMessagesRef">
                 <!-- Notifications and dialogues in order -->
@@ -67,7 +116,7 @@
                 :class="{ 'dialogue-right': message.isRight }"
               >
                 <div class="profile-picture">
-                  <img :src="message.avatar" :alt="$t('launch.avatar_alt', { name: getDisplayName(message) })" />
+                  <img :src="messageAvatar(message)" :alt="$t('launch.avatar_alt', { name: getDisplayName(message) })" />
                 </div>
                 <div class="message-content">
                   <div class="user-name">
@@ -197,154 +246,117 @@
             </div>
             <div class="input-area">
               <div
-                :class="['input-shell', { glow: shouldGlow, 'drag-active': isDragActive }]"
+                :class="['input-shell', 'composer', { glow: shouldGlow, 'drag-active': isDragActive }]"
                 @dragenter="handleDragEnter"
                 @dragover="handleDragOver"
                 @dragleave="handleDragLeave"
                 @drop="handleDrop"
               >
+                <!-- Attached files / pasted images -->
+                <div
+                  v-if="uploadedAttachments.length || isUploadingAttachment"
+                  class="composer-attachments"
+                >
+                  <div
+                    v-for="attachment in uploadedAttachments"
+                    :key="attachment.attachmentId"
+                    class="attachment-chip"
+                    :title="attachment.kind === 'project' ? attachment.workspacePath : attachment.name"
+                  >
+                    <img
+                      v-if="attachmentPreviews[attachment.attachmentId]"
+                      class="chip-thumb"
+                      :src="attachmentPreviews[attachment.attachmentId]"
+                      alt=""
+                    />
+                    <span v-else class="chip-icon">{{ attachment.kind === 'project' ? '📁' : '📄' }}</span>
+                    <span class="chip-name">{{ attachment.name }}</span>
+                    <span v-if="attachment.kind === 'project'" class="chip-meta">
+                      {{ $t('launch.project_files', { count: attachment.fileCount || 0 }) }}
+                    </span>
+                    <button
+                      type="button"
+                      class="chip-remove"
+                      :title="$t('launch.remove_attachment')"
+                      :aria-label="$t('launch.remove_attachment')"
+                      @click.stop="removeAttachment(attachment.attachmentId)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div v-if="isUploadingAttachment" class="attachment-chip chip-uploading">
+                    <span class="chip-spinner"></span>
+                    <span class="chip-name">{{ uploadProgressText || $t('launch.uploading') }}</span>
+                  </div>
+                </div>
+
                 <textarea
                   v-model="taskPrompt"
                   class="task-input"
+                  rows="1"
                   :disabled="!isConnectionReady || (isWorkflowRunning && status !== 'Waiting for input...')"
                   :placeholder="$t('launch.enter_prompt')"
                   ref="taskInputRef"
+                  @input="autoResizeTaskInput"
                   @keydown.enter="handleEnterKey"
                   @paste="handlePaste"
                 ></textarea>
-                <div class="input-footer">
-                  <div class="input-footer-buttons">
-                    <div
-                      class="attachment-upload"
-                      @mouseenter="handleAttachmentHover(true)"
-                      @mouseleave="handleAttachmentHover(false)"
-                    >
-                      <div class="attachment-button-wrapper">
-                        <button
-                          type="button"
-                          class="attachment-button"
-                          :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || (isWorkflowRunning && status !== 'Waiting for input...')"
-                          @click="handleAttachmentButtonClick"
-                        >
-                          {{ isUploadingAttachment ? (uploadProgressText || $t('launch.uploading')) : $t('launch.upload_file') }}
-                        </button>
-                        <button
-                          type="button"
-                          class="attachment-button folder-button"
-                          :title="$t('launch.upload_folder_hint')"
-                          :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || (isWorkflowRunning && status !== 'Waiting for input...')"
-                          @click="handleFolderButtonClick"
-                        >
-                          {{ $t('launch.upload_folder') }}
-                        </button>
-                        <span
-                          v-if="uploadedAttachments.length"
-                          class="attachment-count"
-                        >
-                          {{ uploadedAttachments.length }}
-                        </span>
-                      </div>
-                      <input
-                        ref="attachmentInputRef"
-                        type="file"
-                        multiple
-                        class="hidden-file-input"
-                        @change="onAttachmentSelected"
-                      />
-                      <input
-                        ref="folderInputRef"
-                        type="file"
-                        webkitdirectory
-                        directory
-                        multiple
-                        class="hidden-file-input"
-                        @change="onFolderSelected"
-                      />
-                      <Transition name="attachment-popover">
-                        <div
-                          v-if="showAttachmentPopover"
-                          class="attachment-modal"
-                          @mouseenter="handleAttachmentHover(true)"
-                          @mouseleave="handleAttachmentHover(false)"
-                        >
-                          <div
-                            v-for="attachment in uploadedAttachments"
-                            :key="attachment.attachmentId"
-                            class="attachment-item"
-                          >
-                            <span
-                              class="attachment-name"
-                              :title="attachment.kind === 'project' ? attachment.workspacePath : attachment.name"
-                            >
-                              <span
-                                v-if="attachment.kind === 'project'"
-                                class="attachment-kind"
-                              >📁</span>
-                              {{ attachment.name }}
-                              <span
-                                v-if="attachment.kind === 'project'"
-                                class="attachment-meta"
-                              >{{ $t('launch.project_files', { count: attachment.fileCount || 0 }) }}</span>
-                            </span>
-                            <button
-                              type="button"
-                              class="remove-attachment"
-                              :title="$t('launch.remove_attachment')"
-                              :aria-label="$t('launch.remove_attachment')"
-                              @click.stop="removeAttachment(attachment.attachmentId)"
-                            >
-                              ×
-                            </button>
-                          </div>
-                          <div
-                            v-if="!uploadedAttachments.length"
-                            class="attachment-empty"
-                          >
-                            {{ $t('launch.no_files_uploaded') }}
-                          </div>
-                        </div>
-                      </Transition>
-                    </div>
+
+                <div class="composer-toolbar">
+                  <div class="attach-menu-wrap" ref="attachMenuRef">
                     <button
-                      v-if="false"
                       type="button"
-                      class="microphone-button"
-                      :class="{ 'recording': isRecording, 'pulsating': isRecording }"
+                      class="composer-icon-btn"
+                      :class="{ active: showAttachMenu }"
+                      :title="$t('launch.upload_file')"
+                      :aria-label="$t('launch.upload_file')"
+                      aria-haspopup="menu"
+                      :aria-expanded="showAttachMenu"
                       :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || (isWorkflowRunning && status !== 'Waiting for input...')"
-                      :title="$t('launch.hold_to_record')"
-                      :aria-label="$t('launch.hold_to_record')"
-                      @mousedown.prevent="startRecording"
-                      @mouseup.prevent="stopRecording"
-                      @mouseleave="handleMicrophoneMouseLeave"
-                      @touchstart.prevent="startRecording"
-                      @touchend.prevent="stopRecording"
+                      @click="showAttachMenu = !showAttachMenu"
                     >
-                      <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path
-                          d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z"
-                          fill="currentColor"
-                        />
-                        <path
-                          d="M19 10V12C19 15.87 15.87 19 12 19C8.13 19 5 15.87 5 12V10H7V12C7 14.76 9.24 17 12 17C14.76 17 17 14.76 17 12V10H19Z"
-                          fill="currentColor"
-                        />
-                        <path
-                          d="M11 22H13V20H11V22Z"
-                          fill="currentColor"
-                        />
-                        <path
-                          d="M6 19H18V21H6V19Z"
-                          fill="currentColor"
-                        />
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
                       </svg>
                     </button>
+                    <Transition name="attachment-popover">
+                      <div v-if="showAttachMenu" class="attach-menu" role="menu">
+                        <button type="button" class="attach-menu-item" role="menuitem" @click="pickAttachmentFile">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                          {{ $t('launch.upload_file') }}
+                        </button>
+                        <button type="button" class="attach-menu-item" role="menuitem" :title="$t('launch.upload_folder_hint')" @click="pickAttachmentFolder">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                          {{ $t('launch.upload_folder') }}
+                        </button>
+                      </div>
+                    </Transition>
                   </div>
+                  <input
+                    ref="attachmentInputRef"
+                    type="file"
+                    multiple
+                    class="hidden-file-input"
+                    @change="onAttachmentSelected"
+                  />
+                  <button
+                    type="button"
+                    class="composer-send"
+                    :class="{ glow: shouldGlow && !isStopMode, 'is-stop': isStopMode }"
+                    :title="buttonLabel"
+                    :aria-label="buttonLabel"
+                    :disabled="!isStopMode && (loading || (isWorkflowRunning && !taskPrompt.trim()) || (!isWorkflowRunning && status !== 'Completed' && status !== 'Cancelled' && !isConnectionReady))"
+                    @click="isStopMode ? cancelWorkflow() : handleButtonClick()"
+                  >
+                    <svg v-if="isStopMode" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <rect x="4" y="4" width="16" height="16" rx="3"></rect>
+                    </svg>
+                    <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="19" x2="12" y2="5"></line>
+                      <polyline points="5 12 12 5 19 12"></polyline>
+                    </svg>
+                  </button>
                 </div>
                 <div v-if="isDragActive" class="drag-overlay">
                   <div class="drag-overlay-content">{{ $t('launch.drop_files') }}</div>
@@ -391,7 +403,7 @@
           </VueFlow>
         </div>
 
-        <div v-show="viewMode === 'office'" class="graph-panel office-panel">
+        <div v-show="viewMode === 'office'" class="graph-panel office-panel" :style="{ '--office-inset-left': isChatPanelOpen ? 'min(380px, 50%)' : '0px' }">
           <OfficeView
             ref="officeRef"
             :graph="officeGraph"
@@ -400,6 +412,44 @@
             :status="status"
             :workflow-name="selectedFile ? selectedFile.replace(/\.yaml$/i, '') : ''"
             :visible="viewMode === 'office'"
+          />
+        </div>
+
+        <div v-if="visitedViews.board" v-show="viewMode === 'board'" class="graph-panel insight-panel" :style="insetStyle">
+          <KanbanView
+            :graph="officeGraph"
+            :sprite-map="nodeSpriteMap"
+            :tracker="runTracker.state"
+            :status="status"
+            :workflow-name="workflowTitle"
+            :visible="viewMode === 'board'"
+            @review="viewMode = 'review'"
+          />
+        </div>
+
+        <div v-if="visitedViews.review" v-show="viewMode === 'review'" class="graph-panel insight-panel" :style="insetStyle">
+          <ReviewView
+            :sessions="sessions"
+            :focus-id="activeSessionId || ''"
+            :busy="isReworking"
+            :visible="viewMode === 'review'"
+            @open-session="openSessionInChat"
+            @rework="handleRework"
+            @reviewed="refreshSessions"
+          />
+        </div>
+
+        <div v-if="visitedViews.dashboard" v-show="viewMode === 'dashboard'" class="graph-panel insight-panel" :style="insetStyle">
+          <DashboardView
+            :graph="officeGraph"
+            :sprite-map="nodeSpriteMap"
+            :tracker="runTracker.state"
+            :status="status"
+            :workflow-name="workflowTitle"
+            :sessions="sessions"
+            :current-session-id="activeSessionId || ''"
+            :visible="viewMode === 'dashboard'"
+            @open-session="openSession"
           />
         </div>
 
@@ -471,6 +521,7 @@
           </ul>
         </Transition>
       </div>
+          <p v-if="workflowHint" class="workflow-hint">{{ workflowHint }}</p>
 
           <label class="section-label">{{ $t('launch.status') }}</label>
           <div class="status-display" :class="{ 'status-active': status === 'Running...' }">
@@ -499,6 +550,28 @@
               @click="viewMode = 'office'"
             >
               {{ $t('launch.office.view') }}
+            </button>
+            <button
+              class="toggle-button"
+              :class="{ active: viewMode === 'board' }"
+              @click="viewMode = 'board'"
+            >
+              {{ $t('launch.board.view') }}
+            </button>
+            <button
+              class="toggle-button"
+              :class="{ active: viewMode === 'dashboard' }"
+              @click="viewMode = 'dashboard'"
+            >
+              {{ $t('launch.dashboard.view') }}
+            </button>
+            <button
+              class="toggle-button"
+              :class="{ active: viewMode === 'review' }"
+              @click="viewMode = 'review'"
+            >
+              {{ $t('launch.review.view') }}
+              <span v-if="reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
             </button>
           </div>
 
@@ -553,18 +626,34 @@
     :is-visible="showSettingsModal"
     @update:is-visible="showSettingsModal = $event"
   />
+
+  <LocalFolderPicker
+    :open="showFolderPicker"
+    :busy="isOpeningFolder"
+    :hint="folderPickerHint"
+    @open="onFolderPicked"
+    @cancel="cancelFolderPicker"
+  />
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, uploadProject, getAttachment, fetchVueGraph } from '@/api/client.js'
-import { projectsFromDirectoryInput, collectDroppedItems, supportsDirectoryPicker, pickProjectDirectory } from '@/utils/projectFiles.js'
+import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, fetchSessions, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject } from '@/api/client.js'
+import { collectDroppedItems } from '@/utils/projectFiles.js'
+import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
+import KanbanView from '@/components/launch/KanbanView.vue'
+import DashboardView from '@/components/launch/DashboardView.vue'
+import ReviewView from '@/components/launch/ReviewView.vue'
+import { createRunTracker } from '@/utils/runTracker.js'
+import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast.js'
 import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
+import { onWorkflowChanged, workflowKey } from '@/utils/workflowSync.js'
 import OfficeView from '@/components/office/OfficeView.vue'
+import SessionSidebar from '@/components/launch/SessionSidebar.vue'
 import yaml from 'js-yaml'
 import MarkdownIt from 'markdown-it'
 import SettingsModal from '@/components/common/SettingsModal.vue'
@@ -798,13 +887,7 @@ const addTotalLoadingMessage = (nodeId) => {
   let nodeState = nodesLoadingMessagesMap.get(nodeId)
   if (nodeState) return nodeState
 
-  let avatar
-  if (nameToSpriteMap.has(nodeId)) {
-    avatar = nameToSpriteMap.get(nodeId)
-  } else {
-    avatar = spriteFetcher.fetchSprite(nodeId, 'D', 1)
-    nameToSpriteMap.set(nodeId, avatar)
-  }
+  const avatar = avatarFor(nodeId)
 
   // Use the reactive proxy (not the raw object) so later mutations from
   // nodesLoadingMessagesMap are tracked instead of relying on the 1s timer tick
@@ -934,15 +1017,92 @@ const nameToSpriteMap = new Map()
 // Map node IDs to sprites for graph display
 const nodeSpriteMap = ref(new Map())
 
+// Stable avatar for any sender: a workflow node uses its bound mascot, other senders
+// (subgraph nodes, artifacts) get a deterministic character instead of a random one.
+const avatarFor = (name) => {
+  const key = name || ''
+  if (nameToSpriteMap.has(key)) return nameToSpriteMap.get(key)
+  // The user is not a node: keep a free-floating character so no node loses its own
+  const avatar = key === USER_SENDER ? spriteFetcher.fetchSprite() : spriteFetcher.fetchSprite(key || null, 'D', 1)
+  nameToSpriteMap.set(key, avatar)
+  return avatar
+}
+
+// Chat avatars follow the current bindings, so a mascot edited in the workflow
+// editor (even in another tab) updates every past message immediately.
+const messageAvatar = (message) => nodeSpriteMap.value.get(message.name) || message.avatar
+
+// Rebind every node of the workflow to its mascot and publish one fresh sprite map
+// (a single reactive swap: graph, kanban, dashboard and office all update at once).
+let lastYamlSource = ''
+const applyWorkflowSprites = (nodes, source = '') => {
+  lastYamlSource = source
+  spriteFetcher.bindNodes(Array.isArray(nodes) ? nodes : [])
+  nameToSpriteMap.clear()
+  const next = new Map()
+  for (const node of Array.isArray(nodes) ? nodes : []) {
+    if (node?.id) next.set(node.id, spriteFetcher.fetchSprite(node.id, 'D', 1))
+  }
+  nodeSpriteMap.value = next
+}
+
+// Pick up edits saved in the workflow editor (usually another tab) without a reload:
+// mascots, node list and the drawn graph refresh in place and the chat is kept.
+let workflowRefreshSeq = 0
+let workflowRefreshTimer = null
+let pendingGraphRefresh = false
+const refreshSelectedWorkflow = async ({ graphChanged = false } = {}) => {
+  const fileName = selectedFile.value
+  if (!fileName) return
+  const seq = ++workflowRefreshSeq
+  try {
+    const source = await fetchWorkflowYAML(fileName)
+    if (seq !== workflowRefreshSeq || selectedFile.value !== fileName) return
+    const yamlChanged = source !== lastYamlSource || nodeSpriteMap.value.size === 0
+    if (yamlChanged) {
+      const parsed = yaml.load(source) || {}
+      workflowYaml.value = parsed
+      applyWorkflowSprites(parsed?.graph?.nodes, source)
+    }
+    // A running / finished session keeps its node states; only drafts redraw the graph
+    if ((yamlChanged || graphChanged) && !hasLaunched.value) {
+      await loadVueFlowGraph()
+    }
+  } catch (error) {
+    console.warn('Failed to refresh workflow after an external change:', error)
+  }
+}
+
+const scheduleWorkflowRefresh = ({ graphChanged = false } = {}) => {
+  pendingGraphRefresh = pendingGraphRefresh || graphChanged
+  clearTimeout(workflowRefreshTimer)
+  // A save writes the YAML and the graph back to back: coalesce them into one refresh
+  workflowRefreshTimer = setTimeout(() => {
+    const graph = pendingGraphRefresh
+    pendingGraphRefresh = false
+    refreshSelectedWorkflow({ graphChanged: graph })
+  }, 120)
+}
+
+const handleWorkflowChanged = (detail) => {
+  if (!detail?.key || !selectedFile.value) return
+  if (workflowKey(detail.key) !== workflowKey(selectedFile.value)) return
+  scheduleWorkflowRefresh({ graphChanged: detail.kind === 'graph' })
+}
+let stopWorkflowSync = null
+
 // Input glow state
 const shouldGlow = ref(false)
 const taskInputRef = ref(null)
 const attachmentInputRef = ref(null)
-const folderInputRef = ref(null)
 const uploadProgressText = ref('')
 const uploadedAttachments = ref([])
 const isDragActive = ref(false)
 const showAttachmentPopover = ref(false)
+const showAttachMenu = ref(false)
+const attachMenuRef = ref(null)
+// Thumbnails (object URLs) for attached images, keyed by attachmentId
+const attachmentPreviews = ref({})
 const isUploadingAttachment = ref(false)
 let attachmentHoverTimeout = null
 const selectedArtifactImage = ref(null)
@@ -966,6 +1126,207 @@ const officeGraph = computed(() => workflowYaml.value?.graph || {})
 const isChatPanelOpen = ref(true)
 const isRightPanelOpen = ref(true)
 
+// Task board (Kanban per workflow step) and dashboard: both read this run record,
+// fed by the same events as the chat and the office (replays included).
+const runTracker = createRunTracker()
+const workflowTitle = computed(() => (selectedFile.value ? selectedFile.value.replace(/\.ya?ml$/i, '') : ''))
+// Mounted on first use only, then kept so switching views is instant
+const visitedViews = reactive({ board: false, dashboard: false, review: false })
+watch(viewMode, (mode) => {
+  if (mode in visitedViews) visitedViews[mode] = true
+}, { immediate: true })
+// Content stays clear of the chat panel that floats over the canvas
+const insetStyle = computed(() => ({ '--inset-left': isChatPanelOpen.value ? 'min(380px, 50%)' : '0px' }))
+
+// ---------------------------------------------------------------- session history
+// Every launched run is saved by the backend; the sidebar lists them so the user can
+// switch between runs and reopen one later (after a reload or a server restart).
+const SIDEBAR_OPEN_KEY = 'agentdev.sessions.sidebarOpen'
+const LAST_SESSION_KEY = 'agentdev.launch.lastSession'
+const readStorage = (key) => {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+const writeStorage = (key, value) => {
+  try {
+    if (value === null) localStorage.removeItem(key)
+    else localStorage.setItem(key, value)
+  } catch {
+    // per-browser convenience only
+  }
+}
+
+const sessions = ref([])
+const isSessionSidebarOpen = ref(readStorage(SIDEBAR_OPEN_KEY) !== '0')
+watch(isSessionSidebarOpen, (open) => writeStorage(SIDEBAR_OPEN_KEY, open ? '1' : '0'))
+
+// The URL carries the open session (?session=...), so it is the single source of truth
+const activeSessionId = computed(() => {
+  const value = route.query?.session
+  return typeof value === 'string' ? value : ''
+})
+const draftWorkflow = computed(() => (activeSessionId.value ? '' : selectedFile.value || ''))
+const currentSessionTitle = computed(() => {
+  const current = sessions.value.find((item) => item.session_id === activeSessionId.value)
+  return current?.title || t('launch.sessions.untitled')
+})
+
+// ---------------------------------------------------------------- projects
+// A project is a folder the agent works on. Its sessions are grouped together, and
+// each project remembers its own workflow, so moving between projects never changes
+// the workflow of another one. A new session in a project starts from the project's
+// latest state (copied on the server from its most recent session), not a re-upload.
+const PROJECT_WORKFLOWS_KEY = 'agentdev.launch.projectWorkflows'
+const readJson = (key) => {
+  try {
+    const value = JSON.parse(readStorage(key) || 'null')
+    return value && typeof value === 'object' ? value : null
+  } catch {
+    return null
+  }
+}
+const projectWorkflows = ref(readJson(PROJECT_WORKFLOWS_KEY) || {})
+const rememberProjectWorkflow = (name, file) => {
+  if (!name || !file || projectWorkflows.value[name] === file) return
+  projectWorkflows.value = { ...projectWorkflows.value, [name]: file }
+  writeStorage(PROJECT_WORKFLOWS_KEY, JSON.stringify(projectWorkflows.value))
+}
+
+const stripSlash = (name) => (name || '').replace(/\/+$/, '')
+// { name, sessionId, projectId } of the first project attached to a session
+const sessionProject = (item) => {
+  const project = item?.projects?.[0]
+  const name = stripSlash(project?.name)
+  return name
+    ? { name, sessionId: item.session_id, projectId: project.project_id || '', localPath: project.local_path || '' }
+    : null
+}
+
+// Project of what is open in this tab ('' for a session without a project folder)
+const currentProjectName = ref('')
+// The open session has been launched (its workflow is then fixed)
+const hasLaunched = ref(false)
+// Project to copy into the session that is connecting (see the 'connection' message)
+let pendingProject = null
+
+const workflowExists = (file) => !workflowFiles.value.length || workflowFiles.value.some((item) => item.name === file)
+const workflowForProject = (name) => {
+  const saved = projectWorkflows.value[name]
+  if (saved && workflowExists(saved)) return saved
+  const latest = sessions.value.find((item) => sessionProject(item)?.name === name && item.yaml_file)
+  return latest?.yaml_file || selectedFile.value
+}
+// Sessions are listed newest first: the first copy found is the project's latest state
+const latestProjectSource = (name) =>
+  sessions.value
+    .map(sessionProject)
+    .find((project) => project?.name === name && (project.projectId || project.localPath)) || null
+
+const newSessionLabel = computed(() =>
+  currentProjectName.value
+    ? t('launch.sessions.new_in_project', {
+        name: currentProjectName.value,
+        workflow: (workflowForProject(currentProjectName.value) || '').replace(/\.ya?ml$/i, '')
+      })
+    : t('launch.sessions.new')
+)
+const workflowHint = computed(() => {
+  if (!selectedFile.value) return ''
+  if (hasLaunched.value && !isWorkflowRunning.value) return t('launch.sessions.workflow_locked_hint')
+  if (currentProjectName.value) return t('launch.sessions.project_workflow_hint', { name: currentProjectName.value })
+  return ''
+})
+
+// ---------------------------------------------------------------- composer per session
+// What was typed (and attached) but not sent yet stays with its session while you
+// work in another one.
+const composerDrafts = new Map()
+const composerKey = (project = currentProjectName.value, file = selectedFile.value) =>
+  activeSessionId.value || (file ? `draft:${project}:${file}` : '')
+const stashComposer = () => {
+  const key = composerKey()
+  if (!key) return
+  const prompt = taskPrompt.value
+  // Uploads belong to their session id; only a saved session can get them back
+  const attachments = activeSessionId.value ? uploadedAttachments.value.map((item) => ({ ...item })) : []
+  if (prompt.trim() || attachments.length) composerDrafts.set(key, { prompt, attachments })
+  else composerDrafts.delete(key)
+}
+const takeComposer = (key) => {
+  const value = composerDrafts.get(key) || null
+  composerDrafts.delete(key)
+  return value
+}
+
+// ---------------------------------------------------------------- background sessions
+// Runs keep going on the server while another session is open here. Watch their
+// status and say when one needs an answer or has finished.
+const LIVE_STATUSES = new Set(['running', 'waiting_for_input'])
+const knownStatuses = new Map()
+let statusesPrimed = false
+const notifyBackgroundChanges = (list) => {
+  for (const item of list) {
+    const previous = knownStatuses.get(item.session_id)
+    knownStatuses.set(item.session_id, item.status)
+    if (!statusesPrimed || !previous || previous === item.status) continue
+    if (item.session_id === activeSessionId.value) continue
+    const title = item.title || t('launch.sessions.untitled')
+    const project = sessionProject(item)?.name
+    const name = project ? `${project} · ${title}` : title
+    const action = { label: t('launch.sessions.menu.open'), run: () => openSession(item) }
+    if (item.status === 'waiting_for_input') {
+      toast.warning(t('launch.sessions.bg_waiting', { name }), { action, duration: 15000 })
+    } else if (item.status === 'completed') {
+      toast.success(t('launch.sessions.bg_completed', { name }), { action, duration: 8000 })
+    } else if (item.status === 'error') {
+      toast.error(t('launch.sessions.bg_error', { name }), { action, duration: 12000 })
+    }
+  }
+  statusesPrimed = true
+}
+const waitingElsewhere = computed(
+  () => sessions.value.filter((item) => item.status === 'waiting_for_input' && item.session_id !== activeSessionId.value).length
+)
+const BASE_TITLE = document.title
+watch(waitingElsewhere, (count) => {
+  document.title = count ? `(${count}) ${BASE_TITLE}` : BASE_TITLE
+})
+
+let sessionsPollTimer = null
+let sessionsRefreshTimer = null
+const refreshSessions = async () => {
+  try {
+    const list = await fetchSessions()
+    sessions.value = list
+    notifyBackgroundChanges(list)
+  } catch (error) {
+    console.warn('Failed to load sessions:', error)
+  }
+}
+// Coalesce bursts of status changes into one request
+const scheduleSessionsRefresh = () => {
+  clearTimeout(sessionsRefreshTimer)
+  sessionsRefreshTimer = setTimeout(refreshSessions, 400)
+}
+// Poll often while a run is live (here or in the background), slowly otherwise
+const schedulePoll = () => {
+  clearTimeout(sessionsPollTimer)
+  const live = sessions.value.some((item) => LIVE_STATUSES.has(item.status))
+  sessionsPollTimer = setTimeout(async () => {
+    if (document.visibilityState === 'visible') await refreshSessions()
+    schedulePoll()
+  }, live ? 4000 : 15000)
+}
+const onVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') return
+  refreshSessions()
+  // Edits made elsewhere (another browser, a teammate) show up when the tab is back
+  if (isPageReady) scheduleWorkflowRefresh()
+}
+
 // WebSocket reference
 let ws = null
 let sessionId = null
@@ -984,8 +1345,14 @@ const filteredWorkflowFiles = computed(() => {
   )
 })
 
+// While the workflow is working the composer button turns into a Stop button
+const isStopMode = computed(() => isWorkflowRunning.value && status.value === 'Running...')
+
 // Button label computed property
 const buttonLabel = computed(() => {
+  if (isStopMode.value) {
+    return t('common.cancel')
+  }
   if (isWorkflowRunning.value) {
     return t('launch.send')
   }
@@ -995,7 +1362,21 @@ const buttonLabel = computed(() => {
   return t('launch.launch_button')
 })
 
+const setAttachmentPreview = (attachmentId, file) => {
+  if (!attachmentId || !file?.type?.startsWith('image/')) return
+  attachmentPreviews.value[attachmentId] = URL.createObjectURL(file)
+}
+
+const dropAttachmentPreview = (attachmentId) => {
+  const url = attachmentPreviews.value[attachmentId]
+  if (!url) return
+  URL.revokeObjectURL(url)
+  delete attachmentPreviews.value[attachmentId]
+}
+
 const clearUploadedAttachments = () => {
+  Object.keys(attachmentPreviews.value).forEach(dropAttachmentPreview)
+  showAttachMenu.value = false
   uploadedAttachments.value = []
   showAttachmentPopover.value = false
   if (attachmentInputRef.value) {
@@ -1018,6 +1399,7 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
 
   if (!keepSession) {
     sessionId = null
+    hasLaunched.value = false
     isWorkflowRunning.value = false
     activeNodes.value = []
     shouldGlow.value = false
@@ -1027,6 +1409,7 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
     nameToSpriteMap.clear()
     nodeSpriteMap.value.clear()
     officeRef.value?.reset()
+    runTracker.reset()
   }
 
   if (attachmentHoverTimeout) {
@@ -1075,8 +1458,20 @@ const applyWorkflowFromRoute = () => {
     fileName = `${fileName}.yaml`
   }
 
-  selectedFile.value = fileName
-  fileSearchQuery.value = fileName
+  setWorkflowSelection(fileName)
+}
+
+const normalizeWorkflowName = (value) => {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (!raw || typeof raw !== 'string' || !raw.trim()) return ''
+  const name = raw.trim()
+  return name.toLowerCase().endsWith('.yaml') ? name : `${name}.yaml`
+}
+
+// Only shows the workflow; opening a session or draft is always an explicit step
+const setWorkflowSelection = (fileName) => {
+  selectedFile.value = fileName || ''
+  fileSearchQuery.value = fileName || ''
   isFileSearchDirty.value = false
 }
 
@@ -1127,20 +1522,14 @@ const selectWorkflow = (fileName) => {
   if (!fileName) {
     return
   }
-  selectedFile.value = fileName
-  fileSearchQuery.value = fileName
-  isFileSearchDirty.value = false
   closeFileDropdown()
-
   // Avoid focusing on element after selection
   fileSelectorInputRef.value?.blur()
-
-  router.push({
-    query: {
-      ...route.query,
-      workflow: fileName
-    }
-  })
+  if (fileName === selectedFile.value) {
+    resetFileSearchQuery()
+    return
+  }
+  changeWorkflow(fileName)
 }
 
 const handleFileInputEnter = () => {
@@ -1163,7 +1552,27 @@ const handleFileInputBlur = () => {
   }, 120)
 }
 
+const autoResizeTaskInput = () => {
+  const el = taskInputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+}
+
+const pickAttachmentFile = () => {
+  showAttachMenu.value = false
+  handleAttachmentButtonClick()
+}
+
+const pickAttachmentFolder = () => {
+  showAttachMenu.value = false
+  handleFolderButtonClick()
+}
+
 const handleClickOutside = (event) => {
+  if (showAttachMenu.value && attachMenuRef.value && !attachMenuRef.value.contains(event.target)) {
+    showAttachMenu.value = false
+  }
   if (
     isFileDropdownOpen.value &&
     fileSelectorWrapperRef.value &&
@@ -1199,13 +1608,7 @@ const addDialogue = (name, message) => {
   if (!text.trim()) {
     return
   }
-  let avatar
-  if (nameToSpriteMap.has(name)) {
-    avatar = nameToSpriteMap.get(name)
-  } else {
-    avatar = spriteFetcher.fetchSprite()
-    nameToSpriteMap.set(name, avatar)
-  }
+  const avatar = avatarFor(name)
 
   const isRight = name === USER_SENDER
 
@@ -1282,6 +1685,7 @@ const uploadFiles = async (files) => {
 
         if (result?.success && result?.attachmentId) {
           uploadedAttachments.value.push(result)
+          setAttachmentPreview(result.attachmentId, file)
         } else {
           console.error('File upload failed:', result)
           toast.error(t('launch.errors.upload_failed', { name: file?.name || '' }))
@@ -1309,90 +1713,96 @@ const onAttachmentSelected = async (event) => {
   await uploadFiles(files)
 }
 
-const handleFolderButtonClick = async () => {
-  if (!isAttachmentUploadAllowed()) {
-    return
-  }
-  if (!supportsDirectoryPicker()) {
-    folderInputRef.value?.click()
-    return
-  }
-  let project
-  try {
-    project = await pickProjectDirectory()
-  } catch (error) {
-    if (error?.name !== 'AbortError') {
-      console.error('Failed to read folder:', error)
-      toast.error(t('launch.errors.folder_read_failed'), { detail: formatErrorDetail(error) })
-    }
-    return
-  }
-  await uploadProjects([project])
+// "Open folder" works like VS Code: the in-app picker lists folders on this machine
+// (served by the local backend, so the browser never asks for file access) and the
+// agents then work directly in the chosen folder; nothing is uploaded.
+const showFolderPicker = ref(false)
+const isOpeningFolder = ref(false)
+// Name of a folder dropped on the chat: the picker points it out when it shows up
+const folderPickerHint = ref('')
+
+// "Add project" in the sidebar may need a new session for the folder; it is prepared
+// once a folder is chosen.
+let folderTargetsNewSession = false
+
+const cancelFolderPicker = () => {
+  showFolderPicker.value = false
+  folderPickerHint.value = ''
+  folderTargetsNewSession = false
 }
 
-// Upload whole project folders (structure preserved). Each folder becomes one
-// attachment; the agent gets an overview and edits the files in its workspace.
-const uploadProjects = async (projects) => {
-  if (!projects?.length) {
+const handleFolderButtonClick = ({ newSession = false } = {}) => {
+  folderTargetsNewSession = newSession
+  if (!newSession && !isAttachmentUploadAllowed()) {
     return
   }
-  if (!sessionId) {
-    toast.warning(t('launch.alert_session_not_ready'))
-    return
-  }
+  showFolderPicker.value = true
+}
 
-  isUploadingAttachment.value = true
+const onFolderPicked = async (path) => {
+  const toNewSession = folderTargetsNewSession
+  folderTargetsNewSession = false
+  isOpeningFolder.value = true
   try {
-    for (const project of projects) {
-      if (!project.entries.length) {
-        toast.warning(t('launch.errors.project_empty_title', { name: project.name }), {
-          detail: t('launch.errors.project_empty_detail')
-        })
-        continue
-      }
-      const result = await uploadProject(sessionId, project.name, project.entries, ({ uploadedFiles, totalFiles }) => {
-        uploadProgressText.value = t('launch.uploading_progress', {
-          name: project.name,
-          done: uploadedFiles,
-          total: totalFiles
-        })
-      })
-      if (result?.success && result?.attachmentId) {
-        uploadedAttachments.value.push(result)
-        const summary = t('launch.project_uploaded_detail', {
-          count: result.fileCount || 0,
-          skipped: project.skipped || 0
-        })
-        if (result.failedFiles) {
-          toast.warning(t('launch.project_uploaded_partial', { name: project.name, count: result.failedFiles }), {
-            detail: summary,
-            items: result.failedPaths
-          })
-        } else {
-          toast.success(t('launch.project_uploaded', { name: project.name }), { detail: summary })
-        }
-      } else {
-        console.error('Project upload failed:', result)
-        toast.error(t('launch.errors.project_upload_failed', { name: project.name }), {
-          detail: result?.detail || result?.message || ''
-        })
+    if (toNewSession) {
+      showFolderPicker.value = false
+      await openDraft(selectedFile.value)
+      if (!(await waitForConnection())) {
+        toast.warning(t('launch.alert_session_not_ready'))
+        return
       }
     }
+    if (!sessionId) {
+      toast.warning(t('launch.alert_session_not_ready'))
+      return
+    }
+    const result = await openLocalProject(sessionId, path, { yamlFile: selectedFile.value })
+    if (!result?.success || !result.attachmentId) {
+      toast.error(t('launch.open_folder.failed'), { detail: result?.detail || result?.message || '' })
+      return
+    }
+    showFolderPicker.value = false
+    folderPickerHint.value = ''
+    uploadedAttachments.value.push(result)
+    if (!currentProjectName.value) {
+      currentProjectName.value = stripSlash(result.name)
+      rememberProjectWorkflow(currentProjectName.value, selectedFile.value)
+    }
+    if (activeSessionId.value !== sessionId) {
+      router.replace({ query: { ...route.query, session: sessionId } })
+    }
+    scheduleSessionsRefresh()
+    toast.success(t('launch.open_folder.opened', { name: stripSlash(result.name) }), {
+      detail: t('launch.open_folder.opened_detail', { count: result.fileCount || 0, path: result.localPath })
+    })
   } finally {
-    uploadProgressText.value = ''
-    isUploadingAttachment.value = false
+    isOpeningFolder.value = false
   }
 }
 
-const onFolderSelected = async (event) => {
-  const projects = projectsFromDirectoryInput(event.target?.files)
-  if (event.target) {
-    event.target.value = ''
-  }
-  await uploadProjects(projects)
-}
+// Resolves once the socket of the session being opened is ready (false on timeout)
+const waitForConnection = (timeoutMs = 10000) =>
+  new Promise((resolve) => {
+    if (isConnectionReady.value && sessionId) {
+      resolve(true)
+      return
+    }
+    let stop = null
+    const timer = setTimeout(() => {
+      stop?.()
+      resolve(false)
+    }, timeoutMs)
+    stop = watch(isConnectionReady, (ready) => {
+      if (ready && sessionId) {
+        clearTimeout(timer)
+        stop()
+        resolve(true)
+      }
+    })
+  })
 
 const removeAttachment = (attachmentId) => {
+  dropAttachmentPreview(attachmentId)
   uploadedAttachments.value = uploadedAttachments.value.filter(
     (attachment) => attachment.attachmentId !== attachmentId
   )
@@ -1582,7 +1992,7 @@ const handleKeydown = (event) => {
 const handleEnterKey = (e) => {
   if (e.metaKey || e.ctrlKey) {
     // Check disabled state logically similar to button
-    if (loading.value || (isWorkflowRunning.value && !taskPrompt.value.trim()) || (!isWorkflowRunning.value && status.value !== 'Completed' && status.value !== 'Cancelled' && !isConnectionReady.value)) {
+    if (isStopMode.value || loading.value || (isWorkflowRunning.value && !taskPrompt.value.trim()) || (!isWorkflowRunning.value && status.value !== 'Completed' && status.value !== 'Cancelled' && !isConnectionReady.value)) {
        return
     }
     handleButtonClick()
@@ -1664,13 +2074,15 @@ const handleDrop = async (event) => {
     return
   }
 
-  // Read the DataTransfer synchronously; folders are walked afterwards.
-  const { files, projects } = await collectDroppedItems(event.dataTransfer)
+  // Read the DataTransfer synchronously. Loose files are attached; a dropped folder is
+  // opened in place through the picker (the drop does not say where it lives on disk).
+  const { files, folders } = await collectDroppedItems(event.dataTransfer)
   if (files.length) {
     await uploadFiles(files)
   }
-  if (projects.length) {
-    await uploadProjects(projects)
+  if (folders.length) {
+    folderPickerHint.value = folders[0]
+    handleFolderButtonClick()
   }
 }
 
@@ -1702,23 +2114,9 @@ const handleYAMLSelection = async (fileName) => {
       addChatNotification(t('launch.no_initial_instructions'))
     }
 
-    // Prefetch sprites for all nodes in the workflow
-    const yamlNodes = Array.isArray(workflowYaml.value?.graph?.nodes)
-      ? workflowYaml.value.graph.nodes
-      : []
-
-    // Clear the previous character bindings and node sprite map so bindings
-    // do not accumulate across workflow loads
-    spriteFetcher.reset()
-    nodeSpriteMap.value.clear()
-
-    // Fetch a sprite for each node (binding also preloads that character's frames)
-    for (const node of yamlNodes) {
-      if (node.id) {
-        const spritePath = spriteFetcher.fetchSprite(node.id, 'D', 1)
-        nodeSpriteMap.value.set(node.id, spritePath)
-      }
-    }
+    // Bind every node to its saved (or stable auto-assigned) mascot, replacing the
+    // previous workflow's bindings; binding also preloads each character's frames
+    applyWorkflowSprites(workflowYaml.value?.graph?.nodes, yamlContentString)
 
     // Warm the remaining characters in the background for chat avatars and edge walkers
     spriteFetcher.preloadAll()
@@ -1750,10 +2148,8 @@ const handleButtonClick = () => {
       return
     }
 
-    resetConnectionState()
-    status.value = 'Connecting...'
-    handleYAMLSelection(selectedFile.value)
-    establishWebSocketConnection()
+    // A new session of the same workflow (and project); the finished one stays in the history
+    startNewSession({ project: currentProjectName.value, file: selectedFile.value })
   } else {
     // If Launch, start the workflow
     launchWorkflow()
@@ -1786,6 +2182,7 @@ const sendHumanInput = () => {
 
   clearUploadedAttachments()
   ws.send(JSON.stringify(message))
+  runTracker.inputSent(trimmedInput)
 
   const fullMessage = []
   if (trimmedInput) {
@@ -1804,10 +2201,10 @@ const sendHumanInput = () => {
 
 // Establish a WebSocket connection
 const establishWebSocketConnection = (options = {}) => {
-  let { sessionId: reconnectSid } = options
+  let { sessionId: reconnectSid, fresh = false } = options
 
   // If no explicit sessionId, check URL for an existing session
-  if (!reconnectSid) {
+  if (!reconnectSid && !fresh) {
     const urlSession = route.query?.session
     if (urlSession && typeof urlSession === 'string' && urlSession.trim()) {
       reconnectSid = urlSession.trim()
@@ -1880,6 +2277,17 @@ const establishWebSocketConnection = (options = {}) => {
 
       isConnectionReady.value = true
 
+      if (isReconnecting.value && !msg.data?.resumed) {
+        // Nothing saved under that id (deleted or expired): continue as a new session
+        isReconnecting.value = false
+        currentProjectName.value = ''
+        const { session: _staleSession, ...query } = route.query
+        router.replace({ query })
+        if (selectedFile.value) {
+          handleYAMLSelection(selectedFile.value)
+        }
+      }
+
       // For new connections, set initial state; reconnections are handled by session_resumed
       if (!isReconnecting.value) {
         shouldGlow.value = true
@@ -1887,6 +2295,12 @@ const establishWebSocketConnection = (options = {}) => {
         nextTick(() => {
           taskInputRef.value?.focus()
         })
+        // New session in a project: bring the project's latest state into it
+        if (pendingProject) {
+          const source = pendingProject
+          pendingProject = null
+          bringProjectIntoSession(source)
+        }
       }
     } else {
       processMessage(msg)
@@ -1916,29 +2330,312 @@ const establishWebSocketConnection = (options = {}) => {
   }
 }
 
-// Watch for file selection changes
-watch(selectedFile, (newFile) => {
-  // When reconnecting, selectedFile is set by session_resumed; skip the normal flow
-  if (isReconnecting.value) {
-    return
-  }
-
-  taskPrompt.value = ''
-  fileSearchQuery.value = newFile || ''
-  isFileSearchDirty.value = false
-
-  if (!newFile) {
-    resetConnectionState()
-    status.value = 'Waiting for file selection...'
-    handleYAMLSelection(newFile)
-    return
-  }
-
+// Open a saved session: the backend replays its messages, then session_resumed
+// restores the workflow, status and active node
+// The run of the session you leave keeps going on the server; its messages are
+// replayed when you come back to it.
+const openSession = async (item) => {
+  if (!item?.session_id) return
+  if (item.session_id === activeSessionId.value && isConnectionReady.value) return
+  stashComposer()
   resetConnectionState()
+  pendingProject = null
+  // Set before the URL changes so the route watch does not open a draft
+  isReconnecting.value = true
   status.value = 'Connecting...'
-  handleYAMLSelection(newFile)
-  establishWebSocketConnection()
+  taskPrompt.value = ''
+  currentProjectName.value = sessionProject(item)?.name || ''
+  if (item.yaml_file) setWorkflowSelection(item.yaml_file)
+  await router.replace({ query: { ...route.query, workflow: item.yaml_file, session: item.session_id } })
+  establishWebSocketConnection({ sessionId: item.session_id })
+}
+
+// Open an empty session of a workflow; with a source, the project comes along
+const openDraft = async (file, { project = '', source = null } = {}) => {
+  stashComposer()
+  isReconnecting.value = false
+  resetConnectionState()
+  currentProjectName.value = project
+  pendingProject = source
+  setWorkflowSelection(file)
+  const query = { ...route.query, workflow: file }
+  delete query.session
+  await router.replace({ query })
+  status.value = 'Connecting...'
+  taskPrompt.value = takeComposer(composerKey(project, file))?.prompt || ''
+  handleYAMLSelection(file)
+  establishWebSocketConnection({ fresh: true })
+}
+
+const bringProjectIntoSession = async (source) => {
+  const targetSession = sessionId
+  isUploadingAttachment.value = true
+  uploadProgressText.value = t('launch.sessions.project_copying', { name: source.name })
+  try {
+    // A folder opened in place is simply opened again; an uploaded copy is cloned
+    const result = source.localPath
+      ? await openLocalProject(targetSession, source.localPath, { yamlFile: selectedFile.value })
+      : await cloneProjectIntoSession(targetSession, {
+          sourceSessionId: source.sessionId,
+          projectId: source.projectId,
+          yamlFile: selectedFile.value
+        })
+    if (targetSession !== sessionId) return // the user moved on meanwhile
+    if (result?.success && result.attachmentId) {
+      uploadedAttachments.value.push(result)
+      await router.replace({ query: { ...route.query, session: targetSession } })
+      scheduleSessionsRefresh()
+      addChatNotification(t('launch.sessions.project_continued', { name: source.name }))
+    } else {
+      currentProjectName.value = ''
+      toast.error(t('launch.sessions.project_copy_failed', { name: source.name }), {
+        detail: result?.detail || result?.message || ''
+      })
+    }
+  } finally {
+    uploadProgressText.value = ''
+    isUploadingAttachment.value = false
+  }
+}
+
+/**
+ * Start a new session.
+ * - no target: where you are now (same project, its workflow; else the same workflow)
+ * - a sidebar group: in that project (with its own workflow) or with that workflow
+ * - { project, file }: explicit; a missing file falls back to the project's workflow
+ */
+const startNewSession = async (target = null) => {
+  const isGroup = target && typeof target === 'object' && 'isProject' in target
+  let project
+  let file
+  if (isGroup) {
+    project = target.isProject ? target.label : ''
+    file = target.isProject ? '' : target.workflow
+  } else if (target && typeof target === 'object') {
+    project = target.project || ''
+    file = target.file || ''
+  } else {
+    project = currentProjectName.value
+    file = ''
+  }
+  if (!file) file = project ? workflowForProject(project) : selectedFile.value
+  if (!file) {
+    isRightPanelOpen.value = true
+    toast.info(t('launch.sessions.pick_workflow'))
+    nextTick(() => fileSelectorInputRef.value?.focus())
+    return
+  }
+  // Already in a fresh session of that project and workflow: no second empty one
+  if (
+    !hasLaunched.value &&
+    isConnectionReady.value &&
+    !isUploadingAttachment.value &&
+    project === currentProjectName.value &&
+    file === selectedFile.value
+  ) {
+    nextTick(() => taskInputRef.value?.focus())
+    return
+  }
+  let source = null
+  if (project) {
+    source = latestProjectSource(project)
+    if (!source) {
+      toast.info(t('launch.sessions.project_missing', { name: project }))
+    }
+  }
+  await openDraft(file, { project: source ? project : '', source })
+}
+
+// ---------------------------------------------------------------- review & rework
+// Finished runs nobody has accepted or sent back yet (badge on the "Review" view)
+const reviewPendingCount = computed(
+  () => sessions.value.filter((s) => s.status === 'completed' && (s.review?.verdict || 'pending') === 'pending').length
+)
+const isReworking = ref(false)
+
+// Resolves true once `predicate` holds, false after `timeoutMs`
+const waitUntil = (predicate, timeoutMs) =>
+  new Promise((resolve) => {
+    if (predicate()) {
+      resolve(true)
+      return
+    }
+    let stop = null
+    const timer = setTimeout(() => {
+      stop?.()
+      resolve(false)
+    }, timeoutMs)
+    stop = watch(predicate, (ok) => {
+      if (!ok) return
+      clearTimeout(timer)
+      stop()
+      resolve(true)
+    })
+  })
+
+const openSessionInChat = async (item) => {
+  await openSession(item)
+  viewMode.value = 'chat'
+}
+
+// "Request rework": a new run of the same workflow in the same project (its latest
+// state, or the folder opened in place), started with the reviewer's feedback; the
+// reviewed run then points at it so the rounds stay linked.
+const handleRework = async ({ session, prompt, review, round }) => {
+  if (isWorkflowRunning.value) {
+    toast.warning(t('launch.sessions.add_project_busy'))
+    return
+  }
+  isReworking.value = true
+  try {
+    const project = stripSlash(session.projects?.[0]?.name || '')
+    await startNewSession({ project, file: session.yaml_file })
+    const ready = await waitUntil(
+      () =>
+        isConnectionReady.value &&
+        !!sessionId &&
+        !isUploadingAttachment.value &&
+        (!currentProjectName.value || uploadedAttachments.value.some((item) => item.kind === 'project')),
+      60000
+    )
+    if (!ready) throw new Error(t('launch.alert_session_not_ready'))
+    taskPrompt.value = prompt
+    await launchWorkflow()
+    if (!hasLaunched.value || !sessionId) throw new Error(t('launch.alert_session_not_ready'))
+    await saveSessionReview(session.session_id, { ...review, rework_session_id: sessionId })
+    await refreshSessions()
+    toast.success(t('launch.review.rework_started', { n: round }))
+    viewMode.value = 'board'
+  } catch (error) {
+    toast.error(t('launch.review.rework_failed'), { detail: formatErrorDetail(error?.message || error) })
+  } finally {
+    isReworking.value = false
+  }
+}
+
+// The user picked another workflow in the right panel
+const changeWorkflow = async (file) => {
+  if (!file || file === selectedFile.value) return
+  if (currentProjectName.value) rememberProjectWorkflow(currentProjectName.value, file)
+  if (!hasLaunched.value && ws && isConnectionReady.value) {
+    // Still a draft: keep this session and what is attached to it, only switch the workflow
+    setWorkflowSelection(file)
+    await router.replace({ query: { ...route.query, workflow: file } })
+    handleYAMLSelection(file)
+    if (activeSessionId.value) {
+      updateSessionWorkflow(activeSessionId.value, file)
+        .then(scheduleSessionsRefresh)
+        .catch((error) => console.warn('Failed to update the draft workflow:', error))
+    }
+    return
+  }
+  // A launched session keeps the workflow it ran with: continue in a new session
+  await startNewSession({ project: currentProjectName.value, file })
+}
+
+// Add a project to work on. A fresh, empty session takes it; otherwise (a launched run,
+// or a session that already has a project) the folder gets a session of its own, so
+// several projects can be worked on side by side.
+const handleAddProject = () => {
+  if (!selectedFile.value) {
+    isRightPanelOpen.value = true
+    toast.info(t('launch.sessions.add_project_pick_workflow'))
+    nextTick(() => fileSelectorInputRef.value?.focus())
+    return
+  }
+  if (isUploadingAttachment.value) {
+    toast.info(t('launch.sessions.add_project_busy'))
+    return
+  }
+  const reuseCurrent = !hasLaunched.value && isConnectionReady.value && !currentProjectName.value
+  handleFolderButtonClick({ newSession: !reuseCurrent })
+}
+
+const handleRenameSession = async (item, title) => {
+  const previous = item.title
+  item.title = title
+  try {
+    await renameSession(item.session_id, title)
+  } catch (error) {
+    item.title = previous
+    toast.error(t('errors.api.sessions_failed'), { detail: formatErrorDetail(error) })
+  }
+}
+
+const handleDeleteSession = async (item) => {
+  if (['running', 'waiting_for_input'].includes(item.status)) {
+    toast.warning(t('launch.sessions.delete_running'))
+    return
+  }
+  const confirmed = await confirmDialog({
+    title: t('launch.sessions.delete_title', { title: item.title || t('launch.sessions.untitled') }),
+    message: t('launch.sessions.delete_detail'),
+    confirmText: t('launch.sessions.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) {
+    return
+  }
+  try {
+    await deleteSession(item.session_id)
+  } catch (error) {
+    toast.error(t('errors.api.sessions_failed'), { detail: formatErrorDetail(error) })
+    return
+  }
+  sessions.value = sessions.value.filter((entry) => entry.session_id !== item.session_id)
+  if (item.session_id === activeSessionId.value) {
+    startNewSession({ project: sessionProject(item)?.name || '', file: item.yaml_file })
+  }
+}
+
+// Right-click "Delete project": remove every session of a sidebar group in one go.
+// Running sessions are kept (the backend refuses to delete them anyway).
+const handleDeleteGroup = async (group) => {
+  const items = group?.items || []
+  const running = items.filter((item) => ['running', 'waiting_for_input'].includes(item.status))
+  const deletable = items.filter((item) => !running.includes(item))
+  if (!deletable.length) {
+    toast.warning(t('launch.sessions.delete_running'))
+    return
+  }
+  const confirmed = await confirmDialog({
+    title: t('launch.sessions.delete_group_title', { name: group.label }),
+    message: t('launch.sessions.delete_group_detail', { n: deletable.length }),
+    confirmText: group.isProject ? t('launch.sessions.menu.delete_project') : t('launch.sessions.menu.delete_group'),
+    tone: 'danger'
+  })
+  if (!confirmed) {
+    return
+  }
+  const deleted = new Set()
+  for (const item of deletable) {
+    try {
+      await deleteSession(item.session_id)
+      deleted.add(item.session_id)
+    } catch (error) {
+      toast.error(t('errors.api.sessions_failed'), { detail: formatErrorDetail(error) })
+    }
+  }
+  sessions.value = sessions.value.filter((entry) => !deleted.has(entry.session_id))
+  if (running.length) {
+    toast.info(t('launch.sessions.delete_group_running', { n: running.length }))
+  }
+  if (deleted.has(activeSessionId.value)) {
+    startNewSession({ project: '', file: group.workflow || selectedFile.value })
+  }
+}
+
+// Remember what is open so returning to this page continues there
+watch([selectedFile, activeSessionId], ([file, sid]) => {
+  if (!file) return
+  writeStorage(LAST_SESSION_KEY, JSON.stringify({ workflow: file, session: sid || null }))
 })
+watch(status, scheduleSessionsRefresh)
+
+// Watch for file selection changes
+// Keep the textarea height in sync when the prompt is cleared or replaced from code
+watch(taskPrompt, () => nextTick(autoResizeTaskInput))
+
 
 watch(
   () => uploadedAttachments.value.length,
@@ -1949,10 +2646,15 @@ watch(
   }
 )
 
+// Arriving here with another workflow in the URL (e.g. from the workflow list) opens a
+// draft of it. Changes made by this page set the selection first, so they are no-ops.
+let isPageReady = false
 watch(
   () => route.query?.workflow,
-  () => {
-    applyWorkflowFromRoute()
+  (value) => {
+    const file = normalizeWorkflowName(value)
+    if (!isPageReady || !file || file === selectedFile.value || isReconnecting.value) return
+    openDraft(file)
   }
 )
 
@@ -1960,18 +2662,43 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
   chatMessagesRef.value?.addEventListener('scroll', handleChatScroll, { passive: true })
-  await loadWorkflows()
-  // If URL contains a session id, the watch on selectedFile (triggered by
-  // applyWorkflowFromRoute inside loadWorkflows) will call establishWebSocketConnection,
-  // which auto-detects the session param and reconnects.
-  // Fallback: if session is present but no workflow was in URL, connect directly.
-  const sessionParam = route.query?.session
-  if (sessionParam && typeof sessionParam === 'string' && sessionParam.trim() && !selectedFile.value) {
-    establishWebSocketConnection({ sessionId: sessionParam.trim() })
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  stopWorkflowSync = onWorkflowChanged(handleWorkflowChanged)
+  refreshSessions().finally(schedulePoll)
+  // Coming back to the page without a target: reopen the session that was open last time
+  if (!route.query?.workflow && !route.query?.session) {
+    try {
+      const last = JSON.parse(readStorage(LAST_SESSION_KEY) || 'null')
+      if (last?.workflow) {
+        await router.replace({
+          query: { ...route.query, workflow: last.workflow, ...(last.session ? { session: last.session } : {}) }
+        })
+      }
+    } catch {
+      // ignore a malformed entry
+    }
   }
+  await loadWorkflows()
+  // A session in the URL is reopened (its replay restores workflow, project and status);
+  // otherwise a draft of the selected workflow is prepared.
+  const sessionParam = route.query?.session
+  if (sessionParam && typeof sessionParam === 'string' && sessionParam.trim()) {
+    establishWebSocketConnection({ sessionId: sessionParam.trim() })
+  } else if (selectedFile.value) {
+    openDraft(selectedFile.value)
+  } else {
+    status.value = 'Waiting for workflow selection...'
+  }
+  isPageReady = true
 })
 
 onUnmounted(() => {
+  clearTimeout(sessionsPollTimer)
+  clearTimeout(sessionsRefreshTimer)
+  clearTimeout(workflowRefreshTimer)
+  stopWorkflowSync?.()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  document.title = BASE_TITLE
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
   chatMessagesRef.value?.removeEventListener('scroll', handleChatScroll)
@@ -2262,9 +2989,13 @@ const launchWorkflow = async () => {
       }
 
       taskPrompt.value = ''
+      runTracker.begin(trimmedPrompt, attachmentNames)
 
       status.value = 'Running...'
       isWorkflowRunning.value = true
+      hasLaunched.value = true
+      // The project runs this workflow from now on (until the user picks another)
+      if (currentProjectName.value) rememberProjectWorkflow(currentProjectName.value, selectedFile.value)
 
       // Persist session id in URL for reconnection after refresh
       router.push({
@@ -2337,7 +3068,7 @@ const downloadArtifact = async (message) => {
 }
 
 // Handle edge condition messages and trigger sprite animation
-const handleEdgeConditionMessage = (message) => {
+const handleEdgeConditionMessage = (message, at) => {
   // Parse message format: "Edge condition met for Source Node -> Target Node"
   const edgeMatch = message.match(/Edge condition met for (.+) -> (.+)/)
   if (!edgeMatch) {
@@ -2350,6 +3081,7 @@ const handleEdgeConditionMessage = (message) => {
 
   // Office view: the source agent walks over to hand its result to the target
   officeRef.value?.handoff(sourceNode, targetNode)
+  runTracker.handoff(sourceNode, targetNode, at)
 
   // Find the edge in the VueFlow edges
   const edge = edges.value.find(e => e.source === sourceNode && e.target === targetNode)
@@ -2407,9 +3139,7 @@ const removeSpriteWalkerLayer = () => {
 // Animate a sprite walking along an edge from source to target
 const animateSpriteAlongEdge = (edge) => {
   // Make sure the source node has a character bound so chat avatar and walker match
-  if (!nameToSpriteMap.has(edge.source)) {
-    nameToSpriteMap.set(edge.source, spriteFetcher.fetchSprite(edge.source, 'D', 1))
-  }
+  avatarFor(edge.source)
 
   // Find edge element in DOM
   const edgeId = `${edge.source}-${edge.target}`
@@ -2636,6 +3366,18 @@ const animateSpriteAlongEdge = (edge) => {
 }
 
 const processMessage = async (msg) => {
+  // What the user typed earlier; only arrives when a saved session is replayed
+  if (msg.type === 'user_message') {
+    const text = msg.data?.text || ''
+    const names = Array.isArray(msg.data?.attachments) ? msg.data.attachments : []
+    const parts = [text.trim(), names.length ? t('launch.attachments_line', { names: names.join(', ') }) : '']
+    addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'))
+    // The first message of a run is the task, later ones are replies to the agents
+    if (runTracker.state.task && !runTracker.state.outcome) runTracker.inputSent(text)
+    else runTracker.begin(text, names)
+    return
+  }
+
   // Session resumed after reconnection — sync final UI state
   if (msg.type === 'session_resumed') {
     const data = msg.data
@@ -2651,24 +3393,24 @@ const processMessage = async (msg) => {
         const yamlContentString = await fetchWorkflowYAML(data.yaml_file)
         const parsedYaml = yaml.load(yamlContentString)
         workflowYaml.value = parsedYaml || {}
-
-        const yamlNodes = Array.isArray(parsedYaml?.graph?.nodes) ? parsedYaml.graph.nodes : []
-        for (const node of yamlNodes) {
-          if (node.id && !nodeSpriteMap.value.has(node.id)) {
-            const spritePath = spriteFetcher.fetchSprite(node.id, 'D', 1)
-            nodeSpriteMap.value.set(node.id, spritePath)
-          }
-        }
+        // Always rebind: the session may belong to another workflow than the last one
+        // bound, and its mascots may have been edited since the session started.
+        applyWorkflowSprites(parsedYaml?.graph?.nodes, yamlContentString)
       } catch (e) {
         console.error('Failed to load YAML on reconnect:', e)
       }
     }
 
     isReconnecting.value = false
+    currentProjectName.value = stripSlash(data.projects?.[0]?.name)
+    hasLaunched.value = Boolean(data.status) && data.status !== 'idle'
+    const composer = takeComposer(sessionId)
+    if (composer?.prompt) taskPrompt.value = composer.prompt
 
     // Restore workflow status
     const statusMap = {
-      'idle': 'Connected',
+      // A draft: projects were added but it was never launched
+      'idle': 'Waiting for launch...',
       'running': 'Running...',
       'waiting_for_input': 'Waiting for input...',
       'completed': 'Completed',
@@ -2685,6 +3427,21 @@ const processMessage = async (msg) => {
       shouldGlow.value = true
     }
 
+    // Reopened draft: put its projects back in the message box, ready for the first prompt
+    if (data.status === 'idle') {
+      shouldGlow.value = true
+      uploadedAttachments.value = composer?.attachments?.length ? composer.attachments : (data.projects || []).map((project) => ({
+        success: true,
+        kind: 'project',
+        name: `${project.name}/`,
+        attachmentId: project.attachment_id,
+        fileCount: project.file_count,
+        workspacePath: project.workspace_path
+      }))
+    } else if (data.status === 'waiting_for_input' && composer?.attachments?.length) {
+      uploadedAttachments.value = composer.attachments
+    }
+
     if (data.status === 'completed' || data.status === 'error' || data.status === 'cancelled') {
       sessionIdToDownload = sessionId
     }
@@ -2694,7 +3451,15 @@ const processMessage = async (msg) => {
     }
 
     isConnectionReady.value = true
-    addChatNotification(t('launch.reconnected'))
+    if (data.error_message === 'Interrupted by a server restart') {
+      addChatNotification(t('launch.sessions.interrupted'), { type: 'warning' })
+    } else {
+      addChatNotification(t('launch.reconnected'))
+    }
+    if (viewMode.value === 'graph') {
+      loadVueFlowGraph({ fit: true })
+    }
+    scheduleSessionsRefresh()
     return
   }
 
@@ -2705,6 +3470,7 @@ const processMessage = async (msg) => {
       .join('\n\n')
     addDialogue(msg.data?.node_id || t('launch.unknown_node'), fullMessage || t('launch.input_required'))
     officeRef.value?.waitingInput(msg.data?.node_id)
+    runTracker.waitingInput(msg.data?.node_id)
 
     status.value = "Waiting for input..."
     shouldGlow.value = true
@@ -2721,13 +3487,7 @@ const processMessage = async (msg) => {
         const attachmentId = event?.attachment_id
 
         // Build the avatar
-        let avatar
-        if (nameToSpriteMap.has(nodeName)) {
-          avatar = nameToSpriteMap.get(nodeName)
-        } else {
-          avatar = spriteFetcher.fetchSprite()
-          nameToSpriteMap.set(nodeName, avatar)
-        }
+        const avatar = avatarFor(nodeName)
 
         const isRight = false
 
@@ -2799,6 +3559,7 @@ const processMessage = async (msg) => {
       if (nodeId && !activeNodes.value.includes(nodeId)) {
         activeNodes.value.push(nodeId)
       }
+      runTracker.nodeStart(nodeId, msg.data.timestamp)
     }
 
     // Model call
@@ -2808,6 +3569,7 @@ const processMessage = async (msg) => {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
         addLoadingEntry(nodeId, baseKey, t('launch.loading_model', { name: msg.data.details.model_name || t('launch.unknown_name') }))
         officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', true)
+        runTracker.activity(nodeId, 'model', msg.data.details.model_name || '', true, msg.data.timestamp)
       }
 
       // Model call ended
@@ -2815,6 +3577,7 @@ const processMessage = async (msg) => {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
         finishLoadingEntry(nodeId, baseKey)
         officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', false)
+        runTracker.activity(nodeId, 'model', msg.data.details.model_name || '', false, msg.data.timestamp)
       }
     }
 
@@ -2825,6 +3588,7 @@ const processMessage = async (msg) => {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
         addLoadingEntry(nodeId, baseKey, t('launch.loading_tool', { name: msg.data.details.tool_name || t('launch.unknown_name') }))
         officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', true)
+        runTracker.activity(nodeId, 'tool', msg.data.details.tool_name || '', true, msg.data.timestamp)
       }
 
       // Tool call ended
@@ -2832,6 +3596,7 @@ const processMessage = async (msg) => {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
         finishLoadingEntry(nodeId, baseKey)
         officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', false)
+        runTracker.activity(nodeId, 'tool', msg.data.details.tool_name || '', false, msg.data.timestamp)
       }
     }
 
@@ -2856,11 +3621,12 @@ const processMessage = async (msg) => {
 
       addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output)
       if (nodeId) officeRef.value?.nodeEnd(nodeId, msg.data.details?.output)
+      runTracker.nodeEnd(nodeId, msg.data.details?.output, msg.data.timestamp)
     }
 
     // Edge condition met - trigger sprite animation
     else if (msg.data.message && msg.data.message.includes('Edge condition met for')) {
-      handleEdgeConditionMessage(msg.data.message)
+      handleEdgeConditionMessage(msg.data.message, msg.data.timestamp)
     }
 
     // Other log messages
@@ -2872,6 +3638,7 @@ const processMessage = async (msg) => {
   // Workflow completed
   if (msg.type === 'workflow_completed') {
     addChatNotification(formatErrorDetail(msg.data?.summary) || t('launch.workflow_completed'))
+    runTracker.finish('completed', { summary: formatErrorDetail(msg.data?.summary), tokenUsage: msg.data?.token_usage })
     status.value = 'Completed'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
@@ -2880,6 +3647,7 @@ const processMessage = async (msg) => {
   // Workflow cancelled (e.g., from server-side cancellation)
   if (msg.type === 'workflow_cancelled') {
     addChatNotification(formatErrorDetail(msg.data?.message) || t('launch.workflow_cancelled'))
+    if (runTracker.state.outcome !== 'cancelled') runTracker.finish('cancelled', { summary: formatErrorDetail(msg.data?.message) })
     status.value = 'Cancelled'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
@@ -2889,6 +3657,7 @@ const processMessage = async (msg) => {
   if (msg.type === 'error') {
     const errorMessage = withErrorHint(errorWithDetail('launch.errors.workflow_error', msg.data?.message))
     addChatNotification(errorMessage, { type: 'error' })
+    runTracker.finish('error', { error: formatErrorDetail(msg.data?.message) })
     status.value = 'Error'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
@@ -2909,6 +3678,7 @@ const cancelWorkflow = () => {
   }
 
   addChatNotification(t('launch.workflow_cancelled'))
+  runTracker.finish('cancelled')
   status.value = 'Cancelled'
   isWorkflowRunning.value = false
   sessionIdToDownload = sessionId
@@ -3204,6 +3974,88 @@ watch(
 .chat-panel-collapsed .chat-panel-toggle {
   right: -28px;
   left: auto;
+}
+
+/* Chat header: session title + history / new-session actions */
+.chat-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 10px 16px;
+  border-bottom: 1px solid rgb(var(--ink) / 0.08);
+}
+
+.chat-header-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-header-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.chat-header-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: rgb(var(--ink) / 0.5);
+}
+
+.chat-header-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgb(245 185 74 / 0.14);
+  color: #e0a43a;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+
+.workflow-hint {
+  margin: -2px 0 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: rgb(var(--ink) / 0.5);
+}
+
+.chat-header-actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.chat-header-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(var(--ink) / 0.65);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.chat-header-btn:hover,
+.chat-header-btn.active {
+  background: rgb(var(--ink) / 0.08);
+  color: var(--text-1);
 }
 
 /* Chat Box */
@@ -3630,7 +4482,6 @@ watch(
 /* Input Area */
 .input-area {
   flex: 0 0 auto;
-  min-height: 120px;
 }
 
 .input-shell {
@@ -3662,6 +4513,195 @@ watch(
   border-color: rgb(var(--accent-sky-rgb) / 0.9);
   background-color: rgb(var(--accent-sky-rgb) / 0.08);
   box-shadow: 0 0 20px rgb(var(--accent-sky-rgb) / 0.35);
+}
+
+/* Composer (message box): attachment chips on top, textarea, then a toolbar */
+.input-shell.composer {
+  flex-direction: column;
+  height: auto;
+  border-radius: 16px;
+  padding: 0;
+}
+
+.composer .task-input {
+  flex: none;
+  min-height: 44px;
+  max-height: 200px;
+  padding: 14px 16px 6px;
+  overflow-y: auto;
+}
+
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 12px 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 5px 6px 5px 8px;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background: rgb(var(--ink) / 0.06);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chip-thumb {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 5px;
+  object-fit: cover;
+  background: rgb(var(--ink) / 0.1);
+}
+
+.chip-icon { flex: none; font-size: 14px; line-height: 1; }
+
+.chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-meta { flex: none; font-weight: 400; color: rgb(var(--ink) / 0.5); }
+
+.chip-remove {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: rgb(var(--ink) / 0.55);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chip-remove:hover { background: rgb(var(--ink) / 0.14); color: var(--text-1); }
+
+.chip-uploading { color: rgb(var(--ink) / 0.7); font-weight: 500; }
+
+.chip-spinner {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--ink) / 0.2);
+  border-top-color: var(--accent-sky);
+  animation: chip-spin 0.8s linear infinite;
+}
+
+@keyframes chip-spin { to { transform: rotate(360deg); } }
+
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 10px;
+}
+
+.attach-menu-wrap { position: relative; }
+
+.composer-icon-btn,
+.composer-send {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+.composer-icon-btn {
+  border: 1px solid rgb(var(--ink) / 0.18);
+  background: transparent;
+  color: rgb(var(--ink) / 0.75);
+}
+
+.composer-icon-btn:hover:not(:disabled),
+.composer-icon-btn.active { background: rgb(var(--ink) / 0.1); color: var(--text-1); }
+
+.composer-send {
+  border: none;
+  background: #ff6b6b;
+  color: #fff;
+}
+
+.composer-send:hover:not(:disabled) { background: #ff5252; }
+
+/* Stop state (Visual Studio style): rounded square inside the red button */
+.composer-send.is-stop {
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px rgb(255 107 107 / 0.35);
+  animation: composer-stop-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes composer-stop-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgb(255 107 107 / 0.35); }
+  50% { box-shadow: 0 0 0 5px rgb(255 107 107 / 0.15); }
+}
+
+.composer-icon-btn:disabled,
+.composer-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.attach-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  min-width: 170px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid rgb(var(--ink) / 0.12);
+  background: var(--surface-3);
+  box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
+  z-index: 20;
+}
+
+.attach-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attach-menu-item:hover { background: rgb(var(--ink) / 0.08); color: var(--text-1); }
+
+/* Office view: own stacking context so the map's high z-index HUD/roster cannot paint over the chat panel */
+.insight-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.office-panel {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 }
 
 .drag-overlay {
@@ -4100,7 +5140,9 @@ watch(
 
 /* View Toggle */
 .view-toggle {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  gap: 2px;
   background: rgb(var(--shade) / 0.2);
   padding: 4px;
   border-radius: 8px;
@@ -4109,6 +5151,7 @@ watch(
 .toggle-button {
   flex: 1;
   padding: 6px;
+  white-space: nowrap;
   border: none;
   background: transparent;
   color: rgb(var(--ink) / 0.5);
@@ -4122,6 +5165,23 @@ watch(
   background: rgb(var(--ink) / 0.1);
   color: var(--text-1);
   font-weight: 500;
+}
+
+/* Work waiting for your review */
+.toggle-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: #f59e0b;
+  vertical-align: 1px;
 }
 
 /* Active Nodes */

@@ -1,18 +1,136 @@
 import re
+from typing import List, Optional
 import tempfile
 import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
+from agentdev.api.services.session_review import VERDICTS, build_digest, clean_review
+from agentdev.api.services.session_store import SessionStatus
 from agentdev.api.settings import WARE_HOUSE_DIR
+from agentdev.api.state import get_websocket_manager
 from agentdev.utils.exceptions import ResourceNotFoundError, SecurityError, ValidationError
 from agentdev.utils.structured_logger import get_server_logger, LogType
 from agentdev.utils.workspace_paths import resolve_workspace_path, session_directory_name
 
 router = APIRouter()
+
+_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+_ACTIVE_STATUSES = {SessionStatus.RUNNING, SessionStatus.WAITING_FOR_INPUT}
+
+
+class SessionUpdateRequest(BaseModel):
+    # Either field may be sent alone: rename, or switch a draft's workflow
+    title: Optional[str] = Field(None, max_length=120)
+    yaml_file: Optional[str] = Field(None, max_length=255)
+
+
+def _require_session_id(session_id: str) -> None:
+    if not _SESSION_ID_RE.match(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session_id")
+
+
+@router.get("/api/sessions")
+async def list_sessions():
+    """Every saved or live workflow session, newest first (for the session sidebar)."""
+    store = get_websocket_manager().session_store
+    return {"sessions": store.list_summaries()}
+
+
+@router.patch("/api/sessions/{session_id}")
+async def update_session(session_id: str, request: SessionUpdateRequest):
+    _require_session_id(session_id)
+    store = get_websocket_manager().session_store
+    result = {"session_id": session_id}
+
+    if request.yaml_file is not None:
+        yaml_file = request.yaml_file.strip()
+        if not yaml_file or "/" in yaml_file or "\\" in yaml_file or not yaml_file.lower().endswith((".yaml", ".yml")):
+            raise HTTPException(status_code=400, detail="Invalid workflow file")
+        session = store.restore_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        # A launched session keeps the workflow it ran with
+        if session.status != SessionStatus.IDLE:
+            raise HTTPException(status_code=409, detail="Only a session that has not been launched can change its workflow")
+        session.yaml_file = yaml_file
+        store.touch(session)
+        result["yaml_file"] = yaml_file
+
+    if request.title is not None:
+        title = request.title.strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Title cannot be empty")
+        live = store.get_session(session_id)
+        if live:
+            live.title = title
+        meta = store.history.rename(session_id, title) if store.history else None
+        if not live and not meta:
+            raise HTTPException(status_code=404, detail="Session not found")
+        result["title"] = title
+
+    if len(result) == 1:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    return result
+
+
+class SessionReviewRequest(BaseModel):
+    verdict: str = Field("pending", max_length=16)
+    rating: int = Field(0, ge=0, le=5)
+    tags: List[str] = Field(default_factory=list, max_length=12)
+    feedback: str = Field("", max_length=4000)
+    rework_session_id: Optional[str] = Field(None, max_length=120)
+
+
+@router.get("/api/sessions/{session_id}/digest")
+async def session_digest(session_id: str):
+    """What a run delivered (task, each agent's hand-over, changed files, summary) for review."""
+    _require_session_id(session_id)
+    store = get_websocket_manager().session_store
+    if not store.history or not store.history.has(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    messages = store.history.load_messages(session_id, 0)
+    return {
+        "session_id": session_id,
+        "digest": build_digest(messages),
+        "review": store.history.get_review(session_id),
+    }
+
+
+@router.put("/api/sessions/{session_id}/review")
+async def save_session_review(session_id: str, request: SessionReviewRequest):
+    """The user's final check of the delivered work: approve, or send it back with feedback."""
+    _require_session_id(session_id)
+    if request.verdict not in VERDICTS:
+        raise HTTPException(status_code=400, detail="Invalid verdict")
+    if request.rework_session_id and not _SESSION_ID_RE.match(request.rework_session_id):
+        raise HTTPException(status_code=400, detail="Invalid rework_session_id")
+    store = get_websocket_manager().session_store
+    live = store.get_session(session_id)
+    if live and live.status in _ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="The run is still in progress")
+    if not store.history:
+        raise HTTPException(status_code=404, detail="Session not found")
+    review = clean_review(request.model_dump(), store.history.get_review(session_id))
+    if not store.history.save_review(session_id, review):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "review": review}
+
+
+@router.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str):
+    _require_session_id(session_id)
+    store = get_websocket_manager().session_store
+    live = store.get_session(session_id)
+    if live and live.status in _ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="Cancel the running workflow before deleting it")
+    if not store.delete_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "deleted": True}
 
 
 @router.get("/api/sessions/{session_id}/download")

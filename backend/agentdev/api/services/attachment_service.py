@@ -80,6 +80,8 @@ class AttachmentService:
         self.clean_on_cleanup = env_flag in {"1", "true", "yes"}
         self.max_project_files = _env_int("MAC_PROJECT_MAX_FILES", 5000)
         self.max_project_bytes = _env_int("MAC_PROJECT_MAX_MB", 300) * 1024 * 1024
+        # Opening in place copies nothing; the cap only stops a whole drive being picked by mistake.
+        self.max_open_folder_files = _env_int("MAC_OPEN_FOLDER_MAX_FILES", 50000)
 
     def prepare_session_workspace(self, session_id: str) -> Path:
         return self._session_attachments_path(session_id, create=True)
@@ -376,6 +378,63 @@ class AttachmentService:
             "total_size": total_size,
         }
 
+    def clone_project(
+        self, source_session_id: str, source_project_id: str, target_session_id: str
+    ) -> AttachmentRecord:
+        """Copy a project folder from an earlier session into another session.
+
+        Used for "new session in this project": the new session starts from the
+        project's latest state (including edits the agent made earlier) without the
+        user having to pick and upload the folder again.
+        """
+        validate_path_component(source_session_id, field="source_session_id")
+        validate_path_component(source_project_id, field="project_id")
+        if source_session_id == target_session_id:
+            raise ValidationError("Source and target session must differ", field="source_session_id")
+        source_dir = (
+            self.attachments_root
+            / session_directory_name(source_session_id)
+            / "code_workspace"
+            / PROJECTS_DIRNAME
+            / source_project_id
+        )
+        for ancestor in [source_dir, *source_dir.parents]:
+            if ancestor == self.attachments_root:
+                break
+            if ancestor.is_symlink():
+                raise ValidationError("Project paths must not contain symbolic links", field="project_id")
+        if not source_dir.is_dir():
+            raise ValidationError("The project no longer exists in that session", field="project_id")
+        source_root = _fs_path(self._project_root(source_session_id, source_project_id))
+
+        created = self.create_project(target_session_id, source_project_id)
+        target_root = _fs_path(self._project_root(target_session_id, created["project_id"]))
+        resolved_source = source_root.resolve()
+        file_count = total_size = 0
+        for path in source_root.rglob("*"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            relative = path.relative_to(source_root)
+            if any(part in IGNORED_PROJECT_DIRS for part in relative.parts[:-1]):
+                continue
+            if not path.resolve().is_relative_to(resolved_source):
+                continue
+            file_count += 1
+            total_size += path.stat().st_size
+            if file_count > self.max_project_files or total_size > self.max_project_bytes:
+                shutil.rmtree(target_root, ignore_errors=True)
+                raise ValidationError("Project exceeds the upload limits", field="project_id")
+            target = target_root / relative
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target)
+            except OSError as exc:
+                self.logger.warning("Skipped project file %s while cloning: %s", relative.as_posix(), exc)
+        if file_count == 0:
+            shutil.rmtree(target_root, ignore_errors=True)
+            raise ValidationError("The project in that session has no files", field="project_id")
+        return self.finalize_project(target_session_id, created["project_id"])
+
     def finalize_project(self, session_id: str, project_id: str) -> AttachmentRecord:
         """Register a Markdown overview of the uploaded project as an attachment.
 
@@ -428,6 +487,25 @@ class AttachmentService:
             ]
         )
 
+        return self._register_overview(
+            session_id,
+            overview,
+            display_name=f"{project_id}/",
+            extra={
+                "source": "user_upload",
+                "origin": "web_upload",
+                "session_id": session_id,
+                "kind": "project",
+                "project_id": project_id,
+                "workspace_path": workspace_path,
+                "file_count": file_count,
+                "total_size": total_size,
+            },
+        )
+
+    def _register_overview(
+        self, session_id: str, overview: str, *, display_name: str, extra: Dict[str, Any]
+    ) -> AttachmentRecord:
         temp_dir = Path(tempfile.mkdtemp(prefix="mac_project_"))
         # Short fixed name: the stored copy lives under attachments/<32-hex id>/,
         # and long names push Windows paths past MAX_PATH (260).
@@ -438,21 +516,98 @@ class AttachmentService:
             return store.register_file(
                 temp_path,
                 kind=MessageBlockType.FILE,
-                display_name=f"{project_id}/",
+                display_name=display_name,
                 mime_type="text/markdown",
-                extra={
-                    "source": "user_upload",
-                    "origin": "web_upload",
-                    "session_id": session_id,
-                    "kind": "project",
-                    "project_id": project_id,
-                    "workspace_path": workspace_path,
-                    "file_count": file_count,
-                    "total_size": total_size,
-                },
+                extra=extra,
             )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def open_local_project(self, session_id: str, folder: str, *, current_folder: Optional[str] = None) -> AttachmentRecord:
+        """Open a folder on this machine in place, like "Open Folder" in an editor.
+
+        Nothing is copied: the run uses the folder itself as the agents' code workspace,
+        so their edits land in the real project. The agent receives a Markdown overview.
+        """
+        from agentdev.api.services.local_projects import scan_project
+
+        scan = scan_project(
+            folder,
+            ignored_dirs=IGNORED_PROJECT_DIRS,
+            ignored_files=IGNORED_PROJECT_FILES,
+            max_files=self.max_open_folder_files,
+        )
+        root = scan.root
+        if current_folder and Path(current_folder).resolve() != root:
+            raise ValidationError(
+                "This session already has a project folder open; start a new session for another folder",
+                field="path",
+            )
+        if not scan.files:
+            raise ValidationError("The folder has no project files", field="path")
+        total_size = 0
+        for path, _rel in scan.files:
+            try:
+                total_size += path.stat().st_size
+            except OSError:
+                pass
+
+        tree_lines: List[str] = []
+        seen_dirs: set = set()
+        for _path, rel in scan.files:
+            if len(tree_lines) >= _PROJECT_TREE_LINE_LIMIT:
+                tree_lines.append(f"... (tree truncated; {len(scan.files)} files in total)")
+                break
+            parts = rel.split("/")
+            for depth in range(len(parts) - 1):
+                folder_key = "/".join(parts[: depth + 1])
+                if folder_key not in seen_dirs:
+                    seen_dirs.add(folder_key)
+                    tree_lines.append(f"{'  ' * depth}{parts[depth]}/")
+            tree_lines.append(f"{'  ' * (len(parts) - 1)}{parts[-1]}")
+
+        name = root.name or str(root)
+        size_mb = total_size / (1024 * 1024)
+        overview = "\n".join(
+            [
+                f"# Project: {name}",
+                "",
+                "The user opened this project folder for you to work on. Your code workspace IS the",
+                "project root, so every change you make is saved directly in the user's project.",
+                "",
+                f"- Files: {len(scan.files)} ({size_mb:.2f} MB)",
+                "- Use the file tools (list_directory, read_file_segment, save_file, apply_text_edits, ...)",
+                "  with paths relative to the project root, e.g. `README.md` or `src/main.py`.",
+                "- Change only what the task needs; do not delete or rewrite unrelated files.",
+                "- Dependency/build folders (node_modules, .git, dist, build, .venv, ...) and",
+                "  .gitignore'd files are left out of this overview.",
+                "",
+                "## Folder tree",
+                "",
+                "```",
+                f"{name}/",
+                *("  " + line for line in tree_lines),
+                "```",
+                "",
+            ]
+        )
+        return self._register_overview(
+            session_id,
+            overview,
+            display_name=f"{name}/",
+            extra={
+                "source": "local_folder",
+                "origin": "local_folder",
+                "session_id": session_id,
+                "kind": "project",
+                "project_id": name,
+                "workspace_path": ".",
+                "local_path": str(root),
+                "file_count": len(scan.files),
+                "total_size": total_size,
+                "skipped": scan.skipped + scan.gitignored,
+            },
+        )
 
     def _session_attachments_path(self, session_id: str, *, create: bool = True) -> Optional[Path]:
         session_dir_name = session_directory_name(session_id)

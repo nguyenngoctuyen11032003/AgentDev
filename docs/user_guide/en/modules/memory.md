@@ -6,7 +6,7 @@ This document explains AgentDev's memory system: memory list config, built-in st
 1. **Memory Store** – Declared under `memory[]` in YAML with `name`, `type`, and `config`. Types are registered via `register_memory_store()` and point to concrete implementations.
 2. **Memory Attachment** – Referenced inside agent nodes via `AgentConfig.memories`. Each `MemoryAttachmentConfig` defines read/write strategy and retrieval stages.
 3. **MemoryManager** – Builds store instances at runtime based on attachments and orchestrates `load()`, `retrieve()`, `update()`, `save()`.
-4. **Embedding** – `SimpleMemoryConfig` and `FileMemoryConfig` embed `EmbeddingConfig`, and `EmbeddingFactory` instantiates OpenAI or local vector models.
+4. **Retrieval** – `simple` and `file` stores retrieve by keyword relevance (BM25, works with Vietnamese/CJK text); no embedding or API key is needed. An optional `EmbeddingConfig` switches them to vector search with a local model (`EmbeddingFactory` only supports `provider: local`).
 
 ## 2. Memory Sample Config
 ```yaml
@@ -15,10 +15,6 @@ memory:
     type: simple
     config:
       memory_path: shared/simple.json   # relative -> storage/memory/shared/simple.json
-      embedding:
-        provider: openai
-        model: text-embedding-3-small
-        api_key: ${API_KEY}
   - name: project_docs
     type: file
     config:
@@ -27,28 +23,22 @@ memory:
         - path: docs/
           file_types: [".md", ".mdx"]
           recursive: true
-      embedding:
-        provider: openai
-        model: text-embedding-3-small
+      # Optional: vector search with a local sentence-transformers model
+      # embedding:
+      #   provider: local
+      #   params:
+      #     model_path: /path/to/sentence-transformers-model
 ```
 
-### Mem0 Memory Config
-```yaml
-memory:
-  - name: agent_memory
-    type: mem0
-    config:
-      api_key: ${MEM0_API_KEY}
-      agent_id: my-agent
-```
+> [!NOTE]
+> Mem0 memory has been removed. `type: mem0` now fails with an error saying Mem0 is no longer supported; use `simple`, `file`, or `blackboard` instead.
 
 ## 3. Built-in Store Comparison
 | Type | Path | Highlights | Best for |
 | --- | --- | --- | --- |
-| `simple` | `node/agent/memory/simple_memory.py` | Optional disk persistence (JSON) after runs; FAISS + semantic rerank; read/write capable. | Small conversation history, prototypes. |
-| `file` | `node/agent/memory/file_memory.py` | Chunks files/dirs into a vector index, read-only, auto rebuilds when files change. | Knowledge bases, doc QA. |
+| `simple` | `node/agent/memory/simple_memory.py` | Optional disk persistence (JSON) after runs; BM25 keyword retrieval (FAISS + semantic rerank when a local embedding is configured); read/write capable. | Small conversation history, prototypes. |
+| `file` | `node/agent/memory/file_memory.py` | Chunks files/dirs into an index (BM25 keyword search, or vectors with a local embedding), read-only, auto rebuilds when files change. | Knowledge bases, doc QA. |
 | `blackboard` | `node/agent/memory/blackboard_memory.py` | Lightweight append-only log trimmed by time/count; no vector search. | Broadcast boards, pipeline debugging. |
-| `mem0` | `node/agent/memory/mem0_memory.py` | Cloud-managed by Mem0; semantic search + graph relationships; no local embeddings or persistence needed. Requires `mem0ai` package. | Production memory, cross-session persistence, multi-agent memory sharing. |
 
 All stores register through `register_memory_store()` so summaries show up in UI via `MemoryStoreConfig.field_specs()`.
 
@@ -67,8 +57,8 @@ nodes:
   - id: answer
     type: agent
     config:
-      provider: openai
-      model: gpt-4o-mini
+      connection: <your-connection-id>
+      name: claude-haiku-5-5
       prompt_template: answer_user
       memories:
         - name: convo_cache
@@ -88,20 +78,20 @@ Execution order:
 
 ## 5. Store Details
 All memory stores persist a unified `MemoryItem` structure containing:
-- `content_summary` – trimmed text used for embedding search.
+- `content_summary` – trimmed text used for keyword (or embedding) search.
 - `input_snapshot` / `output_snapshot` – serialized message blocks (with base64 attachments) preserving multimodal context.
 - `metadata` – store-specific telemetry (role, previews, attachment IDs, etc.).
 This schema lets multimodal outputs flow into Memory/Thinking modules without extra plumbing.
 ### 5.1 SimpleMemory
 - **Path** – `SimpleMemoryConfig.memory_path` (or `auto`). Defaults to in-memory.
-- **Retrieval** – Build a query from the prompt, trim it, embed, query FAISS `IndexFlatIP`, then apply semantic rerank (Jaccard/LCS).
-- **Write** – `update()` builds a `MemoryContentSnapshot` (text + blocks) for both input/output, deduplicates via hashed summary, embeds the summary, and stores the snapshots/attachments metadata.
+- **Retrieval** – Build a query from the prompt, trim it, and rank stored summaries by BM25 keyword relevance. With a local `embedding`, it instead embeds the query, queries FAISS `IndexFlatIP`, then applies semantic rerank (Jaccard/LCS).
+- **Write** – `update()` builds a `MemoryContentSnapshot` (text + blocks) for both input/output, deduplicates via hashed summary, embeds the summary (only when a local embedding is configured), and stores the snapshots/attachments metadata.
 - **Tips** – Tune `max_content_length`, `top_k`, and `similarity_threshold` to avoid irrelevant context.
 
 ### 5.2 FileMemory
 - **Config** – Requires at least one `file_sources` entry (paths, suffix filters, recursion, encoding). `index_path` is mandatory for incremental updates.
-- **Indexing** – Scan files → chunk (default 500 chars, 50 overlap) → embed → persist JSON with `file_metadata`.
-- **Retrieval** – Uses FAISS cosine similarity. Read-only; `update()` unsupported.
+- **Indexing** – Scan files → chunk (default 500 chars, 50 overlap) → embed (only with a local embedding) → persist JSON with `file_metadata`.
+- **Retrieval** – BM25 keyword relevance by default; FAISS cosine similarity when a local embedding is configured. Read-only; `update()` unsupported.
 - **Maintenance** – `load()` checks file hashes and rebuilds if needed. Store `index_path` on persistent storage.
 
 ### 5.3 BlackboardMemory
@@ -109,24 +99,15 @@ This schema lets multimodal outputs flow into Memory/Thinking modules without ex
 - **Retrieval** – Returns the latest `top_k` entries ordered by time.
 - **Write** – `update()` appends the latest snapshot (input/output blocks, attachments, previews). No embeddings are generated, so retrieval is purely recency-based.
 
-### 5.4 Mem0Memory
-- **Config** – Requires `api_key` (from [app.mem0.ai](https://app.mem0.ai)). Optional `user_id`, `agent_id`, `org_id`, `project_id` for scoping.
-- **Entity scoping**: `user_id` and `agent_id` are independent dimensions — both can be included simultaneously in `add()` and `search()` calls. When both are configured, retrieval uses an OR filter (`{"OR": [{"user_id": ...}, {"agent_id": ...}]}`) to search across both scopes. Writes include both IDs when available.
-- **Retrieval** – Uses Mem0's server-side semantic search. Supports `top_k` and `similarity_threshold` via `MemoryAttachmentConfig`.
-- **Write** – `update()` sends only user input to Mem0 via the SDK (as `role: "user"` messages). Assistant output is excluded to prevent noise memories from the LLM's responses being extracted as facts.
-- **Persistence** – Fully cloud-managed. `load()` and `save()` are no-ops. Memories persist across runs and sessions automatically.
-- **Dependencies** – Requires `mem0ai` package (`pip install mem0ai`).
-
 ## 6. EmbeddingConfig Notes
-- Fields: `provider`, `model`, `api_key`, `base_url`, `params`.
-- `provider=openai` uses the official client; override `base_url` for compatibility layers.
+- Embedding is optional: without it, `simple` and `file` stores use BM25 keyword retrieval.
+- Fields: `provider`, `model`, `params`. The only supported provider is `local`, which expects `params.model_path` and depends on `sentence-transformers`.
 - `params` can include `use_chunking`, `chunk_strategy`, `max_length`, etc.
-- `provider=local` expects `params.model_path` and depends on `sentence-transformers`.
-- Anthropic Claude has no embedding model: agents may use `provider: anthropic`, but `embedding.provider` must stay `openai` (or an OpenAI-compatible endpoint) or `local`.
+- OpenAI embeddings were removed: a legacy `provider: openai` embedding block is ignored with a warning (keyword retrieval is used instead).
 
 ## 7. Troubleshooting & Best Practices
 - **Duplicate names** – The memory list enforces unique `memory[]` names. Duplicates raise `ConfigError`.
-- **Missing embeddings** – `SimpleMemory` without embeddings downgrades to append-only; `FileMemory` errors out. Provide an embedding config whenever semantic search is required.
+- **No embeddings needed** – `SimpleMemory` and `FileMemory` fall back to BM25 keyword retrieval without an embedding; add a `local` embedding only if you need vector search.
 - **Permissions** – Ensure directories for `memory_path`/`index_path` are writable. Mount volumes when running inside containers.
 - **Performance** – Pre-build large `FileMemory` indexes offline, use `retrieve_stage` to limit retrieval frequency, and tune `top_k`/`similarity_threshold` to balance recall vs. token cost.
 

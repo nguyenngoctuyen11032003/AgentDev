@@ -10,7 +10,7 @@ This landing page helps operators, workflow authors, and extension developers fi
 | [Workflow Authoring](workflow_authoring.md) | YAML structure, node types, provider/edge conditions, template export, CLI execution. |
 | [Graph Execution Logic](execution_logic.md) | DAG/cyclic graph execution, Tarjan cycle detection, super node construction, recursive cycle execution. |
 | [Dynamic Parallel Execution](dynamic_execution.md) | Map/Tree modes, split strategies, parallel processing and hierarchical reduction. |
-| [Memory Module](modules/memory.md) | Memory list architecture, built-in `simple`/`file`/`blackboard` behaviors, embedding config, troubleshooting. |
+| [Memory Module](modules/memory.md) | Memory list architecture, built-in `simple`/`file`/`blackboard` behaviors, keyword (BM25) retrieval and optional local embedding, troubleshooting. |
 | [Thinking Module](modules/thinking.md) | Reasoning enhancement, self-reflection mode, extending custom thinking modes. |
 | [Tooling Module](modules/tooling/README.md) | Function/MCP modes, context injection, built-in function catalog, MCP launch patterns. |
 | [Node Types Reference](nodes/) | Agent, Python, Human, Subgraph, Passthrough, Literal, Loop Counter node configurations. |

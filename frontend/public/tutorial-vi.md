@@ -43,7 +43,7 @@ Bản thân đồ thị không trực tiếp thực hiện công việc cụ th�
 
 **Biến (Variable)** cung cấp các tham số toàn cục hoặc cục bộ có thể cấu hình cho đồ thị. Sau khi được định nghĩa, các nút (Agent) có thể tham chiếu trực tiếp tới những biến này, giúp chia sẻ tham số và tách rời phần cấu hình.
 
-Nên quản lý tập trung tại đây các cấu hình dùng chung hoặc nhạy cảm, chẳng hạn như khóa API.
+Nên quản lý tập trung tại đây các cấu hình dùng chung hoặc nhạy cảm, chẳng hạn như ngôn ngữ đầu ra. Quyền dùng model lấy từ kết nối tài khoản chọn ở từng nút agent (trang Kết nối).
 
 Lưu ý: nếu các biến môi trường cần thiết đã được định nghĩa trong tệp `.env` bên ngoài và bạn muốn dùng trực tiếp, thì không cần cấu hình lại ở đây.
 Nếu biến được cấu hình tại đây, **thiết lập này sẽ được ưu tiên** hơn giá trị trong tệp `.env` bên ngoài.

@@ -62,6 +62,7 @@ class MessageHandler:
                 session_id,
                 {"text": user_input, "attachments": attachments},
             )
+            websocket_manager.record_user_message(session_id, user_input, attachments)
 
             await websocket_manager.send_message(
                 session_id,
