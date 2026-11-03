@@ -1,65 +1,23 @@
 <template>
   <Transition name="modal-fade">
     <div v-if="isVisible" class="modal-overlay" @click.self="close">
-      <div class="modal-content settings-modal">
+      <div class="modal-content settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
         <div class="modal-header">
-          <h3>{{ $t('settings.title') }}</h3>
-          <button class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="close">×</button>
+          <h3 id="settings-modal-title">{{ $t('settings.title') }}</h3>
+          <button class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="close">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
         </div>
         <div class="modal-body">
-          <div class="settings-item">
-            <span class="setting-label" id="settings-theme-label">{{ $t('settings.theme') }}</span>
-            <div class="theme-switch" role="radiogroup" aria-labelledby="settings-theme-label">
-              <button
-                v-for="opt in themeOptions"
-                :key="opt.value"
-                type="button"
-                class="theme-option"
-                :class="{ active: localConfig.THEME === opt.value }"
-                role="radio"
-                :aria-checked="localConfig.THEME === opt.value"
-                @click="localConfig.THEME = opt.value"
-              >
-                <span class="theme-option-icon" v-html="opt.icon"></span>
-                <span class="theme-option-text">{{ $t(opt.label) }}</span>
-              </button>
-            </div>
-            <p class="setting-desc no-indent">{{ $t('settings.theme_desc') }}</p>
-          </div>
-          <div class="settings-item">
-            <label class="checkbox-label">
-              <input type="checkbox" v-model="localConfig.AUTO_SHOW_ADVANCED">
-              {{ $t('settings.auto_show_advanced') }}
-            </label>
-            <p class="setting-desc">{{ $t('settings.auto_show_advanced_desc') }}</p>
-          </div>
-          <div class="settings-item">
-            <label class="checkbox-label">
-              <input type="checkbox" v-model="localConfig.AUTO_EXPAND_MESSAGES">
-              {{ $t('settings.auto_expand_messages') }}
-            </label>
-            <p class="setting-desc">{{ $t('settings.auto_expand_messages_desc') }}</p>
-          </div>
-          <div class="settings-item">
-            <label class="checkbox-label">
-              <input type="checkbox" v-model="localConfig.ENABLE_HELP_TOOLTIPS">
-              {{ $t('settings.enable_help_tooltips') }}
-            </label>
-            <p class="setting-desc">{{ $t('settings.enable_help_tooltips_desc') }}</p>
-          </div>
-          <div class="settings-item">
-            <label class="setting-label" for="settings-language-select">{{ $t('settings.language') }}</label>
-            <select id="settings-language-select" v-model="localConfig.LANGUAGE" class="language-select">
-              <option value="vi">Tiếng Việt</option>
-              <option value="en">English</option>
-              <option value="zh">简体中文</option>
-            </select>
-            <p class="setting-desc">{{ $t('settings.language_desc') }}</p>
-          </div>
+          <GeneralSettings :config="localConfig" @change="(key, value) => (localConfig[key] = value)" />
+          <a class="more-link" href="/settings" target="_blank" rel="noopener">
+            {{ $t('settings.open_page') }}
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9" /></svg>
+          </a>
         </div>
         <div class="modal-footer">
-          <button class="cancel-button" @click="close">{{ $t('common.cancel') }}</button>
-          <button class="confirm-button" @click="save">{{ $t('common.save') }}</button>
+          <button class="btn" @click="close">{{ $t('common.cancel') }}</button>
+          <button class="btn primary" @click="save">{{ $t('common.save') }}</button>
         </div>
       </div>
     </div>
@@ -70,6 +28,7 @@
 import { reactive, watch } from 'vue'
 import { configStore, applyTheme } from '@/stores/configStore.js'
 import { setLocale } from '@/i18n'
+import GeneralSettings from '@/components/settings/GeneralSettings.vue'
 
 const props = defineProps({
   isVisible: {
@@ -78,6 +37,7 @@ const props = defineProps({
   }
 })
 
+// Draft copy: nothing is saved until "Save"; the theme is previewed live and reverted on cancel.
 const localConfig = reactive({
   AUTO_SHOW_ADVANCED: false,
   AUTO_EXPAND_MESSAGES: false,
@@ -86,24 +46,10 @@ const localConfig = reactive({
   THEME: 'dark'
 })
 
-const ICON_MOON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
-const ICON_SUN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
-const ICON_MONITOR = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
-
-const themeOptions = [
-  { value: 'dark', label: 'settings.theme_dark', icon: ICON_MOON },
-  { value: 'light', label: 'settings.theme_light', icon: ICON_SUN },
-  { value: 'system', label: 'settings.theme_system', icon: ICON_MONITOR }
-]
-
 watch(() => props.isVisible, (newVal) => {
-  if (newVal) {
-    // Sync local state with global store when modal opens
-    Object.assign(localConfig, configStore)
-  }
+  if (newVal) Object.assign(localConfig, configStore)
 })
 
-// Live preview of the theme while the modal is open; reverted on cancel.
 watch(() => localConfig.THEME, (t) => {
   if (props.isVisible) applyTheme(t)
 })
@@ -111,16 +57,13 @@ watch(() => localConfig.THEME, (t) => {
 const emit = defineEmits(['update:isVisible', 'close'])
 
 const close = () => {
-  // Undo any un-saved theme preview
   applyTheme(configStore.THEME)
   emit('update:isVisible', false)
   emit('close')
 }
 
 const save = () => {
-  // Commit local changes to global store
   Object.assign(configStore, localConfig)
-  // Loads the language chunk on first use, then switches.
   setLocale(localConfig.LANGUAGE).catch((error) => console.error('Failed to switch language:', error))
   close()
 }
@@ -130,248 +73,133 @@ const save = () => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgb(var(--shade) / 0.6);
+  z-index: 2000;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
+  padding: 16px;
+  background: rgb(var(--shade) / 0.6);
 }
 
 .modal-content.settings-modal {
-  width: 500px !important;
-  max-width: 90vw;
-  background: var(--surface-1);
-  border-radius: 8px;
-  border: 1px solid var(--line-1);
-  color: var(--text-strong);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 4px 20px rgb(var(--shade) / 0.5);
+  width: 640px;
+  max-width: 100%;
+  max-height: calc(100vh - 32px);
+  border-radius: 16px;
+  background: var(--bg-base);
+  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.1), 0 24px 60px rgb(var(--shade) / 0.5);
+  color: var(--text-strong);
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
 .modal-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--line-1);
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid rgb(var(--ink) / 0.09);
 }
 
 .modal-header h3 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 500;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .close-button {
-  background: none;
-  border: none;
-  color: var(--text-muted-3);
-  font-size: 24px;
-  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  line-height: 1;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted-4);
+  cursor: pointer;
 }
 
 .close-button:hover {
   color: var(--text-strong);
+  background: rgb(var(--ink) / 0.07);
 }
 
 .modal-body {
-  padding: 20px;
   flex: 1;
+  padding: 20px 22px;
   overflow-y: auto;
 }
 
-.settings-item {
-  margin-bottom: 20px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid rgb(var(--ink) / 0.08);
-}
-
-.settings-item:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
-
-.setting-label {
-  display: block;
-  color: var(--text-2);
-  font-size: 15px;
-  margin-bottom: 8px;
-}
-
-.language-select {
-  width: 100%;
-  padding: 8px;
-  background: var(--surface-4);
-  border: 1px solid var(--line-3);
-  color: var(--text-strong);
-  border-radius: 4px;
-  margin-bottom: 6px;
-}
-
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-2);
-  font-size: 15px;
-  cursor: pointer;
-  user-select: none;
-  margin-bottom: 6px;
-}
-
-.checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: #4facfe;
-  cursor: pointer;
-}
-
-.setting-desc {
-  margin-left: 26px;
-  color: var(--text-muted-8);
-  font-size: 13px;
-  line-height: 1.4;
-  margin-top: 0;
-}
-
-.setting-desc.no-indent {
-  margin-left: 0;
-  margin-top: 8px;
-}
-
-/* Theme segmented control */
-.theme-switch {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-  padding: 4px;
-  border-radius: 10px;
-  background: rgb(var(--ink) / 0.06);
-  border: 1px solid rgb(var(--ink) / 0.08);
-}
-
-.theme-option {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 9px 10px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-muted-6);
-  font-size: 13px;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.theme-option:hover {
-  color: var(--text-1);
-  background: rgb(var(--ink) / 0.05);
-}
-
-.theme-option.active {
-  color: var(--text-strong);
-  background: var(--surface-4);
-  box-shadow: 0 1px 2px rgb(var(--shade) / 0.25), 0 0 0 1px rgb(var(--accent-sky-rgb) / 0.35);
-}
-
-.theme-option.active .theme-option-icon {
-  color: var(--accent-sky);
-}
-
-.theme-option:focus-visible {
-  outline: 2px solid var(--accent-sky);
-  outline-offset: 1px;
-}
-
-.theme-option-icon {
+.more-link {
   display: inline-flex;
-  width: 16px;
-  height: 16px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-sky);
+  text-decoration: none;
 }
 
-.theme-option-icon :deep(svg) {
-  width: 16px;
-  height: 16px;
+.more-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .modal-footer {
-  padding: 16px 20px;
-  border-top: 1px solid var(--line-1);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
+  padding: 16px 22px;
+  border-top: 1px solid rgb(var(--ink) / 0.09);
 }
 
-.confirm-button {
-  background: #4facfe;
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.confirm-button:hover {
-  background: #3a9cfa;
-}
-
-.cancel-button {
-  background: transparent;
-  color: var(--text-soft-1);
-  border: 1px solid var(--line-3);
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.cancel-button:hover {
+.btn {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
   background: rgb(var(--ink) / 0.05);
-  color: var(--text-strong);
-  border-color: var(--neutral-1);
+  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.1);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-/* ---------- Light theme: white-on-#4facfe is ~2.4:1, use a deeper blue ---------- */
-:root[data-theme="light"] .modal-content.settings-modal {
-  border-color: var(--line-4);
-  box-shadow: 0 10px 30px rgb(var(--shade) / 0.3);
-}
-:root[data-theme="light"] .settings-item {
-  border-bottom-color: var(--line-1);
-}
-:root[data-theme="light"] .checkbox-label input[type="checkbox"] {
-  accent-color: #0369a1;
-}
-:root[data-theme="light"] .confirm-button {
-  background: #0369a1;
-}
-:root[data-theme="light"] .confirm-button:hover {
-  background: #075985;
-}
-:root[data-theme="light"] .theme-switch {
-  border-color: var(--line-3);
-}
-:root[data-theme="light"] .theme-option.active {
-  background: var(--surface-1);
-  box-shadow: 0 1px 2px rgb(var(--shade) / 0.25), 0 0 0 1px rgb(var(--accent-sky-rgb) / 0.5);
+.btn:hover {
+  background: rgb(var(--ink) / 0.09);
 }
 
-/* Transitions: overlay fades, panel settles with a subtle scale (opacity +
-   transform only, so both run on the compositor). The full-screen backdrop
-   blur is suspended while animating so it is not re-blurred every frame. */
+.btn.primary {
+  background: var(--accent-sky);
+  box-shadow: none;
+  color: #05141f;
+}
+
+.btn.primary:hover {
+  filter: brightness(1.06);
+}
+
+:root[data-theme='light'] .btn.primary {
+  color: #fff;
+}
+
+.close-button:focus-visible,
+.btn:focus-visible,
+.more-link:focus-visible {
+  outline: 2px solid var(--accent-sky);
+  outline-offset: 2px;
+}
+
+/* Opacity + transform only, so the transition stays on the compositor */
 .modal-fade-enter-active,
 .modal-fade-leave-active {
   transition: opacity 0.2s ease;
-  backdrop-filter: none;
 }
 
 .modal-fade-enter-active .modal-content,

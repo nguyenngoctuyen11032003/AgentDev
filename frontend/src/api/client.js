@@ -247,6 +247,17 @@ export async function postYamlCopy(filename, newFilename) {
 }
 
 // Load the YAML file list from the API with names and descriptions
+// Names only, one request: for pickers that do not show descriptions (fetchWorkflowsWithDesc
+// costs one extra request per workflow).
+export async function fetchWorkflowNames() {
+  const response = await fetch(apiUrl('/api/workflows'), FRESH)
+  if (!response.ok) {
+    throw await responseError('errors.api.load_workflows_failed', response)
+  }
+  const data = await response.json()
+  return Array.isArray(data.workflows) ? data.workflows : []
+}
+
 export async function fetchWorkflowsWithDesc() {
   try {
     const response = await fetch(apiUrl('/api/workflows'), FRESH)
@@ -745,3 +756,66 @@ export const fetchConnectionAccount = (id) =>
 
 export const testConnection = (id) =>
   connectionsRequest(`/${encodeURIComponent(id)}/test`, { method: 'POST' }, 'errors.api.connections_failed')
+
+// ---------------------------------------------------------------------------
+// Shared skill library (workspace/skills/<name>/SKILL.md, ticked per agent)
+// ---------------------------------------------------------------------------
+
+async function skillsRequest(path, options = {}) {
+  const response = await fetch(apiUrl(`/api/skills${path}`), {
+    headers: { 'Content-Type': 'application/json' },
+    ...FRESH,
+    ...options
+  })
+  if (!response.ok) {
+    throw await responseError('errors.api.skills_failed', response)
+  }
+  return response.json()
+}
+
+export const fetchSkills = async () => (await skillsRequest('')).skills || []
+
+export const fetchSkill = (name) => skillsRequest(`/${encodeURIComponent(name)}`)
+
+export const createSkill = ({ content, name = null, description = null, overwrite = false }) =>
+  skillsRequest('', { method: 'POST', body: JSON.stringify({ content, name, description, overwrite }) })
+
+export const updateSkill = (originalName, { content, name = null, description = null }) =>
+  skillsRequest(`/${encodeURIComponent(originalName)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content, name, description })
+  })
+
+export const deleteSkill = (name) => skillsRequest(`/${encodeURIComponent(name)}`, { method: 'DELETE' })
+
+export const fetchSkillImportSource = (source = '') =>
+  skillsRequest(`/import-source${source ? `?source=${encodeURIComponent(source)}` : ''}`)
+
+export const importSkills = ({ names, source = null, overwrite = false }) =>
+  skillsRequest('/import', { method: 'POST', body: JSON.stringify({ names, source, overwrite }) })
+
+// ---------------------------------------------------------------------------
+// Workflow Lab (readiness check + scenario evaluation)
+// ---------------------------------------------------------------------------
+
+async function labRequest(path, options = {}) {
+  const response = await fetch(apiUrl(`/api/lab${path}`), {
+    headers: { 'Content-Type': 'application/json' },
+    ...FRESH,
+    ...options
+  })
+  if (!response.ok) {
+    throw await responseError('errors.api.lab_failed', response)
+  }
+  return response.json()
+}
+
+export const labCheck = (yamlFile) =>
+  labRequest('/check', { method: 'POST', body: JSON.stringify({ yaml_file: yamlFile }) })
+
+export const labEvaluate = ({ yamlFile, scenarios, repeats }) =>
+  labRequest('/evaluate', { method: 'POST', body: JSON.stringify({ yaml_file: yamlFile, scenarios, repeats }) })
+
+export const labJob = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}`)
+
+export const labCancel = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })

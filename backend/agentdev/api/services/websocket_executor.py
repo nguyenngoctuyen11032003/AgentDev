@@ -3,6 +3,7 @@
 import asyncio
 from typing import List
 
+from agentdev.runtime.node.agent.team import CONVERSATION_TURNS_KEY
 from agentdev.utils.logger import WorkflowLogger
 from agentdev.workflow.graph import GraphExecutor
 from agentdev.workflow.graph_context import GraphContext
@@ -58,6 +59,12 @@ class WebSocketGraphExecutor(GraphExecutor):
             cancel_event=cancel_event,
             workspace_root=workspace_root,
         )
+        # Earlier turns of this session (this run's turn is added when it finishes): team leads
+        # repeat a member's earlier reports in its brief (see team.get_team_state).
+        session = session_store.get_session(session_id) if session_store else None
+        turns = list(getattr(session, "turns", None) or [])
+        if turns:
+            self.runtime_context.global_state[CONVERSATION_TURNS_KEY] = turns
 
     def _create_logger(self) -> WorkflowLogger:
         from agentdev.api.services.websocket_logger import WebSocketLogger

@@ -39,7 +39,9 @@
          v-model:nodes="nodes"
          v-model:edges="edges"
          :delete-key-code="false"
-         :fit-view-on-init="true"
+         :fit-view-on-init="false"
+         :min-zoom="MIN_ZOOM"
+         :max-zoom="2"
          class="vueflow-graph"
          @node-click="onNodeClick"
          @edge-click="onEdgeClick"
@@ -53,6 +55,7 @@
             :id="props.id"
             :data="props.data"
             :sprite="nodeSpriteMap.get(props.id) || ''"
+            :team="teamChart.get(props.id) || null"
             @hover="onNodeHover"
             @leave="onNodeLeave"
           />
@@ -125,6 +128,14 @@
               >
                 {{ $t('workflow_view.copy_node') }}
               </div>
+              <!-- One click: "Backend Developer" -> "Backend Developer 2", added to the same teams -->
+              <div
+                class="context-menu-item"
+                :title="$t('workflow_view.duplicate_node_hint')"
+                @click.stop="() => { hideContextMenu(); onDuplicateNodeFromContext(); }"
+              >
+                {{ $t('workflow_view.duplicate_node') }}
+              </div>
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.deleteNode" placement="right">
                 <div
                   class="context-menu-item"
@@ -188,6 +199,14 @@
         <button v-else @click="openCreateNodeModal" class="glass-button">
           <span>{{ $t('workflow_view.create_node') }}</span>
         </button>
+        <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.createEdge" placement="bottom">
+          <button @click="openCreateEdgeModal" class="glass-button">
+            <span>{{ $t('workflow_view.create_edge') }}</span>
+          </button>
+        </RichTooltip>
+        <button v-else @click="openCreateEdgeModal" class="glass-button">
+          <span>{{ $t('workflow_view.create_edge') }}</span>
+        </button>
         <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.configureGraph" placement="bottom">
           <button @click="openConfigureGraphModal" class="glass-button">
             <span>{{ $t('workflow_view.configure_graph') }}</span>
@@ -210,14 +229,19 @@
           @mouseenter="showMenu = true"
           @mouseleave="showMenu = false"
         >
-          <div
+          <button
+            type="button"
             class="menu-trigger"
             :class="{ 'menu-trigger-active': showMenu }"
+            :aria-expanded="showMenu"
+            :aria-label="$t('workflow_view.more_actions')"
+            :title="$t('workflow_view.more_actions')"
+            @click.stop="showMenu = !showMenu"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M3 12H21M3 6H21M3 18H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-          </div>
+          </button>
           <transition name="fade">
             <div v-if="showMenu" class="menu-dropdown">
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.renameWorkflow" placement="left">
@@ -236,10 +260,6 @@
                 <div @click="openManageMemoriesModal" class="menu-item">{{ $t('workflow_view.manage_memories') }}</div>
               </RichTooltip>
               <div v-else @click="openManageMemoriesModal" class="menu-item">{{ $t('workflow_view.manage_memories') }}</div>
-              <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.createEdge" placement="left">
-                <div @click="openCreateEdgeModal" class="menu-item">{{ $t('workflow_view.create_edge') }}</div>
-              </RichTooltip>
-              <div v-else @click="openCreateEdgeModal" class="menu-item">{{ $t('workflow_view.create_edge') }}</div>
             </div>
           </transition>
         </div>
@@ -258,6 +278,8 @@
     :mode="formGeneratorMode"
     :field-filter="formGeneratorFieldFilter"
     :read-only-fields="formGeneratorReadOnlyFields"
+    :title="formGeneratorTitle"
+    :submit-label="formGeneratorSubmitLabel"
     @close="closeDynamicFormGenerator"
     @submit="handleFormGeneratorSubmit"
     @copy="handleFormGeneratorCopy"
@@ -342,6 +364,8 @@ import StartNode from '@/components/workflow/StartNode.vue'
 import FormGenerator from '@/components/form/FormGenerator.vue'
 import RichTooltip from '@/components/common/RichTooltip.vue'
 import yaml from 'js-yaml'
+import { buildOrgChart, computeTeamLinks, layoutOrgTree } from '@/utils/teamLinks.js'
+import { duplicateNodeInGraph } from '@/utils/nodeDuplicate.js'
 import { fetchYaml, fetchVueGraph, postVuegraphs, updateYaml, postYamlNameChange, postYamlCopy } from '@/api/client.js'
 import { helpContent } from '@/utils/helpContent.js'
 import { configStore } from '@/stores/configStore.js'
@@ -380,7 +404,45 @@ const withErrorDetail = (message, result) => {
   const detail = extractErrorDetail(result)
   return detail ? t('workflow_view.error_with_detail', { message, detail }) : message
 }
-const { toObject, fromObject, fitView, getViewport, findNode } = useVueFlow()
+const { toObject, fromObject, fitView, getViewport, findNode, getNodes, onNodesInitialized } = useVueFlow()
+// Default minimum is 0.5, too close for a 12-agent team to fit on screen.
+const MIN_ZOOM = 0.15
+
+// Fit the whole graph once the nodes have been measured (right after nextTick they still have no
+// size, so big graphs came out cropped). Capped at 100 % so a 2-node workflow is not blown up, and
+// with extra room for the characters standing on top of the cards.
+// Node sizes arrive asynchronously (ResizeObserver): fit now if every card is measured, otherwise
+// as soon as VueFlow reports the nodes initialized (with a short fallback timer).
+const FIT_OPTIONS = { padding: 0.18, maxZoom: 1, minZoom: MIN_ZOOM }
+let pendingFit = false
+let fitFallback = null
+const allMeasured = () => {
+  const list = getNodes?.value || []
+  return list.length > 0 && list.every((node) => node.dimensions?.width > 0 && node.dimensions?.height > 0)
+}
+// fitView resolves false (and does nothing) while the canvas itself is not ready yet, which is
+// the case on a fresh page load: retry briefly until it succeeds.
+const runPendingFit = async (attempt = 0) => {
+  if (!pendingFit) return
+  clearTimeout(fitFallback)
+  const done = await fitView?.(FIT_OPTIONS)
+  if (done || attempt >= 12) {
+    pendingFit = false
+    return
+  }
+  fitFallback = setTimeout(() => runPendingFit(attempt + 1), 120)
+}
+onNodesInitialized(() => runPendingFit())
+const fitGraph = async () => {
+  await nextTick()
+  pendingFit = true
+  if (allMeasured()) {
+    runPendingFit()
+    return
+  }
+  clearTimeout(fitFallback)
+  fitFallback = setTimeout(() => runPendingFit(), 400)
+}
 
 const vueflowContainerRef = ref(null)
 // Hovered node id for highlighting related edges
@@ -574,6 +636,9 @@ const onEdgeContextMenu = (params) => {
     return
   }
   mouseEvent.preventDefault?.()
+  if (edge.data?.virtual) {
+    return
+  }
 
   const fromId = edge.data?.from || edge.source
   const toId = edge.data?.to || edge.target
@@ -597,6 +662,9 @@ const onGlobalClick = () => {
   // Clicks on the menu itself are stopped with @click.stop
   if (contextMenuVisible.value) {
     contextMenuVisible.value = false
+  }
+  if (showMenu.value) {
+    showMenu.value = false
   }
 }
 
@@ -655,6 +723,35 @@ const onCopyNodeFromContext = () => {
   }
   handleFormGeneratorCopy({ initialFormData: yamlNodeContent })
 }
+
+// Quick team building: copy the node with the next numbered ID and add it to the same teams.
+const onDuplicateNodeFromContext = async () => {
+  const nodeId = contextNodeId.value
+  const source = yamlContent.value
+  const result = nodeId && source?.graph ? duplicateNodeInGraph(source.graph, nodeId) : null
+  if (!result) {
+    return
+  }
+  const original = vueFlowNodeById(nodeId)
+  const ok = await persistYamlSnapshot({ ...source, graph: result.graph })
+  if (!ok) {
+    return
+  }
+  await loadYamlFile()
+  syncVueNodesAndEdgesData()
+  await nextTick()
+  // Stand the copy just below the original instead of wherever the auto layout puts new nodes.
+  const copy = vueFlowNodeById(result.newId)
+  if (copy && original?.position) {
+    copy.position = { x: original.position.x, y: original.position.y + 170 }
+  }
+  await saveVueFlowGraph()
+  toast.success(result.leads.length
+    ? t('workflow_view.duplicate_node_done_team', { name: result.newId, leads: result.leads.join(', ') })
+    : t('workflow_view.duplicate_node_done', { name: result.newId }))
+}
+
+const vueFlowNodeById = (id) => (nodes.value || []).find(node => node.id === id)
 
 const deleteNodeById = async (nodeId) => {
   if (!nodeId) {
@@ -801,7 +898,7 @@ const initializeWorkflow = async (name) => {
   await loadYamlFile()
   loadAndSyncVueFlowGraph()
   await nextTick()
-  fitView?.({ padding: 0.1 })
+  fitGraph()
 }
 
 watch(
@@ -818,6 +915,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  clearTimeout(fitFallback)
+  pendingFit = false
   window.removeEventListener('click', onGlobalClick)
   dimStartNodeTimers.forEach(clearTimeout)
   dimStartNodeTimers = []
@@ -826,7 +925,7 @@ onBeforeUnmount(() => {
 watch(activeTab, async (newTab) => {
   if (newTab === 'graph') {
     await nextTick()
-    fitView?.({ padding: 0.1 })
+    fitGraph()
   }
 })
 
@@ -954,6 +1053,9 @@ const getCentralPosition = () => {
   return { x: 400, y: 300 }
 }
 
+// Who leads whom (team workflows): drives the org-chart chips on the nodes
+const teamChart = computed(() => buildOrgChart(yamlContent.value?.graph))
+
 const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
   try {
     const yamlNodes = Array.isArray(yamlContent.value?.graph?.nodes)
@@ -962,6 +1064,10 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
     const yamlEdges = Array.isArray(yamlContent.value?.graph?.edges)
       ? yamlContent.value.graph.edges
       : []
+
+    // Visual-only "delegation" links lead -> member (never written to YAML, never run by the engine)
+    const teamLinks = computeTeamLinks(yamlNodes, yamlEdges)
+    const layoutEdges = [...yamlEdges, ...teamLinks]
 
     const currentNodes = nodes.value || []
     const currentEdges = edges.value || []
@@ -975,7 +1081,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
       ? new Map(currentNodes.map(node => [node.id, node]))
       : null
     const existingEdgeByKey = preserveExistingLayout
-      ? new Map(currentEdges.map(edge => [`${edge.source}-${edge.target}`, edge]))
+      ? new Map(currentEdges.filter(edge => !edge.data?.virtual).map(edge => [`${edge.source}-${edge.target}`, edge]))
       : null
     
       // Compute node positions using a simple topological layering
@@ -992,7 +1098,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
           indegree.set(id, 0)
         })
 
-        ;(yamlEdges || []).forEach(e => {
+        ;(layoutEdges || []).forEach(e => {
           if (!e || !e.from || !e.to) return
           if (!adj.has(e.from) || !adj.has(e.to)) return
           adj.get(e.from).add(e.to)
@@ -1046,7 +1152,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
         
         const predecessors = new Map()
         nodeIds.forEach(id => predecessors.set(id, new Set()))
-        ;(yamlEdges || []).forEach(e => {
+        ;(layoutEdges || []).forEach(e => {
           if (!e || !e.from || !e.to) return
           if (!predecessors.has(e.to)) return
           predecessors.get(e.to).add(e.from)
@@ -1101,6 +1207,13 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
             currentY += spacingY
           })
         })
+
+        // Team workflows read as an org chart: lead on the left, each level one column to the right
+        if (teamLinks.length) {
+          for (const [id, pos] of layoutOrgTree(teamLinks, { originX: startX, originY: startY, gapY: 200 })) {
+            if (positions.has(id) || nodeIds.includes(id)) positions.set(id, pos)
+          }
+        }
 
         // Build nextNodes respecting preserveExistingLayout where possible
         const nextNodes = yamlNodes.map((yamlNode) => {
@@ -1249,6 +1362,26 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
       }
     }).filter(Boolean)
 
+    // Visual-only team edges. `virtual: true` and no from/to keep them out of every YAML code path.
+    const teamEdges = teamLinks.map(link => ({
+      id: `team:${link.from}->${link.to}`,
+      source: link.from,
+      target: link.to,
+      type: 'workflow-edge',
+      selectable: false,
+      focusable: false,
+      deletable: false,
+      updatable: false,
+      data: { virtual: true, kind: 'team', lead: link.from, member: link.to },
+      markerEnd: {
+        type: MarkerType.Arrow,
+        width: 14,
+        height: 14,
+        color: 'var(--text-muted-2)',
+        strokeWidth: 1.2,
+      },
+    }))
+
     // Combine YAML edges with visual start edges (preserve any existing non-yaml edges)
     const nextYamlEdgeIdSet = new Set(nextYamlEdges.map(edge => edge.id))
     edges.value = [
@@ -1261,10 +1394,12 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
         const isStartEdge = e.source === START_NODE_ID
         // Also drop if it looks like a YAML edge (has data.from/to) but isn't in nextYamlEdges (stale)
         const isStaleYamlEdge = e.data?.from && e.data?.to
-        return !isYamlEdge && !isStartEdge && !isStaleYamlEdge
+        const isVirtualEdge = !!e.data?.virtual
+        return !isYamlEdge && !isStartEdge && !isStaleYamlEdge && !isVirtualEdge
       }) : []),
       ...nextYamlEdges,
-      ...startEdges
+      ...startEdges,
+      ...teamEdges
     ]
 
     // Ensure start node is present in nodes list (preserving layout if asked)
@@ -1286,7 +1421,7 @@ const generateNodesAndEdges = async (options = {}) => {
   try {
     await nextTick()
     if (options.fit) {
-      fitView?.({ padding: 0.1 })
+      fitGraph()
     }
     await saveVueFlowGraph()
   } catch (err) {
@@ -1479,6 +1614,31 @@ const autoAddStartEdge = async (nextNodeId) => {
   }
 }
 
+// Heading and confirm button of the form, so it is always clear what is being created or edited
+const formGeneratorKind = ref('')
+const formGeneratorTitle = computed(() => {
+  const kind = formGeneratorKind.value
+  const isEdit = formGeneratorMode.value === 'edit'
+  const data = formGeneratorInitialFormData.value || {}
+  if (kind === 'node') return isEdit ? t('form_generator.title_edit_node', { id: data.id || '' }) : t('form_generator.title_create_node')
+  if (kind === 'edge') {
+    return isEdit && data.from && data.to
+      ? t('form_generator.title_edit_edge', { from: data.from, to: data.to })
+      : t('form_generator.title_create_edge')
+  }
+  if (kind === 'graph') return t('workflow_view.configure_graph')
+  if (kind === 'vars') return t('workflow_view.manage_variables')
+  if (kind === 'memory') return t('workflow_view.manage_memories')
+  return ''
+})
+const formGeneratorSubmitLabel = computed(() => {
+  const kind = formGeneratorKind.value
+  if (formGeneratorMode.value === 'edit' || ['graph', 'vars', 'memory'].includes(kind)) return t('form_generator.save_changes')
+  if (kind === 'node') return t('form_generator.submit_create_node')
+  if (kind === 'edge') return t('form_generator.submit_create_edge')
+  return ''
+})
+
 const openDynamicFormGenerator = (type, options = {}) => {
   const config = FORM_GENERATOR_CONFIG[type]
   if (!config) {
@@ -1486,6 +1646,7 @@ const openDynamicFormGenerator = (type, options = {}) => {
     return
   }
   formGeneratorBreadcrumbs.value = config.map(crumb => ({ ...crumb }))
+  formGeneratorKind.value = type
   formGeneratorRecursive.value = options.recursive ?? true
 
   const resolvedMode = typeof options.mode === 'string' && ['create', 'edit'].includes(options.mode)
@@ -1680,7 +1841,7 @@ const onNodeClick = (event) => {
 
 const onEdgeClick = (event) => {
   const clickedEdge = event?.edge || event
-  if (!clickedEdge?.id) {
+  if (!clickedEdge?.id || clickedEdge.data?.virtual) {
     return
   }
 
@@ -2234,6 +2395,10 @@ const handleCopySubmit = async () => {
 }
 
 .menu-trigger {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
   width: 40px;
   height: 100%;
   display: flex;

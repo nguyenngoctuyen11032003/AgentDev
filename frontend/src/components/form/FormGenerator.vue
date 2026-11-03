@@ -9,59 +9,22 @@
     >
       <div class="modal-content">
         <div class="modal-header">
+          <h3 v-if="modalHeading(modal, index)" class="form-title">{{ modalHeading(modal, index) }}</h3>
           <div v-if="modal.formError" class="submit-error">
             {{ modal.formError }}
           </div>
           <button class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeModal(modal.id)">×</button>
         </div>
         <div class="modal-body" data-local-scroll @wheel="handleLocalScrollWheel">
+          <!-- 1. Basic fields (type, name, description, ...) -->
           <div
-            v-for="field in getMainDisplayFields(modal)"
+            v-for="field in getMainDisplayFields(modal).filter((f) => !f.advance)"
             :key="field.name + '-' + (modal.formData[field.name]?.type || '')"
           >
-            <!-- Main Field Rendering -->
-            <DynamicFormField
-              :field="field"
-              :modal-id="modal.id"
-              :form-data="modal.formData"
-              :child-summaries="modal.childSummaries"
-              :recursive="modal.recursive"
-              :is-visible="isFieldVisible(modal, field)"
-              :expand-inline="isInlineConfigField(field)"
-              :can-open-conditional-child-modal="canOpenConditionalChildModal(modal, field)"
-              :conditional-child-button-label="conditionalChildButtonLabel(modal, field)"
-              :is-read-only="isFieldReadOnly(field)"
-              @open-child-modal="(f, idx) => openChildModal(modal.id, f, idx)"
-              @clear-child-entry="(fname) => clearChildEntry(modal.id, fname)"
-              @delete-child-entry="(fname, idx) => deleteChildEntry(modal.id, fname, idx)"
-              @open-conditional-child-modal="(f) => openConditionalChildModal(modal.id, f)"
-              @handle-enum-change="(f) => handleEnumChange(modal.id, f)"
-              @open-var-modal="(fname) => openVarModal(modal.id, fname)"
-              @edit-var="(fname, key) => editVar(modal.id, fname, key)"
-              @delete-var="(fname, key) => deleteVar(modal.id, fname, key)"
-              @open-list-item-modal="(fname) => openListItemModal(modal.id, fname)"
-              @delete-list-item="(fname, idx) => deleteListItem(modal.id, fname, idx)"
-            />
+            <DynamicFormField v-bind="fieldBindings(modal, field)" />
           </div>
 
-          <!-- {{ $t('form_generator.advanced_settings') }} Toggle (Between Normal Fields and Inline Config) -->
-          <div
-            v-if="modal.hasAdvancedFields"
-            class="advanced-toggle"
-          >
-            <button
-              type="button"
-              class="advanced-toggle-button"
-              @click="toggleAdvancedFields(modal.id)"
-            >
-              {{ $t('form_generator.advanced_settings') }}
-              <span class="advanced-toggle-arrow">
-                {{ modal.showAdvanced ? '▲' : '▼' }}
-              </span>
-            </button>
-          </div>
-
-          <!-- Inline Config Fields (Rendered at bottom) -->
+          <!-- 2. Inline config (e.g. the agent settings of a node) -->
           <div
             v-for="field in getInlineDisplayFields(modal)"
             :key="field.name"
@@ -92,6 +55,38 @@
                 />
               </div>
           </div>
+
+          <!-- 3. Fields that read better after the configuration (e.g. the node's character) -->
+          <div
+            v-for="field in getTrailingDisplayFields(modal)"
+            :key="'trailing-' + field.name"
+          >
+            <DynamicFormField v-bind="fieldBindings(modal, field)" />
+          </div>
+
+          <!-- 4. Advanced settings, last: rarely changed -->
+          <div
+            v-if="modal.hasAdvancedFields"
+            class="advanced-toggle"
+          >
+            <button
+              type="button"
+              class="advanced-toggle-button"
+              :aria-expanded="modal.showAdvanced"
+              @click="toggleAdvancedFields(modal.id)"
+            >
+              {{ getInlineDisplayFields(modal).length ? $t('form_generator.advanced_settings_outer') : $t('form_generator.advanced_settings') }}
+              <span class="advanced-toggle-arrow" aria-hidden="true">
+                {{ modal.showAdvanced ? '▲' : '▼' }}
+              </span>
+            </button>
+          </div>
+          <div
+            v-for="field in getMainDisplayFields(modal).filter((f) => f.advance)"
+            :key="'adv-' + field.name + '-' + (modal.formData[field.name]?.type || '')"
+          >
+            <DynamicFormField v-bind="fieldBindings(modal, field)" />
+          </div>
         </div>
         <div class="submit-button-container">
           <button
@@ -115,7 +110,7 @@
             class="submit-button"
             :disabled="modal.submitting"
           >
-            {{ $t('form_generator.submit') }}
+            {{ submitText(modal, index) }}
           </button>
         </div>
       </div>
@@ -211,7 +206,8 @@ import {
   getActiveChildRoute,
   getSchemaFields,
   getFieldLabel,
-  getEnumOptionLabel
+  getEnumOptionLabel,
+  getTrailingFieldNames
 } from '@/utils/formUtils.js'
 
 const props = defineProps({
@@ -247,6 +243,15 @@ const props = defineProps({
   fieldFilter: {
     type: Array,
     default: () => []
+  },
+  // Heading and confirm label of the top-level form (nested forms keep the generic "Save")
+  title: {
+    type: String,
+    default: ''
+  },
+  submitLabel: {
+    type: String,
+    default: ''
   }
 })
 
@@ -408,7 +413,8 @@ const hasAdvancedField = (fields, fieldFilter = null, parentContext = null) => {
 // createModalState (see modal.mainDisplayFields / modal.inlineDisplayFields) instead of
 // filtering the schema again on every render (i.e. on every keystroke).
 const computeMainDisplayFields = (modal) => {
-  const fields = getDisplayFields(modal)
+  const trailing = new Set(getTrailingFieldNames(modal))
+  const fields = getDisplayFields(modal).filter(field => !trailing.has(field.name))
 
   const nonInlineFields = fields.filter(field => !isInlineConfigField(field))
 
@@ -426,6 +432,58 @@ const computeInlineDisplayFields = (modal) => {
 }
 
 const getMainDisplayFields = (modal) => modal.mainDisplayFields || computeMainDisplayFields(modal)
+
+// Fields the layout places after the inline config block (see FORM_LAYOUT in formUtils).
+// Respects the top-level field filter like the main fields do.
+const computeTrailingDisplayFields = (modal) => {
+  const trailing = getTrailingFieldNames(modal)
+  if (!trailing.length) return []
+  let fields = getDisplayFields(modal).filter(field => trailing.includes(field.name) && !isInlineConfigField(field))
+  if (!modal?.parentContext && Array.isArray(props.fieldFilter) && props.fieldFilter.length > 0) {
+    const allowed = new Set(props.fieldFilter)
+    fields = fields.filter(field => allowed.has(field.name))
+  }
+  return fields
+}
+const getTrailingDisplayFields = (modal) => modal.trailingDisplayFields || computeTrailingDisplayFields(modal)
+
+// Same props/listeners for every DynamicFormField, whichever group it is rendered in
+const fieldBindings = (modal, field) => ({
+  field,
+  modalId: modal.id,
+  formData: modal.formData,
+  childSummaries: modal.childSummaries,
+  recursive: modal.recursive,
+  isVisible: isFieldVisible(modal, field),
+  expandInline: isInlineConfigField(field),
+  canOpenConditionalChildModal: canOpenConditionalChildModal(modal, field),
+  conditionalChildButtonLabel: conditionalChildButtonLabel(modal, field),
+  isReadOnly: isFieldReadOnly(field),
+  memberOptions: teamMemberOptions(modal, field),
+  onOpenChildModal: (f, idx) => openChildModal(modal.id, f, idx),
+  onClearChildEntry: (fname) => clearChildEntry(modal.id, fname),
+  onDeleteChildEntry: (fname, idx) => deleteChildEntry(modal.id, fname, idx),
+  onOpenConditionalChildModal: (f) => openConditionalChildModal(modal.id, f),
+  onHandleEnumChange: (f) => handleEnumChange(modal.id, f),
+  onOpenVarModal: (fname) => openVarModal(modal.id, fname),
+  onEditVar: (fname, key) => editVar(modal.id, fname, key),
+  onDeleteVar: (fname, key) => deleteVar(modal.id, fname, key),
+  onOpenListItemModal: (fname) => openListItemModal(modal.id, fname),
+  onDeleteListItem: (fname, idx) => deleteListItem(modal.id, fname, idx)
+})
+
+// Heading / confirm label: the caller's wording for the top-level form, the field being
+// configured for nested forms (e.g. "Tool configuration").
+const modalHeading = (modal, index) => {
+  if (index === 0 && !modal.parentContext) return props.title || ''
+  const ctx = modal.parentContext
+  if (!ctx?.parentFieldName) return ''
+  const parent = modalStack.find(entry => entry.id === ctx.parentModalId)
+  const parentField = getSchemaFields(parent).find(field => field.name === ctx.parentFieldName)
+  return parentField ? getFieldLabel(parentField) : ''
+}
+const submitText = (modal, index) =>
+  (index === 0 && !modal.parentContext && props.submitLabel) || t('form_generator.submit')
 
 const getInlineDisplayFields = (modal) => modal.inlineDisplayFields || computeInlineDisplayFields(modal)
 
@@ -617,6 +675,18 @@ const isFieldReadOnly = (field) => {
   return props.readOnlyFields.includes(field.name)
 }
 
+// Team lead "members": offer the other agent nodes of the workflow as a checklist instead of
+// typing node IDs. In edit mode the base YAML has the edited node removed, so the lead never
+// lists itself; the root modal's id covers create/copy mode.
+const teamMemberOptions = (modal, field) => {
+  if (field?.name !== 'members' || modal?.schema?.node !== 'AgentTeamConfig') return null
+  const leadId = modalStack[0]?.formData?.id
+  const graphNodes = baseYamlObject.value?.graph?.nodes
+  return (Array.isArray(graphNodes) ? graphNodes : [])
+    .filter(node => node?.type === 'agent' && node.id && node.id !== leadId)
+    .map(node => ({ id: node.id, description: node.description || '' }))
+}
+
 const findModalById = (modalId) => {
   const searchState = (list) => {
     for (const modal of list) {
@@ -663,7 +733,7 @@ const createModalState = (
     fields: schemaFields
   })
 
-  const advancedFieldsPresent = hasAdvancedField(schemaFields, props.fieldFilter, parentContext)
+  const advancedFieldsPresent = hasAdvancedField(getDisplayFields({ schema: effectiveSchema }), props.fieldFilter, parentContext)
 
   const derivedIsNewEntry = options?.isNewEntry ?? !initialData
 
@@ -684,6 +754,7 @@ const createModalState = (
     hasAdvancedFields: advancedFieldsPresent,
     mainDisplayFields: null,
     inlineDisplayFields: null,
+    trailingDisplayFields: null,
     childSummaries: reactive({}), // Store summaries for child nodes
     inlineChildModals: reactive({}) // Store inline states for type+config handling
   })
@@ -691,6 +762,7 @@ const createModalState = (
   // Static per modal (schema never changes), so compute once instead of on every render.
   modalState.mainDisplayFields = markRaw(computeMainDisplayFields(modalState))
   modalState.inlineDisplayFields = markRaw(computeInlineDisplayFields(modalState))
+  modalState.trailingDisplayFields = markRaw(computeTrailingDisplayFields(modalState))
 
   schemaFields.forEach(field => {
     // Hidden fields (e.g. the vendor hint set by the account connection) are never pre-filled;
@@ -1168,7 +1240,7 @@ const generateChildSummary = (modal, formData) => {
       }
       displayValue = entries.map(([k, v]) => `${k} => ${v}`).join(', ')
     } else if (typeof value === 'boolean') {
-      displayValue = String(value)
+      displayValue = value ? t('form_generator.bool_on') : t('form_generator.bool_off')
     } else {
       displayValue = String(value)
     }
@@ -2088,12 +2160,37 @@ defineExpose({
 
 .modal-header {
   flex-shrink: 0;
-  height: 12px;
+  min-height: 12px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 8px 12px;
   padding: 8px 8px;
   background-color: transparent;
   border-bottom: none;
+}
+
+/* Says what the form creates or edits ("Tạo nút mới", "Sửa nút: CTO", ...) */
+.form-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 8px 2px 12px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.modal-header .close-button {
+  margin-left: auto;
+}
+
+.modal-header .submit-error {
+  order: 3;
+  flex-basis: 100%;
 }
 
 .modal-body {

@@ -5,6 +5,7 @@
 import { reactive } from 'vue'
 
 const MAX_EVENTS = 300
+const TECHNICAL_SUMMARY = /^Workflow (finished|completed) with \d+/i
 const OUTPUT_PREVIEW = 600
 
 // Backend log timestamps are ISO strings in local time; fall back to "now" for live UI events.
@@ -36,7 +37,7 @@ export function createRunTracker() {
   let seq = 0
 
   const nodeOf = (id) => {
-    if (!state.nodes[id]) state.nodes[id] = { runs: [], waiting: false, lastAt: null }
+    if (!state.nodes[id]) state.nodes[id] = { runs: [], waiting: false, lastAt: null, pendingTask: '' }
     return state.nodes[id]
   }
 
@@ -60,7 +61,8 @@ export function createRunTracker() {
   const lastEventAt = () =>
     state.events.reduce((max, event) => (TIMED.has(event.kind) ? Math.max(max, event.at) : max), 0)
 
-  const nodeStart = (id, at) => {
+  // `delegatedBy`: the lead that handed this task over (team workflows), '' otherwise
+  const nodeStart = (id, at, { delegatedBy = '' } = {}) => {
     if (!id) return
     const time = toMs(at)
     touchRun(time)
@@ -68,17 +70,21 @@ export function createRunTracker() {
     if (openRun(node)) return
     node.waiting = false
     node.lastAt = time
+    const task = node.pendingTask || ''
+    node.pendingTask = ''
     node.runs.push({
       index: node.runs.length + 1,
+      task, // what the lead asked for (team workflows)
       startedAt: time,
       endedAt: null,
       status: 'working',
+      delegatedBy,
       activity: null, // { kind: 'model' | 'tool', name }
       models: 0,
       tools: [],
       output: ''
     })
-    pushEvent('start', id, time)
+    pushEvent('start', id, time, delegatedBy ? { target: delegatedBy } : {})
   }
 
   const activity = (id, kind, name, active, at) => {
@@ -136,6 +142,12 @@ export function createRunTracker() {
     pushEvent('input', '', time, { text: preview(text).slice(0, 140) })
   }
 
+  // A lead's delegate call names the member and the task just before the member starts
+  const assign = (memberId, task) => {
+    if (!memberId || !task) return
+    nodeOf(memberId).pendingTask = preview(task)
+  }
+
   const handoff = (from, to, at) => {
     const time = toMs(at)
     pushEvent('handoff', from, time, { target: to })
@@ -150,14 +162,28 @@ export function createRunTracker() {
     pushEvent('task', '', time, { text: preview(text).slice(0, 140) })
   }
 
-  const finish = (outcome, { summary = '', error = '', tokenUsage = null, at } = {}) => {
+  const lastLeadOutput = () => {
+    let best = null
+    for (const node of Object.values(state.nodes)) {
+      for (const run of node.runs) {
+        if (run.delegatedBy || !run.endedAt || !run.output) continue
+        if (!best || run.endedAt >= best.endedAt) best = run
+      }
+    }
+    return best?.output || ''
+  }
+
+  const finish = (outcome,{ summary = '', error = '', tokenUsage = null, at } = {}) => {
     // Completion messages carry no time: while a step is still open it is "now" (live
     // stop); otherwise the run ended with its last event (also right for replays).
     const stillOpen = Object.values(state.nodes).some((node) => openRun(node))
     const time = at ? toMs(at) : stillOpen ? Date.now() : lastEventAt() || Date.now()
     state.outcome = outcome
     state.endedAt = time
-    state.summary = preview(summary)
+    // The backend's own summary ("Workflow finished with N node outputs ...") says nothing
+    // to a person: the result is then what the lead (a step nobody delegated) said last.
+    const useful = summary && !TECHNICAL_SUMMARY.test(summary) ? summary : ''
+    state.summary = preview(useful || (outcome === 'completed' ? lastLeadOutput() : ''))
     state.error = preview(error)
     if (tokenUsage) state.tokenUsage = tokenUsage
     for (const node of Object.values(state.nodes)) {
@@ -185,7 +211,7 @@ export function createRunTracker() {
     state.inputs = 0
   }
 
-  return { state, begin, nodeStart, activity, nodeEnd, waitingInput, inputSent, handoff, finish, reset }
+  return { state, begin, nodeStart, activity, nodeEnd, waitingInput, inputSent, assign, handoff, finish, reset }
 }
 
 // ---------------------------------------------------------------- derived views
@@ -201,6 +227,43 @@ export function stepStatus(node) {
 export function stepDuration(node, now = Date.now()) {
   if (!node) return 0
   return node.runs.reduce((sum, run) => sum + ((run.endedAt || now) - run.startedAt), 0)
+}
+
+/**
+ * Totals of the backend token report (TokenTracker.get_token_usage): tokens, and the cost
+ * the Claude CLI reports per call (metadata.total_cost_usd), overall and per step.
+ */
+export function usageTotals(usage) {
+  const pick = (value) => (Number.isFinite(value) ? value : 0)
+  const total = usage?.total_usage || usage?.total || usage?.totals || usage || {}
+  const byNode = {}
+  let cost = 0
+  let priced = false
+  for (const call of Array.isArray(usage?.call_history) ? usage.call_history : []) {
+    const price = Number(call?.metadata?.total_cost_usd)
+    if (!Number.isFinite(price)) continue
+    priced = true
+    cost += price
+    const id = call.node_id || ''
+    byNode[id] = (byNode[id] || 0) + price
+  }
+  const nodes = {}
+  for (const [id, item] of Object.entries(usage?.node_usages || {})) {
+    nodes[id] = { tokens: pick(item?.total_tokens), cost: byNode[id] || 0 }
+  }
+  return {
+    tokens: pick(total.total_tokens),
+    input: pick(total.input_tokens),
+    output: pick(total.output_tokens),
+    cost: priced ? cost : null,
+    nodes
+  }
+}
+
+/** "$0.042", "$1.20" */
+export function formatCost(usd) {
+  if (!Number.isFinite(usd)) return '—'
+  return `$${usd < 0.1 ? usd.toFixed(3) : usd.toFixed(2)}`
 }
 
 /** "1m 05s", "42s", "1h 03m" */

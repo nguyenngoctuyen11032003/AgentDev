@@ -1,8 +1,14 @@
 import asyncio
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 
 from agentdev.api.models import WorkflowRequest
+from agentdev.api.services.workflow_run_service import (
+    RUN_IN_PROGRESS_CODE,
+    RUN_IN_PROGRESS_MESSAGE,
+    run_in_progress,
+)
 from agentdev.api.state import ensure_known_session
 from agentdev.utils.exceptions import ValidationError, WorkflowExecutionError
 from agentdev.utils.structured_logger import get_server_logger, LogType
@@ -18,6 +24,12 @@ async def execute_workflow(request: WorkflowRequest):
         log_level = None
     except ValueError:
         raise HTTPException(status_code=400, detail="log_level must be either DEBUG or INFO")
+    if run_in_progress(manager.session_store.get_session(request.session_id)):
+        # Not a run failure: the client should wait for the current run (or cancel it).
+        return JSONResponse(
+            status_code=409,
+            content={"detail": RUN_IN_PROGRESS_MESSAGE, "code": RUN_IN_PROGRESS_CODE},
+        )
     try:
         asyncio.create_task(
             manager.workflow_run_service.start_workflow(

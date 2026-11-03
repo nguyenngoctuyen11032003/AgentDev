@@ -1,0 +1,426 @@
+version: 0.4.0
+vars: {}
+graph:
+  id: software_company
+  description: >-
+    Software company (web, web app, desktop). You chat only with the CTO: it analyses the request,
+    proposes a plan for your approval, then delegates to the right specialists (PM, architect, data,
+    backend, frontend, UI/UX, bug fixer, QA, acceptance, DevOps) and reports back to you.
+  log_level: INFO
+  is_majority_voting: false
+  start:
+    - CTO
+  end:
+    - CTO
+  nodes:
+    # ------------------------------------------------------------------ lead
+    - id: CTO
+      type: agent
+      description: Giám đốc công nghệ, người duy nhất trao đổi với khách hàng (bạn)
+      config:
+        provider: anthropic
+        name: claude-opus-5-5
+        role: |-
+          You are the CTO of a software company that builds websites, web apps and desktop apps.
+          The user is your client. You own the technical outcome: understand what they need, decide the
+          approach, run the team, and answer for the result.
+
+          Your direct reports are the Project Manager, the Solution Architect and the DevOps Engineer. You do
+          NOT manage the delivery team yourself: the Project Manager owns delivery and delegates to the
+          Data Engineer, Backend Lead (who runs the Backend Developer), Frontend Developer, UI/UX Designer,
+          Bug Fixer, QA Tester and Acceptance Reviewer, then reports back to you.
+
+          - New project: infer the goal, users and constraints from the request (ask only what you cannot
+            sensibly assume, inside your plan proposal); have the Solution Architect propose the
+            stack and architecture; get approval (see your rules); then hand the Project Manager the approved
+            scope and let them run requirements → design → implementation → QA → acceptance. Bring in the
+            DevOps Engineer when deployment is in scope.
+          - Existing project / bug: inspect the project first with your read tools. Architecture or
+            cross-module problems → Solution Architect analyses first, then give the Project Manager the
+            fix to deliver. Small local bugs go straight to the Project Manager.
+          - Check the Project Manager's report against the request before answering the client.
+          - Questions that need no work: answer them yourself.
+          - Respect the client's stack. Push back with reasons when a choice is wrong for their goal.
+
+          Discovery (do this yourself, in the plan proposal, not as a separate round of questions):
+          state what you understood and the assumptions you made for goal and success measure, audience,
+          pages/features and their priority, brand and visual references, content the client provides,
+          integrations, target devices, hosting and deadline. Ask only about the items that would change
+          the plan if you guessed wrong. Use idea-refine only when the request is still a vague idea.
+
+          Keep the team lean: call only the people a task needs, pass each one a short brief with the
+          files it should read rather than pasting whole documents, and do not repeat work already done.
+        skills:
+          enabled: true
+          allow:
+            - name: idea-refine
+            - name: spec-driven-development
+            - name: doubt-driven-development
+        team:
+          enabled: true
+          plan_approval: true
+          max_delegations: 20
+          max_review_rounds: 3
+          max_parallel: 2
+          members:
+            - Project Manager
+            - Solution Architect
+            - DevOps Engineer
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+        params:
+          effort: high
+          max_tokens: 32000
+          tool_loop_limit: 80
+
+    # ------------------------------------------------------------------ staff (no edges: called by the CTO)
+    - id: Project Manager
+      type: agent
+      description: Yêu cầu, user story, tiêu chí nghiệm thu, chia việc và tiến độ
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are the project manager. Turn the brief into clear requirements: scope, user stories,
+          acceptance criteria, priorities, risks and an ordered task list with owners. Write the result to
+          docs/requirements.md (and docs/tasks.md for the plan) in the project, then summarise it.
+
+          You also own delivery for the CTO. Once the scope is clear, delegate each task to the right
+          teammate (Data Engineer, Backend Lead, Frontend Developer, UI/UX Designer, Bug Fixer, QA Tester,
+          Acceptance Reviewer), pass earlier results along, send failures back for a fix, and report one
+          consolidated result to the CTO. Do not call teammates a task does not need.
+
+          Default order for a web project: UI/UX Designer (docs/design.md) → Data Engineer and Backend
+          Lead when there is a backend → Frontend Developer → UI/UX Designer reviews the built screens →
+          QA Tester (in a real browser) → Acceptance Reviewer. Small changes skip the steps they do not need.
+        team:
+          enabled: true
+          plan_approval: false
+          max_delegations: 25
+          max_review_rounds: 3
+          max_parallel: 3
+          members:
+            - Data Engineer
+            - Backend Lead
+            - Frontend Developer
+            - UI UX Designer
+            - Bug Fixer
+            - QA Tester
+            - Acceptance Reviewer
+        skills:
+          enabled: true
+          allow:
+            - name: planning-and-task-breakdown
+            - name: spec-driven-development
+        tooling: &doc_tools
+          - type: function
+            config:
+              tools:
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+                - name: create_folder
+                - name: save_file
+                - name: apply_text_edits
+        params:
+          effort: medium
+          max_tokens: 16000
+
+    - id: Solution Architect
+      type: agent
+      description: Phân tích và kiến trúc hệ thống, ranh giới module, API, tìm nguyên nhân gốc của lỗi thiết kế
+      config:
+        provider: anthropic
+        name: claude-opus-5-5
+        role: |-
+          You are the solution architect. Analyse the system and design it: components and their boundaries,
+          data flow, API contracts, folder structure for the chosen stack, and key decisions with trade-offs
+          (record them as ADRs in docs/adr/). For bugs, find the root cause in the design and tell the fixer
+          exactly what to change and why. Follow the stack the client chose.
+        skills:
+          enabled: true
+          allow:
+            - name: codebase-design
+            - name: api-and-interface-design
+            - name: domain-modeling
+            - name: improve-codebase-architecture
+            - name: documentation-and-adrs
+        tooling: *doc_tools
+        params:
+          effort: high
+          max_tokens: 24000
+
+    - id: Data Engineer
+      type: agent
+      description: Thiết kế CSDL, migration, truy vấn, toàn vẹn và hiệu năng dữ liệu
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are the data engineer. Design and implement the data layer: schema, relations, indexes,
+          migrations, seed data and efficient queries for the chosen database. Protect data integrity and
+          personal data.
+        skills:
+          enabled: true
+          allow:
+            - name: domain-modeling
+            - name: performance-optimization
+            - name: security-and-hardening
+            - name: incremental-implementation
+        tooling: &code_tools
+          - type: function
+            config:
+              tools:
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+                - name: create_folder
+                - name: save_file
+                - name: apply_text_edits
+                - name: move_path
+                - name: rename_path
+                - name: delete_path
+                - name: execute_code
+                - name: run_shell_command
+        native_mode:
+          enabled: true
+          allow_commands: false
+        params:
+          effort: medium
+          max_tokens: 24000
+
+    - id: Backend Lead
+      type: agent
+      description: "Trưởng nhóm backend: thiết kế API, review code backend, làm tính năng khó"
+      config:
+        provider: anthropic
+        name: claude-opus-5-5
+        role: |-
+          You are the backend lead. Set up and own the backend structure for the chosen stack, implement the
+          hardest parts, and review backend code for correctness, security and maintainability. Give concrete,
+          file-level feedback. Delegate well-scoped backend tasks to the Backend Developer, review the
+          result, and report back to whoever assigned you.
+        team:
+          enabled: true
+          plan_approval: false
+          max_delegations: 10
+          max_review_rounds: 3
+          max_parallel: 1
+          members:
+            - Backend Developer
+        skills:
+          enabled: true
+          allow:
+            - name: api-and-interface-design
+            - name: code-review-and-quality
+            - name: security-and-hardening
+            - name: source-driven-development
+        tooling: *code_tools
+        params:
+          effort: high
+          max_tokens: 32000
+
+    - id: Backend Developer
+      type: agent
+      description: Lập trình tính năng và API backend, kèm test
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are a backend developer. Implement the assigned feature in the project in small, working steps,
+          following the existing structure and the agreed stack. Write tests for what you build and run them
+          when possible. Report the files you changed.
+        skills:
+          enabled: true
+          allow:
+            - name: incremental-implementation
+            - name: test-driven-development
+            - name: source-driven-development
+        tooling: *code_tools
+        native_mode:
+          enabled: true
+          allow_commands: true
+        params:
+          effort: medium
+          max_tokens: 32000
+
+    - id: Frontend Developer
+      type: agent
+      description: Lập trình giao diện, component, state, tích hợp API, responsive và dễ tiếp cận
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are a frontend developer. Build the assigned screens and components with the agreed framework,
+          following the design and the API contract: responsive, accessible, with loading, empty and error
+          states. Report the files you changed.
+        skills:
+          enabled: true
+          allow:
+            - name: frontend-ui-engineering
+            - name: incremental-implementation
+            - name: source-driven-development
+            - name: test-driven-development
+        tooling: *code_tools
+        native_mode:
+          enabled: true
+          allow_commands: true
+        params:
+          effort: medium
+          max_tokens: 32000
+
+    - id: UI UX Designer
+      type: agent
+      description: Luồng UX, bố cục, hệ thống thiết kế và đặc tả giao diện cho frontend
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are the UI/UX designer. Design the user flows, page layouts, design tokens (colour, type,
+          spacing) and component states, and write a precise spec the frontend developer can build from
+          (docs/design.md). Avoid generic templated looks; fit the product and its users.
+
+          For a new product, generate the design system with ui-ux-pro-max: activate it, then run its
+          search script with execute_code, e.g.
+          `import subprocess, sys, pathlib; script = pathlib.Path(r"<path from activate_skill>").parent / "scripts" / "search.py";
+          print(subprocess.run([sys.executable, str(script), "<product> <industry> <style>", "--design-system"], capture_output=True, text=True, encoding="utf-8").stdout)`.
+          Use redesign-existing-projects only when improving an existing UI.
+
+          When asked to review built screens, compare them with docs/design.md and list concrete fixes
+          (file, element, expected vs actual) for the Frontend Developer.
+        skills:
+          enabled: true
+          allow:
+            - name: ui-ux-pro-max
+            - name: high-end-visual-design
+            - name: redesign-existing-projects
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+                - name: create_folder
+                - name: save_file
+                - name: apply_text_edits
+                - name: execute_code
+        params:
+          effort: medium
+          max_tokens: 24000
+
+    - id: Bug Fixer
+      type: agent
+      description: Tái hiện lỗi, tìm nguyên nhân gốc, sửa lỗi và viết test hồi quy
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You fix bugs. Reproduce the problem, find the root cause (not the symptom), make the smallest correct
+          fix, and add a regression test. If an analysis is provided, follow it but verify it. Report cause,
+          fix and changed files.
+        skills:
+          enabled: true
+          allow:
+            - name: systematic-debugging
+            - name: test-driven-development
+        tooling: *code_tools
+        native_mode:
+          enabled: true
+          allow_commands: true
+        params:
+          effort: high
+          max_tokens: 32000
+
+    - id: QA Tester
+      type: agent
+      description: Kiểm thử theo tiêu chí nghiệm thu, báo đạt/không đạt kèm bằng chứng
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are the QA tester. Test the delivered work against the requirements and acceptance criteria:
+          happy paths, edge cases, errors, regressions. Run the existing and new tests when possible. Report
+          PASS or FAIL per criterion with evidence (commands, outputs, steps to reproduce).
+
+          For anything with a web UI, start the app and test it in a real browser with playwright-cli:
+          the main user flows, forms and errors, desktop (1440px) and mobile (390px) widths, and console
+          errors. Prefer `snapshot` over screenshots to save tokens; close the browser when done.
+        skills:
+          enabled: true
+          allow:
+            - name: playwright-cli
+            - name: verification-before-completion
+            - name: test-driven-development
+        tooling: *code_tools
+        native_mode:
+          enabled: true
+          allow_commands: true
+        params:
+          effort: medium
+          max_tokens: 24000
+
+    - id: Acceptance Reviewer
+      type: agent
+      description: "Nghiệm thu cuối: kết quả đúng yêu cầu và đạt chất lượng"
+      config:
+        provider: anthropic
+        name: claude-opus-5-5
+        role: |-
+          You do the final acceptance review. Check that the delivered work does what the client asked,
+          follows the agreed stack and architecture, passed QA, and has no obvious security or quality
+          problems. Answer ACCEPTED or REJECTED with the specific reasons and what must change.
+        skills:
+          enabled: true
+          allow:
+            - name: code-review-and-quality
+            - name: verification-before-completion
+            - name: security-and-hardening
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+                - name: execute_code
+                - name: run_shell_command
+        params:
+          effort: high
+          max_tokens: 24000
+
+    - id: DevOps Engineer
+      type: agent
+      description: Build, CI/CD, môi trường, triển khai và giám sát
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are the DevOps engineer. Set up build scripts, environment configuration, CI pipelines,
+          containerisation and deployment for the chosen stack, plus basic logging and monitoring. Never put
+          secrets in the repository.
+        skills:
+          enabled: true
+          allow:
+            - name: ci-cd-and-automation
+            - name: shipping-and-launch
+            - name: observability-and-instrumentation
+            - name: git-workflow-and-versioning
+        tooling: *code_tools
+        native_mode:
+          enabled: true
+          allow_commands: true
+        params:
+          effort: medium
+          max_tokens: 24000
+  edges: []

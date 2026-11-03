@@ -1,0 +1,126 @@
+{
+  "agent_node_config.png": [
+    1890,
+    1624
+  ],
+  "agent_toolig_config.png": [
+    1832,
+    1578
+  ],
+  "agent_tooling_function_config.png": [
+    2262,
+    1644
+  ],
+  "agent_tooling_mcp_local.png": [
+    1890,
+    1078
+  ],
+  "agent_tooling_mcp_remote.png": [
+    2306,
+    1500
+  ],
+  "complex_run.webp": [
+    1200,
+    675
+  ],
+  "condition_edge_1.webp": [
+    1200,
+    675
+  ],
+  "condition_edge_2.webp": [
+    1200,
+    675
+  ],
+  "config_graph.webp": [
+    1200,
+    675
+  ],
+  "create_edge.webp": [
+    1200,
+    675
+  ],
+  "create_node.webp": [
+    1200,
+    675
+  ],
+  "dynamic_map.png": [
+    942,
+    388
+  ],
+  "dynamic_tree.png": [
+    943,
+    530
+  ],
+  "dynamic_tree_split.png": [
+    945,
+    395
+  ],
+  "edge_condition_function.png": [
+    940,
+    344
+  ],
+  "edge_condition_keyword.png": [
+    943,
+    518
+  ],
+  "edge_transform_regex.png": [
+    943,
+    937
+  ],
+  "execution_flow.png": [
+    3403,
+    2272
+  ],
+  "graph_create.webp": [
+    1200,
+    675
+  ],
+  "human.png": [
+    939,
+    600
+  ],
+  "human_node.webp": [
+    1200,
+    675
+  ],
+  "literal.png": [
+    937,
+    753
+  ],
+  "loop_counter.png": [
+    939,
+    786
+  ],
+  "memory_global_embedding.png": [
+    943,
+    566
+  ],
+  "memory_global_simple.png": [
+    1886,
+    1068
+  ],
+  "memory_graph.png": [
+    942,
+    460
+  ],
+  "memory_node.png": [
+    942,
+    777
+  ],
+  "memory_node_select.png": [
+    937,
+    962
+  ],
+  "passthrough.png": [
+    940,
+    523
+  ],
+  "python.png": [
+    942,
+    854
+  ],
+  "run.webp": [
+    1200,
+    675
+  ]
+}

@@ -115,7 +115,7 @@
                 {{ $t('launch.review.delivered') }}
                 <span class="pill" :class="`is-${digest.outcome || 'idle'}`"><span class="dot" aria-hidden="true"></span>{{ outcomeLabel }}</span>
               </h4>
-              <div v-if="digest.summary" class="md" v-html="render(digest.summary)"></div>
+              <div v-if="resultSummary" class="md" v-html="render(resultSummary)"></div>
               <p v-else class="muted">{{ $t('launch.review.no_summary') }}</p>
               <p v-if="digest.error" class="load-error">{{ digest.error }}</p>
             </section>
@@ -270,6 +270,7 @@ const ORIGINAL_END = '### END ORIGINAL TASK'
 const SUMMARY_IN_PROMPT = 1500
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
+// Wide tables in a report scroll sideways instead of squeezing a column per letter.renderer.rules.table_open = () => '<div class="md-table"><table>\n'.renderer.rules.table_close = () => '</table></div>\n'
 const renderCache = new Map()
 const render = (text) => {
   if (!renderCache.has(text)) {
@@ -361,6 +362,14 @@ watch(selectedId, (id, previous) => {
 
 // ---------------------------------------------------------------- detail
 const digest = ref(null)
+// The delivered result. The backend's own wrap-up ("Workflow finished with N node outputs
+// ...") tells a reviewer nothing: then it is the entry agent's (the lead's) last hand-over.
+const TECHNICAL_SUMMARY = /^Workflow (finished|completed) with \d+/i
+const resultSummary = computed(() => {
+  const summary = (digest.value?.summary || '').trim()
+  if (summary && !TECHNICAL_SUMMARY.test(summary)) return summary
+  return digest.value?.steps?.find((step) => step.output)?.output || summary
+})
 const loading = ref(false)
 const loadError = ref('')
 let loadSeq = 0
@@ -470,7 +479,7 @@ const originalTask = (text) => {
 const reworkPrompt = computed(() => {
   if (!selected.value || !digest.value) return ''
   const round = roundOf(selected.value.session_id) + 1
-  const summary = (digest.value.summary || '').trim()
+  const summary = (resultSummary.value || '').trim()
   const lines = [
     t('launch.review.prompt.header', { n: round }),
     '',
@@ -583,10 +592,12 @@ const ago = (seconds) => {
   display: grid;
   grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
   gap: 14px;
-  padding: 14px 16px 14px calc(var(--inset-left, 0px) + 16px);
+  padding: 14px 16px 14px calc(var(--inset-left, 0px) + 34px);
   color: var(--text-1);
   font-family: 'Inter', system-ui, sans-serif;
   transition: padding-left 0.25s ease;
+  /* Sized by the room left next to the chat panel, not by the window */
+  container-type: inline-size;
 }
 
 .card,
@@ -956,7 +967,10 @@ const ago = (seconds) => {
 .md :deep(code) { font-size: 12px; padding: 1px 5px; border-radius: 5px; background: rgb(var(--ink) / 0.07); }
 .md :deep(pre) { overflow-x: auto; padding: 10px 12px; border-radius: 9px; background: rgb(var(--ink) / 0.06); }
 .md :deep(pre code) { padding: 0; background: none; }
+.md :deep(.md-table) { max-width: 100%; overflow-x: auto; margin: 0 0 8px; }
 .md :deep(table) { border-collapse: collapse; font-size: 12px; }
+.md :deep(th) { white-space: nowrap; }
+.md :deep(td) { min-width: 64px; max-width: 320px; vertical-align: top; }
 .md :deep(th),
 .md :deep(td) { padding: 4px 8px; border: 1px solid var(--line); }
 
@@ -1193,6 +1207,12 @@ span.tag {
 }
 
 @media (max-width: 1280px) {
+  .detail-grid { grid-template-columns: 1fr; }
+  .verdict { position: static; }
+}
+
+/* Two columns of detail only when the space beside the chat really has room for them */
+@container (max-width: 1060px) {
   .detail-grid { grid-template-columns: 1fr; }
   .verdict { position: static; }
 }

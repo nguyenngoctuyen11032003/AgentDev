@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from agentdev.validation.check import load_config
 from agentdev.entity.graph_config import GraphConfig
@@ -15,12 +15,22 @@ from agentdev.utils.workspace_paths import session_directory_name
 from agentdev.workflow.graph_context import GraphContext
 
 from agentdev.api.services.attachment_service import AttachmentService
+from agentdev.api.services.conversation_turns import compose_follow_up_prompt, make_turn
+from agentdev.runtime.node.agent.team import user_exchanges
 from agentdev.api.services.local_projects import opened_project_folder
 from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.api.services.session_store import SessionStatus, WorkflowSessionStore
 from agentdev.api.services.websocket_executor import WebSocketGraphExecutor
 from agentdev.api.services.workflow_storage import validate_workflow_filename
 from agentdev.api.settings import WARE_HOUSE_DIR, YAML_DIR
+
+RUN_IN_PROGRESS_CODE = "run_in_progress"
+RUN_IN_PROGRESS_MESSAGE = "A run is already in progress in this session"
+
+
+def run_in_progress(session) -> bool:
+    """True while a graph is running in ``session`` (a follow-up must wait for it)."""
+    return session is not None and session.executor is not None
 
 
 class WorkflowRunService:
@@ -66,6 +76,14 @@ class WorkflowRunService:
         log_level: Optional[LogLevel] = None,
     ) -> None:
         normalized_yaml_name = (yaml_file or "").strip()
+        existing = self.session_store.get_session(session_id)
+        if run_in_progress(existing):
+            # A follow-up must wait for the current run; never run two graphs in one session.
+            await websocket_manager.send_message(
+                session_id,
+                {"type": "error", "data": {"message": RUN_IN_PROGRESS_MESSAGE, "code": RUN_IN_PROGRESS_CODE}},
+            )
+            return
         try:
             yaml_path = self._resolve_yaml_path(normalized_yaml_name)
             normalized_yaml_name = yaml_path.name
@@ -83,6 +101,7 @@ class WorkflowRunService:
                 task_prompt=task_prompt,
                 session_id=session_id,
                 attachments=attachments,
+                title_hint=None if (task_prompt or "").strip() else ", ".join(self._attachment_names(session_id, attachments)),
             )
             self.session_store.update_session_status(session_id, SessionStatus.RUNNING)
             websocket_manager.record_user_message(session_id, task_prompt, attachments)
@@ -196,6 +215,7 @@ class WorkflowRunService:
 
             results = executor.get_results()
             self.session_store.complete_session(session_id, results)
+            self._remember_turn(session_id, task_prompt, attachments, executor)
 
             await websocket_manager.send_message(
                 session_id,
@@ -203,7 +223,9 @@ class WorkflowRunService:
                     "type": "workflow_completed",
                     "data": {
                         "results": results,
-                        "summary": graph_context.final_message(),
+                        # The lead's / end node's answer is the delivered result; the generic
+                        # "Workflow finished with N node outputs" line only when there is none.
+                        "summary": self._final_answer(executor) or graph_context.final_message(),
                         "token_usage": executor.token_tracker.get_token_usage(),
                     },
                 },
@@ -220,6 +242,7 @@ class WorkflowRunService:
         except WorkflowCancelledError as exc:
             reason = str(exc)
             self.session_store.update_session_status(session_id, SessionStatus.CANCELLED, error_message=reason)
+            self._remember_turn(session_id, task_prompt, attachments, self._current_executor(session_id), status="cancelled")
             await websocket_manager.send_message(
                 session_id,
                 {
@@ -237,6 +260,7 @@ class WorkflowRunService:
             )
         except ValidationError as exc:
             self.session_store.set_session_error(session_id, str(exc))
+            self._remember_turn(session_id, task_prompt, attachments, self._current_executor(session_id), status="error")
             await websocket_manager.send_message(
                 session_id,
                 {"type": "error", "data": {"message": str(exc)}},
@@ -251,6 +275,7 @@ class WorkflowRunService:
             )
         except Exception as exc:
             self.session_store.set_session_error(session_id, str(exc))
+            self._remember_turn(session_id, task_prompt, attachments, self._current_executor(session_id), status="error")
             await websocket_manager.send_message(
                 session_id,
                 {"type": "error", "data": {"message": f"Workflow execution error: {exc}"}},
@@ -277,6 +302,7 @@ class WorkflowRunService:
         attachment_ids: List[str],
         store,
     ) -> Union[List[Message], str]:
+        prompt = self._with_conversation_history(session_id, graph_context, prompt)
         if not attachment_ids:
             return prompt
 
@@ -286,6 +312,78 @@ class WorkflowRunService:
             target_store=store,
         )
         return TaskInputBuilder(store).build_from_blocks(prompt, blocks)
+
+    def _with_conversation_history(self, session_id: str, graph_context: GraphContext, prompt: str) -> str:
+        """Give a follow-up run the earlier turns of this session.
+
+        Only for a single start node (e.g. a team lead): it is the one talking to the
+        user, and with several entry points a shared transcript would be ambiguous.
+        """
+        session = self.session_store.get_session(session_id)
+        if not session or not session.turns:
+            return prompt
+        start_nodes = list(getattr(graph_context.config.definition, "start_nodes", None) or [])
+        if len(start_nodes) != 1:
+            return prompt
+        return compose_follow_up_prompt(session.turns, prompt)
+
+    def _remember_turn(
+        self,
+        session_id: str,
+        prompt: str,
+        attachment_ids: List[str],
+        executor,
+        *,
+        status: str = "completed",
+    ) -> None:
+        """Save the turn so a follow-up has context; also for cancelled/failed runs (partial answer)."""
+        try:
+            answer = ""
+            exchanges: List[Dict[str, str]] = []
+            if executor is not None:
+                try:
+                    answer = executor.get_final_output()
+                except Exception as exc:  # history is best effort
+                    self.logger.warning("Could not read final output for session %s: %s", session_id, exc)
+                exchanges = self._user_exchanges(executor)
+            answer = answer if isinstance(answer, str) else ""
+            names = self._attachment_names(session_id, attachment_ids)
+            turn = make_turn(prompt, answer, names, exchanges)
+            turn["status"] = status  # how the run ended: completed / cancelled / error
+            self.session_store.add_turn(session_id, turn)
+        except Exception as exc:  # never let history break the run's own error/cancel handling
+            self.logger.warning("Could not save turn for session %s: %s", session_id, exc)
+
+    def _current_executor(self, session_id: str):
+        session = self.session_store.get_session(session_id)
+        return getattr(session, "executor", None) if session else None
+
+    def _attachment_names(self, session_id: str, attachment_ids: Optional[List[str]]) -> List[str]:
+        names: List[str] = []
+        if attachment_ids:
+            try:
+                manifest = self.attachment_service.list_attachment_manifests(session_id)
+            except Exception:
+                manifest = {}
+            for attachment_id in attachment_ids:
+                ref = (manifest.get(attachment_id) or {}).get("ref") or {}
+                names.append(ref.get("name") or attachment_id)
+        return names
+
+    @staticmethod
+    def _final_answer(executor) -> str:
+        try:
+            answer = executor.get_final_output()
+        except Exception:  # noqa: BLE001 - summary is cosmetic
+            return ""
+        return answer.strip() if isinstance(answer, str) else ""
+
+    def _user_exchanges(self, executor) -> List[Dict[str, str]]:
+        """Questions the lead asked the user during the run (plan approvals, decisions) and the replies."""
+        try:
+            return user_exchanges(executor._get_execution_context().global_state)
+        except Exception:  # best effort, like the rest of the turn history
+            return []
 
     def _resolve_yaml_path(self, yaml_filename: str) -> Path:
         """Validate and resolve YAML paths inside the configured directory."""

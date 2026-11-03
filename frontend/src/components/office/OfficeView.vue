@@ -69,10 +69,14 @@
           <div v-if="agent.bubble" :key="agent.bubble.key" class="office-bubble" :class="`bubble-${agent.bubble.type}`">
             <span v-if="agent.bubble.type === 'thinking'" class="bubble-dots"><i></i><i></i><i></i></span>
             <svg v-else-if="agent.bubble.type === 'tool'" class="bubble-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z" /></svg>
-            <svg v-else-if="agent.bubble.type === 'handoff' || agent.bubble.type === 'receive'" class="bubble-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /><path d="M9 14h6M9 17h4" /></svg>
+            <svg v-else-if="['handoff', 'receive', 'delegate'].includes(agent.bubble.type)" class="bubble-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /><path d="M9 14h6M9 17h4" /></svg>
             <svg v-else-if="agent.bubble.type === 'waiting'" class="bubble-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></svg>
             <svg v-else-if="agent.bubble.type === 'done'" class="bubble-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-            <span class="bubble-text">{{ agent.bubble.text }}</span>
+            <span v-if="agent.bubble.body" class="bubble-body">
+              <b class="bubble-kicker">{{ agent.bubble.kicker }}</b>
+              <span class="bubble-text">{{ agent.bubble.body }}</span>
+            </span>
+            <span v-else class="bubble-text">{{ agent.bubble.text }}</span>
           </div>
         </Transition>
 
@@ -145,7 +149,7 @@
               {{ t('launch.office.title') }}
               <span v-if="workflowName" class="hud-workflow" :title="workflowName">{{ workflowName }}</span>
             </div>
-            <span class="hud-staff">{{ t('launch.office.staff_count', { n: agents.length }) }}</span>
+            <span class="hud-staff">{{ t(isTeam ? 'launch.office.staff_count_team' : 'launch.office.staff_count', { n: agents.length }) }}</span>
             <div class="hud-stats">
               <span class="hud-chip tag-working"><span class="tag-dot"></span>{{ t('launch.office.states.working') }} {{ counts.working }}</span>
               <span v-if="counts.waiting" class="hud-chip tag-waiting"><span class="tag-dot"></span>{{ t('launch.office.states.waiting') }} {{ counts.waiting }}</span>
@@ -226,6 +230,7 @@ import {
   assignSeats,
   orderSteps,
 } from '@/utils/officeLayout.js'
+import { computeTeamLinks } from '@/utils/teamLinks.js'
 
 const props = defineProps({
   // Workflow graph from the YAML (`graph`: nodes, edges, start)
@@ -242,6 +247,8 @@ const props = defineProps({
 })
 
 const { t, te } = useI18n()
+// A team (a lead delegating to members) is not a pipeline of steps: say "people", not "steps"
+const isTeam = computed(() => computeTeamLinks(props.graph?.nodes, props.graph?.edges).length > 0)
 
 // One sprite art pixel = one map unit (sprites are 30x38 art px).
 const SPRITE_H = 38
@@ -400,6 +407,8 @@ const createAgent = (node, spawn) => {
     // First coffee break is staggered so the office never empties out at once.
     nextBreakAt: performance.now() + 6000 + h * 40000,
     lastOutput: '',
+    task: '', // short brief of the work this person is on (set when a lead delegates to them)
+    question: '', // what they are asking the user while waiting
   })
 }
 
@@ -448,7 +457,7 @@ const refreshStates = () => {
     } else {
       agent.activity = null
       if (prev === 'working' || prev === 'waiting') {
-        if (!agent.bubble || ['thinking', 'tool', 'waiting'].includes(agent.bubble.type)) {
+        if (!agent.bubble || THOUGHT_TYPES.includes(agent.bubble.type)) {
           setBubble(agent, 'done', t('launch.office.bubble.done'))
         }
         // Finished a task: take a short break soon.
@@ -458,17 +467,42 @@ const refreshStates = () => {
   }
 }
 
-const setBubble = (agent, type, text, ttl = BUBBLE_MS[type] ?? 3000) => {
+const setBubble = (agent, type, text, ttl = BUBBLE_MS[type] ?? 3000, parts = null) => {
   bubbleSeq += 1
-  agent.bubble = { type, text, key: bubbleSeq, until: ttl ? performance.now() + ttl : 0 }
+  agent.bubble = {
+    type,
+    text,
+    kicker: parts?.kicker || '',
+    body: parts?.body || '',
+    key: bubbleSeq,
+    until: ttl ? performance.now() + ttl : 0,
+  }
 }
 
+// Text of the persistent "thought" bubble: what this person is doing right now, with details.
+// Returns { type, text, kicker, body }: `text` is the one-line form (info card), `kicker` + `body`
+// are the two lines of the thought bubble (small caption, then the detail).
+const thoughtOf = (agent) => {
+  const make = (type, kicker, body) => ({ type, kicker, body, text: body ? `${kicker}: ${body}` : kicker })
+  if (agent.state === 'waiting') {
+    return agent.question
+      ? make('waiting', t('launch.office.bubble.k_decide'), agent.question)
+      : make('waiting', t('launch.office.bubble.waiting'), '')
+  }
+  const act = agent.activity
+  if (act?.kind === 'delegate') return make('delegate', t('launch.office.bubble.k_delegate', { name: act.label }), act.detail)
+  if (act?.kind === 'ask') return make('waiting', t('launch.office.bubble.k_ask'), act.detail)
+  if (act?.kind === 'tool') return make('tool', t('launch.office.bubble.tool', { name: act.label }), '')
+  if (agent.task) return make('thinking', t('launch.office.bubble.k_working'), agent.task)
+  return make('thinking', t(act ? 'launch.office.bubble.thinking' : 'launch.office.bubble.working'), '')
+}
+const THOUGHT_TYPES = ['thinking', 'tool', 'waiting', 'delegate']
+
 const restoreActivityBubble = (agent) => {
-  if (agent.state === 'waiting') setBubble(agent, 'waiting', t('launch.office.bubble.waiting'), 0)
-  else if (agent.state === 'working') {
-    if (agent.activity?.kind === 'tool') setBubble(agent, 'tool', t('launch.office.bubble.tool', { name: agent.activity.label }), 0)
-    else setBubble(agent, 'thinking', t(agent.activity ? 'launch.office.bubble.thinking' : 'launch.office.bubble.working'), 0)
-  } else if (agent.bubble && ['thinking', 'tool', 'waiting'].includes(agent.bubble.type)) {
+  if (agent.state === 'waiting' || agent.state === 'working') {
+    const thought = thoughtOf(agent)
+    setBubble(agent, thought.type, thought.text, 0, thought)
+  } else if (agent.bubble && THOUGHT_TYPES.includes(agent.bubble.type)) {
     agent.bubble = null
   }
 }
@@ -530,7 +564,7 @@ const resolveDestination = (agent, now) => {
     seat,
   })
 
-  if (agent.state === 'working' || agent.state === 'waiting') return atDesk(seat.facing)
+  if ((agent.state === 'working' || agent.state === 'waiting') && !agent.handoff?.force) return atDesk(seat.facing)
 
   if (agent.handoff) {
     const target = findAgent(agent.handoff.targetId)
@@ -861,8 +895,11 @@ const locationRoom = (agent) => {
 }
 
 const activityText = (agent) => {
-  if (agent.state === 'waiting') return t('launch.office.bubble.waiting')
+  if (agent.state === 'waiting' || (agent.state === 'working' && ['delegate', 'ask'].includes(agent.activity?.kind))) {
+    return thoughtOf(agent).text
+  }
   if (agent.state === 'working') {
+    if (agent.task && !agent.activity) return t('launch.office.bubble.working_on', { task: agent.task })
     if (agent.activity?.kind === 'tool') return t('launch.office.bubble.tool', { name: agent.activity.label })
     if (agent.activity?.kind === 'model') return t('launch.office.activity.model', { name: agent.activity.label })
     return t('launch.office.bubble.working')
@@ -892,11 +929,23 @@ const plainSnippet = (output, max = 90) => {
 }
 
 // ---------------------------------------------------------------- public API (called by LaunchView)
-const activity = (nodeId, kind, label, running) => {
+// `args` are the tool arguments: team tools carry the information shown in the thought bubble
+// (delegate_task: who gets which task; ask_user: the question for the user).
+const activity = (nodeId, kind, label, running, args = null) => {
   const agent = findAgent(nodeId)
   if (!agent) return
-  if (running) agent.activity = { kind, label }
-  else if (agent.activity?.kind === kind) agent.activity = null
+  let entry = { kind, label }
+  if (kind === 'tool' && args && typeof args === 'object') {
+    if (label === 'delegate_task' && args.member) {
+      entry = { kind: 'delegate', label: findAgent(String(args.member))?.label || String(args.member), detail: plainSnippet(args.task, 110) }
+      const member = findAgent(String(args.member))
+      if (running && member) member.task = plainSnippet(args.task, 120)
+    } else if (label === 'ask_user' && args.question) {
+      entry = { kind: 'ask', label, detail: plainSnippet(args.question, 140) }
+    }
+  }
+  if (running) agent.activity = entry
+  else if (agent.activity && (agent.activity.kind === kind || agent.activity.kind === entry.kind)) agent.activity = null
   if (agent.state === 'working') restoreActivityBubble(agent)
 }
 
@@ -904,6 +953,8 @@ const nodeEnd = (nodeId, output) => {
   const agent = findAgent(nodeId)
   if (!agent) return
   hasRun.add(nodeId)
+  agent.task = ''
+  agent.question = ''
   if (waitingIds.value.has(nodeId)) {
     const next = new Set(waitingIds.value)
     next.delete(nodeId)
@@ -917,10 +968,19 @@ const nodeEnd = (nodeId, output) => {
   refreshStates()
 }
 
-const handoff = (sourceId, targetId) => {
+// `visit: true` is used for team delegation (lead -> member, member -> lead report): the person
+// walks over to the other desk even while still "working", then returns to their own desk.
+const handoff = (sourceId, targetId, { visit = false } = {}) => {
   const source = findAgent(sourceId)
   const target = findAgent(targetId)
   if (!source || !target || source === target) return
+  const canWalk = !source.isHuman && !!target.seat && !!source.seat
+  if (visit && canWalk) {
+    endBreak(source)
+    source.handoff = { targetId, point: null, deliveredAt: 0, force: true }
+    settleHidden()
+    return
+  }
   if (source.state === 'working' || source.state === 'waiting' || source.isHuman) {
     // Busy (or the human at reception): announce the handoff without walking over.
     setBubble(source, 'handoff', t('launch.office.bubble.handoff', { name: target.label }))
@@ -932,8 +992,18 @@ const handoff = (sourceId, targetId) => {
   settleHidden()
 }
 
-const waitingInput = (nodeId) => {
+// The request a (lead) agent has just received from the user, shown in its thought bubble.
+const brief = (nodeId, text) => {
+  const agent = findAgent(nodeId)
+  const task = plainSnippet(text, 120)
+  if (!agent || !task || agent.task) return
+  agent.task = task
+  if (agent.state === 'working') restoreActivityBubble(agent)
+}
+
+const waitingInput = (nodeId, question = '') => {
   if (!nodeId || !findAgent(nodeId)) return
+  findAgent(nodeId).question = plainSnippet(question, 160)
   const next = new Set(waitingIds.value)
   next.add(nodeId)
   waitingIds.value = next
@@ -948,11 +1018,13 @@ const reset = () => {
     agent.bubble = null
     agent.handoff = null
     agent.lastOutput = ''
+    agent.task = ''
+    agent.question = ''
   }
   refreshStates()
 }
 
-defineExpose({ activity, nodeEnd, handoff, waitingInput, reset })
+defineExpose({ activity, nodeEnd, handoff, waitingInput, brief, reset })
 
 // ---------------------------------------------------------------- watchers / lifecycle
 watch(() => props.graph, () => { syncAgents(); refreshStates(); settleHidden() }, { immediate: true })
@@ -1294,7 +1366,95 @@ onBeforeUnmount(() => {
 .bubble-thinking { color: #0f5132; background: #e9fbef; }
 .bubble-tool { color: #1e3a8a; background: #e8f0ff; }
 .bubble-waiting { color: #7a4b00; background: #fff4d6; }
-.bubble-handoff, .bubble-receive { color: #4c1d95; background: #f1ebff; }
+.bubble-handoff, .bubble-receive, .bubble-delegate { color: #4c1d95; background: #f1ebff; }
+
+/* Thought bubbles: what the person is thinking / doing / asking, with details (multi-line cloud) */
+.bubble-thinking,
+.bubble-delegate,
+.bubble-waiting {
+  white-space: normal;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 11px;
+  border-radius: 14px;
+  align-items: flex-start;
+  line-height: 1.35;
+}
+
+.bubble-thinking .bubble-text,
+.bubble-delegate .bubble-text,
+.bubble-waiting .bubble-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+/* Two lines: a small caption (what kind of thought) and the detail under it */
+.bubble-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bubble-kicker {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.bubble-body .bubble-text {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #1c1f27;
+}
+
+.bubble-thinking,
+.bubble-delegate,
+.bubble-waiting {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+/* Cloud tail: two shrinking circles instead of the speech-bubble corner */
+.bubble-thinking::after,
+.bubble-delegate::after,
+.bubble-waiting::after {
+  bottom: -9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.18);
+}
+
+.bubble-thinking::before,
+.bubble-delegate::before,
+.bubble-waiting::before {
+  content: '';
+  position: absolute;
+  left: calc(50% + 6px);
+  bottom: -14px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: inherit;
+}
+
+/* The user must act: make it stand out */
+.bubble-waiting {
+  box-shadow: 0 0 0 2px #f5b301, 0 6px 16px rgba(0, 0, 0, 0.3);
+  animation: office-need-you 1.6s ease-in-out infinite;
+}
+
+@keyframes office-need-you {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-3px); }
+}
 .bubble-done { color: #0b4a6f; background: #e3f4ff; }
 
 .bubble-icon { flex: none; width: 12px; height: 12px; }

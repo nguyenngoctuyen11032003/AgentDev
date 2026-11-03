@@ -13,6 +13,7 @@ import re
 import shutil
 import tempfile
 import threading
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -94,7 +95,10 @@ def _is_undecryptable(stored: str) -> bool:
 
 
 def _slug(text: str) -> str:
-    return _ID_RE.sub("-", text.lower()).strip("-") or "connection"
+    # Drop accents first so "Tài khoản" becomes "tai-khoan" instead of "t-i-kho-n".
+    folded = unicodedata.normalize("NFKD", text.replace("đ", "d").replace("Đ", "D"))
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return _ID_RE.sub("-", folded.lower()).strip("-") or "connection"
 
 
 def _pick_default(connections: Dict[str, Connection], default_id: Optional[str]) -> Optional[Connection]:

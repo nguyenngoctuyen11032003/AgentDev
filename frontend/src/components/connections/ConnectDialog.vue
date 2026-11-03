@@ -246,7 +246,7 @@ const submitLabel = computed(() => {
     if (props.vendor.id === 'openai') {
       return loginMethod.value === 'device' ? t('connections.use_device_code') : t('connections.sign_in_chatgpt')
     }
-    return `${t('connections.continue_account')} ${props.vendor.id === 'anthropic' ? 'Claude' : props.vendor.label}`
+    return t('connections.continue_account_named', { name: props.vendor.id === 'anthropic' ? 'Claude' : props.vendor.label })
   }
   return t('connections.add')
 })

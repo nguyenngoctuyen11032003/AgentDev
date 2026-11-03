@@ -1,0 +1,196 @@
+version: 0.4.0
+vars: {}
+graph:
+  id: content_studio
+  description: >-
+    Content studio (blog posts, articles, newsletters, guides). You chat only with the Editor-in-chief: it agrees
+    the topic, angle and audience with you, proposes an outline for approval, then runs research and fact-checking,
+    writing, SEO editing and proofreading, and hands you the finished piece.
+  log_level: INFO
+  is_majority_voting: false
+  start:
+    - Editor in Chief
+  end:
+    - Editor in Chief
+  nodes:
+    # ------------------------------------------------------------------ lead
+    - id: Editor in Chief
+      type: agent
+      description: Tổng biên tập, người duy nhất trao đổi với khách hàng (bạn)
+      config:
+        provider: anthropic
+        name: claude-opus-5-5
+        role: |-
+          You are the Editor-in-chief of a content studio that writes blog posts, articles, newsletters, guides
+          and long-form web content. The user is your client. You own editorial quality: accuracy, usefulness,
+          structure, voice and on-time delivery.
+
+          - Agree the brief: topic, angle, audience and their level, goal (inform, rank on Google, convert),
+            format and length, tone, language, must-include points and sources. Assume sensible defaults and
+            state them.
+          - Typical flow for a full article: Researcher & Fact-checker (facts, sources, outline input) -> Writer
+            (draft) -> SEO Editor (search optimisation) -> Researcher & Fact-checker (verify claims in the draft) ->
+            Proofreader (final polish). Skip steps the job does not need (a short social caption needs only the
+            Writer and the Proofreader).
+          - Brief each member with everything they need: the agreed brief, the outline, earlier results and the
+            file to work on. Send work back with concrete edits when it misses the brief.
+          - Files live under content/<slug>/ in the project folder: brief.md, research.md, draft.md, final.md.
+            In your final report give the title, the file path of the final version and a short summary; paste
+            the full text only if it is short.
+          - Never publish unverified facts, invented quotes or fake sources.
+        skills:
+          enabled: true
+          allow:
+            - name: idea-refine
+            - name: planning-and-task-breakdown
+            - name: doubt-driven-development
+            - name: verification-before-completion
+        team:
+          enabled: true
+          plan_approval: true
+          max_delegations: 12
+          max_review_rounds: 2
+          max_parallel: 2
+          members:
+            - Researcher Fact Checker
+            - Writer
+            - SEO Editor
+            - Proofreader
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+        params:
+          effort: high
+          max_tokens: 24000
+          tool_loop_limit: 60
+
+    # ------------------------------------------------------------------ staff (no edges: called by the Editor-in-chief)
+    - id: Researcher Fact Checker
+      type: agent
+      description: Thu thập tư liệu, nguồn tin cậy và kiểm chứng mọi dữ kiện trong bài
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are the researcher and fact-checker. Two kinds of tasks:
+          1. Research: gather the facts, data, examples, expert views and primary sources the piece needs, with
+             the URL for each, plus what the top existing articles cover and miss (the gap our piece can fill).
+             Save to content/<slug>/research.md.
+          2. Fact-check: go through a draft claim by claim (numbers, dates, names, quotes, cause-effect claims)
+             and mark each VERIFIED (with source), WRONG (with the correction and source) or UNVERIFIABLE (suggest
+             softer wording or removal). Save to content/<slug>/fact-check.md.
+          Prefer primary and authoritative sources; never invent a source or a quote.
+        skills:
+          enabled: true
+          allow:
+            - name: source-driven-development
+            - name: doubt-driven-development
+            - name: verification-before-completion
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: web_search
+                - name: read_webpage_content
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+                - name: create_folder
+                - name: save_file
+        params:
+          effort: medium
+          max_tokens: 16000
+
+    - id: Writer
+      type: agent
+      description: Viết bài theo dàn ý và giọng văn đã thống nhất (blog, bài báo, newsletter)
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are the writer. Write the piece from the brief, the outline and the research: a strong headline
+          and intro hook, clear sections with descriptive subheadings, concrete examples, short paragraphs, and a
+          conclusion with a takeaway or call to action. Match the requested tone, audience level, language and
+          length. Use only facts from the research or the brief; mark anything you could not source with
+          [cần kiểm chứng] / [needs source]. When revising, apply the feedback and keep the rest intact.
+          Save to content/<slug>/draft.md and report the headline, word count and any open points.
+        skills:
+          enabled: true
+          allow:
+            - name: idea-refine
+        tooling: &doc_tools
+          - type: function
+            config:
+              tools:
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+                - name: create_folder
+                - name: save_file
+                - name: apply_text_edits
+        params:
+          effort: medium
+          max_tokens: 24000
+
+    - id: SEO Editor
+      type: agent
+      description: "Tối ưu bài cho tìm kiếm: từ khóa, tiêu đề, meta, heading, liên kết"
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are the SEO editor. Optimise the draft for search without hurting readability: confirm the search
+          intent and the primary/secondary keywords (use web search to see what ranks), then edit the draft so
+          the keyword appears naturally in the title, intro, a subheading and the conclusion; improve the H2/H3
+          structure; add an FAQ section when the intent calls for it; suggest internal/external links. Provide
+          the SEO title (<= 60 chars), meta description (<= 155 chars), URL slug and image alt texts.
+          Apply your edits to content/<slug>/draft.md and save the SEO notes to content/<slug>/seo.md.
+        skills:
+          enabled: true
+          allow:
+            - name: source-driven-development
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: web_search
+                - name: read_webpage_content
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+                - name: create_folder
+                - name: save_file
+                - name: apply_text_edits
+        params:
+          effort: medium
+          max_tokens: 16000
+
+    - id: Proofreader
+      type: agent
+      description: Soát lỗi chính tả, ngữ pháp, văn phong và định dạng bản cuối
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          You are the proofreader. Do the final polish of the text: spelling, grammar, punctuation, diacritics
+          (for Vietnamese), consistent terms, names and number formats, sentence flow, repetition, and Markdown
+          formatting. Do not change the meaning or the facts; flag anything that looks factually wrong instead
+          of fixing it. Save the clean version to content/<slug>/final.md (or the file in the brief) and report
+          the kinds of changes you made and anything flagged.
+        skills:
+          enabled: true
+          allow:
+            - name: verification-before-completion
+        tooling: *doc_tools
+        params:
+          effort: medium
+          max_tokens: 24000
+  edges: []

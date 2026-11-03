@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from agentdev.utils.exceptions import ValidationError
+from agentdev.utils.workspace_paths import is_link
 
 _MAX_LISTED_FOLDERS = 2000
 _GITIGNORE = ".gitignore"
@@ -229,7 +230,7 @@ def scan_project(
         for entry in entries:
             rel = f"{prefix}/{entry.name}" if prefix else entry.name
             try:
-                if entry.is_symlink():
+                if is_link(entry):
                     result.skipped += 1
                     continue
                 is_dir = entry.is_dir()

@@ -7,12 +7,18 @@ const routes = [
     },
     {
         path: '/tutorial',
-        component: () => import('@/views/TutorialView.vue'),
-        meta: { hideNavOnScroll: true }
+        // No hide-on-scroll here: hiding the bar animates its margin and resizes the article's
+        // scroll box, which re-lays out the whole long page on every frame and makes scrolling stutter.
+        component: () => import('@/views/TutorialView.vue')
     },
     {
         path: '/launch',
         component: () => import('@/views/LaunchView.vue')
+    },
+    {
+        path: '/lab',
+        name: 'lab',
+        component: () => import('@/views/LabView.vue')
     },
     {
         path: '/batch-run',
@@ -23,10 +29,31 @@ const routes = [
         component: () => import('@/views/WorkflowWorkbench.vue')
     },
     {
-        path: '/connections',
-        name: 'connections',
-        component: () => import('@/views/ConnectionsView.vue')
+        // Settings page: general preferences plus the shared resources every agent uses
+        path: '/settings',
+        component: () => import('@/views/SettingsView.vue'),
+        children: [
+            { path: '', redirect: '/settings/general' },
+            {
+                path: 'general',
+                name: 'settings-general',
+                component: () => import('@/views/settings/GeneralSettingsPage.vue')
+            },
+            {
+                path: 'connections',
+                name: 'connections',
+                component: () => import('@/views/ConnectionsView.vue')
+            },
+            {
+                path: 'skills',
+                name: 'skills',
+                component: () => import('@/views/SkillsView.vue')
+            }
+        ]
     },
+    // Old top-level addresses keep working (bookmarks, links in docs, ?connect= deep links)
+    { path: '/connections', redirect: (to) => ({ path: '/settings/connections', query: to.query, hash: to.hash }) },
+    { path: '/skills', redirect: (to) => ({ path: '/settings/skills', query: to.query, hash: to.hash }) },
 ]
 
 const router = createRouter({

@@ -1,6 +1,34 @@
 <template>
   <div class="form-field" v-show="isVisible">
-    <template v-if="field.childNode">
+    <!-- Agent skills: tick skills from the shared library instead of a nested config modal -->
+    <div v-if="isSkillsField" class="form-group">
+      <label :id="`${modalId}-${field.name}-label`">{{ $t('skills.picker_title') }}</label>
+      <SkillPicker
+        :model-value="formData[field.name]"
+        :label="$t('skills.picker_title')"
+        :disabled="isReadOnly"
+        @update:model-value="onInput"
+      />
+    </div>
+
+    <!-- Team lead members: tick agent nodes of this workflow instead of typing node IDs -->
+    <div v-else-if="isMemberField" class="form-group">
+      <label :id="`${modalId}-${field.name}-label`">
+        {{ fieldLabel }}
+        <RichTooltip v-if="field.description" :content="{ description: fieldDescription }" placement="top">
+          <span class="help-icon" tabindex="0">?</span>
+        </RichTooltip>
+      </label>
+      <TeamMemberPicker
+        :model-value="formData[field.name] || []"
+        :options="memberOptions"
+        :label="fieldLabel"
+        :disabled="isReadOnly"
+        @update:model-value="onInput"
+      />
+    </div>
+
+    <template v-else-if="field.childNode">
       <div v-if="recursive" class="form-group form-group-inline child-node-group">
         <label>
           {{ fieldLabel }}
@@ -616,6 +644,8 @@ import { computed, ref, reactive, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import RichTooltip from '@/components/common/RichTooltip.vue'
 import MascotPicker from './MascotPicker.vue'
+import SkillPicker from './SkillPicker.vue'
+import TeamMemberPicker from './TeamMemberPicker.vue'
 import { modelsForConnection } from '@/utils/connectionModels.js'
 import { parseMascot, spriteFetcher } from '@/utils/spriteFetcher.js'
 import { getFieldLabel, getFieldDescription, getEnumOptionLabel, getEnumOptionDescription } from '@/utils/formUtils.js'
@@ -675,14 +705,21 @@ const props = defineProps({
   isReadOnly: {
     type: Boolean,
     default: false
+  },
+  // Agent nodes a team lead can pick as members ([{ id, description }]); null for every other field
+  memberOptions: {
+    type: Array,
+    default: null
   }
 })
 
 const isReadOnly = computed(() => props.isReadOnly)
+const isMemberField = computed(() => Array.isArray(props.memberOptions) && props.field.type === 'list[str]')
 
 // Node mascot: show the character the node has now; an empty value is filled with it
 // (or an unused one for a new node) so saving the node locks its mascot in the YAML.
 const isMascotField = computed(() => props.field.name === 'mascot' && 'type' in (props.formData || {}))
+const isSkillsField = computed(() => props.field.name === 'skills' && props.field.childNode === 'AgentSkillsConfig')
 const mascotFallback = computed(() =>
   spriteFetcher.getCharacter(props.formData?.id) || spriteFetcher.suggestCharacter(props.formData?.id)
 )
@@ -851,7 +888,9 @@ const childNodeButtonLabel = computed(() => {
   if (isList.value) {
     return t('dynamic_form_field.add_entry')
   }
-  return props.formData[props.field.name] ? t('dynamic_form_field.edit_child', { child: props.field.childNode }) : t('dynamic_form_field.configure_child', { child: props.field.childNode })
+  // Name the setting by its (localized) field label, not the config class name ("AgentTeamConfig")
+  const child = fieldLabel.value || props.field.childNode
+  return props.formData[props.field.name] ? t('dynamic_form_field.edit_child', { child }) : t('dynamic_form_field.configure_child', { child })
 })
 
 // Filtered options for custom select

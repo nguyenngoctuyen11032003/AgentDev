@@ -24,6 +24,7 @@ from agentdev.utils.attachments import AttachmentStore
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV, require_unsafe_code_execution
 from agentdev.utils.error_handler import add_exception_handlers
 from agentdev.utils.exceptions import SecurityError
+from conftest import is_link, make_link
 
 
 @pytest.fixture(autouse=True)
@@ -120,12 +121,12 @@ def test_processor_rejects_symlink_targets(
     workspace = workspace_context["python_workspace_root"]
     target = tmp_path / "outside" if target_kind == "outside" else workspace / "attachments"
     target.mkdir(exist_ok=True)
-    (workspace / "alias").symlink_to(target, target_is_directory=True)
+    make_link(workspace / "alias", target, directory=True)
     with pytest.raises(SecurityError):
         transformers.code_save_and_run(_code_block("alias/changed.py"), workspace_context)
     assert not (target / "changed.py").exists()
     assert (workspace / "keep.txt").exists()
-    assert (workspace / "alias").is_symlink()
+    assert is_link(workspace / "alias")
     fake_launch.assert_not_called()
 
 
@@ -200,13 +201,13 @@ def test_enabled_processor_preserves_nested_files_and_attachments(
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "keep.txt").write_text("external")
-    (workspace / "old_link").symlink_to(outside, target_is_directory=True)
+    make_link(workspace / "old_link", outside, directory=True)
     payload = _code_block("main.py") + "\n" + _code_block("src/helpers.py", "VALUE = 1")
     result = transformers.code_save_and_run(payload, workspace_context)
     assert (workspace / "main.py").read_text() == "print('ok')"
     assert (workspace / "src/helpers.py").read_text() == "VALUE = 1"
     assert not (workspace / "keep.txt").exists()
-    assert not (workspace / "old_link").is_symlink()
+    assert not is_link(workspace / "old_link")
     assert (outside / "keep.txt").read_text() == "external"
     assert (workspace / "attachments/input.txt").read_text() == "attachment"
     assert "executed" in result
@@ -225,7 +226,7 @@ def test_processor_rejects_linked_attachments_before_cleanup(
     target = (workspace if target_kind == "inside" else tmp_path) / "inputs"
     attachments = workspace / "attachments"
     attachments.rename(target)
-    attachments.symlink_to(target, target_is_directory=True)
+    make_link(attachments, target, directory=True)
     with pytest.raises(SecurityError, match="symbolic link"):
         transformers.code_save_and_run(_code_block("main.py"), workspace_context)
     assert (target / "input.txt").read_text() == "attachment"

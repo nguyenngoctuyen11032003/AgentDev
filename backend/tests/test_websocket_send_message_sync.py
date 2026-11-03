@@ -231,3 +231,121 @@ class TestOwnerLoopCapture:
             assert manager._owner_loop is loop1
 
         asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Reconnect replay / disconnect / timestamps
+# ---------------------------------------------------------------------------
+
+import json as _json  # noqa: E402
+from datetime import datetime as _datetime  # noqa: E402
+from types import SimpleNamespace as _NS  # noqa: E402
+
+
+class ClosableWebSocket(FakeWebSocket):
+    def __init__(self, on_send=None) -> None:
+        super().__init__()
+        self.closed = False
+        self.on_send = on_send
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        self.closed = True
+
+    async def send_text(self, data: str) -> None:
+        await super().send_text(data)
+        if self.on_send:
+            await self.on_send(self, data)
+
+    def types(self):
+        return [_json.loads(raw)["type"] for raw in self.sent]
+
+
+def _resumable_manager(buffer):
+    manager = _make_manager()
+    store = manager.session_store
+    store.restore_session.return_value = True
+    store.get_session.return_value = _NS(message_buffer=list(buffer))
+    store.get_session_snapshot.return_value = {"status": "running"}
+    manager._start_gc = lambda: None
+    return manager
+
+
+class TestReconnectReplay:
+    BUFFER = [{"type": "log", "data": i} for i in range(5)]
+
+    def test_replay_goes_only_to_connecting_socket_and_stops_when_replaced(self):
+        manager = _resumable_manager(self.BUFFER)
+        ws2 = ClosableWebSocket()
+
+        async def replace_mid_replay(ws, data):
+            # A second tab opens the same session while the first replay is in progress.
+            if _json.loads(data).get("data") == 1:
+                ws.on_send = None
+                await manager.connect(ws2, session_id="dup")
+
+        ws1 = ClosableWebSocket(on_send=replace_mid_replay)
+
+        async def run():
+            await manager.connect(ws1, session_id="dup")
+
+        asyncio.run(run())
+        assert ws1.closed
+        # The first socket stops right after it is replaced: no more replay, no session_resumed.
+        assert ws1.types() == ["connection", "log", "log"]
+        # The new socket gets exactly one full replay; nothing leaks in from the old loop.
+        assert ws2.types() == ["connection"] + ["log"] * 5 + ["session_resumed"]
+        assert [_json.loads(m)["data"] for m in ws2.sent[1:6]] == [0, 1, 2, 3, 4]
+        assert manager.active_connections["dup"] is ws2
+
+    def test_disconnect_of_stale_socket_keeps_the_new_one(self):
+        manager = _resumable_manager([])
+        old, new = ClosableWebSocket(), ClosableWebSocket()
+
+        async def run():
+            await manager.connect(old, session_id="s")
+            await manager.connect(new, session_id="s")
+            manager.disconnect("s", old)  # the replaced socket's handler exits late
+            assert manager.active_connections["s"] is new
+            manager.disconnect("s", new)
+            assert "s" not in manager.active_connections
+
+        asyncio.run(run())
+
+    def test_disconnect_without_socket_still_removes_entry(self):
+        manager = _make_manager()
+        ws = ClosableWebSocket()
+
+        async def run():
+            await manager.connect(ws, session_id="legacy")
+            manager.disconnect("legacy")
+            assert "legacy" not in manager.active_connections
+
+        asyncio.run(run())
+
+
+class TestMessageTimestamps:
+    def test_sent_and_recorded_messages_carry_iso_utc_ts(self):
+        manager = _make_manager()
+        ws = ClosableWebSocket()
+
+        async def run():
+            await manager.connect(ws, session_id="t1")
+            ws.sent.clear()
+            await manager.send_message("t1", {"type": "log", "data": "x"})
+            await manager.send_message("t1", {"type": "log", "data": "y", "ts": "2020-01-01T00:00:00+00:00"})
+
+        asyncio.run(run())
+        first, second = (_json.loads(m) for m in ws.sent)
+        assert _datetime.fromisoformat(first["ts"]).utcoffset().total_seconds() == 0
+        assert first["type"] == "log" and first["data"] == "x"
+        assert second["ts"] == "2020-01-01T00:00:00+00:00"  # an existing ts is kept
+
+        recorded = manager.session_store.record_message.call_args_list
+        assert recorded[-1].args[1]["ts"] == second["ts"]
+        assert "ts" in recorded[-2].args[1]
+
+        manager.attachment_service.list_attachment_manifests.return_value = {}
+        manager.record_user_message("t1", "hi")
+        stored, encoded = manager.session_store.record_message.call_args.args[1:]
+        assert stored["type"] == "user_message" and _datetime.fromisoformat(stored["ts"])
+        assert _json.loads(encoded)["ts"] == stored["ts"]

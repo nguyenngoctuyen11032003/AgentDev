@@ -5,6 +5,7 @@
  * Coordinates are map units: 960x540, one unit = one sprite art pixel.
  */
 import MAP from './officeMap.json'
+import { computeTeamLinks } from './teamLinks.js'
 
 export const OFFICE_WIDTH = MAP.width
 export const OFFICE_HEIGHT = MAP.height
@@ -53,6 +54,8 @@ const ALL_DEPTS = ['eng', 'rnd', 'qa', 'ops', 'design', 'meeting', 'mgmt']
 
 // Keyword rules, checked in order against the node id first, then its role prompt.
 const RULES = [
+  // Infrastructure people run the ops room (before "engineer" sends them to engineering)
+  ['ops', /\b(devops|sre|site reliability|infra\w*|deploy\w*|ci ?cd|cloud|platform engineer|kubernetes|docker|release manager|sysadmin|operations)\b|vận hành|hạ tầng/i],
   ['mgmt', /\b(ceo|cto|cpo|coo|cfo|chief|manager|management|director|lead|leader|head|supervisor|coordinator|orchestrat\w*|planner|planning|product owner|product manager|project manager|pm|boss|founder)\b|quản lý|giám đốc|trưởng nhóm|điều phối/i],
   ['qa', /\b(qa|tester|test\w*|review\w*|critic\w*|verif\w*|validat\w*|bug\w*|debug\w*|fix\w*|judge|evaluat\w*|audit\w*|inspect\w*|quality)\b|kiểm thử|đánh giá/i],
   ['design', /\b(design\w*|ui|ux|artist|art|visual\w*|illustrat\w*|graphic\w*|creative|animat\w*|3d|blender|image\w*|draw\w*|paint\w*|writer|writing|editor|content|copy\w*|story\w*|script\w*|poem|poet|article|blog\w*|translat\w*)\b|thiết kế|sáng tạo|biên tập/i],
@@ -66,6 +69,16 @@ const matchRules = (text) => {
   if (!text) return null
   for (const [dept, re] of RULES) if (re.test(text)) return dept
   return null
+}
+
+// A discipline lead ("Backend Lead", "QA Lead", "Design Lead") sits with the team they lead;
+// only a lead of nothing in particular ("Team Lead", "CTO") belongs to management.
+const LEAD_WORD = /\b(lead|leader|head|trưởng nhóm)\b/i
+const disciplineOf = (id) => {
+  if (!LEAD_WORD.test(id)) return null
+  const rest = id.replace(new RegExp(LEAD_WORD.source, 'gi'), ' ').replace(/\bteam\b/gi, ' ').trim()
+  const dept = matchRules(rest)
+  return dept && dept !== 'mgmt' ? dept : null
 }
 
 /**
@@ -82,7 +95,7 @@ export function classifyNode(node) {
   if (node.type === 'memory') return 'rnd'
   const id = String(node.id || '').replace(/[_\d-]+/g, ' ')
   const role = String(node.config?.role || node.description || '').slice(0, 400)
-  return matchRules(id) || matchRules(role) || 'eng'
+  return disciplineOf(id) || matchRules(id) || matchRules(role) || 'eng'
 }
 
 /**
@@ -134,6 +147,11 @@ export function orderSteps(graph) {
     const from = e?.from ?? e?.source
     const to = e?.to ?? e?.target
     if (!ids.has(from) || !ids.has(to)) continue
+    if (!next.has(from)) next.set(from, [])
+    next.get(from).push(to)
+  }
+  // Team leads: their members follow them (lead first, then each level of the hierarchy)
+  for (const { from, to } of computeTeamLinks(nodes, graph?.edges)) {
     if (!next.has(from)) next.set(from, [])
     next.get(from).push(to)
   }

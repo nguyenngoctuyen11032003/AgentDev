@@ -15,7 +15,12 @@ from agentdev.api.settings import WARE_HOUSE_DIR
 from agentdev.api.state import get_websocket_manager
 from agentdev.utils.exceptions import ResourceNotFoundError, SecurityError, ValidationError
 from agentdev.utils.structured_logger import get_server_logger, LogType
-from agentdev.utils.workspace_paths import resolve_workspace_path, session_directory_name
+from agentdev.utils.workspace_paths import (
+    is_link,
+    iter_tree_without_links,
+    resolve_workspace_path,
+    session_directory_name,
+)
 
 router = APIRouter()
 
@@ -158,11 +163,11 @@ async def download_session(session_id: str):
                 resource_id=session_id,
             )
 
-        if (WARE_HOUSE_DIR / dir_name).is_symlink():
+        if is_link(WARE_HOUSE_DIR / dir_name):
             raise SecurityError("Session downloads must not follow symbolic links")
         entries = [session_path]
-        for path in session_path.rglob("*"):
-            if path.is_symlink():
+        for path in iter_tree_without_links(session_path):
+            if is_link(path):
                 continue
             if not path.resolve().is_relative_to(session_path):
                 raise SecurityError("Session downloads must not follow symbolic links")

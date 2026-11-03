@@ -24,6 +24,7 @@ from agentdev.api.services.websocket_manager import WebSocketManager
 from agentdev.utils.attachments import AttachmentStore
 from agentdev.utils.error_handler import add_exception_handlers
 from agentdev.utils.exceptions import SecurityError
+from conftest import make_link
 
 
 DEMO = WORKFLOWS_DIR / "demo_loop_counter.yaml"
@@ -82,7 +83,7 @@ def test_http_rejects_untrusted_sources_before_copying(api, tmp_path, accept, so
     secret.write_text("outside workspace secret")
     if source_kind == "symlink":
         own_path.unlink()
-        own_path.symlink_to(secret)
+        make_link(own_path, secret)
     unregistered = own_path.parent / "unregistered.txt"
     unregistered.write_text("not uploaded")
     source = {"absolute": str(secret), "relative": "secret.txt", "symlink": own_id,
@@ -162,7 +163,7 @@ def test_download_skips_links_and_preserves_regular_files(api, tmp_path, kind):
     (session / "run.log").write_bytes(b"workflow log")
     target = {"file": secret_dir / "secret.txt", "directory": secret_dir,
               "dangling": secret_dir / "missing", "loop": session / "link"}[kind]
-    (session / "link").symlink_to(target, target_is_directory=kind == "directory")
+    make_link(session / "link", target, directory=kind != "file")
     contents = archive_contents(client, "download")
     assert contents["session_download/run.log"] == b"workflow log"
     assert not any("link" in Path(name).parts for name in contents)
@@ -174,7 +175,7 @@ def test_download_still_rejects_linked_session_root(api, tmp_path):
     secret_dir = tmp_path / "outside"
     secret_dir.mkdir()
     (secret_dir / "secret.txt").write_text("secret")
-    (tmp_path / "WareHouse/session_download").symlink_to(secret_dir, target_is_directory=True)
+    make_link(tmp_path / "WareHouse/session_download", secret_dir, directory=True)
     response = client.get("/api/sessions/download/download")
     assert response.status_code in (400, 403)
     assert "application/zip" not in response.headers.get("content-type", "")
@@ -185,8 +186,8 @@ def test_download_with_venv_interpreter_links(api, tmp_path):
     session = tmp_path / "WareHouse/session_venv"
     venv = session / "code_workspace/.venv"
     (venv / "bin").mkdir(parents=True)
-    (venv / "bin/python").symlink_to(sys.executable)
-    (venv / "bin/python3").symlink_to("python")
+    make_link(venv / "bin/python", sys.executable)
+    make_link(venv / "bin/python3", "python")
     (venv / "pyvenv.cfg").write_bytes(b"include-system-site-packages = false\n")
     (session / "run.log").write_bytes(b"workflow completed")
     contents = archive_contents(client, "venv")
@@ -233,7 +234,7 @@ def test_generated_paths_reject_symlinks(agent, tmp_path, part):
     sentinel.write_text("original")
     link = workspace / part
     link.parent.mkdir(parents=True, exist_ok=True)
-    link.symlink_to(sentinel if part.endswith(".txt") else outside, target_is_directory=not part.endswith(".txt"))
+    make_link(link, sentinel if part.endswith(".txt") else outside, directory=not part.endswith(".txt"))
     with pytest.raises(SecurityError):
         executor._persist_message_attachments(attachment_message(), "Generator")
     assert sentinel.read_text() == "original"
@@ -247,7 +248,7 @@ def test_generated_local_source_cannot_read_outside(agent, tmp_path, linked):
     source = secret
     if linked:
         source = workspace / "alias.txt"
-        source.symlink_to(secret)
+        make_link(source, secret)
     with pytest.raises(SecurityError):
         executor._persist_message_attachments(attachment_message(local_path=source), "Generator")
     assert not (workspace / "generated").exists()

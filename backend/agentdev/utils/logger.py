@@ -1,3 +1,4 @@
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -80,6 +81,8 @@ class WorkflowLogger:
         self.logs: List[LogEntry] = []
         self.start_time = datetime.now()
         self.current_path: List[str] = []
+        # Team leads run members in parallel threads; guard the shared path and log list.
+        self._lock = threading.RLock()
         self.log_level: LogLevel = log_level
 
         self.log_to_console: bool = log_to_console
@@ -96,7 +99,8 @@ class WorkflowLogger:
             return None
 
         timestamp = datetime.now().isoformat()
-        execution_path = copy.deepcopy(self.current_path)
+        with self._lock:
+            execution_path = copy.deepcopy(self.current_path)
 
         safe_details = _json_safe(details or {})
 
@@ -110,7 +114,8 @@ class WorkflowLogger:
             execution_path=execution_path,
             duration=duration
         )
-        self.logs.append(log_entry)
+        with self._lock:
+            self.logs.append(log_entry)
 
         # Log to console if enabled
         if self.log_to_console:
@@ -168,7 +173,8 @@ class WorkflowLogger:
     def enter_node(self, node_id: str, inputs: List[Dict[str, str]], node_type: str = None,
                    details: Dict[str, Any] = None) -> None:
         """Record data when entering a node."""
-        self.current_path.append(node_id)
+        with self._lock:
+            self.current_path.append(node_id)
         self.info(
             f"Entering node {node_id}",
             node_id=node_id,
@@ -185,8 +191,13 @@ class WorkflowLogger:
                   output_size: int = None, details: Dict[str, Any] = None) -> None:
         """Record data when exiting a node."""
         # Keep enter and exit logs separate so we can easily identify progress
-        if self.current_path and self.current_path[-1] == node_id:
-            self.current_path.pop()
+        # Remove this node's latest entry, not just the top: with parallel members the top of the
+        # path may belong to a sibling that is still running.
+        with self._lock:
+            for idx in range(len(self.current_path) - 1, -1, -1):
+                if self.current_path[idx] == node_id:
+                    del self.current_path[idx]
+                    break
 
         exit_details = {
             "output": output,

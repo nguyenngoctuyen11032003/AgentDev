@@ -42,6 +42,9 @@ class ExecutionContext:
     workspace_hook: Optional[Any] = None
     human_prompt_service: Optional[HumanPromptService] = None
     cancel_event: Optional[Any] = None
+    # Team leads: runs a member agent node on demand (member_id, inputs, lead_id) -> outputs.
+    delegate_runner: Optional[Any] = None
+    graph_nodes: Dict[str, Any] = field(default_factory=dict)
     
     def get_memory_manager(self, node_id: str) -> Optional[MemoryManager]:
         """Return the memory manager for a given node."""

@@ -80,14 +80,21 @@
               </div>
             </div>
             <div class="chat-box">
-              <div class="chat-messages" ref="chatMessagesRef">
+              <div class="chat-messages" ref="chatMessagesRef" @click="handleChatClick">
+                <!-- Empty session: say who answers and what to do, like a new Claude / Codex chat -->
+                <div v-if="!chatMessages.length && selectedFile && !isReconnecting" class="chat-empty">
+                  <div class="chat-empty-title">{{ leadName ? $t('launch.empty_chat.title_lead', { lead: leadName }) : $t('launch.empty_chat.title') }}</div>
+                  <div class="chat-empty-hint">{{ currentProjectName ? $t('launch.empty_chat.hint_project', { project: currentProjectName }) : $t('launch.empty_chat.hint') }}</div>
+                  <div class="chat-empty-keys">{{ $t('launch.empty_chat.keys') }}</div>
+                </div>
                 <!-- Notifications and dialogues in order -->
                 <div
-                  v-for="(message, index) in chatMessages"
-                  :key="`message-${index}`"
+                  v-for="message in chatMessages"
+                  :key="messageKey(message)"
                   class="chat-message-item"
                   v-memo="[
                     message.rev,
+                    messageAvatar(message),
                     message.duration,
                     message.loading,
                     message.dataUri,
@@ -117,46 +124,61 @@
                 class="dialogue"
                 :class="{ 'dialogue-right': message.isRight }"
               >
-                <div class="profile-picture">
+                <div v-if="!message.isRight" class="profile-picture">
                   <img :src="messageAvatar(message)" :alt="$t('launch.avatar_alt', { name: getDisplayName(message) })" />
                 </div>
                 <div class="message-content">
-                  <div class="user-name">
+                  <div v-if="!message.isRight" class="user-name">
                     {{ getDisplayName(message) }}
+                    <span v-if="message.isQuestion" class="question-tag">{{ $t('launch.question_tag') }}</span>
                     <span class="message-timestamp">{{ formatTime(message.timestamp) }}</span>
                   </div>
                   <div
                     class="message-bubble"
                     :class="{ 'loading-bubble': message.isLoading }"
+                    :title="message.isRight ? formatTime(message.timestamp) : undefined"
                   >
+                  <!-- Agent activity: one quiet line (like Claude / ChatGPT), details on demand -->
+                  <div
+                    v-if="message.loadingEntries && (message.isLoading || message.loadingEntries.length)"
+                    class="activity"
+                    :class="{ 'activity-running': message.isLoading, 'activity-open': message.activityOpen }"
+                  >
+                    <button
+                      type="button"
+                      class="activity-summary"
+                      :aria-expanded="!!message.activityOpen"
+                      @click="toggleActivity(message)"
+                    >
+                      <span v-if="message.isLoading" class="activity-spinner" aria-hidden="true"></span>
+                      <svg v-else class="activity-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
+                      <span class="activity-label">{{ activityHeadline(message) }}</span>
+                      <span v-if="message.isLoading" class="activity-time">
+                        <LiveDuration :started-at="message.startedAt" />
+                      </span>
+                    </button>
+                    <ol v-if="message.activityOpen" class="activity-steps">
+                      <li
+                        v-for="entry in message.loadingEntries"
+                        :key="entry.key"
+                        class="activity-step"
+                        :class="{ 'step-running': entry.status === 'running' }"
+                      >
+                        <span class="activity-step-dot" aria-hidden="true"></span>
+                        <span class="activity-step-label">{{ entry.label }}</span>
+                        <span class="activity-step-time">
+                          <LiveDuration :started-at="entry.startedAt" :ended-at="entry.endedAt || 0" />
+                        </span>
+                      </li>
+                    </ol>
+                  </div>
+
                   <CollapsibleMessage
                     v-if="message.text"
                     :html-content="message.htmlContent || renderMarkdown(message.text)"
                     :raw-content="message.text"
-                    :default-expanded="configStore.AUTO_EXPAND_MESSAGES"
+                    :default-expanded="true"
                   />
-
-                  <TransitionGroup
-                    v-if="message.loadingEntries && message.loadingEntries.length"
-                    name="loading-entry"
-                    tag="div"
-                    class="loading-entries"
-                  >
-                    <div
-                      v-for="entry in message.loadingEntries"
-                      :key="entry.key"
-                      class="loading-entry"
-                      :class="{
-                        'entry-running': entry.status === 'running',
-                        'entry-done': entry.status === 'done'
-                      }"
-                    >
-                      <span class="loading-entry-label">{{ entry.label }}</span>
-                      <span class="loading-entry-duration">
-                        <LiveDuration :started-at="entry.startedAt" :ended-at="entry.endedAt || 0" />
-                      </span>
-                    </div>
-                  </TransitionGroup>
 
                   <!-- Artifact image -->
 
@@ -231,15 +253,6 @@
                       {{ message.loading ? $t('launch.preparing') : $t('launch.download') }}
                     </button>
                   </div>
-
-                  <!-- Model/tool call timer -->
-                  <div
-                    v-if="message.isLoading || message.duration"
-                    class="loading-timer"
-                  >
-                    <LiveDuration v-if="message.isLoading" :started-at="message.startedAt" />
-                    <template v-else>{{ message.duration }}</template>
-                  </div>
                 </div>
                 </div>
               </div>
@@ -247,6 +260,39 @@
           </div>
             </div>
             <div class="input-area">
+              <!-- Scrolled up while new messages came in: one click back to the latest -->
+              <Transition name="jump-latest">
+                <button
+                  v-if="hasUnseenMessages"
+                  type="button"
+                  class="jump-latest"
+                  :aria-label="$t('launch.jump_to_latest')"
+                  @click="jumpToLatest"
+                >
+                  {{ $t('launch.jump_to_latest') }}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+                </button>
+              </Transition>
+              <!-- The lead waits on you: its question stays in view right above the box -->
+              <div v-if="pendingQuestion" class="question-card" role="status">
+                <div class="question-card-head">
+                  <span class="question-card-dot" aria-hidden="true"></span>
+                  {{ pendingQuestion.name ? $t('launch.question_card.asking', { name: pendingQuestion.name }) : $t('launch.question_card.asking_any') }}
+                </div>
+                <div
+                  v-if="pendingQuestion.text"
+                  class="question-card-text"
+                  :class="{ 'is-clamped': !isQuestionExpanded }"
+                >{{ pendingQuestion.text }}</div>
+                <button
+                  v-if="pendingQuestion.isLong"
+                  type="button"
+                  class="question-card-toggle"
+                  @click="isQuestionExpanded = !isQuestionExpanded"
+                >
+                  {{ isQuestionExpanded ? $t('components.collapsible_message.show_less') : $t('components.collapsible_message.show_more') }}
+                </button>
+              </div>
               <div
                 :class="['input-shell', 'composer', { glow: shouldGlow, 'drag-active': isDragActive }]"
                 @dragenter="handleDragEnter"
@@ -271,7 +317,7 @@
                       :src="attachmentPreviews[attachment.attachmentId]"
                       alt=""
                     />
-                    <span v-else class="chip-icon">{{ attachment.kind === 'project' ? '📁' : '📄' }}</span>
+                    <span v-else class="chip-icon">{{ attachmentIcon(attachment) }}</span>
                     <span class="chip-name">{{ attachment.name }}</span>
                     <span v-if="attachment.kind === 'project'" class="chip-meta">
                       {{ $t('launch.project_files', { count: attachment.fileCount || 0 }) }}
@@ -297,7 +343,7 @@
                   class="task-input"
                   rows="1"
                   :disabled="!isConnectionReady || (isWorkflowRunning && status !== 'Waiting for input...')"
-                  :placeholder="$t('launch.enter_prompt')"
+                  :placeholder="composerPlaceholder"
                   ref="taskInputRef"
                   @input="autoResizeTaskInput"
                   @keydown.enter="handleEnterKey"
@@ -348,7 +394,7 @@
                     :class="{ glow: shouldGlow && !isStopMode, 'is-stop': isStopMode }"
                     :title="buttonLabel"
                     :aria-label="buttonLabel"
-                    :disabled="!isStopMode && (loading || (isWorkflowRunning && !taskPrompt.trim()) || (!isWorkflowRunning && status !== 'Completed' && status !== 'Cancelled' && !isConnectionReady))"
+                    :disabled="!isStopMode && (loading || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady))"
                     @click="isStopMode ? cancelWorkflow() : handleButtonClick()"
                   >
                     <svg v-if="isStopMode" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -368,7 +414,7 @@
           </div>
         </div>
 
-        <div v-show="viewMode === 'graph'" class="graph-panel">
+        <div v-show="viewMode === 'graph'" class="graph-panel graph-flow-panel" :style="insetStyle">
           <VueFlow class="vueflow-graph">
             <template #node-workflow-node="props">
               <WorkflowNode
@@ -582,14 +628,15 @@
             <button
               class="launch-button"
               :class="{ glow: shouldGlow, 'is-sending': isWorkflowRunning }"
-              @click="handleButtonClick"
-              :disabled="loading || (isWorkflowRunning && !taskPrompt.trim()) || (!isWorkflowRunning && status !== 'Completed' && status !== 'Cancelled' && !isConnectionReady)">
-              {{ buttonLabel }}
+              @click="handlePanelRunClick"
+              :disabled="loading || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady)">
+              <!-- The composer's own button is the stop button; this one only ever sends -->
+              {{ panelRunLabel }}
             </button>
 
             <button
               class="cancel-button"
-              :disabled="status !== 'Running...'"
+              :disabled="!isRunActive"
               @click="cancelWorkflow"
             >
               {{ $t('common.cancel') }}
@@ -597,7 +644,7 @@
 
             <button
               class="download-button"
-              :disabled="status !== 'Completed' && status !== 'Cancelled'"
+              :disabled="!isRunFinished"
               @click="downloadLogs"
             >
               {{ $t('launch.download_logs') }}
@@ -639,7 +686,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, fetchSessions, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject } from '@/api/client.js'
@@ -656,6 +703,7 @@ import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import { onWorkflowChanged, workflowKey } from '@/utils/workflowSync.js'
 import OfficeView from '@/components/office/OfficeView.vue'
 import SessionSidebar from '@/components/launch/SessionSidebar.vue'
+import { computeTeamLinks } from '@/utils/teamLinks.js'
 import yaml from 'js-yaml'
 import MarkdownIt from 'markdown-it'
 import SettingsModal from '@/components/common/SettingsModal.vue'
@@ -664,6 +712,22 @@ const md = new MarkdownIt({
   linkify: true,
   typographer: true
 })
+// Code blocks get their own copy button (like Claude / ChatGPT) and wide tables scroll
+// sideways instead of squeezing a column per letter. The button label is localized at
+// render time, so the markdown cache is keyed by locale too.
+const CODE_COPY_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>'
+let codeCopyLabel = 'Copy'
+const withCopyButton = (rule) => (tokens, idx, options, env, self) => {
+  const html = rule(tokens, idx, options, env, self)
+  const lang = (tokens[idx].info || '').trim().split(/\s+/)[0]
+  const label = md.utils.escapeHtml(codeCopyLabel)
+  const langTag = lang ? `<span class="md-code-lang">${md.utils.escapeHtml(lang)}</span>` : ''
+  return `<div class="md-code">${langTag}<button type="button" class="md-code-copy" data-code-copy title="${label}" aria-label="${label}">${CODE_COPY_ICON}<span>${label}</span></button>${html}</div>`
+}
+md.renderer.rules.fence = withCopyButton(md.renderer.rules.fence)
+md.renderer.rules.code_block = withCopyButton(md.renderer.rules.code_block)
+md.renderer.rules.table_open = () => '<div class="md-table"><table>\n'
+md.renderer.rules.table_close = () => '</table></div>\n'
 
 // Memoize markdown output by source text so re-renders never re-parse the same message
 const MARKDOWN_CACHE_LIMIT = 300
@@ -677,14 +741,40 @@ const preformatted = (text, lang = '') =>
 
 const renderMarkdown = (text) => {
   const source = text || ''
-  const cached = markdownCache.get(source)
+  codeCopyLabel = t('launch.copy_code')
+  const cacheKey = `${i18nLocale.value}\u0000${source}`
+  const cached = markdownCache.get(cacheKey)
   if (cached !== undefined) return cached
   const html = source.length > MARKDOWN_MAX_CHARS ? preformatted(source) : md.render(source)
   if (markdownCache.size >= MARKDOWN_CACHE_LIMIT) {
     markdownCache.delete(markdownCache.keys().next().value)
   }
-  markdownCache.set(source, html)
+  markdownCache.set(cacheKey, html)
   return html
+}
+
+// One delegated listener for every code block's copy button in the chat
+const copiedTimers = new WeakMap()
+const handleChatClick = async (event) => {
+  const button = event.target.closest?.('[data-code-copy]')
+  if (!button) return
+  event.stopPropagation()
+  const code = button.parentElement?.querySelector('pre')?.innerText ?? ''
+  try {
+    await navigator.clipboard.writeText(code.replace(/\n$/, ''))
+  } catch (error) {
+    console.warn('Copy failed:', error)
+    toast.error(t('launch.copy_failed'))
+    return
+  }
+  const label = button.querySelector('span')
+  if (label) label.textContent = t('launch.copied')
+  button.classList.add('copied')
+  clearTimeout(copiedTimers.get(button))
+  copiedTimers.set(button, setTimeout(() => {
+    button.classList.remove('copied')
+    if (label) label.textContent = t('launch.copy_code')
+  }, 1600))
 }
 
 // Intl.DateTimeFormat is expensive to create; keep one per locale
@@ -876,6 +966,19 @@ let sessionIdToDownload = null
 
 // All notifications and dialogues
 const chatMessages = ref([])
+// Stable v-for keys: a finished turn can move below the delegation lines, and index keys
+// combined with v-memo would then show a stale row
+const messageKeys = new WeakMap()
+let messageKeySeq = 0
+const messageKey = (message) => {
+  const raw = toRaw(message)
+  let key = messageKeys.get(raw)
+  if (!key) {
+    key = ++messageKeySeq
+    messageKeys.set(raw, key)
+  }
+  return key
+}
 const chatMessagesRef = ref(null) // Extra ref
 
 // Map in-progress model/tool call messages by node ID
@@ -883,7 +986,7 @@ const chatMessagesRef = ref(null) // Extra ref
 const nodesLoadingMessagesMap = new Map()
 
 // Create or fetch the loading bubble for a node
-const addTotalLoadingMessage = (nodeId) => {
+const addTotalLoadingMessage = (nodeId, at = Date.now()) => {
   if (!nodeId) return null
 
   let nodeState = nodesLoadingMessagesMap.get(nodeId)
@@ -901,9 +1004,11 @@ const addTotalLoadingMessage = (nodeId) => {
     avatar,
     isRight: false,
     isLoading: true,
-    startedAt: Date.now(),
-    timestamp: Date.now(),
+    startedAt: at,
+    timestamp: at,
     loadingEntries: [],
+    activityOpen: false,
+    endedAt: null,
     rev: 0
   })
 
@@ -921,8 +1026,9 @@ const addTotalLoadingMessage = (nodeId) => {
 }
 
 // Add a loading entry (model/tool call) and associate it with baseKey
-const addLoadingEntry = (nodeId, baseKey, label) => {
-  const nodeState = addTotalLoadingMessage(nodeId)
+// `at` is the backend event time (ms), so a replayed session shows the real durations
+const addLoadingEntry = (nodeId, baseKey, label, { isModel = false, at = Date.now(), member = '' } = {}) => {
+  const nodeState = addTotalLoadingMessage(nodeId, at)
   if (!nodeState || !baseKey) return null
 
   const count = (nodeState.counters.get(baseKey) || 0) + 1
@@ -933,8 +1039,10 @@ const addLoadingEntry = (nodeId, baseKey, label) => {
     key,
     baseKey,
     label,
+    isModel,
+    member,
     status: 'running',
-    startedAt: Date.now(),
+    startedAt: at,
     endedAt: null
   }
 
@@ -952,7 +1060,7 @@ const addLoadingEntry = (nodeId, baseKey, label) => {
 }
 
 // Finish a loading entry
-const finishLoadingEntry = (nodeId, baseKey) => {
+const finishLoadingEntry = (nodeId, baseKey, at = Date.now()) => {
   const nodeState = nodesLoadingMessagesMap.get(nodeId)
   if (!nodeState || !baseKey) return null
 
@@ -962,7 +1070,7 @@ const finishLoadingEntry = (nodeId, baseKey) => {
 
   const wasRunning = entry.status === 'running'
   entry.status = 'done'
-  entry.endedAt = Date.now()
+  entry.endedAt = Math.max(at, entry.startedAt)
   nodeState.baseKeyToKey.delete(baseKey)
   nodeState.message.rev += 1
   if (wasRunning) {
@@ -993,6 +1101,131 @@ const finalizeAllLoadingEntries = (nodeState, endedAt = Date.now()) => {
       stopLoadingTimer()
     }
   }
+}
+
+// Close a node's activity row (collapsed "Worked for 28s") and, when the node has something to say,
+// put that text in the same message so one assistant turn = activity summary + answer.
+// Returns true when the content was merged into the activity message.
+const settleNodeTurn = (nodeId, content = null, at = Date.now()) => {
+  const nodeState = nodeId ? nodesLoadingMessagesMap.get(nodeId) : null
+  if (!nodeState) return false
+  const endedAt = Math.max(at, nodeState.message.startedAt)
+  finalizeAllLoadingEntries(nodeState, endedAt)
+  const message = nodeState.message
+  message.isLoading = false
+  message.endedAt = endedAt
+  message.duration = formatDuration(message.startedAt, endedAt)
+  nodesLoadingMessagesMap.delete(nodeId)
+  const built = buildDialogueContent(content)
+  const merged = Boolean(built && !message.text)
+  if (merged) {
+    message.text = built.text
+    message.htmlContent = built.htmlContent
+    message.timestamp = endedAt
+    // Delegation lines ("X giao việc cho Y") were added below the turn while it ran: the
+    // answer belongs after them, at the bottom of the chat
+    const list = chatMessages.value
+    const index = list.indexOf(message)
+    if (index > -1 && index < list.length - 1) {
+      list.splice(index, 1)
+      list.push(message)
+    }
+  }
+  message.rev += 1
+  // An agent's answer landed in its bubble while you read further up
+  if (merged && !isNearBottom) hasUnseenMessages.value = true
+  scheduleScrollToBottom()
+  return merged
+}
+
+// Human-friendly activity labels (no raw model ids in the chat)
+const TOOL_ACTIVITY_KEYS = {
+  ask_user: 'ask_user',
+  delegate_task: 'delegate',
+  delegate_parallel: 'delegate_parallel',
+  read_file_segment: 'read',
+  read_file: 'read',
+  list_directory: 'list',
+  describe_available_files: 'list',
+  search_in_files: 'search',
+  write_file: 'write',
+  edit_file: 'write',
+  apply_patch: 'write',
+  run_command: 'run',
+  execute_code: 'run',
+  web_search: 'web',
+  fetch_url: 'web'
+}
+
+const toolActivityLabel = (toolName, rawArgs) => {
+  let args = rawArgs
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args) } catch { args = null }
+  }
+  const key = TOOL_ACTIVITY_KEYS[String(toolName || '').split('__').pop()]
+  if (key === 'delegate' && args?.member) return t('launch.activity.delegate_to', { member: args.member })
+  if (key) return t(`launch.activity.${key}`)
+  const pretty = String(toolName || t('launch.unknown_name')).replace(/[_-]+/g, ' ')
+  return t('launch.activity.tool', { name: pretty })
+}
+
+const humanDuration = (ms) => {
+  const total = Math.max(1, Math.round((ms || 0) / 1000))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return m ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`
+}
+
+// While a lead waits on a member: who is actually working now, down the chain of
+// sub-leads ("Project Manager → QA Tester"), and what that person is doing
+const MEMBER_ACTIVITY_KEYS = { model: 'launch.activity.thinking' }
+const delegationHeadline = (entry) => {
+  const chain = [entry.member]
+  const seen = new Set(chain)
+  for (;;) {
+    const last = chain[chain.length - 1]
+    let next = ''
+    for (const [member, lead] of delegatedNodes) {
+      if (lead === last && !seen.has(member)) next = member
+    }
+    if (!next) break
+    chain.push(next)
+    seen.add(next)
+  }
+  const worker = chain[chain.length - 1]
+  if (!delegatedNodes.has(worker)) return entry.label
+  const node = runTracker.state.nodes[worker]
+  const run = node?.runs?.[node.runs.length - 1]
+  const doing = run?.activity
+    ? run.activity.kind === 'tool'
+      ? toolActivityLabel(run.activity.name)
+      : t(MEMBER_ACTIVITY_KEYS.model)
+    : ''
+  return t(doing ? 'launch.activity.member_working_doing' : 'launch.activity.member_working', {
+    chain: chain.join(' → '),
+    doing
+  })
+}
+
+const activityHeadline = (message) => {
+  if (message.isLoading) {
+    const entries = message.loadingEntries || []
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i].status !== 'running') continue
+      return entries[i].member ? delegationHeadline(entries[i]) : entries[i].label
+    }
+    return t('launch.activity.thinking')
+  }
+  const steps = (message.loadingEntries || []).filter((e) => !e.isModel).length
+  const time = humanDuration((message.endedAt || Date.now()) - message.startedAt)
+  return steps
+    ? t('launch.activity.done_steps', { time, steps })
+    : t('launch.activity.done', { time })
+}
+
+const toggleActivity = (message) => {
+  message.activityOpen = !message.activityOpen
+  message.rev += 1
 }
 
 // Global timer for updating loading bubble durations
@@ -1100,21 +1333,13 @@ const attachmentInputRef = ref(null)
 const uploadProgressText = ref('')
 const uploadedAttachments = ref([])
 const isDragActive = ref(false)
-const showAttachmentPopover = ref(false)
 const showAttachMenu = ref(false)
 const attachMenuRef = ref(null)
 // Thumbnails (object URLs) for attached images, keyed by attachmentId
 const attachmentPreviews = ref({})
 const isUploadingAttachment = ref(false)
-let attachmentHoverTimeout = null
 const selectedArtifactImage = ref(null)
 let dragDepth = 0
-
-// Recording state
-const isRecording = ref(false)
-let mediaRecorder = null
-let audioChunks = []
-let audioStream = null
 
 // WebSocket readiness state
 const isConnectionReady = ref(false)
@@ -1137,8 +1362,26 @@ const visitedViews = reactive({ board: false, dashboard: false, review: false })
 watch(viewMode, (mode) => {
   if (mode in visitedViews) visitedViews[mode] = true
 }, { immediate: true })
+// Outside the chat the control panel floats over the view: after picking a view, get it
+// out of the way (the button at the bottom right brings it back)
+watch(viewMode, (mode) => {
+  if (mode !== 'chat') isRightPanelOpen.value = false
+})
 // Content stays clear of the chat panel that floats over the canvas
 const insetStyle = computed(() => ({ '--inset-left': isChatPanelOpen.value ? 'min(380px, 50%)' : '0px' }))
+// The person who answers in the chat of a team workflow: the top lead (a lead nobody
+// delegates to). Empty for workflows without a team.
+const leadName = computed(() => {
+  const graph = workflowYaml.value?.graph
+  const links = computeTeamLinks(graph?.nodes, graph?.edges)
+  const members = new Set(links.map((link) => link.to))
+  return links.find((link) => !members.has(link.from))?.from || ''
+})
+// The graph canvas resizes with the chat panel: re-fit once its slide has finished
+watch(isChatPanelOpen, () => {
+  if (viewMode.value !== 'graph') return
+  setTimeout(() => fitView?.({ padding: 0.1 }), 280)
+})
 
 // ---------------------------------------------------------------- session history
 // Every launched run is saved by the backend; the sidebar lists them so the user can
@@ -1332,6 +1575,12 @@ const onVisibilityChange = () => {
 // WebSocket reference
 let ws = null
 let sessionId = null
+// Shows the "new messages" button: something arrived while the chat was scrolled up
+const hasUnseenMessages = ref(false)
+// Session being opened right now: a second click (double click) while it connects is a no-op
+let pendingOpenSessionId = null
+// Set when Stop was pressed here, so the server's confirmation adds no second notice
+let locallyCancelled = false
 
 const filteredWorkflowFiles = computed(() => {
   // If the file search box is untouched, return all workflows
@@ -1347,8 +1596,85 @@ const filteredWorkflowFiles = computed(() => {
   )
 })
 
-// While the workflow is working the composer button turns into a Stop button
-const isStopMode = computed(() => isWorkflowRunning.value && status.value === 'Running...')
+const hasComposerContent = computed(() =>
+  Boolean(taskPrompt.value.trim()) || uploadedAttachments.value.length > 0
+)
+const isWaitingForInput = computed(() => status.value === 'Waiting for input...')
+// A run the server is working on, also while it waits for your answer (it can be stopped then too)
+const isRunActive = computed(() =>
+  isWorkflowRunning.value && (status.value === 'Running...' || isWaitingForInput.value)
+)
+// While the workflow is working the composer button turns into a Stop button; while it waits
+// for your answer it becomes Send again as soon as you type one.
+const isStopMode = computed(() => isRunActive.value && !(isWaitingForInput.value && hasComposerContent.value))
+
+// A finished run (completed, cancelled or failed) whose composer holds a new message continues
+// the same session as a follow-up turn; with an empty composer the button relaunches instead.
+const isRunFinished = computed(() => ['Completed', 'Cancelled', 'Error', 'Failed'].includes(status.value))
+
+// Chip icon by kind: project folder, video, audio, archive, any other file
+const attachmentIcon = (attachment) => {
+  if (attachment.kind === 'project') return '📁'
+  const ext = String(attachment.name || '').split('.').pop().toLowerCase()
+  if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(ext)) return '🎬'
+  if (['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(ext)) return '🎵'
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return '🗜️'
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return '🖼️'
+  return '📄'
+}
+
+// While an agent waits on you the box is where you answer it
+const composerPlaceholder = computed(() => {
+  if (isWaitingForInput.value) {
+    const asker = pendingQuestion.value?.name
+    return asker ? t('launch.reply_placeholder', { name: asker }) : t('launch.reply_placeholder_any')
+  }
+  // The box is locked while the team works: say why, and what can be done meanwhile
+  if (isWorkflowRunning.value) return t('launch.running_placeholder')
+  if (isRunFinished.value) return t('launch.followup_placeholder')
+  return t('launch.enter_prompt')
+})
+
+// The question the run is waiting on (the latest one an agent asked), pinned above the composer
+const pendingQuestion = computed(() => {
+  if (!isWaitingForInput.value) return null
+  const list = chatMessages.value
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const message = list[i]
+    if (message.type === 'dialogue' && message.isRight) break
+    if (message.isQuestion) {
+      const text = String(message.text || '').trim()
+      // Clamped to three lines; longer ones get a "show more"
+      const isLong = text.length > 180 || text.split('\n').length > 3
+      return { name: getDisplayName(message), text, isLong }
+    }
+  }
+  return { name: '', text: '', isLong: false }
+})
+const isQuestionExpanded = ref(false)
+watch(pendingQuestion, (question, previous) => {
+  if (question?.text !== previous?.text) isQuestionExpanded.value = false
+})
+
+// Right-panel run button: same as the composer's send, but spelled out
+const panelRunLabel = computed(() => {
+  if (isWorkflowRunning.value) return t('launch.send')
+  if (isRunFinished.value) return hasComposerContent.value ? t('launch.send') : t('launch.run_new_turn')
+  return buttonLabel.value
+})
+// With an empty composer after a finished run this button starts a whole new session: an easy
+// click to make by mistake, so it asks first
+const handlePanelRunClick = async () => {
+  if (!isWorkflowRunning.value && isRunFinished.value && !hasComposerContent.value && chatMessages.value.length) {
+    const confirmed = await confirmDialog({
+      title: t('launch.confirm_new_run.title'),
+      message: t('launch.confirm_new_run.message'),
+      confirmText: t('launch.confirm_new_run.confirm')
+    })
+    if (!confirmed) return
+  }
+  handleButtonClick()
+}
 
 // Button label computed property
 const buttonLabel = computed(() => {
@@ -1358,8 +1684,8 @@ const buttonLabel = computed(() => {
   if (isWorkflowRunning.value) {
     return t('launch.send')
   }
-  if (status.value === 'Completed' || status.value === 'Cancelled') {
-    return t('launch.relaunch')
+  if (isRunFinished.value) {
+    return hasComposerContent.value ? t('launch.send') : t('launch.relaunch')
   }
   return t('launch.launch_button')
 })
@@ -1380,7 +1706,6 @@ const clearUploadedAttachments = () => {
   Object.keys(attachmentPreviews.value).forEach(dropAttachmentPreview)
   showAttachMenu.value = false
   uploadedAttachments.value = []
-  showAttachmentPopover.value = false
   if (attachmentInputRef.value) {
     attachmentInputRef.value.value = ''
   }
@@ -1388,6 +1713,8 @@ const clearUploadedAttachments = () => {
 
 // Reset the WebSocket connection and related state
 const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) => {
+  // Any deliberate switch (other session, new draft, leaving the page) stops a pending auto-reconnect
+  if (closeSocket) cancelReconnect()
   if (closeSocket && ws) {
     try {
       ws.close()
@@ -1400,6 +1727,7 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
   isConnectionReady.value = false
 
   if (!keepSession) {
+    locallyCancelled = false
     sessionId = null
     hasLaunched.value = false
     isWorkflowRunning.value = false
@@ -1408,15 +1736,11 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
     clearUploadedAttachments()
     chatMessages.value = []
     nodesLoadingMessagesMap.clear()
+    delegatedNodes.clear()
     nameToSpriteMap.clear()
     nodeSpriteMap.value.clear()
     officeRef.value?.reset()
     runTracker.reset()
-  }
-
-  if (attachmentHoverTimeout) {
-    clearTimeout(attachmentHoverTimeout)
-    attachmentHoverTimeout = null
   }
 }
 
@@ -1586,9 +1910,10 @@ const handleClickOutside = (event) => {
 }
 
 // Add a dialogue entry
-const addDialogue = (name, message) => {
+// Turn a node output (string or structured) into { text, htmlContent }, or null when empty
+const buildDialogueContent = (message) => {
   if (message === null || message === undefined) {
-    return
+    return null
   }
   let text
   let htmlContent = null
@@ -1608,13 +1933,23 @@ const addDialogue = (name, message) => {
     text = String(message)
   }
   if (!text.trim()) {
+    return null
+  }
+  if (htmlContent === null) htmlContent = renderMarkdown(text)
+  return { text, htmlContent }
+}
+
+// `at`: when it happened (the WebSocket message's `ts`), else now
+const addDialogue = (name, message, at = null) => {
+  const built = buildDialogueContent(message)
+  if (!built) {
     return
   }
+  const { text, htmlContent } = built
   const avatar = avatarFor(name)
 
   const isRight = name === USER_SENDER
 
-  if (htmlContent === null) htmlContent = renderMarkdown(text)
   chatMessages.value.push({
     type: 'dialogue',
     name: name,
@@ -1622,19 +1957,59 @@ const addDialogue = (name, message) => {
     htmlContent,
     avatar: avatar,
     isRight: isRight,
-    timestamp: Date.now(),
+    timestamp: at ?? Date.now(),
     rev: 0
   })
   // The user's own message always brings the view back to the bottom
   scheduleScrollToBottom(isRight)
+  return chatMessages.value[chatMessages.value.length - 1]
+}
+
+// Team members currently working on a task delegated by a lead agent (their output is not a
+// chat message): member id -> lead id
+const delegatedNodes = new Map()
+
+// Backend log time (ISO, local) in ms; live UI events without one happen "now"
+const eventTime = (at) => {
+  const parsed = at ? Date.parse(at) : NaN
+  return Number.isFinite(parsed) ? parsed : Date.now()
+}
+// The server's send time of a WebSocket message (top-level ISO `ts`) in ms, null without one
+const messageTime = (msg) => {
+  const parsed = typeof msg?.ts === 'string' ? Date.parse(msg.ts) : NaN
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+// What a delegate_task / delegate_parallel call hands over: [{ member, task }]
+// (CLI providers prefix tool names, e.g. mcp__team__delegate_task)
+const delegatedTasks = (toolName, rawArgs) => {
+  const name = String(toolName || '').split('__').pop()
+  if (name !== 'delegate_task' && name !== 'delegate_parallel') return []
+  let args = rawArgs
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args) } catch { args = null }
+  }
+  const items = name === 'delegate_task' ? [args] : Array.isArray(args?.tasks) ? args.tasks : []
+  return items
+    .filter((item) => typeof item?.member === 'string' && item.member)
+    .map((item) => ({ member: item.member, task: typeof item.task === 'string' ? item.task : '' }))
+}
+// The single member a delegate_task call waits on ('' for anything else)
+const delegateTarget = (toolName, rawArgs) =>
+  String(toolName || '').split('__').pop() === 'delegate_task' ? delegatedTasks(toolName, rawArgs)[0]?.member || '' : ''
+
+// A delegated member started, ended or changed activity: the lead's running activity line
+// ("Project Manager → QA Tester · reading files") must re-render
+const touchWorkingTurns = () => {
+  for (const state of nodesLoadingMessagesMap.values()) state.message.rev += 1
 }
 
 // Add a notification (supports levels)
-const addChatNotification = (message, { type = 'notification' } = {}) => {
+const addChatNotification = (message, { type = 'notification', at = null } = {}) => {
   chatMessages.value.push({
     type,
     message,
-    timestamp: Date.now(),
+    timestamp: at ?? Date.now(),
     rev: 0
   })
   scheduleScrollToBottom()
@@ -1810,150 +2185,6 @@ const removeAttachment = (attachmentId) => {
   )
 }
 
-const startRecording = async () => {
-  if (!isConnectionReady.value || !sessionId || isUploadingAttachment.value || isRecording.value) {
-    return
-  }
-
-  // Add global listeners to ensure recording stops even if mouse leaves button
-  window.addEventListener('mouseup', stopRecordingGlobal)
-  window.addEventListener('touchend', stopRecordingGlobal)
-
-  try {
-    // Request microphone access
-    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-
-    // Check for MP3 support, fallback to webm
-    const mimeTypes = ['audio/mpeg', 'audio/wav', 'audio/webm', 'audio/ogg']
-    let selectedMimeType = 'audio/webm'
-
-    for (const mimeType of mimeTypes) {
-      if (MediaRecorder.isTypeSupported(mimeType)) {
-        selectedMimeType = mimeType
-        break
-      }
-    }
-
-    mediaRecorder = new MediaRecorder(audioStream, {
-      mimeType: selectedMimeType
-    })
-
-    audioChunks = []
-
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        audioChunks.push(event.data)
-      }
-    }
-
-    mediaRecorder.onstop = async () => {
-      if (audioChunks.length === 0) {
-        cleanupRecording()
-        return
-      }
-
-      // Create blob from audio chunks
-      const audioBlob = new Blob(audioChunks, { type: selectedMimeType })
-
-      // Generate filename with current time
-      const now = new Date()
-      const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5)
-      const filename = `recording_${timestamp}.${selectedMimeType.split('/')[1]}`
-
-      // Create File object from blob
-      const audioFile = new File([audioBlob], filename, { type: selectedMimeType })
-
-      // Upload the file
-      try {
-        isUploadingAttachment.value = true
-        const result = await postFile(sessionId, audioFile)
-
-        if (result?.success && result?.attachmentId) {
-          uploadedAttachments.value.push(result)
-        } else {
-          console.error('Recording upload failed:', result)
-          toast.error(t('launch.alert_recording_upload_failed'))
-        }
-      } catch (error) {
-        console.error('Failed to upload recording:', error)
-        toast.error(t('launch.alert_recording_upload_failed'))
-      } finally {
-        isUploadingAttachment.value = false
-        cleanupRecording()
-      }
-    }
-
-    mediaRecorder.onerror = (event) => {
-      console.error('MediaRecorder error:', event.error)
-      toast.error(t('launch.alert_recording_error'))
-      cleanupRecording()
-    }
-
-    mediaRecorder.start()
-    isRecording.value = true
-  } catch (error) {
-    console.error('Failed to start recording:', error)
-    toast.error(t('launch.alert_mic_access_failed'))
-    cleanupRecording()
-  }
-}
-
-const stopRecording = () => {
-  if (mediaRecorder && isRecording.value && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop()
-    isRecording.value = false
-  }
-  removeGlobalListeners()
-}
-
-const stopRecordingGlobal = () => {
-  stopRecording()
-}
-
-const removeGlobalListeners = () => {
-  window.removeEventListener('mouseup', stopRecordingGlobal)
-  window.removeEventListener('touchend', stopRecordingGlobal)
-}
-
-const handleMicrophoneMouseLeave = () => {
-  // If mouse leaves while recording, don't stop (let global listener handle it)
-  // This allows recording to continue if user drags outside button
-}
-
-const cleanupRecording = () => {
-  removeGlobalListeners()
-  if (audioStream) {
-    audioStream.getTracks().forEach(track => track.stop())
-    audioStream = null
-  }
-  mediaRecorder = null
-  audioChunks = []
-  isRecording.value = false
-}
-
-const handleAttachmentHover = (isHovering) => {
-  if (isHovering) {
-    if (attachmentHoverTimeout) {
-      clearTimeout(attachmentHoverTimeout)
-      attachmentHoverTimeout = null
-    }
-
-    if (uploadedAttachments.value.length > 0) {
-      showAttachmentPopover.value = true
-    }
-    return
-  }
-
-  if (attachmentHoverTimeout) {
-    clearTimeout(attachmentHoverTimeout)
-  }
-
-  attachmentHoverTimeout = setTimeout(() => {
-    showAttachmentPopover.value = false
-    attachmentHoverTimeout = null
-  }, 140)
-}
-
 const lockBodyScroll = () => {
   if (typeof document !== 'undefined') {
     document.body.style.overflow = 'hidden'
@@ -1991,14 +2222,18 @@ const handleKeydown = (event) => {
   }
 }
 
+// Like Claude/Codex chat: Enter sends, Shift+Enter is a new line. Never send while an IME
+// (e.g. Vietnamese Telex/VNI) is still composing a character.
 const handleEnterKey = (e) => {
-  if (e.metaKey || e.ctrlKey) {
-    // Check disabled state logically similar to button
-    if (isStopMode.value || loading.value || (isWorkflowRunning.value && !taskPrompt.value.trim()) || (!isWorkflowRunning.value && status.value !== 'Completed' && status.value !== 'Cancelled' && !isConnectionReady.value)) {
-       return
-    }
-    handleButtonClick()
+  if (e.shiftKey || e.altKey || e.isComposing || e.keyCode === 229) return
+  e.preventDefault()
+  // Check disabled state logically similar to button
+  if (isStopMode.value || loading.value || (isWorkflowRunning.value && !hasComposerContent.value) || (!isWorkflowRunning.value && !isRunFinished.value && !isConnectionReady.value)) {
+    return
   }
+  // An empty message box never relaunches a finished run from the keyboard
+  if (!isWorkflowRunning.value && !hasComposerContent.value) return
+  handleButtonClick()
 }
 
 // Handle paste events, including file uploads
@@ -2110,11 +2345,9 @@ const handleYAMLSelection = async (fileName) => {
     workflowYaml.value = parsedYaml || {}
     const initialInstructions = workflowYaml.value?.graph?.initial_instruction || ''
 
-    if (initialInstructions) {
-      addChatNotification(initialInstructions)
-    } else {
-      addChatNotification(t('launch.no_initial_instructions'))
-    }
+    // Nothing to say when the workflow has no opening instructions: the empty chat
+    // shows its own hint instead of a placeholder notice
+    if (initialInstructions) addChatNotification(initialInstructions)
 
     // Bind every node to its saved (or stable auto-assigned) mascot, replacing the
     // previous workflow's bindings; binding also preloads each character's frames
@@ -2138,13 +2371,21 @@ const handleYAMLSelection = async (fileName) => {
 // Handle button clicks
 const handleButtonClick = () => {
   if (isWorkflowRunning.value) {
-    // If Send, send user input
-    sendHumanInput()
+    // Only an answer to a pending question can be sent while a run is live (or launching)
+    if (!isWaitingForInput.value) return
+    if (!sendHumanInput()) return
 
     status.value = "Running..."
     shouldGlow.value = false
-  } else if (status.value === 'Completed' || status.value === 'Cancelled') {
-    // If Relaunch, restart the same workflow and re-enter Launch state
+  } else if (isRunFinished.value) {
+    // Follow-up turn: keep the current session (and its chat) and run the workflow again with
+    // the new message; the backend prepends the previous turns as a transcript.
+    if (hasComposerContent.value) {
+      launchWorkflow()
+      return
+    }
+
+    // Empty composer: Relaunch, i.e. restart the same workflow in a fresh session
     if (!selectedFile.value) {
       toast.warning(t('launch.alert_choose_workflow'))
       return
@@ -2161,7 +2402,7 @@ const handleButtonClick = () => {
 // Send human input
 const sendHumanInput = () => {
   if (!ws) {
-    return
+    return false
   }
 
   const trimmedInput = taskPrompt.value.trim()
@@ -2171,7 +2412,7 @@ const sendHumanInput = () => {
   )
 
   if (!trimmedInput && attachmentIds.length === 0) {
-    return
+    return false
   }
 
   const message = {
@@ -2199,6 +2440,7 @@ const sendHumanInput = () => {
   }
 
   taskPrompt.value = ''
+  return true
 }
 
 // Establish a WebSocket connection
@@ -2278,12 +2520,19 @@ const establishWebSocketConnection = (options = {}) => {
       }
 
       isConnectionReady.value = true
+      reconnectAttempts = 0
+      if (autoReconnecting) {
+        autoReconnecting = false
+        if (msg.data?.resumed) clearReplayedState()
+      }
 
       if (isReconnecting.value && !msg.data?.resumed) {
         // Nothing saved under that id (deleted or expired): continue as a new session
         isReconnecting.value = false
+        pendingOpenSessionId = null
         currentProjectName.value = ''
-        const { session: _staleSession, ...query } = route.query
+        const query = { ...route.query }
+        delete query.session
         router.replace({ query })
         if (selectedFile.value) {
           handleYAMLSelection(selectedFile.value)
@@ -2310,26 +2559,74 @@ const establishWebSocketConnection = (options = {}) => {
   }
 
   socket.onerror = (error) => {
-    // Ignore errors from sockets that are no longer current
+    // Ignore errors from sockets that are no longer current; onclose always follows and
+    // takes care of the state (and of reconnecting)
     if (ws !== socket) return
-
     console.error('WebSocket error:', error)
-    status.value = 'Connection error'
-    toast.error(t('launch.errors.ws_connection'))
-    resetConnectionState({ closeSocket: false })
+    // Retries after a dropped connection stay quiet: the status line already says it
+    if (!reconnectAttempts) toast.error(t('launch.errors.ws_connection'))
   }
 
-  socket.onclose = () => {
-    // Ignore close events from sockets that are no longer current
+  socket.onclose = (event) => {
+    // Ignore close events from sockets that are no longer current (closed on purpose)
     if (ws !== socket) return
 
-    if (status.value === 'Running...') {
-      status.value = 'Disconnected'
-    } else if (status.value === 'Connecting...' || status.value === 'Waiting for launch...') {
-      status.value = 'Disconnected'
+    const lostSession = sessionId
+    status.value = 'Disconnected'
+    pendingOpenSessionId = null
+    // The same session was opened in another tab (the server keeps one socket per session,
+    // see websocket_manager.connect): reconnecting here would just take it back from that
+    // tab, and so on forever. Stay put and say so; picking the session again reopens it here.
+    if (event?.code === 1000 && String(event.reason || '').startsWith('Replaced')) {
+      isReconnecting.value = false
+      resetConnectionState({ closeSocket: true, keepSession: Boolean(lostSession) })
+      addChatNotification(t('launch.replaced_by_other_tab'), { type: 'warning' })
+      toast.info(t('launch.replaced_by_other_tab'))
+      return
     }
-    resetConnectionState({ closeSocket: false })
+    // Keep the chat on screen while the server is away (e.g. it restarted); the replay
+    // on reconnect rebuilds it exactly.
+    resetConnectionState({ closeSocket: false, keepSession: Boolean(lostSession) })
+    if (lostSession) scheduleReconnect(lostSession)
   }
+}
+
+// The server went away (restart, network): reconnect to the same session with backoff,
+// keeping what is being typed in the message box.
+let reconnectTimer = null
+let reconnectAttempts = 0
+// Set while an automatic reconnect is in flight (see clearReplayedState)
+let autoReconnecting = false
+const cancelReconnect = () => {
+  clearTimeout(reconnectTimer)
+  reconnectTimer = null
+  reconnectAttempts = 0
+  autoReconnecting = false
+}
+const scheduleReconnect = (lostSession) => {
+  clearTimeout(reconnectTimer)
+  const delay = Math.min(1000 * 2 ** reconnectAttempts, 10000)
+  reconnectAttempts += 1
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    // Something else opened a connection meanwhile (the user switched sessions)
+    if (ws || sessionId !== lostSession) return
+    const attempts = reconnectAttempts
+    establishWebSocketConnection({ sessionId: lostSession })
+    reconnectAttempts = attempts
+    autoReconnecting = true
+  }, delay)
+}
+// Set while an automatic reconnect is in flight: the chat is cleared only once the server
+// answers (it then replays the whole session), so a failed retry leaves it on screen.
+const clearReplayedState = () => {
+  locallyCancelled = false
+  chatMessages.value = []
+  nodesLoadingMessagesMap.clear()
+  activeNodes.value = []
+  delegatedNodes.clear()
+  officeRef.value?.reset()
+  runTracker.reset()
 }
 
 // Open a saved session: the backend replays its messages, then session_resumed
@@ -2339,6 +2636,8 @@ const establishWebSocketConnection = (options = {}) => {
 const openSession = async (item) => {
   if (!item?.session_id) return
   if (item.session_id === activeSessionId.value && isConnectionReady.value) return
+  if (isReconnecting.value && pendingOpenSessionId === item.session_id) return
+  pendingOpenSessionId = item.session_id
   stashComposer()
   resetConnectionState()
   pendingProject = null
@@ -2356,6 +2655,7 @@ const openSession = async (item) => {
 const openDraft = async (file, { project = '', source = null } = {}) => {
   stashComposer()
   isReconnecting.value = false
+  pendingOpenSessionId = null
   resetConnectionState()
   currentProjectName.value = project
   pendingProject = source
@@ -2639,15 +2939,6 @@ watch(status, scheduleSessionsRefresh)
 watch(taskPrompt, () => nextTick(autoResizeTaskInput))
 
 
-watch(
-  () => uploadedAttachments.value.length,
-  (length) => {
-    if (!length) {
-      showAttachmentPopover.value = false
-    }
-  }
-)
-
 // Arriving here with another workflow in the URL (e.g. from the workflow list) opens a
 // draft of it. Changes made by this page set the selection first, so they are no-ops.
 let isPageReady = false
@@ -2710,7 +3001,6 @@ onUnmounted(() => {
   }
   unlockBodyScroll()
   resetConnectionState()
-  cleanupRecording()
   removeSpriteWalkerLayer()
 
   stopLoadingTimer()
@@ -2959,7 +3249,33 @@ const launchWorkflow = async () => {
   }
 
   shouldGlow.value = false
+  // A failed follow-up leaves a finished session as it was (not a draft "waiting for launch")
+  const statusBefore = ['Completed', 'Cancelled', 'Error'].includes(status.value) ? status.value : 'Waiting for launch...'
+  // The run is live from the moment it is posted: the server may already stream its first
+  // events (a question, an error, even the end) before the POST returns, and those must win
+  // over what happens below. This also stops a second launch while this one is in flight.
   status.value = 'Launching...'
+  isWorkflowRunning.value = true
+  locallyCancelled = false
+  const trackerBefore = JSON.parse(JSON.stringify(runTracker.state))
+  runTracker.begin(trimmedPrompt, attachmentNames)
+  // A launch that did not happen puts everything back as it was
+  const undoLaunch = () => {
+    takeBackBubble()
+    Object.assign(runTracker.state, trackerBefore)
+    isWorkflowRunning.value = false
+  }
+
+  // Show the message right away (before the server's "started" notice), like a chat does;
+  // it is taken back if the launch fails
+  const fullMessage = []
+  if (trimmedPrompt) fullMessage.push(trimmedPrompt)
+  if (attachmentNames.length) fullMessage.push(t('launch.attachments_line', { names: attachmentNames.join(', ') }))
+  const userBubble = fullMessage.length ? addDialogue(USER_SENDER, fullMessage.join('\n\n')) : null
+  const takeBackBubble = () => {
+    const index = chatMessages.value.indexOf(userBubble)
+    if (userBubble && index > -1) chatMessages.value.splice(index, 1)
+  }
 
   try {
     const response = await fetch('/api/workflow/execute', {
@@ -2979,51 +3295,50 @@ const launchWorkflow = async () => {
 
       await response.json().catch(() => null)
 
-      const fullMessage = []
-      if (trimmedPrompt) {
-        fullMessage.push(trimmedPrompt)
-      }
-      if (attachmentNames.length) {
-        fullMessage.push(t('launch.attachments_line', { names: attachmentNames.join(', ') }))
-      }
-      if (fullMessage.length) {
-        addDialogue(USER_SENDER, fullMessage.join('\n\n'))
-      }
+      // Only clear what was sent (not an answer typed meanwhile to an early question)
+      if (taskPrompt.value.trim() === trimmedPrompt) taskPrompt.value = ''
 
-      taskPrompt.value = ''
-      runTracker.begin(trimmedPrompt, attachmentNames)
-
-      status.value = 'Running...'
-      isWorkflowRunning.value = true
+      // Events that arrived during the POST (question, error, end) already set the state
+      if (status.value === 'Launching...') status.value = 'Running...'
       hasLaunched.value = true
       // The project runs this workflow from now on (until the user picks another)
       if (currentProjectName.value) rememberProjectWorkflow(currentProjectName.value, selectedFile.value)
 
-      // Persist session id in URL for reconnection after refresh
-      router.push({
+      // Persist session id in URL for reconnection after refresh (no extra history entry)
+      router.replace({
         query: {
           ...route.query,
           workflow: selectedFile.value,
           session: sessionId
         }
       })
+    } else if (response.status === 409) {
+      // The server is still running a turn of this session (e.g. started from another tab):
+      // nothing was launched, so the run state stays as it was
+      const error = await response.json().catch(() => ({}))
+      console.warn('Launch rejected, a run is in progress:', error)
+      undoLaunch()
+      status.value = statusBefore
+      toast.warning(t('launch.run_in_progress'))
     } else {
       const error = await response.json().catch(() => ({}))
       console.error('Failed to launch workflow:', error)
+      undoLaunch()
       status.value = 'Failed'
-      toast.error(errorWithDetail('launch.errors.launch_failed', error.detail || (response.status ? `HTTP ${response.status}` : '')))
+      toast.error(errorWithDetail('launch.errors.launch_failed', error.detail || error.error?.message || (response.status ? `HTTP ${response.status}` : '')))
       shouldGlow.value = true
       if (isConnectionReady.value) {
-        status.value = 'Waiting for launch...'
+        status.value = statusBefore
       }
     }
   } catch (error) {
     console.error('Error calling execute API:', error)
+    undoLaunch()
     status.value = 'Error'
     toast.error(errorWithDetail('launch.errors.execute_failed', error))
     shouldGlow.value = true
     if (isConnectionReady.value) {
-      status.value = 'Waiting for launch...'
+      status.value = statusBefore
     }
   }
 }
@@ -3367,13 +3682,18 @@ const animateSpriteAlongEdge = (edge) => {
   rafId = requestAnimationFrame(animate)
 }
 
+// Time of the latest backend log event (ms): messages without their own time follow it
+let lastLogAt = 0
 const processMessage = async (msg) => {
+  // When the server sent it (null on older servers: the chat then stamps "now")
+  const at = messageTime(msg)
+  if (msg.type === 'log' && msg.data?.timestamp) lastLogAt = eventTime(msg.data.timestamp)
   // What the user typed earlier; only arrives when a saved session is replayed
   if (msg.type === 'user_message') {
     const text = msg.data?.text || ''
     const names = Array.isArray(msg.data?.attachments) ? msg.data.attachments : []
     const parts = [text.trim(), names.length ? t('launch.attachments_line', { names: names.join(', ') }) : '']
-    addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'))
+    addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'), at)
     // The first message of a run is the task, later ones are replies to the agents
     if (runTracker.state.task && !runTracker.state.outcome) runTracker.inputSent(text)
     else runTracker.begin(text, names)
@@ -3404,6 +3724,7 @@ const processMessage = async (msg) => {
     }
 
     isReconnecting.value = false
+    pendingOpenSessionId = null
     currentProjectName.value = stripSlash(data.projects?.[0]?.name)
     hasLaunched.value = Boolean(data.status) && data.status !== 'idle'
     const composer = takeComposer(sessionId)
@@ -3453,9 +3774,14 @@ const processMessage = async (msg) => {
     }
 
     isConnectionReady.value = true
+    // The replay is in: open at the latest message, once now and once more after late layout
+    // (fonts, tables, images) has settled
+    scheduleScrollToBottom(true)
+    setTimeout(() => scheduleScrollToBottom(true), 250)
     if (data.error_message === 'Interrupted by a server restart') {
       addChatNotification(t('launch.sessions.interrupted'), { type: 'warning' })
-    } else {
+    } else if (data.status === 'running' || data.status === 'waiting_for_input') {
+      // Only worth saying while the run is live; a finished or draft session just opens
       addChatNotification(t('launch.reconnected'))
     }
     if (viewMode.value === 'graph') {
@@ -3467,11 +3793,51 @@ const processMessage = async (msg) => {
 
   // Prompt for human input
   if (msg.type === 'human_input_required') {
-    const fullMessage = [msg.data?.task_description, localizeInputHeaders(msg.data?.input)]
+    // A human step usually gets the previous agent's reply as its input: that reply is
+    // already the last bubble, so it is not shown a second time
+    const lastAgentBubble = (() => {
+      const list = chatMessages.value
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        if (list[i].type !== 'dialogue') continue
+        return list[i].isRight ? null : list[i].text ? list[i] : null
+      }
+      return null
+    })()
+    const rawInput = msg.data?.input
+    const localizedInput = localizeInputHeaders(rawInput)
+    const lastText = String(lastAgentBubble?.text || '').trim()
+    const repeatsLast = Boolean(lastText) &&
+      [rawInput, localizedInput].some((part) => typeof part === 'string' && part.trim() === lastText)
+    const fullMessage = [msg.data?.task_description, repeatsLast ? null : localizedInput]
       .filter((part) => part !== null && part !== undefined && String(part).trim())
       .join('\n\n')
-    addDialogue(msg.data?.node_id || t('launch.unknown_node'), fullMessage || t('launch.input_required'))
-    officeRef.value?.waitingInput(msg.data?.node_id)
+    // The question closes the agent's current activity row and becomes its message;
+    // work after the user's answer starts a fresh row below it.
+    const askingNode = msg.data?.node_id
+    // Without a server time it follows the agent's last logged event (right for replays too)
+    const askedAt = at || lastLogAt || Date.now()
+    let question = null
+    if (repeatsLast && !fullMessage) {
+      // Nothing new to say: the reply on screen is the question
+      settleNodeTurn(askingNode, null, askedAt)
+      question = lastAgentBubble
+    } else {
+      if (!settleNodeTurn(askingNode, fullMessage || t('launch.input_required'), askedAt)) {
+        addDialogue(askingNode || t('launch.unknown_node'), fullMessage || t('launch.input_required'), at)
+      }
+      question = chatMessages.value[chatMessages.value.length - 1]
+    }
+    // Shown as the lead's question, waiting for your answer
+    if (question?.type === 'dialogue' && !question.isRight) {
+      question.isQuestion = true
+      question.rev += 1
+    }
+    // Ready to answer: the box takes the focus unless you are typing somewhere else
+    nextTick(() => {
+      const active = document.activeElement
+      if (!active || active === document.body) taskInputRef.value?.focus()
+    })
+    officeRef.value?.waitingInput(msg.data?.node_id, msg.data?.task_description || msg.data?.input)
     runTracker.waitingInput(msg.data?.node_id)
 
     status.value = "Waiting for input..."
@@ -3511,7 +3877,7 @@ const processMessage = async (msg) => {
           dataUri: null,
           loading: true,
           error: null,
-          timestamp: Date.now(),
+          timestamp: at ?? Date.now(),
           rev: 0
         })
 
@@ -3539,15 +3905,24 @@ const processMessage = async (msg) => {
     }
   }
 
+  // Account ran out of quota: say plainly which account took over (or that none is left)
+  const accountEvent = msg.type === 'log' ? msg.data?.details?.event : null
+  if (accountEvent === 'account_fallback' || accountEvent === 'account_exhausted') {
+    const params = { from: msg.data.details.from || '', to: msg.data.details.to || '', model: msg.data.details.model || '' }
+    const key = accountEvent === 'account_fallback' ? 'launch.account_fallback' : 'launch.account_exhausted'
+    addChatNotification(t(key, params), { type: accountEvent === 'account_fallback' ? 'warning' : 'error', at })
+    toast[accountEvent === 'account_fallback' ? 'warning' : 'error'](t(key, params))
+  }
+
   // Handle warning/error messages
-  if (msg.type === 'log' && (msg.data.level === 'WARNING' || msg.data.level === 'ERROR')) {
+  else if (msg.type === 'log' && (msg.data.level === 'WARNING' || msg.data.level === 'ERROR')) {
     const notificationType = msg.data.level === 'WARNING' ? 'warning' : 'error'
     // Backend warning/error text is technical English; give it a localized lead-in
     const detail = formatErrorDetail(msg.data.message)
     const fallbackKey = notificationType === 'warning' ? 'launch.unknown_warning' : 'launch.unknown_error'
     addChatNotification(
       detail ? withErrorHint(t(`launch.log_events.backend_${notificationType}`, { detail })) : t(fallbackKey),
-      { type: notificationType }
+      { type: notificationType, at }
     )
   }
 
@@ -3556,12 +3931,25 @@ const processMessage = async (msg) => {
     const eventType = msg.data.event_type
     const nodeId = msg.data.node_id
 
+    const delegatedBy = msg.data.details?.delegated_by
+    const eventAt = eventTime(msg.data.timestamp)
+
     // Node active
     if (eventType === 'NODE_START') {
       if (nodeId && !activeNodes.value.includes(nodeId)) {
         activeNodes.value.push(nodeId)
       }
-      runTracker.nodeStart(nodeId, msg.data.timestamp)
+      runTracker.nodeStart(nodeId, msg.data.timestamp, { delegatedBy: delegatedBy || '' })
+      // The user's request is what an entry agent (e.g. the CTO) is working on
+      if (!delegatedBy && nodeId) officeRef.value?.brief(nodeId, runTracker.state.task?.text)
+      // Team member picked up a task from its lead: one compact line, no member chatter in the chat.
+      if (delegatedBy && nodeId) {
+        delegatedNodes.set(nodeId, delegatedBy)
+        touchWorkingTurns()
+        officeRef.value?.handoff(delegatedBy, nodeId, { visit: true })
+        runTracker.handoff(delegatedBy, nodeId, msg.data.timestamp)
+        addChatNotification(t('launch.team.assigned', { lead: delegatedBy, member: nodeId }), { at })
+      }
     }
 
     // Model call
@@ -3569,7 +3957,8 @@ const processMessage = async (msg) => {
       // Model call started
       if (msg.data.details.stage === "before") {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
-        addLoadingEntry(nodeId, baseKey, t('launch.loading_model', { name: msg.data.details.model_name || t('launch.unknown_name') }))
+        if (!delegatedNodes.has(nodeId)) addLoadingEntry(nodeId, baseKey, t('launch.activity.thinking'), { isModel: true, at: eventAt })
+        else touchWorkingTurns()
         officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', true)
         runTracker.activity(nodeId, 'model', msg.data.details.model_name || '', true, msg.data.timestamp)
       }
@@ -3577,7 +3966,7 @@ const processMessage = async (msg) => {
       // Model call ended
       if (msg.data.details.stage === "after") {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
-        finishLoadingEntry(nodeId, baseKey)
+        finishLoadingEntry(nodeId, baseKey, eventAt)
         officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', false)
         runTracker.activity(nodeId, 'model', msg.data.details.model_name || '', false, msg.data.timestamp)
       }
@@ -3588,16 +3977,28 @@ const processMessage = async (msg) => {
       // Tool call started
       if (msg.data.details.stage === "before") {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
-        addLoadingEntry(nodeId, baseKey, t('launch.loading_tool', { name: msg.data.details.tool_name || t('launch.unknown_name') }))
-        officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', true)
+        // Any lead (sub-leads too) handing work over: remember the task for the member's card
+        for (const { member, task } of delegatedTasks(msg.data.details.tool_name, msg.data.details.arguments)) {
+          runTracker.assign(member, task)
+          officeRef.value?.brief(member, task)
+        }
+        if (!delegatedNodes.has(nodeId)) {
+          addLoadingEntry(nodeId, baseKey, toolActivityLabel(msg.data.details.tool_name, msg.data.details.arguments), {
+            at: eventAt,
+            member: delegateTarget(msg.data.details.tool_name, msg.data.details.arguments)
+          })
+        } else {
+          touchWorkingTurns()
+        }
+        officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', true, msg.data.details.arguments || null)
         runTracker.activity(nodeId, 'tool', msg.data.details.tool_name || '', true, msg.data.timestamp)
       }
 
       // Tool call ended
       if (msg.data.details.stage === "after") {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
-        finishLoadingEntry(nodeId, baseKey)
-        officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', false)
+        finishLoadingEntry(nodeId, baseKey, eventAt)
+        officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', false, msg.data.details.arguments || null)
         runTracker.activity(nodeId, 'tool', msg.data.details.tool_name || '', false, msg.data.timestamp)
       }
     }
@@ -3611,17 +4012,19 @@ const processMessage = async (msg) => {
           activeNodes.value.splice(index, 1)
         }
 
-        const nodeState = nodesLoadingMessagesMap.get(nodeId)
-        if (nodeState) {
-          const endedAt = Date.now()
-          finalizeAllLoadingEntries(nodeState, endedAt)
-          nodeState.message.isLoading = false
-          nodeState.message.duration = formatDuration(nodeState.message.startedAt, endedAt)
-          nodesLoadingMessagesMap.delete(nodeId)
-        }
       }
 
-      addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output)
+      if (delegatedBy && nodeId) {
+        settleNodeTurn(nodeId, null, eventAt)
+        // The lead summarises for the user; the member's full report stays in Tasks / Overview / Review.
+        delegatedNodes.delete(nodeId)
+        touchWorkingTurns()
+        officeRef.value?.handoff(nodeId, delegatedBy, { visit: true })
+        runTracker.handoff(nodeId, delegatedBy, msg.data.timestamp)
+        addChatNotification(t('launch.team.reported', { lead: delegatedBy, member: nodeId }), { at })
+      } else if (!settleNodeTurn(nodeId, msg.data.details?.output, eventAt)) {
+        addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output, at)
+      }
       if (nodeId) officeRef.value?.nodeEnd(nodeId, msg.data.details?.output)
       runTracker.nodeEnd(nodeId, msg.data.details?.output, msg.data.timestamp)
     }
@@ -3632,14 +4035,23 @@ const processMessage = async (msg) => {
     }
 
     // Other log messages
+    // "Received your input for CTO": your own bubble already says it
+    else if (eventType === 'HUMAN_INTERACTION') {
+      // nothing to add
+    }
+
     else if (msg.data.message) {
-      addChatNotification(localizeLogMessage(msg.data))
+      addChatNotification(localizeLogMessage(msg.data), { at })
     }
   }
 
   // Workflow completed
   if (msg.type === 'workflow_completed') {
-    addChatNotification(formatErrorDetail(msg.data?.summary) || t('launch.workflow_completed'))
+    // The backend summary ("Workflow finished with N node outputs...") is technical and the
+    // WORKFLOW_END log line already said the run is over: only say it when nothing did.
+    const endLine = t('launch.log_events.workflow_end')
+    const last = chatMessages.value[chatMessages.value.length - 1]
+    if (!(last?.type === 'notification' && last.message === endLine)) addChatNotification(t('launch.workflow_completed'), { at })
     runTracker.finish('completed', { summary: formatErrorDetail(msg.data?.summary), tokenUsage: msg.data?.token_usage })
     status.value = 'Completed'
     isWorkflowRunning.value = false
@@ -3648,7 +4060,9 @@ const processMessage = async (msg) => {
 
   // Workflow cancelled (e.g., from server-side cancellation)
   if (msg.type === 'workflow_cancelled') {
-    addChatNotification(formatErrorDetail(msg.data?.message) || t('launch.workflow_cancelled'))
+    // Stopped from here: the notice is already in the chat, the server only confirms it
+    if (!locallyCancelled) addChatNotification(formatErrorDetail(msg.data?.message) || t('launch.workflow_cancelled'), { at })
+    locallyCancelled = false
     if (runTracker.state.outcome !== 'cancelled') runTracker.finish('cancelled', { summary: formatErrorDetail(msg.data?.message) })
     status.value = 'Cancelled'
     isWorkflowRunning.value = false
@@ -3656,9 +4070,15 @@ const processMessage = async (msg) => {
   }
 
   // Handle direct error messages (e.g., workflow execution errors)
+  if (msg.type === 'error' && msg.data?.code === 'run_in_progress') {
+    // A follow-up was turned down because a run is still going: a notice, not a failure;
+    // the live run (and its state here) carries on
+    toast.warning(t('launch.run_in_progress'))
+    return
+  }
   if (msg.type === 'error') {
     const errorMessage = withErrorHint(errorWithDetail('launch.errors.workflow_error', msg.data?.message))
-    addChatNotification(errorMessage, { type: 'error' })
+    addChatNotification(errorMessage, { type: 'error', at })
     runTracker.finish('error', { error: formatErrorDetail(msg.data?.message) })
     status.value = 'Error'
     isWorkflowRunning.value = false
@@ -3666,11 +4086,12 @@ const processMessage = async (msg) => {
   }
 }
 
-// Cancel the currently running workflow
+// Cancel the currently running workflow (also while it waits for the user's answer)
 const cancelWorkflow = () => {
-  if (!isWorkflowRunning.value || !ws) {
+  if (!isRunActive.value || !ws) {
     return
   }
+  locallyCancelled = true
 
   // Send cancel request through WebSocket so the server stops the workflow
   try {
@@ -3686,24 +4107,20 @@ const cancelWorkflow = () => {
   sessionIdToDownload = sessionId
 
   // Finish all loading messages
-  const endedAt = Date.now()
-  for (const [nodeId, nodeState] of nodesLoadingMessagesMap.entries()) {
-    if (nodeState?.message) {
-      finalizeAllLoadingEntries(nodeState, endedAt)
-      nodeState.message.isLoading = false
-      nodeState.message.duration = formatDuration(nodeState.message.startedAt, endedAt)
-      nodesLoadingMessagesMap.delete(nodeId)
-    }
+  for (const nodeId of [...nodesLoadingMessagesMap.keys()]) {
+    settleNodeTurn(nodeId)
   }
 }
 
 // Download logs
 const downloadLogs = async () => {
-  if (!sessionIdToDownload) {
+  // A run that failed early may not have recorded its id for download yet
+  const target = sessionIdToDownload || sessionId
+  if (!target) {
     return
   }
   try {
-    await fetchLogsZip(sessionIdToDownload)
+    await fetchLogsZip(target)
   } catch (error) {
     console.error('Download failed:', error)
     toast.error(errorWithDetail('launch.errors.download_logs_failed', error))
@@ -3772,11 +4189,19 @@ const handleChatScroll = () => {
   const el = chatMessagesRef.value
   if (!el) return
   isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD
+  if (isNearBottom) hasUnseenMessages.value = false
+}
+
+// "New messages" button: back to the latest message, following the chat again from there
+const jumpToLatest = () => {
+  scheduleScrollToBottom(true)
+  taskInputRef.value?.focus({ preventScroll: true })
 }
 
 function scheduleScrollToBottom(force = false) {
   if (force) {
     isNearBottom = true
+    hasUnseenMessages.value = false
   }
   if (!isNearBottom || scrollRafId !== null) return
   scrollRafId = requestAnimationFrame(() => {
@@ -3791,9 +4216,13 @@ function scheduleScrollToBottom(force = false) {
 // Clearing / replacing the whole list (new session, reconnect) starts pinned to the bottom
 watch(
   () => chatMessages.value.length,
-  (length) => {
+  (length, previous) => {
     if (length === 0) {
       isNearBottom = true
+      hasUnseenMessages.value = false
+    } else if (length > (previous || 0) && !isNearBottom) {
+      // Reading further up: say something new came in instead of yanking the view down
+      hasUnseenMessages.value = true
     }
     scheduleScrollToBottom()
   },
@@ -4095,14 +4524,114 @@ watch(
 
 .chat-messages {
   flex: 1;
-  padding: 20px;
+  padding: 24px clamp(16px, 4%, 48px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-behavior: auto;
   color: var(--text-2);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 20px;
+}
+
+/* Empty session */
+.chat-empty {
+  margin: auto;
+  max-width: 460px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px 8px;
+}
+.chat-empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.chat-empty-hint {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-muted-7);
+}
+.chat-empty-keys {
+  font-size: 12px;
+  color: var(--text-muted-7);
+  opacity: 0.75;
+}
+
+/* Markdown extras rendered by renderMarkdown: code blocks with a copy button, scrolling tables */
+.chat-messages :deep(.md-code) {
+  position: relative;
+  margin: 4px 0 10px;
+}
+.chat-messages :deep(.md-code pre) {
+  margin: 0;
+  padding-top: 30px;
+}
+.chat-messages :deep(.md-code-lang) {
+  position: absolute;
+  top: 7px;
+  left: 12px;
+  font-size: 11px;
+  color: var(--text-muted-7);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  pointer-events: none;
+}
+.chat-messages :deep(.md-code-copy) {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  font-size: 11px;
+  color: var(--text-muted-7);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.chat-messages :deep(.md-code-copy:hover),
+.chat-messages :deep(.md-code-copy:focus-visible) {
+  color: var(--text-strong);
+  background: rgb(var(--ink) / 0.08);
+  border-color: rgb(var(--ink) / 0.12);
+}
+.chat-messages :deep(.md-code-copy.copied) {
+  color: var(--accent-green, #34d399);
+}
+.chat-messages :deep(.md-table) {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 4px 0 10px;
+}
+.chat-messages :deep(.md-table table) {
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 100%;
+}
+.chat-messages :deep(.md-table th),
+.chat-messages :deep(.md-table td) {
+  border: 1px solid rgb(var(--ink) / 0.12);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  min-width: 72px;
+  max-width: 360px;
+}
+.chat-messages :deep(.md-table th) {
+  background: rgb(var(--ink) / 0.05);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Keep a readable column, centred like ChatGPT / Claude */
+.chat-message-item {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
 }
 
 /* Each message lays out independently so a growing bubble does not invalidate the whole list */
@@ -4113,36 +4642,48 @@ watch(
 }
 
 /* Chat Notification */
+/* System events: a quiet centred caption, not a card */
 .chat-notification {
   display: flex;
   justify-content: center;
-  margin: 10px 0;
+  margin: 0;
 }
 
 .notification-content {
-  background: rgb(var(--ink) / 0.08);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 20px;
-  padding: 8px 16px;
-  max-width: 80%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 2px 12px;
+  max-width: 90%;
   animation: slideIn 0.3s ease-out;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .notification-text {
-  color: rgb(var(--ink) / 0.8);
-  font-size: 13px;
+  color: rgb(var(--ink) / 0.45);
+  font-size: 12px;
   font-weight: 500;
   text-align: center;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
 
+.chat-notification:not(.chat-notification-warning):not(.chat-notification-error) .message-timestamp {
+  display: none;
+}
+
+.chat-notification-warning .notification-content,
+.chat-notification-error .notification-content {
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 14px;
+}
+
 .chat-notification-warning .notification-content {
-  background: rgba(255, 204, 0, 0.12);
-  border-color: rgba(255, 204, 0, 0.4);
+  background: rgba(255, 204, 0, 0.08);
+  border-color: rgba(255, 204, 0, 0.3);
 }
 
 .chat-notification-warning .notification-text {
@@ -4155,6 +4696,19 @@ watch(
   color: var(--danger-soft);
 }
 
+.question-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f59e0b;
+  background: rgb(245 158 11 / 0.12);
+  border: 1px solid rgb(245 158 11 / 0.35);
+}
+
 .message-timestamp {
   font-size: 0.75rem;
   color: rgb(var(--ink) / 0.4);
@@ -4164,8 +4718,17 @@ watch(
 
 .chat-notification .message-timestamp {
   margin-left: 0;
-  margin-top: 4px;
+  margin-top: 2px;
   color: rgb(var(--ink) / 0.3);
+}
+
+.user-name .message-timestamp {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.dialogue:hover .user-name .message-timestamp {
+  opacity: 1;
 }
 
 .dialogue-right .message-timestamp {
@@ -4199,7 +4762,6 @@ watch(
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 8px;
 }
 
 .dialogue-right {
@@ -4208,24 +4770,26 @@ watch(
 
 .message-content {
   flex: 1;
-  max-width: 85%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  /* Shrink to fit content */
-  align-items: flex-start;
+  gap: 6px;
+  align-items: stretch;
 }
 
 .dialogue-right .message-content {
-  /* Right-side fit logic */
+  max-width: 80%;
+  flex: 0 1 auto;
   align-items: flex-end;
 }
 
 .user-name {
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.5);
-  font-weight: 500;
-  margin: 0 4px;
+  font-size: 13px;
+  color: rgb(var(--ink) / 0.85);
+  font-weight: 600;
+  margin: 0;
+  min-height: 28px;
+  align-items: center;
 }
 
 .dialogue-right .user-name {
@@ -4234,8 +4798,8 @@ watch(
 
 /* Chat avatar: pixel-art chibi inside a soft pastel rounded-square tile */
 .profile-picture {
-  --avatar-size: 44px;
-  --avatar-sprite-size: 40px;
+  --avatar-size: 28px;
+  --avatar-sprite-size: 26px;
   --avatar-bg: linear-gradient(145deg, rgb(var(--accent-indigo-rgb) / 0.28), rgba(201, 167, 235, 0.22) 55%, rgba(255, 180, 237, 0.2));
   --avatar-base: rgb(var(--ink) / 0.06);
   --avatar-border: rgb(var(--ink) / 0.18);
@@ -4245,7 +4809,7 @@ watch(
   position: relative;
   width: var(--avatar-size);
   height: var(--avatar-size);
-  border-radius: 14px;
+  border-radius: 8px;
   overflow: hidden;
   display: flex;
   align-items: flex-end;
@@ -4290,123 +4854,163 @@ watch(
   --avatar-shadow: 0 2px 6px rgba(30, 30, 50, 0.12);
 }
 
+/* Assistant turns: plain text on the page (no card), like Claude / ChatGPT */
 .message-bubble {
-  background: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  border-top-left-radius: 2px;
-  padding: 0 16px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
   position: relative;
-  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  color: rgb(var(--ink) / 0.92);
+  font-size: 15px;
+  line-height: 1.65;
 }
 
+/* User turns: a soft rounded bubble on the right, no avatar */
 .dialogue-right .message-bubble {
-  background: linear-gradient(135deg, rgb(var(--accent-indigo-rgb) / 0.15), rgba(189, 178, 255, 0.15));
-  border-color: rgb(var(--accent-indigo-rgb) / 0.3);
-  border-top-left-radius: 12px;
-  border-top-right-radius: 2px;
+  background: rgb(var(--ink) / 0.07);
+  border: 1px solid rgb(var(--ink) / 0.06);
+  border-radius: 18px;
+  border-bottom-right-radius: 6px;
+  padding: 2px 16px;
 }
 
 .loading-bubble {
-  border-color: var(--accent-mint);
-  background-color: rgb(var(--ink) / 0.08);
-  box-shadow: 0 0 12px rgb(var(--accent-sky-rgb) / 0.35);
-  animation: borderPulse 3s ease-in-out infinite alternate;
-  animation: bubbleGlow 3s ease-in-out infinite alternate;
+  min-height: 24px;
 }
 
-@keyframes bubbleGlow {
-  0% {
-    box-shadow: 0 0 6px rgb(var(--accent-sky-rgb) / 0.35);
-  }
-  50% {
-    box-shadow: 0 0 12px rgb(var(--accent-sky-rgb) / 0.35);
-  }
-}
-
-.loading-timer {
-  margin-left: 8px;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.7);
-}
-
-.loading-entries {
+/* ---------- Activity line ---------- */
+.activity {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 10px 0 4px;
-  padding: 2px 0;
-  border-radius: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  margin: 0 0 4px;
 }
 
-.loading-entry {
+.activity-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 4px 8px 4px 2px;
+  margin-left: -2px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(var(--ink) / 0.5);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.activity-summary:hover {
+  color: rgb(var(--ink) / 0.8);
+  background: rgb(var(--ink) / 0.05);
+}
+
+.activity-summary:focus-visible {
+  outline: 2px solid rgb(var(--accent-sky-rgb) / 0.6);
+  outline-offset: 1px;
+}
+
+.activity-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Running label shimmers instead of glowing borders */
+.activity-running .activity-label {
+  color: rgb(var(--ink) / 0.75);
+  background: linear-gradient(
+    90deg,
+    rgb(var(--ink) / 0.45) 0%,
+    rgb(var(--ink) / 0.95) 50%,
+    rgb(var(--ink) / 0.45) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: activityShimmer 2s linear infinite;
+}
+
+@keyframes activityShimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+.activity-time {
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--ink) / 0.4);
+  font-size: 12px;
+}
+
+.activity-spinner {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--ink) / 0.15);
+  border-top-color: var(--accent-mint);
+  animation: activitySpin 0.9s linear infinite;
+}
+
+@keyframes activitySpin {
+  to { transform: rotate(360deg); }
+}
+
+.activity-chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.activity-open .activity-chevron {
+  transform: rotate(90deg);
+}
+
+.activity-steps {
+  list-style: none;
+  margin: 2px 0 6px 7px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid rgb(var(--ink) / 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.activity-step {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.12);
-  position: relative;
-  /* no backdrop-filter here: it forced a re-blur on every pulse frame of each entry */
+  gap: 8px;
+  font-size: 12.5px;
+  color: rgb(var(--ink) / 0.55);
 }
 
-.loading-entry-label {
-  font-size: 14px;
-  color: rgb(var(--ink) / 0.9);
+.activity-step-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgb(var(--ink) / 0.3);
+  flex-shrink: 0;
 }
 
-.loading-entry-duration {
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.6);
+.step-running .activity-step-dot {
+  background: var(--accent-mint);
 }
 
-.entry-running {
-  border-color: var(--accent-mint);
-  box-shadow: 0 0 8px rgb(var(--accent-sky-rgb) / 0.25);
-  animation: loadingEntryPulse 2.6s ease-in-out infinite;
+.step-running .activity-step-label {
+  color: rgb(var(--ink) / 0.85);
 }
 
-.entry-done {
-  border-color: rgb(var(--ink) / 0.15);
-  opacity: 0.8;
-}
-
-/* Fade-slide-in animation for entries */
-.loading-entry-enter-active,
-.loading-entry-leave-active {
-  transition: opacity 0.22s ease-out, transform 0.22s ease-out;
-}
-
-.loading-entry-enter-from,
-.loading-entry-leave-to {
-  opacity: 0;
-  transform: translateY(4px);
-}
-
-.loading-entry-enter-to,
-.loading-entry-leave-from {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-@keyframes loadingEntryPulse {
-  0% {
-    box-shadow: 0 0 4px rgb(var(--accent-sky-rgb) / 0.18);
-    border-color: rgb(var(--accent-sky-rgb) / 0.6);
-    background: rgb(var(--ink) / 0.06);
-  }
-  50% {
-    box-shadow: 0 0 10px rgb(var(--accent-sky-rgb) / 0.38);
-    border-color: rgb(var(--accent-mint-rgb) / 0.9);
-    background: rgb(var(--ink) / 0.09);
-  }
-  100% {
-    box-shadow: 0 0 4px rgb(var(--accent-sky-rgb) / 0.18);
-    border-color: rgb(var(--accent-sky-rgb) / 0.6);
-    background: rgb(var(--ink) / 0.06);
-  }
+.activity-step-time {
+  margin-left: auto;
+  padding-left: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--ink) / 0.35);
 }
 
 .message-text {
@@ -4491,6 +5095,114 @@ watch(
 /* Input Area */
 .input-area {
   flex: 0 0 auto;
+  position: relative;
+}
+
+/* "New messages" pill: floats above the composer while the chat is scrolled up */
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background: rgb(32 32 34 / 0.96);
+  color: var(--text-1);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.28);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.jump-latest:hover {
+  border-color: rgb(var(--ink) / 0.28);
+}
+.jump-latest:focus-visible {
+  outline: 2px solid var(--accent-blue-1);
+  outline-offset: 2px;
+}
+.jump-latest-enter-active,
+.jump-latest-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.jump-latest-enter-from,
+.jump-latest-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 6px);
+}
+:root[data-theme="light"] .jump-latest {
+  background: var(--surface-1);
+  box-shadow: 0 2px 10px rgb(var(--shade) / 0.18);
+}
+
+/* The lead's open question, pinned right above the composer */
+.question-card {
+  margin-bottom: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgb(245 158 11 / 0.4);
+  background: rgb(245 158 11 / 0.08);
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.question-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #f59e0b;
+  margin-bottom: 4px;
+}
+.question-card-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: #f59e0b;
+  animation: question-pulse 1.6s ease-in-out infinite;
+}
+@keyframes question-pulse {
+  50% { opacity: 0.35; }
+}
+.question-card-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.question-card-text.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.question-card-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-blue-1);
+  font-size: 12px;
+  cursor: pointer;
+}
+.question-card-toggle:hover {
+  text-decoration: underline;
+}
+:root[data-theme="light"] .question-card-head {
+  color: #b45309;
+}
+@media (prefers-reduced-motion: reduce) {
+  .question-card-dot { animation: none; }
+  .jump-latest-enter-active,
+  .jump-latest-leave-active { transition-duration: 0.01ms; }
 }
 
 .input-shell {
@@ -4768,65 +5480,6 @@ watch(
   justify-content: space-between;
   flex-direction: column;
   height: 100%;
-}
-
-.microphone-button {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid rgb(var(--ink) / 0.2);
-  background: rgb(var(--ink) / 0.05);
-  color: rgb(var(--ink) / 0.8);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-  padding: 0;
-  outline: none;
-  position: relative;
-}
-
-.microphone-button:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.1);
-  border-color: rgb(var(--ink) / 0.4);
-  color: var(--text-1);
-}
-
-.microphone-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.microphone-button.recording {
-  background: rgb(var(--ink) / 0.1);
-  border-color: var(--accent-mint);
-  color: var(--text-1);
-}
-
-.microphone-button.pulsating {
-  animation: microphonePulse 2s ease-in-out infinite;
-}
-
-@keyframes microphonePulse {
-  0% {
-    box-shadow:
-      0 0 0 0 rgb(var(--accent-mint-rgb) / 0.7),
-      0 0 0 0 rgb(var(--accent-sky-rgb) / 0.5);
-    border-color: var(--accent-mint);
-  }
-  50% {
-    box-shadow:
-      0 0 0 12px rgb(var(--accent-mint-rgb) / 0),
-      0 0 0 6px rgb(var(--accent-sky-rgb) / 0.3);
-    border-color: var(--accent-sky);
-  }
-  100% {
-    box-shadow:
-      0 0 0 24px rgb(var(--accent-mint-rgb) / 0),
-      0 0 0 18px rgb(var(--accent-sky-rgb) / 0);
-    border-color: var(--accent-mint);
-  }
 }
 
 .attachment-upload {
@@ -5353,6 +6006,22 @@ watch(
   height: 100%;
 }
 
+/* The chat panel floats over the left of the canvas: the graph starts right of it, so
+   fit-to-view never hides the lead behind the chat */
+.graph-flow-panel {
+  position: relative;
+}
+.graph-flow-panel .vueflow-graph {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--inset-left, 0px);
+  width: auto;
+  height: auto;
+  transition: left 0.25s ease;
+}
+
 .image-modal {
   position: fixed;
   inset: 0;
@@ -5417,14 +6086,78 @@ watch(
   background-color: rgb(var(--accent-indigo-rgb) / 0.1);
 }
 
+/* ---------------------------------------------------------------------------
+ * Responsive layout. Desktop (> 1100px) is unchanged; narrower screens give the
+ * chat the room the two fixed side columns used to take.
+ * ------------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  .content {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .content > .session-sidebar:not(.collapsed) {
+    flex-basis: 220px;
+    width: 220px;
+  }
+
+  .right-panel {
+    min-width: 220px;
+  }
+}
+
+/* Phones: one column (sessions, chat, controls) that scrolls, instead of three side by side */
+@media (max-width: 720px) {
+  .content {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .content > .session-sidebar,
+  .content > .session-sidebar.collapsed {
+    flex: none;
+    width: 100%;
+  }
+
+  .content > .session-sidebar:not(.collapsed) {
+    max-height: 34vh;
+  }
+
+  .content > .session-sidebar.collapsed {
+    height: 44px;
+  }
+
+  .left-panel {
+    flex: none;
+    height: 72vh;
+    min-height: 420px;
+  }
+
+  .right-panel:not(.right-panel-overlay) {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .right-panel-overlay {
+    max-width: 86%;
+  }
+
+  .chat-panel:not(.chat-panel-fullscreen) {
+    max-width: 86%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .launch-button,
   .cancel-button,
   .launch-button.glow,
   .input-shell.glow,
-  .loading-bubble,
-  .entry-running,
-  .microphone-button.pulsating,
+  .activity-spinner,
+  .activity-running .activity-label,
   .notification-content {
     animation: none;
   }
@@ -5441,8 +6174,6 @@ watch(
   .right-panel-fab,
   .file-dropdown-enter-active,
   .file-dropdown-leave-active,
-  .loading-entry-enter-active,
-  .loading-entry-leave-active,
   .image-modal-enter-active,
   .image-modal-leave-active {
     transition-duration: 0.01ms;
@@ -5501,7 +6232,6 @@ watch(
 :root[data-theme="light"] .file-desc,
 :root[data-theme="light"] .file-empty,
 :root[data-theme="light"] .no-active-nodes,
-:root[data-theme="light"] .loading-entry-duration,
 :root[data-theme="light"] .artifact-status {
   color: var(--text-muted-1);
 }
@@ -5515,13 +6245,8 @@ watch(
   color: var(--text-muted-1);
 }
 :root[data-theme="light"] .notification-text,
-:root[data-theme="light"] .artifact-filename,
-:root[data-theme="light"] .loading-timer {
+:root[data-theme="light"] .artifact-filename {
   color: var(--text-soft-3);
-}
-:root[data-theme="light"] .notification-content {
-  background: var(--surface-4);
-  border-color: rgb(var(--ink) / 0.12);
 }
 :root[data-theme="light"] .chat-notification-warning .notification-content {
   background: #fffbeb;
@@ -5538,52 +6263,31 @@ watch(
   color: #991b1b;
 }
 
-/* Bubbles / entries: give edges enough definition on white */
+/* Chat turns on white */
+:root[data-theme="light"] .user-name,
 :root[data-theme="light"] .message-bubble {
-  background: var(--surface-4);
-  border-color: rgb(var(--ink) / 0.12);
-}
-:root[data-theme="light"] .dialogue-right .message-bubble {
-  background: linear-gradient(135deg, rgb(var(--accent-indigo-rgb) / 0.1), rgb(var(--accent-indigo-rgb) / 0.06));
-  border-color: rgb(var(--accent-indigo-rgb) / 0.3);
-}
-:root[data-theme="light"] .message-bubble.loading-bubble {
-  background-color: var(--surface-4);
-  border-color: var(--accent-mint);
-}
-:root[data-theme="light"] .loading-entry.entry-running {
-  border-color: var(--accent-mint);
-}
-:root[data-theme="light"] .loading-entry {
-  background: #fff;
-  border-color: rgb(var(--ink) / 0.16);
-}
-:root[data-theme="light"] .loading-entry-label {
   color: var(--text-1);
 }
-:root[data-theme="light"] .entry-done {
-  opacity: 1;
-  border-color: rgb(var(--ink) / 0.14);
+:root[data-theme="light"] .dialogue-right .message-bubble {
+  background: rgb(var(--ink) / 0.05);
+  border-color: rgb(var(--ink) / 0.06);
+}
+:root[data-theme="light"] .activity-summary,
+:root[data-theme="light"] .activity-step {
+  color: var(--text-muted-1);
 }
 
 /* Input controls */
-:root[data-theme="light"] .microphone-button,
 :root[data-theme="light"] .attachment-button,
 :root[data-theme="light"] .artifact-download-button {
   background: #fff;
   border-color: rgb(var(--ink) / 0.2);
   color: var(--text-soft-3);
 }
-:root[data-theme="light"] .microphone-button:hover:not(:disabled),
 :root[data-theme="light"] .attachment-button:hover:not(:disabled),
 :root[data-theme="light"] .artifact-download-button:hover:not(:disabled) {
   background: var(--surface-4);
   border-color: rgb(var(--ink) / 0.35);
-  color: var(--text-1);
-}
-:root[data-theme="light"] .microphone-button.recording {
-  background: var(--surface-4);
-  border-color: var(--accent-mint);
   color: var(--text-1);
 }
 :root[data-theme="light"] .attachment-count {

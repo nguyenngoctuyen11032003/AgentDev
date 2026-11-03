@@ -1,5 +1,6 @@
 """Session history: runs are saved to disk and can be listed and replayed after a restart."""
 
+from datetime import datetime
 from urllib.parse import urlencode
 
 import pytest
@@ -65,7 +66,10 @@ def test_run_is_restored_after_restart_and_marked_interrupted(api, monkeypatch):
         with fresh.websocket_connect("/ws?" + urlencode({"session_id": "run-1"})) as ws:
             connection = ws.receive_json()
             assert connection["data"] == {"session_id": "run-1", "status": "connected", "resumed": True}
-            assert ws.receive_json() == {
+            user_message = ws.receive_json()
+            # The replayed row keeps the real time it was sent (ISO 8601 UTC).
+            assert datetime.fromisoformat(user_message.pop("ts")).tzinfo is not None
+            assert user_message == {
                 "type": "user_message",
                 "data": {"text": "Review the login flow\nsecond line", "attachments": []},
             }

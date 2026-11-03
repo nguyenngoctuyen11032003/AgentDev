@@ -105,3 +105,25 @@ def test_nodes_inside_inline_subgraphs_are_bound(store):
     doc = {"graph": {"nodes": [{"id": "sg", "type": "subgraph", "config": {"type": "config", "config": inner}}]}}
     bind_default_connections(doc, {})
     assert inner["nodes"][0]["config"]["connection"] == claude.id
+
+
+def test_validation_does_not_require_a_signed_in_account(monkeypatch):
+    """CI has no signed-in accounts: structure validation must not fail on account binding."""
+    from agentdev.connections import autobind
+
+    class EmptyStore:
+        def list(self):
+            return []
+
+        def default_connection(self):
+            return None
+
+    monkeypatch.setattr(autobind, "get_store", lambda: EmptyStore())
+    data = {"graph": {"nodes": [{"id": "A", "type": "agent", "config": {"provider": "anthropic", "name": "m"}}]}}
+    autobind.bind_default_connections(data, {}, require_accounts=False)
+    assert "connection" not in data["graph"]["nodes"][0]["config"]
+    import pytest
+    from agentdev.entity.configs import ConfigError
+
+    with pytest.raises(ConfigError):
+        autobind.bind_default_connections(data, {})

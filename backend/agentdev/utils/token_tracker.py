@@ -1,4 +1,5 @@
 """Token usage tracking module for AgentDev project."""
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Optional, Any
@@ -43,9 +44,15 @@ class TokenTracker:
         self.model_usages = defaultdict(TokenUsage)
         self.call_history = []
         self.node_call_counts = defaultdict(int)  # Track how many times each node is called
+        # Parallel team members record usage from several threads at once.
+        self._lock = threading.RLock()
 
     def record_usage(self, node_id: str, model_name: str, usage: TokenUsage, provider: str = None):
         """Records token usage for a specific call, handling multiple node executions."""
+        with self._lock:
+            self._record_usage(node_id, model_name, usage, provider)
+
+    def _record_usage(self, node_id: str, model_name: str, usage: TokenUsage, provider: str = None):
         # Update the usage with provider if it wasn't set already
         if provider and not usage.provider:
             usage.provider = provider
@@ -109,6 +116,10 @@ class TokenTracker:
         return self.node_call_counts[node_id]
 
     def get_token_usage(self) -> Dict[str, Any]:
+        with self._lock:
+            return self._snapshot()
+
+    def _snapshot(self) -> Dict[str, Any]:
         data = {
             "workflow_id": self.workflow_id,
             "total_usage": {
@@ -133,7 +144,7 @@ class TokenTracker:
                 for model_name, usage in self.model_usages.items()
             },
             "node_execution_counts": dict(self.node_call_counts),
-            "call_history": self.call_history,
+            "call_history": list(self.call_history),
         }
         return data
 
