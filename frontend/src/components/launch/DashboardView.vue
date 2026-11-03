@@ -9,7 +9,8 @@
         </svg>
         <div class="ring-text">
           <strong>{{ progress }}%</strong>
-          <span>{{ $t('launch.dashboard.done_of', { done: doneCount, total: steps.length }) }}</span>
+          <span v-if="teamMode">{{ $t('launch.dashboard.tasks_of', { done: teamTasksDone, total: delegatedRuns.length }) }}</span>
+          <span v-else>{{ $t('launch.dashboard.done_of', { done: doneCount, total: steps.length }) }}</span>
         </div>
       </div>
       <div class="hero-main">
@@ -41,10 +42,10 @@
     <section class="card block">
       <header class="block-head">
         <h3>{{ $t('launch.dashboard.pipeline') }}</h3>
-        <span class="muted">{{ $t('launch.dashboard.pipeline_sub') }}</span>
+        <span class="muted">{{ teamMode && idleCount ? $t('launch.dashboard.pipeline_team_sub', { n: idleCount }) : $t('launch.dashboard.pipeline_sub') }}</span>
       </header>
       <ol v-if="steps.length" class="pipeline">
-        <li v-for="step in steps" :key="step.id" class="pipe-step" :class="`is-${statusOf(step.id)}`" :style="{ '--dept': step.color }">
+        <li v-for="step in shownSteps" :key="step.id" class="pipe-step" :class="`is-${statusOf(step.id)}`" :style="{ '--dept': step.color }">
           <span class="pipe-node" :title="stateLabel(statusOf(step.id))">
             <svg v-if="statusOf(step.id) === 'done'" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
             <template v-else>{{ step.index }}</template>
@@ -64,7 +65,7 @@
           <span class="muted">{{ tracker.startedAt ? formatSpan(span) : '' }}</span>
         </header>
         <div v-if="tracker.startedAt && steps.length" class="gantt">
-          <div v-for="step in steps" :key="step.id" class="gantt-row" :style="{ '--dept': step.color }">
+          <div v-for="step in shownSteps" :key="step.id" class="gantt-row" :style="{ '--dept': step.color }">
             <span class="gantt-label" :title="step.id"><b>{{ step.index }}</b>{{ step.id }}</span>
             <span class="gantt-track">
               <span
@@ -115,9 +116,11 @@
               <th>#</th>
               <th>{{ $t('launch.dashboard.col_agent') }}</th>
               <th>{{ $t('launch.dashboard.col_status') }}</th>
+              <th v-if="hasOrg" class="num" :title="$t('launch.dashboard.col_chain_hint')">{{ $t('launch.dashboard.col_chain') }}</th>
               <th class="num">{{ $t('launch.dashboard.col_runs') }}</th>
               <th class="num">{{ $t('launch.dashboard.col_models') }}</th>
               <th class="num">{{ $t('launch.dashboard.col_tools') }}</th>
+              <th v-if="usage.tokens" class="num">{{ $t('launch.dashboard.col_tokens') }}</th>
               <th>{{ $t('launch.dashboard.col_time') }}</th>
             </tr>
           </thead>
@@ -125,7 +128,8 @@
             <tr v-for="row in agentRows" :key="row.step.id" :style="{ '--dept': row.step.color }">
               <td class="idx">{{ row.step.index }}</td>
               <td>
-                <span class="agent-cell">
+                <span class="agent-cell" :style="{ paddingLeft: `${row.depth * 18}px` }">
+                  <span v-if="row.depth" class="branch" aria-hidden="true">↳</span>
                   <span class="avatar" aria-hidden="true">
                     <img v-if="row.step.sprite" :src="row.step.sprite" alt="" />
                     <span v-else>{{ initialsOf(row.step.id) }}</span>
@@ -133,13 +137,23 @@
                   <span class="agent-name">
                     <strong :title="row.step.id">{{ row.step.id }}</strong>
                     <small>{{ deptLabel(row.step.dept) }}<template v-if="row.step.model"> · {{ row.step.model }}</template></small>
+                    <small v-if="row.reportsTo || row.teamSize" class="chain-line">
+                      <template v-if="row.reportsTo">{{ $t('launch.dashboard.reports_to', { name: row.reportsTo }) }}</template>
+                      <template v-if="row.reportsTo && row.teamSize"> · </template>
+                      <template v-if="row.teamSize">{{ $t('launch.dashboard.leads_team', { n: row.teamSize }) }}</template>
+                    </small>
                   </span>
                 </span>
               </td>
               <td><span class="pill" :class="`is-${row.status}`"><span class="dot" aria-hidden="true"></span>{{ stateLabel(row.status) }}</span></td>
+              <td v-if="hasOrg" class="num">
+                <template v-if="row.reportsTo">{{ row.assigned }} / {{ row.reported }}</template>
+                <template v-else>—</template>
+              </td>
               <td class="num">{{ row.runs }}</td>
               <td class="num">{{ row.models }}</td>
               <td class="num">{{ row.tools }}</td>
+              <td v-if="usage.tokens" class="num" :title="usage.nodes[row.step.id]?.cost ? formatCost(usage.nodes[row.step.id].cost) : ''">{{ usage.nodes[row.step.id]?.tokens ? usage.nodes[row.step.id].tokens.toLocaleString() : '—' }}</td>
               <td>
                 <span class="share">
                   <span class="share-track"><span class="share-fill" :style="{ width: `${row.share}%` }"></span></span>
@@ -189,8 +203,9 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { formatSpan, stepDuration, stepStatus } from '@/utils/runTracker.js'
+import { formatCost, formatSpan, stepDuration, stepStatus, usageTotals } from '@/utils/runTracker.js'
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
+import { buildOrgChart, computeTeamLinks } from '@/utils/teamLinks.js'
 
 const props = defineProps({
   graph: { type: Object, default: () => ({}) },
@@ -220,8 +235,24 @@ const statusOf = (id) => stepStatus(nodeOf(id))
 const durationOf = (id) => stepDuration(nodeOf(id), now.value)
 
 const doneCount = computed(() => steps.value.filter((s) => statusOf(s.id) === 'done').length)
+
+// Team workflow: the lead decides who works, so progress is counted in delegated tasks and
+// the step lists show the people who took part (not twelve empty rows)
+const teamMode = computed(() => computeTeamLinks(props.graph?.nodes, props.graph?.edges).length > 0)
+const delegatedRuns = computed(() =>
+  Object.values(props.tracker.nodes).flatMap((node) => node.runs.filter((run) => run.delegatedBy))
+)
+const teamTasksDone = computed(() => delegatedRuns.value.filter((run) => run.endedAt).length)
+const involved = computed(() => steps.value.filter((s) => runsOf(s.id).length || statusOf(s.id) === 'waiting'))
+const shownSteps = computed(() => (teamMode.value && involved.value.length ? involved.value : steps.value))
+const idleCount = computed(() => steps.value.length - shownSteps.value.length)
+
 const progress = computed(() => {
   if (props.tracker.outcome === 'completed') return 100
+  if (teamMode.value) {
+    const total = delegatedRuns.value.length
+    return total ? Math.round((teamTasksDone.value / total) * 100) : 0
+  }
   return steps.value.length ? Math.round((doneCount.value / steps.value.length) * 100) : 0
 })
 const ringOffset = computed(() => RING_LENGTH * (1 - progress.value / 100))
@@ -250,22 +281,27 @@ const totals = computed(() => ({
   runs: allRuns.value.length
 }))
 
-const totalTokens = computed(() => {
-  const usage = props.tracker.tokenUsage
-  const value = usage?.total_tokens ?? usage?.total?.total_tokens ?? usage?.totals?.total_tokens
-  return Number.isFinite(value) ? value : 0
-})
+const usage = computed(() => usageTotals(props.tracker.tokenUsage))
+const totalTokens = computed(() => usage.value.tokens)
 
 const kpis = computed(() => {
   const working = steps.value.filter((s) => statusOf(s.id) === 'working')
   const waiting = steps.value.some((s) => statusOf(s.id) === 'waiting') || props.status === 'Waiting for input...'
+  const progressKpi = teamMode.value
+    ? {
+        key: 'progress',
+        label: t('launch.dashboard.kpi_tasks'),
+        value: `${teamTasksDone.value}/${delegatedRuns.value.length}`,
+        sub: t('launch.dashboard.kpi_people', { n: involved.value.length, total: steps.value.length })
+      }
+    : {
+        key: 'progress',
+        label: t('launch.dashboard.kpi_progress'),
+        value: `${doneCount.value}/${steps.value.length}`,
+        sub: t('launch.dashboard.kpi_progress_sub', { p: progress.value })
+      }
   return [
-    {
-      key: 'progress',
-      label: t('launch.dashboard.kpi_progress'),
-      value: `${doneCount.value}/${steps.value.length}`,
-      sub: t('launch.dashboard.kpi_progress_sub', { p: progress.value })
-    },
+    progressKpi,
     {
       key: 'time',
       label: t('launch.dashboard.kpi_time'),
@@ -284,15 +320,21 @@ const kpis = computed(() => {
       key: 'calls',
       label: t('launch.dashboard.kpi_calls'),
       value: String(totals.value.models),
-      sub: totalTokens.value
-        ? t('launch.board.tokens', { n: totalTokens.value.toLocaleString() })
-        : t('launch.dashboard.kpi_runs', { n: totals.value.runs })
+      sub: t('launch.dashboard.kpi_runs', { n: totals.value.runs })
     },
     {
       key: 'tools',
       label: t('launch.dashboard.kpi_tools'),
       value: String(totals.value.tools),
       sub: topTool.value ? t('launch.dashboard.kpi_top_tool', { name: topTool.value }) : t('launch.dashboard.kpi_none')
+    },
+    {
+      key: 'usage',
+      label: t('launch.dashboard.kpi_usage'),
+      value: totalTokens.value ? totalTokens.value.toLocaleString() : '—',
+      sub: usage.value.cost !== null
+        ? t('launch.dashboard.kpi_cost', { cost: formatCost(usage.value.cost) })
+        : props.tracker.outcome ? t('launch.dashboard.kpi_no_cost') : t('launch.dashboard.kpi_usage_later')
     }
   ]
 })
@@ -306,11 +348,34 @@ const topTool = computed(() => {
   return best
 })
 
+// Chain of command (team leads) and how often work moved along it during this run
+const org = computed(() => buildOrgChart(props.graph))
+const hasOrg = computed(() => org.value.size > 0)
+const handoffStats = computed(() => {
+  const stats = new Map()
+  const bump = (id, key) => {
+    if (!stats.has(id)) stats.set(id, { assigned: 0, reported: 0 })
+    stats.get(id)[key] += 1
+  }
+  for (const event of props.tracker.events) {
+    if (event.kind !== 'handoff') continue
+    if (org.value.get(event.target)?.parent === event.nodeId) bump(event.target, 'assigned')
+    else if (org.value.get(event.nodeId)?.parent === event.target) bump(event.nodeId, 'reported')
+  }
+  return stats
+})
+
 const agentRows = computed(() => {
   const rows = steps.value.map((step) => {
     const runs = runsOf(step.id)
+    const unit = org.value.get(step.id)
     return {
       step,
+      depth: unit?.depth || 0,
+      reportsTo: unit?.parent || '',
+      teamSize: unit?.members.length || 0,
+      assigned: handoffStats.value.get(step.id)?.assigned || 0,
+      reported: handoffStats.value.get(step.id)?.reported || 0,
       status: statusOf(step.id),
       runs: runs.length,
       models: runs.reduce((sum, run) => sum + run.models, 0),
@@ -447,7 +512,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   height: 100%;
   box-sizing: border-box;
   overflow-y: auto;
-  padding: 16px 16px 24px calc(var(--inset-left, 0px) + 16px);
+  padding: 16px 16px 24px calc(var(--inset-left, 0px) + 34px);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -842,6 +907,8 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 .agents .idx { width: 28px; color: var(--dept); font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .agent-cell { display: flex; align-items: center; gap: 9px; min-width: 180px; }
+.agent-cell .branch { color: var(--muted, #8a8f98); font-size: 14px; margin-right: -3px; }
+.agent-name .chain-line { display: block; opacity: 0.85; }
 
 .avatar {
   display: grid;

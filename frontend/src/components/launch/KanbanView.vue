@@ -11,7 +11,8 @@
         </span>
         <span v-if="steps.length" class="kb-progress" :title="$t('launch.board.progress_hint')">
           <span class="kb-progress-track"><span class="kb-progress-fill" :style="{ width: `${progress}%` }"></span></span>
-          {{ $t('launch.board.progress', { done: doneCount, total: steps.length }) }}
+          <template v-if="teamMode">{{ $t('launch.board.progress_team', { done: teamTasksDone, total: delegatedRuns.length, people: teamPeople }) }}</template>
+          <template v-else>{{ $t('launch.board.progress', { done: doneCount, total: steps.length }) }}</template>
         </span>
         <span v-if="tracker.startedAt" class="kb-time">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
@@ -132,6 +133,7 @@
                 </span>
                 <time v-if="task.run">{{ formatSpan(now - task.run.startedAt) }}</time>
               </div>
+              <p v-if="task.run?.delegatedBy" class="card-from">{{ $t('launch.board.assigned_by', { lead: task.run.delegatedBy }) }}</p>
               <p class="card-title">{{ task.title }}</p>
               <p v-if="task.status === 'waiting'" class="activity is-wait">{{ $t('launch.board.waiting_text') }}</p>
               <p v-else-if="task.run?.activity" class="activity">
@@ -150,7 +152,7 @@
 
           <!-- Next up: members that have not started yet -->
           <template v-if="column.queued.length">
-            <p class="section-label">{{ $t('launch.board.section_queued') }} · {{ column.queued.length }}</p>
+            <p class="section-label">{{ $t(teamMode && tracker.task ? 'launch.board.section_unassigned' : 'launch.board.section_queued') }} · {{ column.queued.length }}</p>
             <article v-for="step in column.queued" :key="`q-${step.id}`" class="card is-todo is-compact">
               <div class="card-meta">
                 <span class="assignee">
@@ -159,7 +161,7 @@
                   <span class="step-tag">B{{ step.index }}</span>
                 </span>
               </div>
-              <p v-if="step.role" class="card-text clamp-2">{{ step.role }}</p>
+              <p v-if="step.role && !teamMode" class="card-text clamp-2">{{ step.role }}</p>
             </article>
           </template>
 
@@ -184,6 +186,8 @@
                 </span>
                 <time :title="clock(task.run.endedAt)">{{ formatSpan(task.run.endedAt - task.run.startedAt) }}</time>
               </div>
+              <p v-if="task.run.delegatedBy" class="card-from">{{ $t('launch.board.assigned_by', { lead: task.run.delegatedBy }) }}</p>
+              <p v-if="task.run.task" class="card-ask clamp-2" :title="task.run.task">{{ $t('launch.board.asked', { task: task.run.task }) }}</p>
               <p class="card-title">{{ task.title }}</p>
               <p v-if="task.body" class="card-text" :class="opened.has(task.key) ? '' : 'clamp-3'">{{ task.body }}</p>
               <div v-if="task.run.tools.length || task.run.models" class="chips">
@@ -247,8 +251,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { formatSpan, stepStatus } from '@/utils/runTracker.js'
+import { formatSpan, stepStatus, usageTotals } from '@/utils/runTracker.js'
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
+import { computeTeamLinks } from '@/utils/teamLinks.js'
 
 const props = defineProps({
   graph: { type: Object, default: () => ({}) },
@@ -288,7 +293,25 @@ const steps = computed(() => buildSteps(props.graph, props.spriteMap))
 const nodeOf = (id) => props.tracker.nodes[id]
 const statusOf = (id) => stepStatus(nodeOf(id))
 const doneCount = computed(() => steps.value.filter((s) => statusOf(s.id) === 'done').length)
-const progress = computed(() => (steps.value.length ? Math.round((doneCount.value / steps.value.length) * 100) : 0))
+
+// A team workflow (a lead delegates to members) does not run every step: the lead picks who
+// works. Progress is then counted in tasks handed over, and members nobody asked are
+// "not assigned" rather than "next up".
+const teamMode = computed(() => computeTeamLinks(props.graph?.nodes, props.graph?.edges).length > 0)
+const delegatedRuns = computed(() =>
+  Object.values(props.tracker.nodes).flatMap((node) => node.runs.filter((run) => run.delegatedBy))
+)
+const teamTasksDone = computed(() => delegatedRuns.value.filter((run) => run.endedAt).length)
+const teamPeople = computed(() =>
+  Object.entries(props.tracker.nodes).filter(([, node]) => node.runs.length).length
+)
+const progress = computed(() => {
+  if (teamMode.value) {
+    const total = delegatedRuns.value.length
+    return total ? Math.round((teamTasksDone.value / total) * 100) : props.tracker.outcome ? 100 : 0
+  }
+  return steps.value.length ? Math.round((doneCount.value / steps.value.length) * 100) : 0
+})
 
 const isLive = computed(() => props.status === 'Running...' || props.status === 'Waiting for input...')
 const elapsed = computed(() =>
@@ -301,11 +324,7 @@ const runTone = computed(() => {
 })
 const outcomeTone = computed(() => props.tracker.outcome || (isLive.value ? 'working' : 'todo'))
 
-const totalTokens = computed(() => {
-  const usage = props.tracker.tokenUsage
-  const value = usage?.total_tokens ?? usage?.total?.total_tokens ?? usage?.totals?.total_tokens
-  return Number.isFinite(value) ? value : 0
-})
+const totalTokens = computed(() => usageTotals(props.tracker.tokenUsage).tokens)
 
 // ---------------------------------------------------------------- task text
 // A hand-over usually opens with a heading or a summary line: that is the task title.
@@ -316,14 +335,24 @@ const cleanLine = (line) =>
     .replace(/\s+/g, ' ')
     .trim()
 
+// Card previews are plain text: markdown tables become "cell · cell" lines and their
+// |---| separator rows disappear
+const TABLE_RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/
+const plainLine = (line) => {
+  if (TABLE_RULE.test(line)) return null
+  if (/^\s*\|/.test(line)) {
+    return line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()).filter(Boolean).join(' · ')
+  }
+  return line
+}
 const splitOutput = (text) => {
-  const lines = String(text || '').split('\n')
+  const lines = String(text || '').split('\n').map(plainLine).filter((line) => line !== null)
   const index = lines.findIndex((line) => cleanLine(line).length > 2)
   if (index === -1) return { title: '', body: '' }
   const title = cleanLine(lines[index])
   return {
     title: title.length > 110 ? `${title.slice(0, 109)}…` : title,
-    body: lines.slice(index + 1).join('\n').trim()
+    body: lines.slice(index + 1).join('\n').replace(/\*\*|__|`/g, '').trim()
   }
 }
 
@@ -367,7 +396,7 @@ const columns = computed(() =>
           step,
           run: open || null,
           status: status === 'waiting' ? 'waiting' : 'working',
-          title: step.role ? splitOutput(step.role).title : t('launch.board.working')
+          // A delegated task is titled by what the lead asked for
         })
       } else if (!runs.length) {
         queued.push(step)
@@ -474,7 +503,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  padding: 14px 16px 12px calc(var(--inset-left, 0px) + 16px);
+  padding: 14px 16px 12px calc(var(--inset-left, 0px) + 34px);
   color: var(--text-1);
   font-family: 'Inter', system-ui, sans-serif;
   transition: padding-left 0.25s ease;
@@ -916,6 +945,20 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   font-weight: 620;
   line-height: 1.4;
   color: var(--text-1);
+}
+
+.card-ask {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted-7);
+  font-style: italic;
+}
+
+.card-from {
+  margin: 0 0 2px;
+  font-size: 11px;
+  color: var(--kb-muted);
 }
 
 .card-text {
