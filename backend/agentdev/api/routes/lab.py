@@ -72,7 +72,11 @@ def evaluate(payload: EvaluateRequest):
     if len(scenarios) > MAX_SCENARIOS:
         raise HTTPException(status_code=400, detail=f"At most {MAX_SCENARIOS} scenarios per run")
     repeats = max(1, min(int(payload.repeats or 1), MAX_REPEATS))
-    job = get_lab_runner().start(path, name, scenarios, repeats)
+    try:
+        config_status = static_check(path).get("status", "")
+    except Exception:  # noqa: BLE001 - the check is advisory here; the run reports its own errors
+        config_status = ""
+    job = get_lab_runner().start(path, name, scenarios, repeats, config_status=config_status)
     return job.to_dict()
 
 

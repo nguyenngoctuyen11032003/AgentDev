@@ -169,7 +169,14 @@
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8h.01M11 12h1v4h1" /></svg>
               {{ $t('lab.cost_note', { runs: plannedRuns }) }}
             </p>
-            <button v-if="!isRunning" type="button" class="btn primary" :disabled="!plannedRuns || starting" @click="startEval">
+            <button
+              v-if="!isRunning"
+              type="button"
+              class="btn primary"
+              :disabled="!plannedRuns || starting || configBlocked"
+              :title="configBlocked ? configBlockedHint : undefined"
+              @click="startEval"
+            >
               <span v-if="starting" class="spinner" aria-hidden="true"></span>
               <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
               {{ $t('lab.eval_run') }}
@@ -179,6 +186,7 @@
               {{ $t('lab.eval_stop') }}
             </button>
           </footer>
+          <p v-if="configBlocked && !isRunning" class="warn-note">{{ configBlockedHint }}</p>
           <p v-if="evalError" class="error" role="alert">{{ evalError }}</p>
         </section>
 
@@ -201,6 +209,8 @@
             <div class="verdict-text">
               <strong>{{ $t(`lab.verdict.${job.verdict}`) }}</strong>
               <span>{{ $t('lab.verdict_detail', { rate: passPct, threshold: Math.round(job.threshold * 100), errors: job.errors }) }}</span>
+              <span v-if="job.config_failed" class="warn-text">{{ tr('lab.verdict_config_failed', 'Bước 1 (kiểm tra cấu hình) đang có lỗi: chưa thể dùng quy trình này.') }}</span>
+              <span v-if="job.basic_graded" class="warn-text">{{ tr('lab.basic_graded_note', '{n} lượt chỉ được chấm cơ bản (không gọi được AI chấm điểm).', { n: job.basic_graded }) }}</span>
             </div>
           </div>
           <div v-else class="progress">
@@ -235,11 +245,12 @@
             </div>
           </dl>
 
-          <ul v-if="repeats > 1 || job.scenarios.some((s) => s.runs > 1)" class="stability">
+          <ul v-if="job.scenarios.some((s) => s.runs)" class="stability">
             <li v-for="s in job.scenarios" :key="s.index">
               <span class="stab-name">{{ scenarioLabel(s.index) }}</span>
               <span class="num">{{ s.passed }}/{{ s.runs }}</span>
-              <span :class="s.stable === false ? 'warn-text' : 'ok-text'">{{ s.stable === null ? '' : s.stable ? $t('lab.stable') : $t('lab.unstable') }}</span>
+              <span v-if="s.runs > 1" :class="s.stable === false ? 'warn-text' : 'ok-text'">{{ s.stable === null ? '' : s.stable ? $t('lab.stable') : $t('lab.unstable') }}</span>
+              <span class="stab-meta">{{ scenarioMeta(s) }}</span>
             </li>
           </ul>
 
@@ -249,12 +260,20 @@
                 <span class="run-dot" aria-hidden="true"></span>
                 <span class="run-title">{{ scenarioLabel(r.scenario) }} <span class="run-attempt">· {{ $t('lab.attempt', { n: r.repeat }) }}</span></span>
                 <span class="pill">{{ $t(`lab.run_status.${r.status}`) }}</span>
-                <span class="run-meta">{{ r.seconds ? `${r.seconds}s` : '' }}{{ r.tokens ? ` · ${r.tokens.toLocaleString()} token` : '' }}</span>
+                <span v-if="r.judge?.judged_by" :class="['judge-tag', r.judge.judged_by]" :title="r.judge.judge_model || undefined">
+                  {{ r.judge.judged_by === 'ai' ? tr('lab.judged_ai', 'AI chấm') : tr('lab.judged_basic', 'Chấm cơ bản') }}
+                </span>
+                <span class="run-meta">{{ runMeta(r) }}</span>
                 <svg class="run-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
               </summary>
               <div class="run-body">
-                <p v-if="r.judge?.reason" class="judge"><strong>{{ $t('lab.judge') }}:</strong> {{ r.judge.reason }}</p>
+                <p v-if="r.judge?.reason" class="judge">
+                  <strong>{{ $t('lab.judge') }}<template v-if="r.judge.judge_model"> ({{ r.judge.judge_model }})</template>:</strong> {{ r.judge.reason }}
+                </p>
                 <p v-if="r.error" class="error">{{ r.error }}</p>
+                <p v-if="r.members?.length" class="meta-line">
+                  <strong>{{ tr('lab.members_used', 'Thành viên đã làm') }}:</strong> {{ r.members.join(', ') }}
+                </p>
                 <p v-if="r.agents && Object.keys(r.agents).length" class="meta-line">
                   <strong>{{ $t('lab.agents_used') }}:</strong>
                   {{ Object.entries(r.agents).map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(', ') }}
@@ -264,6 +283,13 @@
                   <ul><li v-for="(q, qi) in r.questions" :key="qi">{{ q.node }}: {{ q.question }}</li></ul>
                 </div>
                 <!-- Rendered only once the run is opened: long answers stay out of the DOM until needed -->
+                <template v-if="r.plan && openRuns.has(i)">
+                  <p class="flow-label">{{ tr('lab.plan_then_result', 'Kế hoạch → Kết quả') }}</p>
+                  <p class="meta-line"><strong>{{ tr('lab.plan_label', 'Kế hoạch') }}</strong><template v-if="r.plan.node"> · {{ r.plan.node }}</template></p>
+                  <div class="answer plan markdown-body" v-html="render(r.plan.text || r.plan.summary)"></div>
+                  <p class="meta-line">{{ tr('lab.plan_approved', 'Đã tự động duyệt: "Đồng ý, làm đi."') }}</p>
+                  <p class="meta-line"><strong>{{ tr('lab.result_label', 'Kết quả') }}</strong></p>
+                </template>
                 <div v-if="r.answer && openRuns.has(i)" class="answer markdown-body" v-html="render(r.answer)"></div>
               </div>
             </details>
@@ -410,6 +436,22 @@ const health = computed(() => {
 })
 const passPct = computed(() => (job.value?.status === 'completed' ? Math.round(job.value.pass_rate * 100) : null))
 const progressPct = computed(() => (job.value?.total ? Math.round((job.value.done / job.value.total) * 100) : 0))
+// Step 1 found errors: running scenarios would only confirm a broken workflow.
+const configBlocked = computed(() => health.value === 'fail')
+const configBlockedHint = computed(() =>
+  tr('lab.run_blocked_config', 'Bước 1 (kiểm tra cấu hình) đang báo lỗi. Hãy sửa các mục "Cần sửa" và kiểm tra lại trước khi chạy kịch bản.')
+)
+const money = (v) => (v ? `$${v.toFixed(v < 0.1 ? 3 : 2)}` : '')
+const joinMeta = (parts) => parts.filter(Boolean).join(' · ')
+const runMeta = (r) =>
+  joinMeta([r.seconds ? `${r.seconds}s` : '', r.tokens ? `${r.tokens.toLocaleString()} token` : '', money(r.cost_usd)])
+const scenarioMeta = (s) =>
+  joinMeta([
+    s.seconds ? `~${s.seconds}s` : '',
+    s.tokens ? `${s.tokens.toLocaleString()} token` : '',
+    money(s.cost_usd),
+    s.members?.length ? s.members.join(', ') : ''
+  ])
 const filledScenarios = computed(() => scenarios.value.filter((s) => s.prompt.trim()).length)
 
 // Scenarios are kept per workflow in this browser so a test suite can be re-run after changes.
@@ -637,7 +679,9 @@ onMounted(async () => {
       preset = null
     }
   }
-  if (preset && workflows.value.some((w) => w.name === preset)) workflow.value = preset
+  // Links may name the file with or without its extension (/lab?workflow=my_flow or my_flow.yaml).
+  const match = preset && workflows.value.find((w) => [preset, `${preset}.yaml`, `${preset}.yml`].includes(w.name))
+  if (match) workflow.value = match.name
 })
 onBeforeUnmount(() => {
   unmounted = true
@@ -647,6 +691,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.warn-note { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--warn); }
+.verdict-text .warn-text { display: block; margin-top: 4px; font-size: 12.5px; }
+.stab-meta { margin-left: auto; font-size: 12px; color: var(--text-muted-4); text-align: right; }
+.judge-tag { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--tint-2); color: var(--text-muted-4); }
+.judge-tag.basic { color: var(--warn); }
+.flow-label { margin: 12px 0 4px; font-size: 12px; font-weight: 650; letter-spacing: 0.03em; color: var(--accent-sky); }
+.answer.plan { opacity: 0.85; }
 .lab-view {
   --line: rgb(var(--ink) / 0.08);
   --line-strong: rgb(var(--ink) / 0.14);
@@ -857,9 +908,9 @@ onBeforeUnmount(() => {
 .kpi dt { font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted-4); margin-bottom: 4px; }
 .kpi dd { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stability { list-style: none; margin: 0 0 14px; padding: 4px 0; border-radius: 11px; box-shadow: inset 0 0 0 1px var(--line); font-size: 13px; }
-.stability li { display: grid; grid-template-columns: 1fr auto auto; gap: 16px; align-items: center; padding: 8px 14px; }
+.stability li { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 14px; }
 .stability li + li { border-top: 1px solid var(--line); }
-.stab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stab-name { flex: 1 1 140px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .num { font-weight: 650; }
 .warn-text { color: var(--warn); font-weight: 600; }
 .ok-text { color: var(--accent-mint); font-weight: 600; }

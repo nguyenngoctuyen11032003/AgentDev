@@ -183,6 +183,8 @@ class LabJob:
     workflow: str
     scenarios: List[Scenario]
     repeats: int
+    # Status of step 1 (``static_check``) when the run started: a FAIL means the workflow is not ready.
+    config_status: str = ""
     status: str = "queued"  # queued | running | completed | cancelled | error
     results: List[Dict[str, Any]] = field(default_factory=list)
     error: str = ""
@@ -217,6 +219,11 @@ class LabJob:
         for index, scenario in enumerate(self.scenarios):
             runs = [r for r in done if r["scenario"] == index]
             ok = [r for r in runs if r["status"] == "passed"]
+            members: List[str] = []
+            for run in runs:
+                for name in list(run.get("members") or []) + list((run.get("agents") or {}).keys()):
+                    if name not in members:
+                        members.append(name)
             per_scenario.append({
                 "index": index,
                 "name": scenario.name or f"#{index + 1}",
@@ -224,10 +231,16 @@ class LabJob:
                 "passed": len(ok),
                 # Stable = every repeat gave the same verdict.
                 "stable": len({r["status"] for r in runs}) <= 1 if runs else None,
+                "seconds": round(sum(r.get("seconds", 0) or 0 for r in runs) / len(runs), 1) if runs else None,
+                "tokens": sum(r.get("tokens", 0) or 0 for r in runs),
+                "cost_usd": round(sum(r.get("cost_usd", 0.0) or 0.0 for r in runs), 4),
+                "members": members,
             })
+        config_failed = self.config_status == FAIL
         verdict = None
         if status == "completed":
-            verdict = "ready" if done and pass_rate >= PASS_THRESHOLD and not errors else "not_ready"
+            ready = bool(done) and pass_rate >= PASS_THRESHOLD and not errors and not config_failed
+            verdict = "ready" if ready else "not_ready"
         return {
             "id": self.id,
             "workflow": self.workflow,
@@ -241,6 +254,9 @@ class LabJob:
             "pass_rate": round(pass_rate, 3),
             "threshold": PASS_THRESHOLD,
             "verdict": verdict,
+            "config_status": self.config_status,
+            "config_failed": config_failed,
+            "basic_graded": len([r for r in judged if (r.get("judge") or {}).get("judged_by") == "basic"]),
             "scenarios": per_scenario,
             "results": results,
             "duration_seconds": round((self.finished_at or time.time()) - self.started_at, 1),
@@ -334,13 +350,25 @@ def _judge_call(conn: Any, model: str, user: str) -> str:
     return response.message.text_content()
 
 
+DEFAULT_CRITERIA = (
+    "Answers the request correctly and completely, in the user's language, concise; "
+    "for build tasks the deliverable exists and works"
+)
+
+
+def _basic_verdict(answer: str, reason: str = "") -> Dict[str, Any]:
+    """Fallback grade when the AI judge cannot be reached: a non-empty, error-free answer passes."""
+    ok = bool(answer.strip()) and not answer.lstrip().lower().startswith("error calling model")
+    return {"pass": ok, "score": 10 if ok else 0, "reason": reason, "judged_by": "basic"}
+
+
 def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, str]],
            account: Optional[JudgeAccount] = None) -> Dict[str, Any]:
-    """Grade with a signed-in account. Without criteria, a non-empty, error-free answer passes."""
-    if not criteria.strip():
-        ok = bool(answer.strip()) and not answer.lstrip().lower().startswith("error calling model")
-        return {"pass": ok, "score": 10 if ok else 0, "reason": "", "judged_by": "basic"}
+    """Grade with a signed-in account (``judged_by: "ai"``); without criteria, ``DEFAULT_CRITERIA`` apply.
 
+    Raises when no account can grade; ``LabRunner`` then falls back to ``_basic_verdict``.
+    """
+    criteria = criteria.strip() or DEFAULT_CRITERIA
     from agentdev.runtime.node.agent import account_fallback
 
     def out_of_quota(exc: BaseException) -> bool:
@@ -370,7 +398,8 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
         "pass": bool(data.get("pass")),
         "score": data.get("score"),
         "reason": str(data.get("reason") or text[:300]),
-        "judged_by": f"{conn.label} ({model})",
+        "judged_by": "ai",
+        "judge_model": f"{conn.label} ({model})",
     }
 
 
@@ -387,8 +416,34 @@ class SimpleConfig:
     node_id: Optional[str] = "lab_judge"
 
 
-def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event) -> Dict[str, Any]:
+# Reply the Lab gives when a team lead stops to have its plan approved.
+PLAN_APPROVAL = "Đồng ý, làm đi."
+
+
+def _global_state(executor: Any, context: Any) -> Dict[str, Any]:
+    """The run's shared state (best effort: whatever the executor exposes)."""
+    try:
+        state = executor._get_execution_context().global_state
+        if isinstance(state, dict):
+            return state
+    except Exception:  # noqa: BLE001
+        pass
+    state = getattr(context, "global_state", None)
+    return state if isinstance(state, dict) else {}
+
+
+def _pending_plan(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The plan a team lead submitted for approval in this run (``plan_pending``), if any."""
+    plan = state.get("plan_pending")
+    if not plan:
+        return None
+    return plan if isinstance(plan, dict) else {"plan": str(plan)}
+
+
+def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threading.Event) -> Dict[str, Any]:
+    """Run the workflow once on ``prompt``; the turns of one scenario share the ``session`` folder."""
     from agentdev.entity.graph_config import GraphConfig
+    from agentdev.runtime.node.agent.team import team_digest_from_state, user_exchanges
     from agentdev.runtime.sdk import OUTPUT_ROOT, ensure_schema_registry_populated
     from agentdev.utils.human_prompt import HumanPromptService
     from agentdev.validation.check import load_config
@@ -397,7 +452,6 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
 
     ensure_schema_registry_populated()
     design = load_config(yaml_path)
-    session = f"lab_{yaml_path.stem}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
     graph_config = GraphConfig.from_definition(
         design.graph, name=session, output_root=OUTPUT_ROOT, source_path=str(yaml_path), vars=design.vars
     )
@@ -405,22 +459,70 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
     executor = GraphExecutor(context, cancel_event=cancel_event)
     channel = AutoAnswerChannel()
     executor._human_prompt_service = HumanPromptService(log_manager=executor.log_manager, channel=channel)
-    started = time.time()
-    executor._execute(scenario.prompt)
+    executor._execute(prompt)
     final = executor.get_final_output_message()
     usage = executor.token_tracker.get_token_usage() if executor.token_tracker else {}
     cost = sum(
         float((call.get("metadata") or {}).get("total_cost_usd") or 0) for call in usage.get("call_history") or []
     )
+    state = _global_state(executor, context)
     return {
         "answer": final.text_content() if final is not None else "",
-        "seconds": round(time.time() - started, 1),
         "tokens": (usage.get("total_usage") or {}).get("total_tokens", 0),
-        "cost_usd": round(cost, 4),
-        "agents": usage.get("node_execution_counts") or {},
-        "questions": channel.questions,
+        "cost_usd": cost,
+        "agents": dict(usage.get("node_execution_counts") or {}),
+        "questions": list(channel.questions),
+        "team": team_digest_from_state(state),
+        "exchanges": user_exchanges(state),
+        "plan": _pending_plan(state),
         "output_dir": str(context.directory),
     }
+
+
+def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event,
+              run_turn: Callable[..., Dict[str, Any]] = _run_turn) -> Dict[str, Any]:
+    """Run one scenario. When a team lead stops with a plan for approval, approve it and run a second
+    turn, so the judge grades the work and not only the plan (two turns at most)."""
+    from agentdev.api.services.conversation_turns import compose_follow_up_prompt, make_turn
+
+    session = f"lab_{yaml_path.stem}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    started = time.time()
+    turns = [run_turn(yaml_path, session, scenario.prompt, cancel_event)]
+    plan = turns[0].get("plan")
+    if plan and not cancel_event.is_set():
+        first = turns[0]
+        plan_text = first.get("answer") or str(plan.get("plan") or plan.get("summary") or "")
+        turn = make_turn(scenario.prompt, plan_text, exchanges=first.get("exchanges") or [])
+        turn["kind"] = "plan"
+        turns.append(run_turn(yaml_path, session, compose_follow_up_prompt([turn], PLAN_APPROVAL), cancel_event))
+
+    agents: Dict[str, int] = {}
+    members: List[str] = []
+    for item in turns:
+        for name, count in (item.get("agents") or {}).items():
+            agents[name] = agents.get(name, 0) + (count or 0)
+        for entry in item.get("team") or []:
+            member = entry.get("member") if isinstance(entry, dict) else None
+            if member and member not in members:
+                members.append(member)
+    result: Dict[str, Any] = {
+        "answer": turns[-1].get("answer", ""),
+        "seconds": round(time.time() - started, 1),
+        "tokens": sum(item.get("tokens", 0) or 0 for item in turns),
+        "cost_usd": round(sum(float(item.get("cost_usd", 0) or 0) for item in turns), 4),
+        "agents": agents,
+        "members": members,
+        "questions": [q for item in turns for q in item.get("questions") or []],
+        "turns": len(turns),
+        "output_dir": turns[-1].get("output_dir", ""),
+    }
+    if len(turns) > 1:
+        result["plan"] = {
+            "node": str(plan.get("node") or ""),
+            "summary": str(plan.get("summary") or ""),
+            "text": (turns[0].get("answer") or str(plan.get("plan") or ""))[:20000],
+        }
+    return result
 
 
 def _lab_dir() -> Path:
@@ -481,8 +583,9 @@ class LabRunner:
 
     def start(self, yaml_path: Path, workflow: str, scenarios: List[Scenario], repeats: int,
               run_once: Callable[..., Dict[str, Any]] = _run_once,
-              judge: Callable[..., Dict[str, Any]] = _judge) -> LabJob:
-        job = LabJob(id=uuid.uuid4().hex[:12], workflow=workflow, scenarios=scenarios, repeats=repeats)
+              judge: Callable[..., Dict[str, Any]] = _judge, config_status: str = "") -> LabJob:
+        job = LabJob(id=uuid.uuid4().hex[:12], workflow=workflow, scenarios=scenarios, repeats=repeats,
+                     config_status=config_status)
         if judge is _judge:
             judge = functools.partial(_judge, account=JudgeAccount())  # one judge account per job
         with self._lock:
@@ -527,8 +630,9 @@ class LabRunner:
                         verdict = judge(scenario.prompt, scenario.criteria, outcome.get("answer", ""),
                                         outcome.get("questions", []))
                         job.update_result(entry, status="passed" if verdict.get("pass") else "failed", judge=verdict)
-                    except Exception as exc:  # noqa: BLE001
-                        job.update_result(entry, status="error", error=f"Grading failed: {exc}"[:2000])
+                    except Exception as exc:  # noqa: BLE001 - no account could grade: basic check instead
+                        verdict = _basic_verdict(outcome.get("answer", ""), f"AI judge unavailable: {exc}"[:500])
+                        job.update_result(entry, status="passed" if verdict["pass"] else "failed", judge=verdict)
                     self._save(job)
             job.status = "completed"
         except Exception as exc:  # noqa: BLE001

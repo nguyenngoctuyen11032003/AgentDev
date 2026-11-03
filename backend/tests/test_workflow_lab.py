@@ -95,9 +95,9 @@ def test_runner_aggregates_and_verdict():
     assert data["total_tokens"] == 40
 
 
-def test_basic_judge_without_criteria():
-    assert workflow_lab._judge("p", "", "answer", [])["pass"] is True
-    assert workflow_lab._judge("p", "", "Error calling model x", [])["pass"] is False
+def test_basic_verdict_fallback():
+    assert workflow_lab._basic_verdict("answer") == {"pass": True, "score": 10, "reason": "", "judged_by": "basic"}
+    assert workflow_lab._basic_verdict("Error calling model x")["pass"] is False
 
 
 class LeadProvider:
@@ -201,7 +201,8 @@ def test_judge_account_resolved_once_and_skips_api_key_default(judge_env):
     account = workflow_lab.JudgeAccount()
     for _ in range(3):
         verdict = workflow_lab._judge("p", "criteria", "answer", [], account=account)
-        assert verdict["pass"] is True and verdict["judged_by"] == "claude (claude-model)"
+        assert verdict["pass"] is True and verdict["judged_by"] == "ai"
+        assert verdict["judge_model"] == "claude (claude-model)"
     assert judge_env.calls == [("claude", "claude-model")] * 3
     assert judge_env.model_calls == ["claude"]  # model detection runs once per job
 
@@ -223,8 +224,8 @@ def test_judge_switches_account_on_quota_error(judge_env):
     account = workflow_lab.JudgeAccount()
     first = workflow_lab._judge("p", "criteria", "answer", [], account=account)
     second = workflow_lab._judge("p", "criteria", "answer", [], account=account)
-    assert first["pass"] is False and first["judged_by"] == "codex (codex-model)"
-    assert second["judged_by"] == "codex (codex-model)"
+    assert first["pass"] is False and first["judge_model"] == "codex (codex-model)"
+    assert second["judge_model"] == "codex (codex-model)"
     assert judge_env.calls == ["claude", "codex", "codex"]
     assert account.exhausted == {"claude"}
     assert judge_env.model_calls == ["claude", "codex"]
