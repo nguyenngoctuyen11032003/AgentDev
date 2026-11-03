@@ -5,37 +5,32 @@
             <span class="sidebar-brand-name">AgentDev</span>
         </router-link>
 
-        <nav class="sidebar-nav">
+        <nav ref="navRef" class="sidebar-nav">
             <router-link to="/">{{ $t('nav.home') }}</router-link>
             <router-link to="/tutorial">{{ $t('nav.tutorial') }}</router-link>
             <router-link to="/workflows">{{ $t('nav.workflows') }}</router-link>
             <router-link to="/launch" target="_blank" rel="noopener">{{ $t('nav.launch') }}</router-link>
-            <router-link to="/batch-run" target="_blank" rel="noopener">{{ $t('nav.laboratory') }}</router-link>
-            <router-link to="/connections">{{ $t('nav.connections') }}</router-link>
+            <router-link to="/lab">{{ $t('nav.laboratory') }}</router-link>
         </nav>
         <div class="sidebar-actions">
-            <button class="settings-nav-btn" @click="showSettingsModal = true" :title="$t('settings.title')" :aria-label="$t('settings.title')">
+            <!-- Settings page also holds Connections and Skills -->
+            <router-link to="/settings" class="settings-nav-btn" :title="$t('settings.title')" :aria-label="$t('settings.title')">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3"></circle>
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
               </svg>
-            </button>
+              <span class="settings-nav-text">{{ $t('settings.title') }}</span>
+            </router-link>
         </div>
     </div>
     <div class="sidebar-hit-area" v-if="isHidden" @mouseenter="isHidden = false"></div>
-    <SettingsModal
-      :is-visible="showSettingsModal"
-      @update:is-visible="showSettingsModal = $event"
-    />
 </template>
 
 <script setup>
 defineOptions({ name: 'AppSidebar' })
 import { RouterLink, useRoute } from 'vue-router'
-import { ref, onUnmounted, watch } from 'vue'
-import SettingsModal from './SettingsModal.vue'
+import { ref, onUnmounted, watch, nextTick } from 'vue'
 
-const showSettingsModal = ref(false)
 const isHidden = ref(false)
 
 watch(isHidden, (val) => {
@@ -50,6 +45,18 @@ watch(isHidden, (val) => {
 // link resolves to the "/workflows/:name?" record, so it stays active for every
 // workflow without a path watcher.
 const route = useRoute()
+
+// Narrow screens scroll the nav row sideways: keep the current page's link in view.
+const navRef = ref(null)
+watch(() => route.path, async () => {
+    await nextTick()
+    const nav = navRef.value
+    const active = nav?.querySelector('.router-link-active')
+    if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return
+    const left = active.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft
+    const target = left - (nav.clientWidth - active.offsetWidth) / 2
+    nav.scrollTo({ left: Math.max(0, target), behavior: 'auto' })
+}, { immediate: true })
 
 let lastScrollY = 0
 let scrollRaf = 0
@@ -209,6 +216,28 @@ onUnmounted(() => {
     color: var(--text-1);
 }
 
+/* Small screens: one scrollable row between the logo and the settings button, never wrapping */
+@media (max-width: 900px) {
+    .sidebar-nav {
+        gap: 18px;
+        margin: 0 52px 0 64px;
+        padding: 0 12px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+        mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+    }
+
+    .sidebar-nav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .sidebar-nav a {
+        flex: none;
+        white-space: nowrap;
+    }
+}
+
 .sidebar-nav a.router-link-active {
     background: linear-gradient(
     90deg,
@@ -236,18 +265,46 @@ onUnmounted(() => {
 }
 
 .settings-nav-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted-4);
-  cursor: pointer;
-  padding: 4px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: color 0.2s ease;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 9px;
+  color: var(--text-muted-4);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease, background-color 0.2s ease;
 }
 
 .settings-nav-btn:hover {
   color: var(--text-1);
+  background: rgb(var(--ink) / 0.06);
+}
+
+.settings-nav-btn.router-link-active {
+  color: var(--text-strong);
+  background: rgb(var(--ink) / 0.08);
+}
+
+.settings-nav-btn.router-link-active svg {
+  color: var(--accent-sky);
+}
+
+.settings-nav-btn:focus-visible {
+  outline: 2px solid var(--accent-sky);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .settings-nav-text {
+    display: none;
+  }
+
+  .settings-nav-btn {
+    padding: 0 8px;
+  }
 }
 </style>

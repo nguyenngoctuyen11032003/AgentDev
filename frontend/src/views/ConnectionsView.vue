@@ -2,6 +2,7 @@
   <div class="connections-view">
     <header class="hero">
       <div class="hero-text">
+        <p class="hero-kicker">{{ $t('connections.kicker') }}</p>
         <h1 class="hero-title">{{ $t('connections.title') }}</h1>
         <p class="hero-sub">{{ $t('connections.subtitle') }}</p>
       </div>
@@ -121,6 +122,32 @@
       <p v-if="connections.length" class="tip">{{ $t('connections.used_in') }}</p>
     </section>
 
+    <!-- What happens when an account runs out of quota (runtime/node/agent/account_fallback.py) -->
+    <section v-if="!loading && connections.length" class="block" :aria-label="$t('connections.fallback_title')">
+      <h2 class="block-title">{{ $t('connections.fallback_title') }}</h2>
+      <div class="fallback-card" :class="{ 'is-warn': !hasBackup }">
+        <p class="fallback-desc">{{ $t('connections.fallback_desc') }}</p>
+        <ol class="fallback-chain" :aria-label="$t('connections.fallback_order')">
+          <li
+            v-for="(vendorId, index) in fallbackOrder"
+            :key="vendorId"
+            class="fallback-step"
+            :class="{ 'is-linked': countFor(vendorId) > 0 }"
+          >
+            <span v-if="index" class="fallback-arrow" aria-hidden="true">→</span>
+            <ProviderLogo :vendor="vendorId" :label="vendorLabel(vendorId)" :size="20" bare />
+            <span>{{ fallbackName(vendorId) }}</span>
+            <span class="fallback-state">
+              {{ countFor(vendorId) ? $t('connections.fallback_ready') : $t('connections.fallback_missing') }}
+            </span>
+          </li>
+        </ol>
+        <p class="fallback-note" :class="{ 'is-warn': !hasBackup }">
+          {{ hasBackup ? $t('connections.fallback_ok') : $t('connections.fallback_no_backup') }}
+        </p>
+      </div>
+    </section>
+
     <ConnectDialog
       v-if="activeVendor"
       :open="dialogOpen"
@@ -213,6 +240,12 @@ const modelsOf = (conn) =>
   )
 
 const primaryModels = (conn) => modelsOf(conn).filter((model) => model.primary)
+
+// Mirrors the backend preference (Claude -> Codex, Codex -> Claude, then Gemini).
+const fallbackOrder = ['anthropic', 'openai', 'gemini']
+const fallbackName = (id) => ({ anthropic: 'Claude', openai: 'Codex', gemini: 'Gemini' })[id] || vendorLabel(id)
+// A backup exists when accounts from at least two providers are signed in.
+const hasBackup = computed(() => new Set(connections.value.map((conn) => conn.vendor)).size >= 2)
 
 function openDialog(vendor) {
   activeVendor.value = vendor
@@ -337,30 +370,29 @@ onMounted(async () => {
   margin-bottom: 36px;
 }
 
-.hero-title {
+.hero-kicker {
   margin: 0 0 8px;
-  width: fit-content;
-  font-size: 34px;
-  line-height: 1.1;
+  font-size: 12.5px;
   font-weight: 700;
-  letter-spacing: -0.03em;
-  background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-sky);
 }
 
-:root[data-theme='light'] .hero-title {
-  background: linear-gradient(90deg, #047857, #0369a1, #4338ca);
-  background-clip: text;
-  -webkit-background-clip: text;
+.hero-title {
+  margin: 0 0 10px;
+  font-size: 32px;
+  line-height: 1.15;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  color: var(--text-strong);
 }
 
 .hero-sub {
   margin: 0;
-  max-width: 60ch;
-  font-size: 14.5px;
-  line-height: 1.6;
+  max-width: 64ch;
+  font-size: 15px;
+  line-height: 1.65;
   color: var(--text-muted-4);
 }
 
@@ -400,18 +432,24 @@ onMounted(async () => {
 
 /* ---- provider cards ---- */
 .provider-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .provider-card {
   --brand: var(--accent-indigo);
-  display: flex;
-  align-items: center;
-  gap: 14px;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  align-items: start;
+  column-gap: 14px;
+  row-gap: 14px;
   width: 100%;
-  padding: 14px 18px;
+  min-height: 128px;
+  box-sizing: border-box;
+  padding: 18px;
   border-radius: 16px;
   border: 1px solid var(--line-4);
   background: var(--surface-1);
@@ -436,8 +474,9 @@ onMounted(async () => {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
+  padding-right: 22px; /* room for the chevron */
 }
 
 .provider-name {
@@ -446,14 +485,14 @@ onMounted(async () => {
 }
 
 .provider-tagline {
-  overflow: hidden;
   font-size: 13px;
+  line-height: 1.5;
   color: var(--text-muted-4);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .provider-linked {
+  grid-column: 1 / -1;
+  align-self: end;
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -464,6 +503,9 @@ onMounted(async () => {
 }
 
 .provider-chevron {
+  position: absolute;
+  top: 18px;
+  right: 16px;
   flex: none;
   color: var(--text-muted-4);
   transition: transform 0.15s ease, color 0.15s ease;
@@ -741,6 +783,73 @@ onMounted(async () => {
   color: var(--text-muted-4);
 }
 
+/* ---- quota fallback ---- */
+.fallback-card {
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: rgb(var(--panel-20) / 0.5);
+  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.1);
+}
+
+.fallback-desc {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-soft-1);
+}
+
+.fallback-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fallback-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-muted-4);
+}
+
+.fallback-step.is-linked {
+  color: var(--text-1);
+}
+
+.fallback-arrow {
+  margin-right: 2px;
+  color: var(--text-muted-4);
+}
+
+.fallback-state {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted-4);
+  background: rgb(var(--ink) / 0.06);
+}
+
+.fallback-step.is-linked .fallback-state {
+  color: var(--accent-mint);
+  background: rgb(var(--accent-mint-rgb) / 0.12);
+}
+
+.fallback-note {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted-4);
+}
+
+.fallback-note.is-warn {
+  color: var(--warn-soft-1);
+}
+
 /* ---- empty + loading ---- */
 .empty {
   display: flex;
@@ -801,9 +910,14 @@ onMounted(async () => {
   outline-offset: 2px;
 }
 
+@media (max-width: 900px) {
+  .provider-grid { grid-template-columns: 1fr; }
+  .provider-card { min-height: 0; }
+}
+
 @media (max-width: 720px) {
   .connections-view { padding: 28px 16px 56px; }
-  .hero-title { font-size: 28px; }
+  .hero-title { font-size: 27px; }
 
   .connection-card {
     flex-wrap: wrap;
@@ -817,6 +931,7 @@ onMounted(async () => {
   }
 
   .connection-actions {
+    box-sizing: border-box;
     width: 100%;
     flex-wrap: wrap;
     padding: 0 16px 14px;

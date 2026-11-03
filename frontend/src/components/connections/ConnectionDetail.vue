@@ -46,6 +46,37 @@
             <p v-if="account && account.loggedIn === false" class="notice is-error">{{ account.detail || $t('connections.not_signed_in') }}</p>
           </section>
 
+          <!-- Usage limits (session / weekly windows reported by the CLI) -->
+          <section v-if="usageWindows.length" class="panel">
+            <div class="panel-row">
+              <h3 class="panel-title">{{ $t('connections.detail_usage') }}</h3>
+              <span v-if="account?.usage?.fetchedAt" class="panel-note">
+                {{ $t('connections.usage_updated', { time: formatReset(account.usage.fetchedAt, locale) }) }}
+              </span>
+            </div>
+            <ul class="usage-list">
+              <li v-for="win in usageWindows" :key="win.kind">
+                <div class="usage-top">
+                  <span class="usage-label">{{ windowLabel(win) }}</span>
+                  <span class="usage-value" :class="`is-${usageLevel(win.percent)}`">{{ win.percent }}%</span>
+                </div>
+                <div
+                  class="bar"
+                  role="progressbar"
+                  :aria-label="windowLabel(win)"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  :aria-valuenow="win.percent"
+                >
+                  <span class="bar-fill" :class="`is-${usageLevel(win.percent)}`" :style="{ width: `${win.percent}%` }"></span>
+                </div>
+                <span class="usage-reset">
+                  {{ win.resetsAt ? $t('connections.usage_resets', { time: formatReset(win.resetsAt, locale) }) : $t('connections.usage_fresh') }}
+                </span>
+              </li>
+            </ul>
+          </section>
+
           <!-- Models -->
           <section v-if="models.length" class="panel">
             <div class="panel-row">
@@ -104,7 +135,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ProviderLogo from './ProviderLogo.vue'
-import { formatDateTime, isPremiumModel } from '@/utils/accountFormat'
+import { formatDateTime, formatReset, isPremiumModel, usageLabel, usageLevel } from '@/utils/accountFormat'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -118,7 +149,7 @@ const props = defineProps({
 })
 defineEmits(['close', 'test', 'logout', 'copy-id'])
 
-const { t, locale } = useI18n()
+const { t, te, locale } = useI18n()
 const titleId = `conn-detail-${Math.random().toString(36).slice(2, 8)}`
 const dialogEl = ref(null)
 const showAllModels = ref(false)
@@ -133,6 +164,14 @@ const accountRows = computed(() => {
   return rows
 })
 
+
+const usageWindows = computed(() =>
+  (props.account?.usage?.windows || [])
+    .filter((win) => win && Number.isFinite(Number(win.percent)))
+    .map((win) => ({ ...win, percent: Math.max(0, Math.min(100, Math.round(Number(win.percent)))) }))
+)
+// A dedicated label (e.g. Claude's per-model weekly limit) wins over the generic "period · scope" one.
+const windowLabel = (win) => (te(`connections.usage_${win.kind}`) ? t(`connections.usage_${win.kind}`) : usageLabel(t, win))
 
 const MODEL_PREVIEW = 8
 const visibleModels = computed(() => (showAllModels.value ? props.models : props.models.slice(0, MODEL_PREVIEW)))
