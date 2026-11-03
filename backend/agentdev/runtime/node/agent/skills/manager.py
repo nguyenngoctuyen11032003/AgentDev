@@ -1,5 +1,6 @@
 """Agent Skills discovery and loading helpers."""
 
+import re
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -110,6 +111,34 @@ def _parse_optional_mapping(value: object, path: Path, field_name: str) -> Mappi
     return {str(key): value[key] for key in value}
 
 
+MAX_PROMPT_DESCRIPTION_CHARS = 200
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def summarise_description(description: str, limit: int = MAX_PROMPT_DESCRIPTION_CHARS) -> str:
+    """Short form of a skill description for the prompt: what it does + when to use it.
+
+    Keeps the first sentence and the first "Use when…" sentence, then cuts at a word boundary.
+    """
+    text = " ".join((description or "").split())
+    if len(text) <= limit:
+        return text
+    sentences = [s for s in _SENTENCE_END.split(text) if s]
+    picked = sentences[:1]
+    when = next((s for s in sentences[1:] if s.lower().startswith(("use when", "use this", "use for", "use before"))), None)
+    if when:
+        picked.append(when)
+    short = " ".join(picked)
+    if len(short) > limit:
+        head = short[:limit]
+        # Prefer ending at a clause boundary ("..., when ...") inside the "Use when" part.
+        cut = max(head.rfind(", "), head.rfind("; "))
+        if cut <= len(picked[0]) + 20:
+            cut = head.rfind(" ")
+        short = head[:cut].rstrip(",;: ") + "."
+    return short
+
+
 class AgentSkillManager:
     """Discover and read Agent Skills from the fixed project-level skills directory."""
 
@@ -151,14 +180,15 @@ class AgentSkillManager:
         if not skills:
             return ""
 
+        # Sent with every model call of the agent, so keep it short: the name (what activate_skill
+        # takes) and a trimmed description. No file paths: skills are loaded by name.
         lines = ["<available_skills>"]
         for skill in skills:
             lines.extend(
                 [
                     "  <skill>",
                     f"    <name>{escape(skill.name)}</name>",
-                    f"    <description>{escape(skill.description)}</description>",
-                    f"    <location>{escape(str(skill.skill_file))}</location>",
+                    f"    <description>{escape(summarise_description(skill.description))}</description>",
                 ]
             )
             if skill.allowed_tools:
