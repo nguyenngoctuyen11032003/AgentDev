@@ -20,6 +20,7 @@ from agentdev.runtime.node.agent.providers.cli_cancel import current_cancel_even
 REPO = Path(__file__).resolve().parents[2]
 REFERENCE = REPO / "backend" / "agentdev" / "api" / "services" / "workflow_assistant_reference.md"
 BRAINSTORMING = REPO / "workspace" / "skills" / "brainstorming" / "SKILL.md"
+INTERVIEW = REPO / "backend" / "agentdev" / "api" / "services" / "workflow_assistant_interview.md"
 
 
 def _prompt(**overrides):
@@ -54,8 +55,59 @@ def test_reference_examples_pass_static_check():
 
 
 def test_reference_is_compact():
-    lines = REFERENCE.read_text(encoding="utf-8").splitlines()
-    assert 150 <= len(lines) <= 300
+    text = REFERENCE.read_text(encoding="utf-8")
+    assert 150 <= len(text.splitlines()) <= 300
+    assert len(text) <= 13_000
+
+
+def _keyword_matches(condition, output):
+    """Same semantics as KeywordEdgeConditionManager._evaluate."""
+    config = condition["config"]
+    sensitive = config.get("case_sensitive", True)
+    hay = output if sensitive else output.lower()
+    norm = (lambda w: w) if sensitive else str.lower
+    if any(norm(w) in hay for w in config.get("none", [])):
+        return False
+    if any(norm(w) in hay for w in config.get("any", [])):
+        return True
+    flags = 0 if sensitive else re.IGNORECASE
+    if any(re.search(p, output, flags) for p in config.get("regex", [])):
+        return True
+    return not (config.get("any") or config.get("regex"))
+
+
+def test_reference_example_gates_fire_exactly_one_branch():
+    # E2E design issues 3+4: gates must use an anchored token, state case_sensitive, and pair the two
+    # branches so exactly one fires; "Không OK" must not count as approval, "ok" must.
+    pipeline = yaml.safe_load(_yaml_blocks(REFERENCE.read_text(encoding="utf-8"))[1])["graph"]
+    by_source = {}
+    for edge in pipeline["edges"]:
+        if isinstance(edge.get("condition"), dict):
+            assert "case_sensitive" in edge["condition"]["config"], edge
+            by_source.setdefault(edge["from"], []).append(edge)
+    cases = {
+        "Reviewer": {"APPROVED\nThe article": {"Editor Approval"},
+                     "REVISE\n1. Mention APPROVED budget": {"Writer", "Revision Guard"},
+                     "The draft is not APPROVED yet": {"Writer", "Revision Guard"}},
+        "Editor Approval": {"OK": {"Publisher"}, " ok \n": {"Publisher"},
+                            "Không OK, chỉ hoàn 50%": {"Writer"}, "OK nhưng sửa tiêu đề": {"Writer"}},
+    }
+    for source, outputs in cases.items():
+        for output, expected in outputs.items():
+            fired = {e["to"] for e in by_source[source] if _keyword_matches(e["condition"], output)}
+            assert fired == expected, (source, output, fired)
+    # The human node is the only way into the publishing node.
+    assert [e["from"] for e in pipeline["edges"] if e["to"] == "Publisher"] == ["Editor Approval"]
+
+
+def test_prompt_states_gate_rules():
+    text = _prompt()
+    for phrase in ("prints a machine token alone on its first line",
+                   "Never gate on a common word (OK, YES, DUYỆT) found anywhere in free text",
+                   "it cannot supply a token",
+                   "go through a `human` node on the only path to the node that",
+                   "regex: ['^(?!\\s*NO_APPROVAL\\b)']"):
+        assert phrase in text, phrase
 
 
 # ---------------------------------------------------------------------------- prompt
@@ -85,30 +137,95 @@ def test_prompt_pending_yaml_section():
     assert "continue from this proposal" in section
 
 
-def test_prompt_brainstorming_override():
+def test_prompt_interview_guide_then_override():
     prompt = _prompt()
-    skill = BRAINSTORMING.read_text(encoding="utf-8").strip()
-    assert skill in prompt
-    after = prompt[prompt.index(skill) + len(skill):]
+    guide = INTERVIEW.read_text(encoding="utf-8").strip()
+    assert guide in prompt
+    # The verbatim skill is no longer sent (it was ~13.9k characters on every turn).
+    assert "Visual Companion" not in prompt and "writing-plans" not in prompt
+    after = prompt[prompt.index(guide) + len(guide):]
     for phrase in ("Do not write files, commit, or invoke other skills",
-                   "one question per turn",
+                   "confirmed with the user",
                    "Reply with a single JSON object"):
         assert phrase in after
 
 
+def test_interview_guide_is_short_and_keeps_the_way_of_asking():
+    guide = INTERVIEW.read_text(encoding="utf-8")
+    assert len(guide) <= 4000
+    # ask open first, one question per turn, restate, defaults when stuck, show don't tell
+    for phrase in ("Open questions first", "One question per turn", "echo it back in your own words",
+                   "Play it back", "tuỳ bạn", "propose something concrete", "Show, don't tell"):
+        assert phrase in guide, phrase
+    # The brainstorming skill it was condensed from still exists.
+    assert BRAINSTORMING.is_file()
+
+
 def test_prompt_sections_in_order():
-    prompt = _prompt(current_yaml="graph: {id: x}\n", current_name="x.yaml")
+    prompt = _prompt(current_yaml="graph: {id: x}\n", current_name="x.yaml", chat_vendor="anthropic",
+                     pending_yaml="graph: {id: pending}\n")
     markers = [
         "workflow architect",
-        BRAINSTORMING.read_text(encoding="utf-8").strip()[:80],
+        "## How to interview the user",
         "Do not write files, commit, or invoke other skills",
         '"quick_replies"',
         "# AgentDev workflow YAML reference",
         "## Catalogs",
+        "### Tools",
+        # volatile, after every stable section
+        "## Existing workflow files",
+        "The user is chatting with",
         "graph: {id: x}",
+        "graph: {id: pending}",
     ]
     positions = [prompt.index(m) for m in markers]
     assert positions == sorted(positions)
+
+
+def test_stable_prefix_is_byte_identical_across_chats():
+    # Prompt caching reuses an identical prefix: nothing that varies per chat may come before the catalogs.
+    a = _prompt(existing_files=["a.yaml"], chat_vendor="anthropic", current_yaml=None)
+    b = _prompt(existing_files=["b.yaml", "c.yaml"], chat_vendor="openai",
+                current_yaml="graph: {id: y}\n", current_name="y.yaml", pending_yaml="graph: {id: z}\n")
+    prefix = prompt_mod.stable_prefix(
+        skills=[("spec-driven-development", "Write a spec first"), ("playwright-cli", "Drive a browser")],
+        tools=[("save_file", "Persist data to a workspace file"), ("web_search", "Search the web")],
+        models={"anthropic": ["claude-opus-5-5", "claude-sonnet-5-5"], "openai": ["gpt-6.1-sol"]})
+    assert a.startswith(prefix) and b.startswith(prefix)
+    for volatile in ("a.yaml", "b.yaml", "The user is chatting with", "## Mode: new workflow",
+                     "## Current workflow", "Bản đề xuất chưa áp dụng"):
+        assert volatile not in prefix
+
+
+def test_catalogs_keep_every_name_with_short_descriptions():
+    skills = [(f"skill-{i}", "Does a thing. " + "Very long explanation " * 20) for i in range(60)]
+    tools = [("save_file", "Persist data to a workspace file while optionally registering it as an attachment.")]
+    prompt = _prompt(skills=skills, tools=tools)
+    for name, _ in skills:
+        assert f"- `{name}`: Does a thing." in prompt
+    assert "Very long explanation" not in prompt
+    line = next(line for line in prompt.splitlines() if line.startswith("- `save_file`"))
+    assert len(line) - len("- `save_file`: ") <= prompt_mod.TOOL_DESCRIPTION_CHARS
+
+
+@pytest.mark.parametrize("text, limit, expected", [
+    ("Short one. Second sentence.", 80, "Short one."),
+    ("No sentence end here", 80, "No sentence end here"),
+    ("Version 1.5 is fine. Next.", 80, "Version 1.5 is fine."),
+    ("A very long first sentence that keeps going and going past the limit", 30, "A very long first sentence…"),
+    ("", 50, ""),
+])
+def test_short_description(text, limit, expected):
+    out = prompt_mod.short_description(text, limit)
+    assert out == expected
+    assert len(out) <= limit
+
+
+def test_real_prompt_is_compact():
+    # Baseline before the cut: 51,800 characters (verbatim skill 13.9k, full catalog descriptions 20.6k).
+    prompt = build_system_prompt(current_yaml=None, current_name=None, pending_yaml=None,
+                                 chat_vendor="anthropic", **load_context())
+    assert len(prompt) <= 27_000, len(prompt)
 
 
 def test_load_context(tmp_path, monkeypatch):
@@ -183,6 +300,13 @@ class FakeCall:
         return self.texts[min(len(self.calls) - 1, len(self.texts) - 1)]
 
 
+def _unwrap(sent):
+    """The messages as the user wrote them: the app context removed from the latest user message."""
+    last = sent[-1]["content"]
+    assert last.startswith(prompt_mod.CONTEXT_HEADER)
+    return sent[:-1] + [{"role": "user", "content": last.split(prompt_mod.USER_HEADER + "\n", 1)[1]}]
+
+
 def _turn(call, text="tạo quy trình tổng đài", workflow=None, messages=None, request_id="r1"):
     return wa.run_turn(vendor="anthropic", workflow=workflow,
                        messages=messages or [{"role": "user", "content": text}],
@@ -191,7 +315,7 @@ def _turn(call, text="tạo quy trình tổng đài", workflow=None, messages=No
 
 def test_parse_plain_json():
     out = wa.parse_model_output(_reply("chào", quick=["A", "B"]))
-    assert out == {"reply": "chào", "quick_replies": ["A", "B"], "proposal": None}
+    assert out == {"reply": "chào", "quick_replies": ["A", "B"], "proposal": None, "intent": None}
 
 
 def test_parse_fenced_json_with_prose():
@@ -319,7 +443,9 @@ def test_edit_proposal_diff_and_warnings(turn_env):
     assert proposal["base_hash"] == wa.content_hash(file_text)
     assert proposal["diff_summary"]["nodes_added"] == ["QA"]
     assert {"id": "Bug Fixer", "fields": ["config.role"]} in proposal["diff_summary"]["nodes_changed"]
-    assert "id: tong_dai" in call.calls[0][0]  # the saved workflow is in the system prompt
+    # The saved workflow is in the app context in front of the latest user message, not in the system prompt.
+    assert "id: tong_dai" not in call.calls[0][0]
+    assert "id: tong_dai" in call.calls[0][1][-1]["content"]
 
 
 def test_edit_kind_forced_for_workflow_context(turn_env):
@@ -381,21 +507,21 @@ def test_history_trimmed(turn_env):
     messages = _history(50)
     call = FakeCall(_reply())
     _turn(call, messages=messages)
-    assert call.calls[0][1] == [messages[0]] + messages[-24:]
+    assert _unwrap(call.calls[0][1]) == [messages[0]] + messages[-24:]
 
 
 def test_history_under_limit_untouched(turn_env):
     messages = _history(30)
     call = FakeCall(_reply())
     _turn(call, messages=messages)
-    assert call.calls[0][1] == messages
+    assert _unwrap(call.calls[0][1]) == messages
 
 
 def test_history_trim_keeps_first_user_message_after_greeting(turn_env):
     messages = _history(50, first_role="assistant")
     call = FakeCall(_reply())
     _turn(call, messages=messages)
-    assert call.calls[0][1] == [messages[1]] + messages[-24:]
+    assert _unwrap(call.calls[0][1]) == [messages[1]] + messages[-24:]
 
 
 def test_parse_json_after_prose_with_braces():
@@ -734,3 +860,168 @@ def test_request_too_large_is_bad_request(turn_env, monkeypatch):
                     pending_yaml="y" * 60, request_id="r", call=call)
     assert info.value.code == "bad_request"
     assert call.calls == []
+
+
+# ---------------------------------------------------------------------------- intent (E2E bug 1)
+
+
+def _intent_reply(intent, reply="ok", proposal=None):
+    return json.dumps({"reply": reply, "quick_replies": [], "intent": intent, "proposal": proposal})
+
+
+def test_propose_intent_without_proposal_is_repaired(turn_env):
+    # Real run: "xem thẻ bên dưới, bấm Áp dụng" with ``proposal: null``, on 2 of 2 build turns.
+    call = FakeCall(_intent_reply("propose", "Xem thẻ bên dưới"),
+                    _intent_reply("propose", "Đây là bản đề xuất", _proposal()))
+    out = _turn(call)
+    assert len(call.calls) == 2
+    repair = call.calls[1][1][-1]
+    assert repair["role"] == "user"
+    assert repair["content"].startswith("You said you would propose")
+    assert "Return the complete JSON including the proposal" in repair["content"]
+    assert out["proposal"] is not None and out["proposal"]["filename"] == "tong_dai.yaml"
+    assert out["intent"] == "propose"
+    assert out["validation_errors"] == []
+
+
+def test_propose_intent_without_proposal_counts_in_repair_budget(turn_env):
+    call = FakeCall(_intent_reply("propose", "Xem thẻ bên dưới"))
+    out = _turn(call)
+    assert len(call.calls) == wa.MAX_REPAIRS + 1
+    assert out["proposal"] is None
+    assert out["validation_errors"] == [wa.MISSING_PROPOSAL_ERROR]
+
+
+def test_missing_proposal_then_invalid_proposal_shares_the_budget(turn_env):
+    call = FakeCall(_intent_reply("propose"), _intent_reply("propose", proposal=_proposal(BROKEN_YAML)),
+                    _intent_reply("propose", "v3", _proposal()))
+    out = _turn(call)
+    assert len(call.calls) == 3
+    assert out["reply"] == "v3" and out["proposal"] is not None
+
+
+@pytest.mark.parametrize("intent", ["ask", "explain"])
+def test_ask_and_explain_turns_without_proposal_are_untouched(turn_env, intent):
+    call = FakeCall(_intent_reply(intent, "Quy trình tên gì?"))
+    out = _turn(call)
+    assert len(call.calls) == 1
+    assert out["intent"] == intent
+    assert out["proposal"] is None and out["reply"] == "Quy trình tên gì?"
+
+
+def test_proposal_with_ask_intent_is_kept(turn_env):
+    out = _turn(FakeCall(_intent_reply("ask", "Đây là bản nháp", _proposal())))
+    assert out["proposal"] is not None
+    assert out["intent"] == "ask"
+
+
+def test_legacy_json_without_intent_works(turn_env):
+    call = FakeCall(_reply("Quy trình tên gì?"))
+    out = _turn(call)
+    assert len(call.calls) == 1
+    assert out["intent"] is None and out["proposal"] is None
+
+
+@pytest.mark.parametrize("raw, expected", [("PROPOSE", "propose"), (" explain ", "explain"),
+                                           ("build", None), (3, None)])
+def test_parse_intent_normalised(raw, expected):
+    assert wa.parse_model_output(json.dumps({"reply": "x", "intent": raw}))["intent"] == expected
+
+
+def test_prompt_contract_documents_intent():
+    text = _prompt()
+    assert '"intent": "ask" | "explain" | "propose"' in text
+    assert "`proposal` must be filled whenever `intent` is `propose`" in text
+
+
+# ---------------------------------------------------------------------------- usage
+
+
+def test_usage_from_claude_and_codex_raw():
+    claude = {"usage": {"input_tokens": 10, "cache_creation_input_tokens": 200,
+                        "cache_read_input_tokens": 5000, "output_tokens": 300}, "duration_ms": 1234}
+    assert wa.usage_from_raw(claude) == {"input_tokens": 5210, "output_tokens": 300, "cache_read_tokens": 5000}
+    codex = {"usage": {"input_tokens": 6000, "cached_input_tokens": 4000, "output_tokens": 50}}
+    assert wa.usage_from_raw(codex) == {"input_tokens": 6000, "output_tokens": 50, "cache_read_tokens": 4000}
+    assert wa.usage_from_raw({"result": "x"}) is None
+    assert wa.usage_from_raw({"usage": {}}) is None
+    assert wa.usage_from_raw(None) is None
+
+
+def test_usage_summed_over_repairs_and_logged(turn_env, caplog):
+    texts = iter([(_reply("v1", _proposal(BROKEN_YAML)), {"input_tokens": 100, "output_tokens": 10,
+                                                          "cache_read_tokens": 80}),
+                  (_reply("v2", _proposal()), {"input_tokens": 120, "output_tokens": 20,
+                                               "cache_read_tokens": None})])
+    with caplog.at_level("INFO", logger=wa.logger.name):
+        out = _turn(lambda system, messages: next(texts))
+    usage = out["usage"]
+    assert usage["input_tokens"] == 220 and usage["output_tokens"] == 30 and usage["cache_read_tokens"] == 80
+    assert usage["calls"] == 2
+    assert isinstance(usage["duration_ms"], int) and usage["duration_ms"] >= 0
+    line = next(r.getMessage() for r in caplog.records if "Workflow assistant turn" in r.getMessage())
+    assert "vendor=anthropic" in line and "calls=2" in line and "prompt_chars=" in line
+    assert "input_tokens=220" in line and "outcome=proposal" in line
+
+
+def test_usage_none_when_provider_reports_nothing(turn_env):
+    out = _turn(FakeCall(_reply("hi")))
+    assert out["usage"]["input_tokens"] is None and out["usage"]["output_tokens"] is None
+    assert out["usage"]["calls"] == 1
+
+
+def test_system_prompt_identical_across_turns_and_chats(turn_env):
+    # Real run: with the pending YAML inside the system prompt, the turn after a proposal had 0 cache reads.
+    (turn_env / "tong_dai.yaml").write_text(VALID_YAML, encoding="utf-8")
+    a, b, c = FakeCall(_reply()), FakeCall(_reply()), FakeCall(_reply())
+    _turn(a, text="tạo quy trình")
+    wa.run_turn(vendor="openai", workflow="tong_dai.yaml", messages=[{"role": "user", "content": "giải thích"}],
+                pending_yaml="graph: {id: pending_marker}\n", request_id="r2", call=b)
+    _turn(c, messages=[{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"},
+                       {"role": "user", "content": "z"}], request_id="r3")
+    assert a.calls[0][0] == b.calls[0][0] == c.calls[0][0]
+    for volatile in ("tong_dai.yaml", "pending_marker", "The user is chatting with", "## Mode: new workflow"):
+        assert volatile not in a.calls[0][0]
+    last = b.calls[0][1][-1]["content"]
+    assert last.startswith(prompt_mod.CONTEXT_HEADER)
+    for part in ("tong_dai.yaml", "pending_marker", "vendor openai", "## Current workflow"):
+        assert part in last
+    assert last.endswith(prompt_mod.USER_HEADER + "\ngiải thích")
+    # Only the latest user message carries the context; earlier ones are sent as written.
+    assert c.calls[0][1][0] == {"role": "user", "content": "x"}
+
+
+def test_repair_keeps_the_context_on_the_original_message(turn_env):
+    call = FakeCall(_reply("v1", _proposal(BROKEN_YAML)), _reply("v2", _proposal()))
+    _turn(call)
+    sent = call.calls[1][1]
+    assert sent[0]["content"].startswith(prompt_mod.CONTEXT_HEADER)
+    assert sent[-1]["content"].startswith("Your proposal failed validation:")
+
+
+@pytest.mark.parametrize("tail", ['\n\n```json\n{"intent":"explain"}\n```', '\n{"intent": "explain"}',
+                                  '\n```json\n{"intent":"explain","quick_replies":["A"]}\n```\n'])
+def test_prose_with_trailing_intent_object(tail):
+    # Real run: prose reply, then a fence holding only {"intent": "explain"}.
+    out = wa.parse_model_output("Khi bạn không đồng ý, ghi chú quay về người soạn." + tail)
+    assert out["reply"] == "Khi bạn không đồng ý, ghi chú quay về người soạn."
+    assert out["intent"] == "explain"
+    assert out["proposal"] is None
+
+
+def test_prose_with_trailing_propose_intent_is_repaired(turn_env):
+    call = FakeCall('Xem thẻ bên dưới.\n```json\n{"intent":"propose"}\n```', _reply("ok", _proposal()))
+    out = _turn(call)
+    assert len(call.calls) == 2 and out["proposal"] is not None
+
+
+def test_prose_ending_with_other_object_is_unchanged():
+    text = 'Ví dụ cấu hình: {"max_iterations": 3}'
+    assert wa.parse_model_output(text)["reply"] == text
+
+
+def test_turn_context_ends_with_format_reminder(turn_env):
+    call = FakeCall(_reply())
+    _turn(call, text="xin chào")
+    last = call.calls[0][1][-1]["content"]
+    assert prompt_mod.FORMAT_REMINDER + "\n\n" + prompt_mod.USER_HEADER + "\nxin chào" in last
