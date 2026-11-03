@@ -119,7 +119,7 @@ class Node(BaseConfig):
             type_hint="str",
             required=False,
             advance=True,
-            description="Short summary shown in consoles/logs to explain this node's role or prompt context.",
+            description="Task description for this agent: its scope, working rules and what a good result looks like. Agents follow it on every task, and the team lead uses its first line to route work.",
         ),
         "mascot": ConfigFieldSpec(
             name="mascot",

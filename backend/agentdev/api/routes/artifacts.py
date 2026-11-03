@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 
 from agentdev.api.state import get_websocket_manager
 from agentdev.utils.attachments import encode_file_to_data_uri
@@ -84,12 +84,17 @@ async def get_artifact(
         if not local_path:
             raise HTTPException(status_code=404, detail="Artifact content unavailable")
         path = Path(local_path)
-        if not path.exists():
+        if not path.is_file():
             raise HTTPException(status_code=404, detail="Artifact file missing")
         media_type = ref.mime_type or "application/octet-stream"
-        disposition = "attachment" if download else "inline"
-        headers = {"Content-Disposition": f'{disposition}; filename="{ref.name}"'}
-        return StreamingResponse(path.open("rb"), media_type=media_type, headers=headers)
+        # FileResponse closes the file itself and encodes non-ASCII names (RFC 5987),
+        # which a hand-built header cannot (a Vietnamese filename made it a 500).
+        return FileResponse(
+            path,
+            media_type=media_type,
+            filename=ref.name or path.name,
+            content_disposition_type="attachment" if download else "inline",
+        )
 
     data_uri = ref.data_uri
     if not data_uri and ref.local_path and (ref.size or 0) <= MAX_FILE_SIZE:

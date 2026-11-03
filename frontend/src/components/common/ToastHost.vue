@@ -19,7 +19,7 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
           <p class="toast-title">{{ item.title }}</p>
           <p v-if="item.detail" class="toast-detail">{{ item.detail }}</p>
           <ul v-if="item.items?.length" class="toast-items">
-            <li v-for="line in item.items" :key="line">{{ line }}</li>
+            <li v-for="(line, i) in item.items" :key="`${i}-${line}`">{{ line }}</li>
           </ul>
           <button
             v-if="item.action"

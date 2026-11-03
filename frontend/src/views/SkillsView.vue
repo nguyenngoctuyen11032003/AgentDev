@@ -135,7 +135,7 @@
     </div>
 
     <!-- Import from ~/.claude/skills -->
-    <div v-if="importer.open" class="overlay" @click.self="importer.open = false">
+    <div v-if="importer.open" class="overlay" @click.self="!importer.saving && (importer.open = false)">
       <div class="dialog wide" role="dialog" aria-modal="true" :aria-label="$t('skills.import_title')">
         <h2 class="dialog-title">{{ $t('skills.import_title') }}</h2>
         <div class="row">
@@ -377,20 +377,23 @@ function toggleAll(checked) {
   importer.selected = checked ? importable.value.map((i) => i.name) : []
 }
 
+let importLoadSeq = 0
 async function loadSource() {
+  const seq = ++importLoadSeq
   importer.loading = true
   importer.error = ''
   try {
     const data = await fetchSkillImportSource(importer.source)
+    if (seq !== importLoadSeq) return // a newer reload superseded this one
     importer.source = data.source
     importer.items = data.skills
     if (!data.exists) importer.error = t('skills.import_missing', { path: data.source })
     // Preselect what is new; already-imported ones stay unticked unless the user wants to refresh them.
     importer.selected = data.skills.filter((i) => i.valid && !i.imported).map((i) => i.name)
   } catch (error) {
-    importer.error = error.message
+    if (seq === importLoadSeq) importer.error = error.message
   } finally {
-    importer.loading = false
+    if (seq === importLoadSeq) importer.loading = false
   }
 }
 

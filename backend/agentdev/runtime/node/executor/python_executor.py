@@ -139,6 +139,7 @@ class PythonNodeExecutor(NodeExecutor):
             completed = subprocess.run(
                 cmd,
                 cwd=str(workspace),
+                env=env,
                 capture_output=True,
                 check=False,
                 timeout=config.timeout_seconds,

@@ -70,10 +70,8 @@ async def list_workflows():
 
 @router.get("/api/workflows/{filename}/args")
 async def get_workflow_args(filename: str):
-    print(str)
     try:
         safe_filename = validate_workflow_filename(filename, require_yaml_extension=True)
-        print(safe_filename)
         file_path = YAML_DIR / safe_filename
 
         if not file_path.exists() or not file_path.is_file():

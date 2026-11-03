@@ -18,10 +18,10 @@ from agentdev.utils.structured_logger import get_server_logger, LogType
 
 
 def _update_workflow_id(content: str, workflow_id: str) -> str:
-    pattern = re.compile(r"^(id:\\s*).*$", re.MULTILINE)
+    pattern = re.compile(r"^(id:[ \t]*).*$", re.MULTILINE)
     match = pattern.search(content)
     if match:
-        return pattern.sub(rf"\\1{workflow_id}", content, count=1)
+        return pattern.sub(lambda m: m.group(1) + workflow_id, content, count=1)
 
     lines = content.splitlines()
     insert_index = 0

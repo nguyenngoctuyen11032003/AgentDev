@@ -272,7 +272,7 @@ export async function fetchWorkflowsWithDesc() {
 
     // Fetch YAML descriptions by filename
     const filesWithDesc = await Promise.all(
-      data.workflows.map(async (filename) => {
+      (Array.isArray(data.workflows) ? data.workflows : []).map(async (filename) => {
         try {
           const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(filename)}/desc`), FRESH)
           const fileData = await response.json()
