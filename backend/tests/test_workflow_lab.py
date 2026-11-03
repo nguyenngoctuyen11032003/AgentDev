@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from agentdev.api.routes import lab as lab_route
 from agentdev.api.services import skill_library, workflow_lab
-from agentdev.api.services.workflow_lab import AUTO_ANSWER, LabRunner, Scenario, static_check
+from agentdev.api.services.workflow_lab import AUTO_ANSWER, LabRunner, Scenario, static_check, static_check_data
 from agentdev.entity.messages import Message, MessageRole, ToolCallPayload
 from agentdev.runtime.node.agent import ModelResponse, ProviderRegistry, account_fallback
 from agentdev.runtime.node.executor import agent_executor as agent_executor_module
@@ -71,6 +71,20 @@ def test_static_check_template_passes_structure(no_skills):
     # Members (leads excluded) feed the Lab's sample scenarios.
     assert "QA Tester" in checks["team"]["members"] and "CTO" not in checks["team"]["members"]
     assert checks["unreachable"]["status"] == "pass"
+
+
+@pytest.mark.parametrize("name", ["software_company.yaml", "demo_loop_counter.yaml"])
+def test_static_check_data_matches_file_check(tmp_path, no_skills, name):
+    path = tmp_path / name
+    path.write_text((REPO / "workspace" / "workflows" / name).read_text(encoding="utf-8"), encoding="utf-8")
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert static_check_data(data) == static_check(path)
+
+
+def test_static_check_data_rejects_non_mapping():
+    report = static_check_data(["x"])
+    assert report["status"] == "fail"
+    assert _by_id(report)["structure"]["status"] == "fail"
 
 
 def test_runner_aggregates_and_verdict():
