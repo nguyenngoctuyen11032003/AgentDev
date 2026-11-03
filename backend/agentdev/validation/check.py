@@ -54,6 +54,7 @@ def load_config(
     fn_module: Optional[str] = None,
     set_defaults: bool = True,
     vars_override: Optional[Dict[str, Any]] = None,
+    require_accounts: bool = True,
 ) -> DesignConfig:
     """Load, validate, and sanity-check a workflow file."""
 
@@ -71,7 +72,7 @@ def load_config(
         raw_data = dict(raw_data)
         raw_data["vars"] = merged_vars
 
-    data = prepare_design_mapping(raw_data, source=str(config_path))
+    data = prepare_design_mapping(raw_data, source=str(config_path), require_accounts=require_accounts)
 
     schema_errors = validate_design(data, set_defaults=set_defaults, fn_module_ref=fn_module)
     if schema_errors:
@@ -130,7 +131,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"Design file not found: {args.path}")
         return 1
     try:
-        load_config(args.path, vars_override=_stub_missing_env_placeholders(args.path))
+        # Signed-in accounts are per machine (CI has none): validate structure, not account binding.
+        load_config(args.path, vars_override=_stub_missing_env_placeholders(args.path), require_accounts=False)
     except Exception as exc:  # report any load/validation failure, not only DesignError
         print(f"{type(exc).__name__}: {exc}")
         return 1

@@ -12,11 +12,13 @@ from agentdev.utils.env_loader import load_dotenv_file, build_env_var_map
 from agentdev.utils.vars_resolver import resolve_design_placeholders
 
 
-def prepare_design_mapping(data: Mapping[str, Any], *, source: str | None = None) -> Mapping[str, Any]:
+def prepare_design_mapping(
+    data: Mapping[str, Any], *, source: str | None = None, require_accounts: bool = True
+) -> Mapping[str, Any]:
     load_dotenv_file()
     env_lookup = build_env_var_map()
     prepared = dict(data)
-    bind_default_connections(prepared, env_lookup)
+    bind_default_connections(prepared, env_lookup, require_accounts=require_accounts)
     # Legacy API-key embedding blocks are dropped before ${VAR} resolution (keyword retrieval instead).
     strip_legacy_memory_embeddings(prepared)
     resolve_design_placeholders(prepared, env_lookup=env_lookup, path=source or "root")

@@ -55,7 +55,12 @@ def _pick(connections: List[Connection], vendor_id: str, needs_tools: bool) -> O
     return (same or usable or [None])[0]
 
 
-def bind_default_connections(data: MutableMapping[str, Any], env_lookup: Mapping[str, Any]) -> None:
+def bind_default_connections(
+    data: MutableMapping[str, Any],
+    env_lookup: Mapping[str, Any],
+    *,
+    require_accounts: bool = True,
+) -> None:
     """Fill in ``connection`` for agent configs that have none, and a model name when the
     YAML's ``${MODEL_NAME}``-style placeholder is set nowhere (env or workflow vars)."""
     vars_ = data.get("vars") if isinstance(data.get("vars"), Mapping) else {}
@@ -89,6 +94,9 @@ def bind_default_connections(data: MutableMapping[str, Any], env_lookup: Mapping
         else:
             chosen = _pick(connections, vendor_id, needs_tools)
         if chosen is None:
+            if not require_accounts:
+                # Validation only (e.g. CI): accounts are per machine, so leave the node unbound.
+                return
             vendor = get_vendor(vendor_id)
             label = vendor.label if vendor else (provider or "a model provider")
             raise ConfigError(
