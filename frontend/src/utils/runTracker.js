@@ -38,6 +38,8 @@ export function createRunTracker() {
     nodes: {}, // node id -> { runs: [...], waiting, lastAt }
     events: [], // newest last: { id, at, kind, nodeId, target, text }
     inputs: 0,
+    // The lead ended this turn with a plan that waits for your approval: { id, node, summary, plan }
+    plan: null,
     turn: 0, // number of the current turn (1-based), 0 before the first task
     turns: [] // earlier turns of this session, oldest first (same fields as above)
   })
@@ -182,6 +184,8 @@ export function createRunTracker() {
     if (closeOpen && state.task && !state.outcome) finish('cancelled', { at: lastEventAt() || undefined })
     // A new task in a finished session is its next turn: the finished one is kept
     if (state.outcome) archiveTurn()
+    // Whatever you say next answers the plan (approval or changes): it no longer waits
+    state.plan = null
     const previous = state.turns[state.turns.length - 1]
     state.turn = (previous?.number || state.turns.length) + 1
     if (!state.startedAt) state.startedAt = time
@@ -225,7 +229,12 @@ export function createRunTracker() {
     pushEvent(outcome, '', time, { text: state.summary.split('\n')[0].slice(0, 140) || state.error.slice(0, 140) })
   }
 
-  const TURN_FIELDS = ['startedAt', 'endedAt', 'outcome', 'task', 'summary', 'error', 'tokenUsage', 'nodes', 'events', 'inputs']
+  // The lead proposed a plan and waits for your go-ahead
+  const proposePlan = ({ id, node = '', summary = '', plan = '' } = {}) => {
+    state.plan = { id, node, summary, plan }
+  }
+
+  const TURN_FIELDS = ['startedAt', 'endedAt', 'outcome', 'task', 'summary', 'error', 'tokenUsage', 'nodes', 'events', 'inputs', 'plan']
   const archiveTurn = () => {
     const done = { number: state.turn || state.turns.length + 1 }
     for (const key of TURN_FIELDS) done[key] = state[key]
@@ -252,9 +261,10 @@ export function createRunTracker() {
     state.nodes = {}
     state.events = []
     state.inputs = 0
+    state.plan = null
   }
 
-  return { state, begin, nodeStart, activity, nodeEnd, waitingInput, inputSent, undoInput, assign, handoff, finish, reset }
+  return { state, begin, nodeStart, activity, nodeEnd, waitingInput, inputSent, undoInput, assign, handoff, finish, proposePlan, reset }
 }
 
 // ---------------------------------------------------------------- derived views

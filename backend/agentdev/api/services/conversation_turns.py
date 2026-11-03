@@ -35,6 +35,14 @@ NEW_MESSAGE_HEADER = (
     "[The user's NEW message: answer this one, in its language. If it approves or answers what you proposed "
     "or asked above, act on it without asking again.]"
 )
+# ``kind`` of a turn whose answer is a plan the lead submitted for approval (``submit_plan``).
+PLAN_KIND = "plan"
+# Put before the new message when the previous turn ended with a plan (``{reply}``: the user's message).
+PLAN_REPLY_NOTE = (
+    "[Reply to your plan] The user replied to your plan: {reply}. If this approves it (e.g. ok, đồng ý, duyệt, "
+    "làm đi, go ahead), execute the plan now without re-asking; if it requests changes, revise and call "
+    "submit_plan again. Delegating to your team is allowed in this turn."
+)
 STATUS_NOTES = {
     "cancelled": "(This turn was cancelled before it finished: the work may be incomplete.)",
     "error": "(This turn ended with an error before it finished: the work may be incomplete.)",
@@ -161,7 +169,8 @@ def _render_turn(index: int, turn: Dict[str, Any], *, latest: bool = False, team
     if note:
         lines.append(note)
     answer = _clip(str(turn.get("answer") or ""), MAX_LATEST_ANSWER_CHARS if latest else MAX_ANSWER_CHARS)
-    lines.append(f"You answered: {answer or '(no answer was produced)'}")
+    label = "You proposed this plan for approval" if is_plan_turn(turn) else "You answered"
+    lines.append(f"{label}: {answer or '(no answer was produced)'}")
     return "\n".join(lines)
 
 
@@ -206,4 +215,14 @@ def compose_follow_up_prompt(turns: List[Dict[str, Any]], prompt: str) -> str:
     transcript = build_transcript(turns)
     if not transcript:
         return prompt
-    return f"{transcript}\n\n{NEW_MESSAGE_HEADER}\n{prompt or ''}".rstrip()
+    note = ""
+    if turns and is_plan_turn(turns[-1]):
+        # Before the new-message header: the header still marks where the user's own text starts.
+        reply = _clip((prompt or "").strip(), MAX_LATEST_USER_CHARS) or "(no text)"
+        note = PLAN_REPLY_NOTE.format(reply=reply) + "\n\n"
+    return f"{transcript}\n\n{note}{NEW_MESSAGE_HEADER}\n{prompt or ''}".rstrip()
+
+
+def is_plan_turn(turn: Any) -> bool:
+    """True for a turn whose answer is a plan waiting for the user's approval."""
+    return isinstance(turn, dict) and turn.get("kind") == PLAN_KIND

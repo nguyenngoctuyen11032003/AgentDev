@@ -27,6 +27,19 @@ TEAM_TOOL_SOURCE = "agent_team_internal"
 DELEGATE_TOOL = "delegate_task"
 DELEGATE_PARALLEL_TOOL = "delegate_parallel"
 ASK_USER_TOOL = "ask_user"
+# Offered to the top-level lead when its team has ``plan_approval``: hands a plan to the user and
+# ends the lead's turn in code (see AgentNodeExecutor._handle_tool_calls), so no team work starts
+# before the user approves.
+SUBMIT_PLAN_TOOL = "submit_plan"
+# ``global_state`` key set when the lead submitted a plan: {"node", "summary", "plan"}.
+PLAN_PENDING_KEY = "plan_pending"
+# WebSocket message type sent to the session when a plan is submitted.
+PLAN_PROPOSED_EVENT = "plan_proposed"
+# Refusal for team work requested after (or together with) a submitted plan in the same reply.
+PLAN_GATE_REFUSAL = (
+    "Not run: you submitted a plan in this turn. Team work starts only after the user approves the plan "
+    "(their next message)."
+)
 # A member's report as the lead sees it; the full text stays in the team state (``log`` / ``history``).
 MAX_MEMBER_RESULT_CHARS = 4_000
 # The one earlier report repeated in a member's brief.
@@ -414,13 +427,13 @@ Member reports reach you clipped to about {report_chars} characters (the full te
 """
 
 PLAN_RULE_ON = (
-    "Plan rule — only for (c) a NEW project or significant new feature, not approved yet: do not build anything and "
-    "do not use `ask_user` for it. END YOUR TURN with a concise plan as your answer — what will be built, stack, the "
-    "steps and who does what, open questions each with your recommended default — and ask the user to approve or "
-    "change it (e.g. \"Reply ok to start, or tell me what to change.\"). Their next message continues from your plan. "
-    "Skip the plan when the user already approved (now or earlier in the conversation) or said to go ahead "
-    "(\"làm luôn\", \"just do it\", \"go ahead\"), and for small tasks, bug fixes and questions: those go straight "
-    "to work."
+    "Plan rule — only for (c) a NEW project or significant new feature, not approved yet: do not build anything, "
+    "do not delegate and do not use `ask_user` for it. END YOUR TURN with a concise plan: write it in markdown — "
+    "goal, scope, stack, the steps with which member does what, risks and open questions each with your "
+    "recommended default — and call `submit_plan` with it instead of delegating. That ends your turn: the plan is "
+    "shown to the user for approval and their next message continues from it. Skip the plan when the user already "
+    "approved (now or earlier in the conversation) or said to go ahead (\"làm luôn\", \"just do it\", "
+    "\"go ahead\"), and for small tasks, bug fixes and questions: those go straight to work."
 )
 PLAN_RULE_OFF = "Proceed without asking for plan approval; ask the user only for real decisions."
 
@@ -512,8 +525,19 @@ class TeamDelegation:
         self.plan_approval = plan_approval
         self.max_parallel = max(1, int(max_parallel or 1))
         self.delegations = 0
+        # The plan submitted with ``submit_plan`` this turn ({"node", "summary", "plan"}); None until then.
+        self.plan: Optional[Dict[str, str]] = None
         self._member_ids = {m.node_id for m in members}
         self._lock = threading.Lock()
+
+    @property
+    def plan_gate_enabled(self) -> bool:
+        """Only the top-level lead (the one talking to the user) submits plans for approval."""
+        return bool(self.plan_approval) and not self.delegated
+
+    @property
+    def plan_submitted(self) -> bool:
+        return self.plan is not None
 
     @property
     def parallel_enabled(self) -> bool:
@@ -567,8 +591,8 @@ class TeamDelegation:
                 name=ASK_USER_TOOL,
                 description=(
                     "Ask the user (your client) a question in the middle of the work and wait for the answer: a "
-                    "decision only they can make that you cannot assume. Not for plan approval (end your turn with "
-                    "the plan instead). Write it in the user's language."
+                    "decision only they can make that you cannot assume. Not for plan approval (use submit_plan or "
+                    "end your turn with the plan instead). Write it in the user's language."
                 ),
                 parameters={
                     "type": "object",
@@ -627,9 +651,38 @@ class TeamDelegation:
                     )
                 )
             specs = delegate_specs + specs
+        if self.plan_gate_enabled:
+            specs.append(
+                ToolSpec(
+                    name=SUBMIT_PLAN_TOOL,
+                    description=(
+                        "Present your plan for a NEW project or significant new feature to the user and wait for "
+                        "their approval. Ends your turn right away: the plan becomes your answer and no team work "
+                        "runs until the user approves. Not for bug fixes, small changes or questions, and not when "
+                        "the user already approved or said to go ahead. Write it in the user's language."
+                    ),
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "plan": {
+                                "type": "string",
+                                "description": "The plan in markdown: goal, scope, stack, steps with which member does "
+                                "what, risks and open questions with your recommended defaults.",
+                            },
+                            "summary": {"type": "string", "description": "One-line summary of the plan."},
+                        },
+                        "required": ["plan", "summary"],
+                    },
+                    metadata={"source": TEAM_TOOL_SOURCE},
+                )
+            )
         return specs
 
     def execute(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        if tool_name == SUBMIT_PLAN_TOOL:
+            return self._submit_plan(str(arguments.get("plan", "")).strip(), str(arguments.get("summary", "")).strip())
+        if tool_name in (DELEGATE_TOOL, DELEGATE_PARALLEL_TOOL) and self.plan_submitted:
+            raise ValueError(PLAN_GATE_REFUSAL)
         if tool_name == DELEGATE_TOOL:
             return self._delegate(str(arguments.get("member", "")).strip(), str(arguments.get("task", "")).strip())
         if tool_name == DELEGATE_PARALLEL_TOOL:
@@ -880,6 +933,15 @@ class TeamDelegation:
             )
         parts.append(f"# Task from {self.lead_id}\n{task}")
         return "\n\n".join(parts)
+
+    def _submit_plan(self, plan: str, summary: str) -> Dict[str, Any]:
+        if not self.plan_gate_enabled:
+            raise ValueError("submit_plan is not available here; continue the work or report back.")
+        if not plan:
+            raise ValueError("plan is required")
+        with self._lock:
+            self.plan = {"node": self.lead_id, "summary": summary or _first_line(plan, 160), "plan": plan}
+        return {"status": "submitted", "note": "Your turn ends now; the user will approve or change the plan."}
 
     def _ask_user(self, question: str) -> Dict[str, Any]:
         if not question:

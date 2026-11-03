@@ -54,7 +54,7 @@
                   <span v-if="currentProjectName" class="chat-header-project" :title="$t('launch.sessions.project_label', { name: currentProjectName })">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>{{ currentProjectName }}
                   </span>
-                  {{ selectedFile.replace(/\.ya?ml$/i, '') }} · {{ isStopping ? $t('launch.stopping') : getTranslatedStatus(status) }}
+                  {{ selectedFile.replace(/\.ya?ml$/i, '') }} · {{ isStopping ? $t('launch.stopping') : statusLabel }}
                 </span>
               </div>
               <div class="chat-header-actions">
@@ -108,6 +108,7 @@
                     message.dataUri,
                     message.error,
                     configStore.AUTO_EXPAND_MESSAGES,
+                    message.plan ? isPlanOpen(message) : false,
                     i18nLocale
                   ]"
                 >
@@ -181,8 +182,33 @@
                     </ol>
                   </div>
 
+                  <!-- The lead's plan waiting for your go-ahead (replaces its normal answer) -->
+                  <div v-if="message.plan" class="plan-card" :class="{ 'plan-card-open': isPlanOpen(message) }">
+                    <div class="plan-card-head">
+                      <span class="plan-card-badge">{{ isPlanOpen(message) ? $t('launch.plan.awaiting') : $t('launch.plan.title') }}</span>
+                    </div>
+                    <p v-if="message.plan.summary" class="plan-card-summary">{{ message.plan.summary }}</p>
+                    <details class="plan-card-details" :open="isPlanOpen(message) || !message.plan.summary">
+                      <summary>{{ $t('launch.plan.show') }}</summary>
+                      <CollapsibleMessage
+                        v-if="message.plan.plan || message.text"
+                        :html-content="message.plan.plan ? renderMarkdown(message.plan.plan) : (message.htmlContent || renderMarkdown(message.text))"
+                        :raw-content="message.plan.plan || message.text"
+                        :default-expanded="true"
+                      />
+                    </details>
+                    <div v-if="isPlanOpen(message)" class="plan-card-actions">
+                      <button type="button" class="plan-btn plan-btn-primary" :disabled="loading || isStopping" @click="approvePlan">
+                        {{ $t('launch.plan.approve') }}
+                      </button>
+                      <button type="button" class="plan-btn" @click="requestPlanChanges">
+                        {{ $t('launch.plan.request_changes') }}
+                      </button>
+                    </div>
+                  </div>
+
                   <CollapsibleMessage
-                    v-if="message.text"
+                    v-else-if="message.text"
                     :html-content="message.htmlContent || renderMarkdown(message.text)"
                     :raw-content="message.text"
                     :default-expanded="true"
@@ -597,8 +623,8 @@
           <p v-if="workflowHint" class="workflow-hint">{{ workflowHint }}</p>
 
           <label class="section-label">{{ $t('launch.status') }}</label>
-          <div class="status-display" :class="{ 'status-active': status === 'Running...' }">
-            {{ isStopping ? $t('launch.stopping') : getTranslatedStatus(status) }}
+          <div class="status-display" :class="{ 'status-active': status === 'Running...', 'status-awaiting-plan': isAwaitingPlan && !isStopping }">
+            {{ isStopping ? $t('launch.stopping') : statusLabel }}
           </div>
 
           <label class="section-label">{{ $t('launch.view') }}</label>
@@ -1637,6 +1663,57 @@ const isStopMode = computed(() => isStopping.value || (isRunActive.value && !(is
 // A finished run (completed, cancelled or failed) whose composer holds a new message continues
 // the same session as a follow-up turn; with an empty composer the button relaunches instead.
 const isRunFinished = computed(() => ['Completed', 'Cancelled', 'Error', 'Failed'].includes(status.value))
+
+// ---------------------------------------------------------------- plan approval
+// The lead ended its turn with a plan: the run is "done" for the server, but for you it
+// waits on your go-ahead. Your next message (approval or changes) opens the next turn.
+const isAwaitingPlan = computed(() => Boolean(runTracker.state.plan) && !isWorkflowRunning.value && status.value === 'Completed')
+const statusLabel = computed(() => (isAwaitingPlan.value ? t('launch.plan.status') : getTranslatedStatus(status.value)))
+// Only the latest plan of the session, while nothing newer started, can still be answered
+const isPlanOpen = (message) => Boolean(message?.plan && isAwaitingPlan.value && runTracker.state.plan?.id === message.plan.id)
+let planSeq = 0
+const showProposedPlan = (data = {}) => {
+  const node = data.node || ''
+  const id = `plan-${++planSeq}`
+  const plan = { id, node, summary: String(data.summary || '').trim(), plan: String(data.plan || '') }
+  runTracker.proposePlan(plan)
+  // The plan is that turn's answer: put the card on the lead's bubble instead of a second copy.
+  // Still working: its bubble is the activity row the answer will merge into.
+  let target = node ? nodesLoadingMessagesMap.get(node)?.message : null
+  if (!target) {
+    const list = chatMessages.value
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const message = list[i]
+      if (message.type !== 'dialogue') continue
+      if (message.isRight) break
+      if (!node || message.name === node) {
+        target = message
+        break
+      }
+    }
+  }
+  if (!target) target = addDialogue(node || t('launch.unknown_node'), plan.plan || plan.summary)
+  if (!target) return
+  target.plan = plan
+  target.rev += 1
+  scheduleScrollToBottom()
+}
+const approvePlan = () => {
+  if (!isAwaitingPlan.value || loading.value || isStopping.value) return
+  taskPrompt.value = t('launch.plan.approve_message')
+  handleButtonClick()
+}
+const requestPlanChanges = () => {
+  const prefix = t('launch.plan.change_prefix')
+  if (!taskPrompt.value.startsWith(prefix)) taskPrompt.value = prefix + taskPrompt.value
+  nextTick(() => {
+    const input = taskInputRef.value
+    if (!input) return
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
+    autoResizeTaskInput()
+  })
+}
 
 // Chip icon by kind: project folder, video, audio, archive, any other file
 const attachmentIcon = (attachment) => {
@@ -2847,8 +2924,12 @@ const startNewSession = async (target = null) => {
 // Finished runs nobody has accepted or sent back yet (badge on the "Review" view)
 // Once the review view has looked, its own count wins: it leaves out plain Q&A runs
 const reviewPendingFromView = ref(null)
+// Plans waiting for your go-ahead count too: they need you just as much
+const awaitingPlanCount = computed(() => sessions.value.filter((s) => s.awaiting_plan).length)
 const reviewPendingCount = computed(() =>
-  reviewPendingFromView.value ?? sessions.value.filter((s) => s.status === 'completed' && (s.review?.verdict || 'pending') === 'pending').length
+  awaitingPlanCount.value + (reviewPendingFromView.value ?? sessions.value.filter((s) =>
+    s.status === 'completed' && (s.review?.verdict || 'pending') === 'pending' && !s.awaiting_plan && s.has_work !== false
+  ).length)
 )
 const isReworking = ref(false)
 
@@ -4216,6 +4297,13 @@ const processMessage = async (msg) => {
     else if (msg.data.message) {
       addChatNotification(localizeLogMessage(msg.data), { at })
     }
+  }
+
+  // The lead ended its turn with a plan that waits for your approval (replayed on reload)
+  if (msg.type === 'plan_proposed') {
+    showProposedPlan(msg.data || {})
+    scheduleSessionsRefresh()
+    return
   }
 
   // Workflow completed
@@ -6042,6 +6130,81 @@ watch(
   color: var(--accent-indigo);
   background: rgb(var(--accent-indigo-rgb) / 0.1);
 }
+
+.status-awaiting-plan {
+  color: #d97706;
+  background: rgb(245 158 11 / 0.12);
+  font-weight: 600;
+}
+
+/* Plan waiting for approval */
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.plan-card-head { display: flex; align-items: center; gap: 8px; }
+
+.plan-card-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: rgb(var(--ink) / 0.6);
+  background: rgb(var(--ink) / 0.06);
+  border: 1px solid rgb(var(--ink) / 0.12);
+}
+
+.plan-card-open .plan-card-badge {
+  color: #d97706;
+  background: rgb(245 158 11 / 0.12);
+  border-color: rgb(245 158 11 / 0.4);
+}
+
+.plan-card-summary {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.plan-card-details > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgb(var(--ink) / 0.6);
+  margin-bottom: 6px;
+}
+
+.plan-card-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+
+.plan-btn {
+  padding: 7px 14px;
+  border-radius: 9px;
+  border: 1px solid rgb(var(--ink) / 0.18);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.plan-btn:hover:not(:disabled) { background: rgb(var(--ink) / 0.06); }
+.plan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.plan-btn-primary {
+  border-color: transparent;
+  background: var(--accent-indigo);
+  color: #fff;
+}
+
+.plan-btn-primary:hover:not(:disabled) { background: var(--accent-indigo); filter: brightness(1.1); }
 
 /* View Toggle */
 /* The session moved to another tab */

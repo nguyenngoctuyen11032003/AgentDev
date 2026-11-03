@@ -87,6 +87,7 @@
                 />
                 <span v-else class="session-name" :title="item.title">{{ item.title || t('launch.sessions.untitled') }}</span>
                 <span class="session-sub">
+                  <span v-if="item.awaiting_plan" class="plan-badge" :title="t('launch.plan.status')">{{ t('launch.sessions.awaiting_plan') }}</span>
                   <template v-if="group.isProject">{{ workflowLabel(item.yaml_file) }} · </template>{{ statusLabel(item.status) }} · {{ timeAgo(item.updated_at) }}
                 </span>
               </span>
@@ -534,6 +535,21 @@ const commitRename = (item) => {
 .status-cancelled { border-color: #f87171; }
 /* Stop pressed, still winding down */
 .status-cancelling { border: none; background: #fbbf24; animation: session-pulse 1.4s ease-in-out infinite; }
+
+/* The lead's plan waits for your approval */
+.plan-badge {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 16px;
+  vertical-align: 1px;
+  color: #d97706;
+  background: rgb(245 158 11 / 0.14);
+  border: 1px solid rgb(245 158 11 / 0.4);
+}
 
 @keyframes session-pulse { 50% { opacity: 0.45; } }
 

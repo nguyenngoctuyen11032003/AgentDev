@@ -187,7 +187,20 @@
     "log_task_failed": "[ID {id}，第 {row} 行] 失败。错误：{error}"
   },
   "launch": {
+    "plan": {
+      "title": "计划",
+      "awaiting": "待审批的计划",
+      "section": "待审批的计划",
+      "status": "等待你审批计划",
+      "show": "查看完整计划",
+      "approve": "批准并开始",
+      "request_changes": "要求修改",
+      "approve_message": "同意，开始吧。",
+      "change_prefix": "修改计划：",
+      "open": "打开"
+    },
     "sessions": {
+      "awaiting_plan": "待批计划",
       "title": "会话",
       "new": "新会话",
       "new_in": "使用 {name} 新建会话",

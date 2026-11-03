@@ -227,7 +227,20 @@
     "log_task_failed": "[ID {id}, row {row}] failed. Error: {error}"
   },
   "launch": {
+    "plan": {
+      "title": "Plan",
+      "awaiting": "Plan awaiting approval",
+      "section": "Plans awaiting approval",
+      "status": "Waiting for your plan approval",
+      "show": "View the full plan",
+      "approve": "Approve & start",
+      "request_changes": "Request changes",
+      "approve_message": "Approved, go ahead.",
+      "change_prefix": "Change the plan: ",
+      "open": "Open"
+    },
     "sessions": {
+      "awaiting_plan": "Plan to approve",
       "title": "Sessions",
       "new": "New session",
       "new_in": "New session with {name}",

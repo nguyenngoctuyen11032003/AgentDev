@@ -50,8 +50,12 @@ from agentdev.runtime.node.agent.account_fallback import (
 )
 from agentdev.runtime.node.agent.providers._native import NativeRunContext
 from agentdev.runtime.node.agent.team import (
+    DELEGATE_PARALLEL_TOOL,
     DELEGATE_TOOL,
     MODEL_ERROR_PREFIX,
+    PLAN_GATE_REFUSAL,
+    PLAN_PENDING_KEY,
+    SUBMIT_PLAN_TOOL,
     TEAM_TOOL_SOURCE,
     TeamDelegation,
     get_team_state,
@@ -284,7 +288,8 @@ class AgentNodeExecutor(NodeExecutor):
 
             final_message: Message | str = response_message
 
-            if agent_config.thinking:
+            # A submitted plan is the answer as written: no post-generation rewrite.
+            if agent_config.thinking and not (team is not None and team.plan_submitted):
                 gen_payload = self._build_thinking_payload_from_message(final_message, source="model_output")
                 final_message = self._apply_post_generation_thinking(
                     node,
@@ -891,6 +896,12 @@ class AgentNodeExecutor(NodeExecutor):
             timeline.extend(tool_events)
             trace_messages.extend(self._clone_with_source(msg, node.id) for msg in tool_call_messages)
 
+            plan_message = self._submitted_plan_answer(node)
+            if plan_message is not None:
+                # Plan gate: the lead's turn ends here; the plan is the answer, no further model call.
+                trace_messages.append(self._clone_with_source(plan_message, node.id))
+                return self._finalize_tool_trace(plan_message, trace_messages, True, node.id)
+
             follow_up_response = self._invoke_provider(
                 provider,
                 client,
@@ -901,6 +912,19 @@ class AgentNodeExecutor(NodeExecutor):
                 node,
             )
             assistant_message = follow_up_response.message
+
+    def _submitted_plan_answer(self, node: Node) -> Message | None:
+        """The plan as the lead's final answer once it called ``submit_plan`` (None otherwise)."""
+        team = self._active_teams().get(node.id)
+        if team is None or not team.plan_submitted:
+            return None
+        plan = dict(team.plan or {})
+        self.context.global_state[PLAN_PENDING_KEY] = plan
+        return Message(
+            role=MessageRole.ASSISTANT,
+            content=plan.get("plan", ""),
+            metadata={"source": node.id, "kind": "plan", "plan_summary": plan.get("summary", "")},
+        )
 
     def _tool_limit_status_report(
         self,
@@ -1024,7 +1048,14 @@ class AgentNodeExecutor(NodeExecutor):
         # Skill instructions go after every tool result of the batch (a tool result must directly
         # follow its call), as the last message of the conversation.
         skill_followups: List[Message] = []
-        delegated = self._parallel_delegations(node, tool_calls, spec_map)
+        # Plan gate: a reply that submits a plan runs no team work at all (not even calls before it).
+        plan_in_batch = any(
+            call.function_name == SUBMIT_PLAN_TOOL
+            and (spec_map.get(call.function_name) is not None)
+            and spec_map[call.function_name].metadata.get("source") == TEAM_TOOL_SOURCE
+            for call in tool_calls
+        )
+        delegated = {} if plan_in_batch else self._parallel_delegations(node, tool_calls, spec_map)
 
         with self._node_tool_context(node) as tool_context:
             for call_index, tool_call in enumerate(tool_calls):
@@ -1045,6 +1076,9 @@ class AgentNodeExecutor(NodeExecutor):
                     execution_name = spec.metadata.get("original_name", tool_name)
 
                 if spec and spec.metadata.get("source") == TEAM_TOOL_SOURCE:
+                    if plan_in_batch and tool_name in (DELEGATE_TOOL, DELEGATE_PARALLEL_TOOL):
+                        messages.append(self._refuse_team_tool(node, tool_call, tool_name, events))
+                        continue
                     if call_index in delegated:
                         team_message, team_events = delegated[call_index]
                         messages.append(team_message)
@@ -1466,6 +1500,25 @@ class AgentNodeExecutor(NodeExecutor):
             plan_approval=team_config.plan_approval,
             max_parallel=team_config.max_parallel,
             cancel_event=cancel_event,
+        )
+
+    def _refuse_team_tool(self, node: Node, tool_call: ToolCallPayload, tool_name: str, events: List[Any]) -> Message:
+        """Answer a delegation the plan gate does not allow, without running it."""
+        self.log_manager.record_tool_call(
+            node.id, tool_name, False, None, {"error": PLAN_GATE_REFUSAL, "refused": "plan_pending"}, CallStage.AFTER
+        )
+        events.append(
+            FunctionCallOutputEvent(
+                call_id=tool_call.id or tool_call.function_name or "tool_call",
+                function_name=tool_call.function_name,
+                output_text=f"error: {PLAN_GATE_REFUSAL}",
+            )
+        )
+        return Message(
+            role=MessageRole.TOOL,
+            content=f"Tool {tool_name} error: {PLAN_GATE_REFUSAL}",
+            tool_call_id=tool_call.id,
+            metadata={"tool_name": tool_name, "source": node.id},
         )
 
     def _run_team_tool(

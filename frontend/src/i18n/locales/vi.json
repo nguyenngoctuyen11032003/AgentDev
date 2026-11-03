@@ -227,7 +227,20 @@
     "log_task_failed": "[ID {id}, dòng {row}] thất bại. Lỗi: {error}"
   },
   "launch": {
+    "plan": {
+      "title": "Kế hoạch",
+      "awaiting": "Kế hoạch chờ duyệt",
+      "section": "Kế hoạch chờ duyệt",
+      "status": "Chờ bạn duyệt kế hoạch",
+      "show": "Xem kế hoạch chi tiết",
+      "approve": "Duyệt & bắt đầu",
+      "request_changes": "Yêu cầu chỉnh sửa",
+      "approve_message": "Đồng ý, làm đi.",
+      "change_prefix": "Sửa kế hoạch: ",
+      "open": "Mở"
+    },
     "sessions": {
+      "awaiting_plan": "Chờ duyệt KH",
       "title": "Phiên làm việc",
       "new": "Phiên mới",
       "new_in": "Phiên mới với {name}",

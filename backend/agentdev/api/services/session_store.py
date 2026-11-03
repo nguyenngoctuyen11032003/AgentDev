@@ -80,6 +80,9 @@ class WorkflowSession:
     # run in the same session hands them to its start node.
     turns: list = field(default_factory=list)
 
+    # True once a run of this session changed files (an ``artifact_created`` message was recorded).
+    files_changed: bool = False
+
     MAX_BUFFER_SIZE: int = 1000
 
     def append_message(self, message: Dict[str, Any]) -> None:
@@ -96,6 +99,31 @@ class WorkflowSession:
 
 def _is_pinned(message: Any) -> bool:
     return isinstance(message, dict) and message.get("type") == "user_message"
+
+
+def _changes_files(message: Any) -> bool:
+    """An ``artifact_created`` message that reports at least one changed file."""
+    if not isinstance(message, dict) or message.get("type") != "artifact_created":
+        return False
+    data = message.get("data")
+    return isinstance(data, dict) and bool(data.get("events"))
+
+
+_LIVE_STATUSES = (SessionStatus.RUNNING, SessionStatus.WAITING_FOR_INPUT, SessionStatus.CANCELLING)
+
+
+def awaiting_plan(session: WorkflowSession) -> bool:
+    """The latest turn is a plan the user has not answered yet (cleared once the next turn starts)."""
+    # By status, not by executor: the plan turn is saved while its run is still being wrapped up.
+    if session.status in _LIVE_STATUSES:
+        return False
+    turns = session.turns
+    return bool(turns) and isinstance(turns[-1], dict) and turns[-1].get("kind") == "plan"
+
+
+def has_work(session: WorkflowSession) -> bool:
+    """Some turn delegated work to team members, or a run changed files."""
+    return session.files_changed or any(isinstance(t, dict) and t.get("team") for t in session.turns)
 
 
 class WorkflowSessionStore:
@@ -123,6 +151,8 @@ class WorkflowSessionStore:
             "error_message": session.error_message,
             "message_count": len(session.message_buffer),
             "projects": list(session.projects),
+            "awaiting_plan": awaiting_plan(session),
+            "has_work": has_work(session),
         }
 
     def _persist(self, session: WorkflowSession) -> None:
@@ -138,6 +168,9 @@ class WorkflowSessionStore:
         session.updated_at = time.time()
         if self.history is not None:
             self.history.append_message(session_id, encoded)
+        if not session.files_changed and _changes_files(message):
+            session.files_changed = True
+            self._persist(session)
 
     def restore_session(self, session_id: str) -> Optional[WorkflowSession]:
         """Load a session that only exists on disk (e.g. after a server restart)."""
@@ -174,6 +207,7 @@ class WorkflowSessionStore:
         # Load everything and apply the same eviction as live, so turn-start user messages survive.
         for message in self.history.load_messages(session_id, 0):
             session.append_message(message)
+            session.files_changed = session.files_changed or _changes_files(message)
         session.turns = self.history.load_turns(session_id)
         self._sessions[session_id] = session
         if interrupted:
@@ -193,6 +227,9 @@ class WorkflowSessionStore:
             if saved.get("title_custom"):
                 live["title"] = saved.get("title")
             merged[session.session_id] = {**saved, **live}
+        for item in merged.values():  # sessions saved before these fields existed
+            item.setdefault("awaiting_plan", False)
+            item.setdefault("has_work", False)
         return sorted(merged.values(), key=lambda item: item.get("updated_at") or 0, reverse=True)
 
     def delete_session(self, session_id: str) -> bool:
@@ -227,6 +264,7 @@ class WorkflowSessionStore:
             session.created_at = draft.created_at
             session.message_buffer = list(draft.message_buffer)
             session.turns = list(draft.turns)
+            session.files_changed = draft.files_changed
             if draft.turns and draft.title:
                 # A follow-up message keeps the conversation's title
                 session.title = draft.title
@@ -268,6 +306,7 @@ class WorkflowSessionStore:
         del session.turns[:-MAX_STORED_TURNS]
         if self.history is not None:
             self.history.save_turns(session_id, list(session.turns))
+        self._persist(session)  # awaiting_plan / has_work follow the turns
 
     def get_session(self, session_id: str) -> Optional[WorkflowSession]:
         return self._sessions.get(session_id)
@@ -335,4 +374,6 @@ class WorkflowSessionStore:
             "error_message": session.error_message,
             "message_count": len(session.message_buffer),
             "projects": list(session.projects),
+            "awaiting_plan": awaiting_plan(session),
+            "has_work": has_work(session),
         }

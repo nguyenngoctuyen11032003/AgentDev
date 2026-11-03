@@ -16,7 +16,7 @@ from agentdev.workflow.graph_context import GraphContext
 
 from agentdev.api.services.attachment_service import AttachmentService
 from agentdev.api.services.conversation_turns import attachment_refs, compose_follow_up_prompt, make_turn
-from agentdev.runtime.node.agent.team import user_exchanges
+from agentdev.runtime.node.agent.team import PLAN_PENDING_KEY, PLAN_PROPOSED_EVENT, user_exchanges
 from agentdev.api.services.local_projects import opened_project_folder
 from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.api.services.session_store import SessionBusyError, SessionStatus, WorkflowSessionStore
@@ -230,8 +230,13 @@ class WorkflowRunService:
             self._remember_turn(session_id, task_prompt, attachments, executor)
             summary = self._final_answer(executor) or graph_context.final_message()
             token_usage = executor.token_tracker.get_token_usage()
+            plan = self._pending_plan(executor)
             # Free the session before announcing the end, so a follow-up sent right away is accepted.
             self._release(session_id, session)
+
+            if plan is not None:
+                # The lead submitted a plan and stopped: the UI shows it as awaiting approval.
+                await websocket_manager.send_message(session_id, {"type": PLAN_PROPOSED_EVENT, "data": plan})
 
             await websocket_manager.send_message(
                 session_id,
@@ -389,6 +394,8 @@ class WorkflowRunService:
                     refs = list(self._attachment_names(session_id, attachment_ids))
             turn = make_turn(prompt, answer, refs, exchanges)
             turn["status"] = status  # how the run ended: completed / cancelled / error
+            if status == "completed" and self._pending_plan(executor) is not None:
+                turn["kind"] = "plan"  # the answer is a plan waiting for the user's approval
             self.session_store.add_turn(session_id, turn)
         except Exception as exc:  # never let history break the run's own error/cancel handling
             self.logger.warning("Could not save turn for session %s: %s", session_id, exc)
@@ -416,6 +423,23 @@ class WorkflowRunService:
         except Exception:  # noqa: BLE001 - summary is cosmetic
             return ""
         return answer.strip() if isinstance(answer, str) else ""
+
+    @staticmethod
+    def _pending_plan(executor) -> Optional[Dict[str, str]]:
+        """The plan the lead submitted this run ({"node", "summary", "plan"}), or None."""
+        if executor is None:
+            return None
+        try:
+            plan = executor._get_execution_context().global_state.get(PLAN_PENDING_KEY)
+        except Exception:  # best effort, like the turn history
+            return None
+        if not isinstance(plan, dict) or not plan.get("plan"):
+            return None
+        return {
+            "node": str(plan.get("node") or ""),
+            "summary": str(plan.get("summary") or ""),
+            "plan": str(plan.get("plan") or ""),
+        }
 
     def _user_exchanges(self, executor) -> List[Dict[str, str]]:
         """Questions the lead asked the user during the run (plan approvals, decisions) and the replies."""

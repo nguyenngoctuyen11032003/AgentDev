@@ -8,6 +8,27 @@
         <p>{{ $t('launch.review.subtitle') }}</p>
       </header>
 
+      <section v-if="awaitingPlans.length" class="plans" :aria-label="$t('launch.plan.section')">
+        <h3 class="plans-title">
+          {{ $t('launch.plan.section') }}<span class="tab-count">{{ awaitingPlans.length }}</span>
+        </h3>
+        <ul class="plans-list">
+          <li v-for="item in awaitingPlans" :key="item.session_id">
+            <button type="button" class="plan-item" @click="$emit('open-session', item)">
+              <span class="qi-top">
+                <span class="verdict-dot is-waiting" aria-hidden="true"></span>
+                <span class="qi-title" :title="item.title">{{ item.title || item.yaml_file }}</span>
+                <span class="plan-open">{{ $t('launch.plan.open') }} →</span>
+              </span>
+              <span class="qi-meta">
+                <span>{{ metaOf(item) }}</span>
+                <time>{{ ago(item.updated_at) }}</time>
+              </span>
+            </button>
+          </li>
+        </ul>
+      </section>
+
       <div class="tabs" role="tablist">
         <button
           v-for="tab in tabs"
@@ -292,10 +313,15 @@ const verdictOf = (item) => item?.review?.verdict || 'pending'
 const workCache = reactive(new Map())
 const didWork = (data) => Boolean(data && ((data.files?.length || 0) > 0 || (data.steps?.length || 0) > 1))
 const workOf = (item) => {
+  // The sessions list says it directly (has_work); the digest scan is only for older backends
+  if (typeof item.has_work === 'boolean') return item.has_work
   const known = workCache.get(item.session_id)
   return known && known.at === item.updated_at ? known.work : null // null: not known yet
 }
-const isPending = (item) => item.status === 'completed' && verdictOf(item) === 'pending' && workOf(item) !== false
+// A plan waiting for your approval is not a finished result: it has its own section
+const isPending = (item) =>
+  item.status === 'completed' && verdictOf(item) === 'pending' && !item.awaiting_plan && workOf(item) !== false
+const awaitingPlans = computed(() => props.sessions.filter((s) => s.awaiting_plan))
 
 const byId = computed(() => new Map(props.sessions.map((item) => [item.session_id, item])))
 // A rework run points back to the run it redoes (review.rework_session_id on the parent)
@@ -344,7 +370,7 @@ const scanWork = async () => {
   scanning = true
   try {
     const candidates = props.sessions
-      .filter((s) => s.status === 'completed' && verdictOf(s) === 'pending')
+      .filter((s) => s.status === 'completed' && verdictOf(s) === 'pending' && typeof s.has_work !== 'boolean')
       .slice(0, WORK_SCAN_LIMIT)
     for (const item of candidates) {
       if (!props.visible) break
@@ -750,6 +776,45 @@ const ago = (seconds) => {
   border-color: color-mix(in srgb, var(--tone, var(--accent-sky)) 55%, transparent);
   background: color-mix(in srgb, var(--tone, var(--accent-sky)) 9%, transparent);
 }
+
+.plans {
+  --tone: var(--wait);
+  margin: 0 12px 10px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--wait) 40%, transparent);
+  background: color-mix(in srgb, var(--wait) 7%, transparent);
+}
+
+.plans-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 2px 6px;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.plans-list { margin: 0; padding: 0; list-style: none; max-height: 180px; overflow-y: auto; }
+
+.plan-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plan-item:hover { background: color-mix(in srgb, var(--wait) 12%, transparent); }
+
+.plan-open { flex: none; font-size: 11.5px; font-weight: 600; color: var(--wait); }
 
 .search {
   display: flex;
