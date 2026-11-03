@@ -204,7 +204,7 @@
         <img
           :src="selectedArtifactImage.src"
           :alt="selectedArtifactImage.name"
-          :click="closeImageModal"
+          @click="closeImageModal"
         />
       </div>
     </div>
@@ -261,13 +261,13 @@ JSON.stringify(["C:\\a_sheep.png"], null, 2)
     <div
       v-if="isBatchSettingsModalVisible"
       class="batch-settings-modal-overlay"
-      @click.self="isBatchSettingsModalVisible = false"
+      @click.self="cancelBatchSettings"
     >
       <div class="batch-settings-modal">
         <div class="modal-content">
           <div class="modal-header">
             <h3>{{ $t('batch_run.batch_settings') }}</h3>
-            <button class="close-button" @click="isBatchSettingsModalVisible = false">×</button>
+            <button class="close-button" :aria-label="$t('common.close')" @click="cancelBatchSettings">×</button>
           </div>
           <div class="modal-body">
             <div class="settings-item">
@@ -293,8 +293,8 @@ JSON.stringify(["C:\\a_sheep.png"], null, 2)
             </div>
           </div>
           <div class="modal-footer">
-            <button class="cancel-button" @click="isBatchSettingsModalVisible = false">{{ $t('common.cancel') }}</button>
-            <button class="confirm-button" @click="isBatchSettingsModalVisible = false">{{ $t('common.save') }}</button>
+            <button class="cancel-button" @click="cancelBatchSettings">{{ $t('common.cancel') }}</button>
+            <button class="confirm-button" @click="saveBatchSettings">{{ $t('common.save') }}</button>
           </div>
         </div>
       </div>
@@ -774,14 +774,29 @@ const handleKeydown = (event) => {
     } else if (showColumnGuideModal.value) {
       showColumnGuideModal.value = false
     } else if (isBatchSettingsModalVisible.value) {
-      isBatchSettingsModalVisible.value = false
+      cancelBatchSettings()
     }
   }
 }
 
 // Show batch settings modal
+// Cancel / Esc / backdrop restore the values from when the modal opened; Save keeps them (clamped).
+let batchSettingsSnapshot = null
 const showBatchSettingsModal = () => {
+  batchSettingsSnapshot = { maxParallel: maxParallel.value, logLevel: logLevel.value }
   isBatchSettingsModalVisible.value = true
+}
+const cancelBatchSettings = () => {
+  if (batchSettingsSnapshot) {
+    maxParallel.value = batchSettingsSnapshot.maxParallel
+    logLevel.value = batchSettingsSnapshot.logLevel
+  }
+  isBatchSettingsModalVisible.value = false
+}
+const saveBatchSettings = () => {
+  const parsed = Math.round(Number(maxParallel.value))
+  maxParallel.value = Number.isFinite(parsed) ? Math.min(50, Math.max(1, parsed)) : 5
+  isBatchSettingsModalVisible.value = false
 }
 
 // Handle YAML file selection
@@ -2640,6 +2655,28 @@ watch(viewMode, async (mode) => {
   background: rgb(var(--ink) / 0.05);
   color: var(--text-strong);
   border-color: rgb(var(--ink) / 0.3);
+}
+
+/* Narrow screens: controls on top, results below, the page scrolls */
+@media (max-width: 760px) {
+  .launch-view {
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .content {
+    flex-direction: column-reverse;
+    overflow: visible;
+    padding: 12px 16px 24px;
+  }
+
+  .right-panel {
+    min-width: 0;
+  }
+
+  .left-panel {
+    min-height: 420px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

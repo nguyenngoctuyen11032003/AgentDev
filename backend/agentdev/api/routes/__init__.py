@@ -1,10 +1,12 @@
 """Aggregates API routers."""
 
-from . import artifacts, execute, execute_sync, health, sessions, uploads, vuegraphs, workflows, websocket, batch, tools, connections, connections_check, connection_oauth, local_folders
+from . import artifacts, execute, execute_sync, health, sessions, uploads, vuegraphs, workflows, websocket, batch, tools, connections, connections_check, connection_oauth, local_folders, skills, lab
 
 ALL_ROUTERS = [
     health.router,
     local_folders.router,
+    skills.router,
+    lab.router,
     vuegraphs.router,
     workflows.router,
     uploads.router,

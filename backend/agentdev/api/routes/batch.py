@@ -6,9 +6,11 @@ from agentdev.entity.enums import LogLevel
 from agentdev.api.services.batch_parser import parse_batch_file
 from agentdev.api.services.batch_run_service import BatchRunService
 from agentdev.api.state import ensure_known_session
-from agentdev.utils.exceptions import ValidationError
+from agentdev.utils.exceptions import SecurityError, ValidationError
 
 router = APIRouter()
+
+MAX_PARALLEL = 50  # same upper bound as the Batch run page's settings
 
 
 @router.post("/api/workflows/batch")
@@ -24,8 +26,14 @@ async def execute_batch(
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    if max_parallel < 1:
-        raise HTTPException(status_code=400, detail="max_parallel must be >= 1")
+    if not 1 <= max_parallel <= MAX_PARALLEL:
+        raise HTTPException(status_code=400, detail=f"max_parallel must be between 1 and {MAX_PARALLEL}")
+
+    # Reject an unknown / unsafe workflow now instead of failing every row in the background.
+    try:
+        BatchRunService._resolve_yaml_path(yaml_file)
+    except (ValidationError, SecurityError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     try:
         content = await file.read()
