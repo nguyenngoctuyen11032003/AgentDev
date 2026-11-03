@@ -1,14 +1,17 @@
 """Workflow assistant API: provider list, one chat turn, cancel."""
 
+import logging
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from agentdev.api.services import workflow_assistant as service
 from agentdev.connections.security import require_local_origin
+
+logger = logging.getLogger(__name__)
 
 
 def _local_pages_only(request: Request) -> None:
@@ -24,6 +27,7 @@ router = APIRouter(
 
 class MessageIn(BaseModel):
     role: Literal["user", "assistant"]
+    # May be empty: an assistant turn that gave up has an empty reply. The last user message may not.
     content: str = Field(..., max_length=50_000)
 
 
@@ -33,6 +37,16 @@ class ChatRequest(BaseModel):
     messages: List[MessageIn] = Field(..., min_length=1, max_length=200)
     pending_yaml: Optional[str] = Field(None, max_length=200_000)
     request_id: str = Field(..., min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def _check_size_and_last_message(self) -> "ChatRequest":
+        last = self.messages[-1]
+        if last.role == "user" and not last.content.strip():
+            raise ValueError("the last user message is empty")
+        total = sum(len(m.content) for m in self.messages) + len(self.pending_yaml or "")
+        if total > service.MAX_REQUEST_CHARS:
+            raise ValueError(f"the request is too large (over {service.MAX_REQUEST_CHARS} characters)")
+        return self
 
 
 class CancelRequest(BaseModel):
@@ -59,6 +73,10 @@ async def chat(body: ChatRequest):
     except service.AssistantError as exc:
         status = 400 if exc.code == "bad_request" else 200
         return JSONResponse({"error": exc.code, "message": str(exc)}, status_code=status)
+    except Exception:  # noqa: BLE001 - keep the {error, message} shape; the detail stays in the log
+        logger.exception("Workflow assistant turn failed")
+        return JSONResponse({"error": "internal", "message": "The assistant hit an unexpected error. "
+                             "Details are in the server log."}, status_code=500)
 
 
 @router.post("/cancel")

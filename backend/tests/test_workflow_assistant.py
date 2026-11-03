@@ -514,3 +514,223 @@ def test_duplicate_edge_already_in_saved_file_is_not_an_error(turn_env):
     out = _turn(call, text="sửa role Bug Fixer", workflow="tong_dai.yaml")
     assert len(call.calls) == 1
     assert out["proposal"] is not None
+
+
+# ---------------------------------------------------------------------------- final fix wave
+
+
+def _raw_newline_reply():
+    # Seen in real runs: the YAML string written with real newlines instead of \n escapes.
+    return '{"reply": "ok", "quick_replies": [], "proposal": {"kind": "create", ' \
+           '"filename": "tong_dai.yaml", "yaml": "' + VALID_YAML + '"}}'
+
+
+def test_parse_tolerates_literal_newlines_in_strings():
+    out = wa.parse_model_output(_raw_newline_reply())
+    assert out["reply"] == "ok"
+    assert out["proposal"]["yaml"] == VALID_YAML
+
+
+def test_literal_newlines_proposal_is_accepted(turn_env):
+    out = _turn(FakeCall(_raw_newline_reply()))
+    assert out["proposal"] is not None and out["validation_errors"] == []
+
+
+TRUNCATED = _reply("v1", _proposal())[:120]
+
+
+def test_truncated_json_is_repaired_not_shown_raw(turn_env):
+    call = FakeCall(TRUNCATED, _reply("v2", _proposal()))
+    out = _turn(call)
+    assert len(call.calls) == 2
+    repair = call.calls[1][1][-1]["content"]
+    assert "not valid JSON" in repair and "cut off" in repair and "complete JSON object" in repair
+    assert "write it for the user, in their language" in repair
+    assert out["reply"] == "v2" and out["proposal"] is not None
+
+
+@pytest.mark.parametrize("bad", [TRUNCATED, "```json\n" + TRUNCATED + "\n```", '{"reply": oops}'])
+def test_unparseable_json_gives_up_with_empty_reply(turn_env, bad):
+    call = FakeCall(bad)
+    out = _turn(call)
+    assert len(call.calls) == 3
+    assert out["reply"] == "" and out["proposal"] is None
+    assert len(out["validation_errors"]) == 1 and "not valid JSON" in out["validation_errors"][0]
+
+
+def test_plain_prose_with_braces_is_still_a_reply(turn_env):
+    out = _turn(FakeCall("Dùng {name} làm chỗ trống nhé."))
+    assert out["reply"] == "Dùng {name} làm chỗ trống nhé." and out["validation_errors"] == []
+
+
+THREE_NODE_YAML = VALID_YAML.replace(
+    "  edges:\n",
+    "    - id: QA Tester\n      type: agent\n"
+    "      config: {provider: anthropic, name: claude-sonnet-5-5, role: Test}\n  edges:\n",
+)
+
+
+def test_unrequested_warning_uses_every_user_message(turn_env):
+    (turn_env / "tong_dai.yaml").write_text(THREE_NODE_YAML, encoding="utf-8")
+    # The pending proposal from turn 1 removed QA Tester; turn 2 changes Bug Fixer's role on top of it.
+    edited = VALID_YAML.replace("role: Fix bugs", "role: Fix bugs fast")
+    messages = [{"role": "user", "content": "xóa QA Tester"},
+                {"role": "assistant", "content": "Đã xóa"},
+                {"role": "user", "content": "sửa role Bug Fixer"}]
+    out = _turn(FakeCall(_reply("ok", _proposal(edited, kind="edit"))), workflow="tong_dai.yaml",
+                messages=messages)
+    assert out["proposal"]["warnings"] == []
+
+
+def test_unrequested_warning_still_flags_unnamed_nodes(turn_env):
+    (turn_env / "tong_dai.yaml").write_text(THREE_NODE_YAML, encoding="utf-8")
+    edited = VALID_YAML.replace("role: Fix bugs", "role: Fix bugs fast")
+    out = _turn(FakeCall(_reply("ok", _proposal(edited, kind="edit"))), text="sửa role Bug Fixer",
+                workflow="tong_dai.yaml")
+    assert out["proposal"]["warnings"] == ["QA Tester"]
+
+
+@pytest.mark.parametrize("saved", ['graph: "x"\n', "graph:\n  nodes: [a]\n", "graph:\n  edges: [a]\n",
+                                   "- just\n- a list\n"])
+def test_broken_saved_file_does_not_crash(turn_env, saved):
+    (turn_env / "tong_dai.yaml").write_text(saved, encoding="utf-8")
+    out = _turn(FakeCall(_reply("ok", _proposal(kind="edit"))), text="sửa giúp", workflow="tong_dai.yaml")
+    assert out["proposal"] is not None
+    assert out["proposal"]["diff_summary"]["nodes_added"] == ["Frontend", "Bug Fixer"]
+
+
+def test_non_utf8_saved_file_fails_before_the_model_call(turn_env):
+    (turn_env / "tong_dai.yaml").write_bytes(b"graph:\n  id: \xff\xfe\n")
+    call = FakeCall(_reply())
+    with pytest.raises(wa.AssistantError) as info:
+        _turn(call, workflow="tong_dai.yaml")
+    assert info.value.code == "bad_request" and "UTF-8" in info.value.message
+    assert call.calls == []
+
+
+@pytest.mark.parametrize("text", ["", "   \n\t "])
+def test_empty_last_user_message_is_bad_request(turn_env, text):
+    call = FakeCall(_reply())
+    with pytest.raises(wa.AssistantError) as info:
+        wa.run_turn(vendor="anthropic", workflow=None, messages=[{"role": "user", "content": text}],
+                    pending_yaml=None, request_id="r", call=call)
+    assert info.value.code == "bad_request"
+    assert call.calls == []
+
+
+def test_cli_logged_out_or_missing_maps_to_not_signed_in(turn_env):
+    from agentdev.runtime.node.agent.providers._cli_common import CliProviderError
+
+    for message in ("`claude` CLI is not logged in: please run /login",
+                    "`codex` CLI is not logged in: 401 Unauthorized",
+                    "`claude` CLI is not installed or not on PATH",
+                    "`codex` CLI is not installed or not on PATH"):
+        def call(system, messages, message=message):
+            raise CliProviderError(message)
+
+        with pytest.raises(wa.AssistantError) as info:
+            _turn(call)
+        assert info.value.code == "not_signed_in", message
+        assert "C:\\" not in info.value.message
+
+
+def test_provider_error_message_is_sanitised(turn_env, caplog):
+    secret = "C:\\Users\\someone\\.claude\\x.json: stderr dump me@example.com"
+
+    def call(system, messages):
+        raise RuntimeError(secret)
+
+    with caplog.at_level("WARNING", logger=wa.logger.name):
+        with pytest.raises(wa.AssistantError) as info:
+            _turn(call)
+    assert info.value.code == "provider_error"
+    assert "someone" not in info.value.message and "example.com" not in info.value.message
+    assert secret in caplog.text  # the detail stays in the server log
+
+
+def test_quota_and_timeout_messages_are_sanitised(turn_env):
+    from agentdev.runtime.node.agent.providers._cli_common import CliTimeoutError
+
+    for exc, code in ((account_fallback.QuotaExceededError("limit for me@example.com at C:\\Users\\x"),
+                       "quota_exhausted"), (CliTimeoutError("timed out in C:\\Users\\x\\tmp"), "timeout")):
+        def call(system, messages, exc=exc):
+            raise exc
+
+        with pytest.raises(wa.AssistantError) as info:
+            _turn(call)
+        assert info.value.code == code and "C:\\Users" not in info.value.message
+
+
+DANGEROUS_YAML = VALID_YAML.replace(
+    "role: Fix bugs}",
+    "role: Fix bugs, tooling: [{type: mcp_local, config: {command: powershell, args: [-c, whoami]}}]}",
+)
+
+
+def test_dangerous_tools_check_on_create(turn_env):
+    out = _turn(FakeCall(_reply("ok", _proposal(DANGEROUS_YAML))))
+    checks = out["proposal"]["checks"]
+    entry = next(c for c in checks["checks"] if c["id"] == "dangerous_tools")
+    assert entry["status"] == "warn"
+    assert entry["items"] == [{"node": "Bug Fixer", "kind": "mcp_local", "detail": "powershell -c whoami"}]
+    assert checks["status"] in ("warn", "fail")
+
+
+def test_dangerous_tools_check_on_edit_reports_only_new(turn_env):
+    (turn_env / "tong_dai.yaml").write_text(DANGEROUS_YAML, encoding="utf-8")
+    edited = DANGEROUS_YAML.replace("role: Build the UI", "role: Build the whole UI")
+    out = _turn(FakeCall(_reply("ok", _proposal(edited, kind="edit"))), text="sửa Frontend",
+                workflow="tong_dai.yaml")
+    assert all(c["id"] != "dangerous_tools" for c in out["proposal"]["checks"]["checks"])
+    added = edited.replace(
+        "role: Build the whole UI}",
+        "role: Build the whole UI, tooling: [{type: mcp_remote, config: {server: 'https://x.io/mcp'}}]}")
+    out = _turn(FakeCall(_reply("ok", _proposal(added, kind="edit"))), text="sửa Frontend",
+                workflow="tong_dai.yaml")
+    entry = next(c for c in out["proposal"]["checks"]["checks"] if c["id"] == "dangerous_tools")
+    assert entry["items"] == [{"node": "Frontend", "kind": "mcp_remote", "detail": "https://x.io/mcp"}]
+
+
+def test_prompt_forbids_unrequested_dangerous_tools():
+    text = _prompt()
+    assert "mcp_local" in text and "mcp_remote" in text
+    assert "unless the user explicitly asked" in text
+
+
+def test_prompt_override_has_no_stray_newline_escapes():
+    assert "\n`quick_replies`" not in prompt_mod.OVERRIDE
+    assert "\nslug" not in prompt_mod.OVERRIDE
+
+
+def test_too_many_concurrent_turns_is_busy(turn_env, monkeypatch):
+    monkeypatch.setattr(wa, "MAX_CONCURRENT_TURNS", 1)
+    started, release = threading.Event(), threading.Event()
+
+    def slow(system, messages):
+        started.set()
+        release.wait(5)
+        return _reply()
+
+    thread = threading.Thread(target=lambda: _turn(slow, request_id="a"))
+    thread.start()
+    try:
+        assert started.wait(5)
+        call = FakeCall(_reply())
+        with pytest.raises(wa.AssistantError) as info:
+            _turn(call, request_id="b")
+        assert info.value.code == "busy"
+        assert call.calls == []
+    finally:
+        release.set()
+        thread.join(5)
+    assert _turn(FakeCall(_reply()), request_id="b")["reply"] == "ok"  # the slot is free again
+
+
+def test_request_too_large_is_bad_request(turn_env, monkeypatch):
+    monkeypatch.setattr(wa, "MAX_REQUEST_CHARS", 100)
+    call = FakeCall(_reply())
+    with pytest.raises(wa.AssistantError) as info:
+        wa.run_turn(vendor="anthropic", workflow=None, messages=[{"role": "user", "content": "x" * 60}],
+                    pending_yaml="y" * 60, request_id="r", call=call)
+    assert info.value.code == "bad_request"
+    assert call.calls == []

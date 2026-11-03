@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import subprocess
 import threading
@@ -23,12 +24,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import yaml
 
 from agentdev.api.services.workflow_assistant_prompt import build_system_prompt, load_context
-from agentdev.api.services.workflow_diff import diff_workflows, unrequested_changes
-from agentdev.api.services.workflow_lab import FAIL, SimpleConfig, static_check_data
+from agentdev.api.services.workflow_diff import diff_workflows, new_dangerous_tool_items, unrequested_changes
+from agentdev.api.services.workflow_lab import FAIL, WARN, SimpleConfig, static_check_data
 from agentdev.api.services.workflow_storage import validate_workflow_filename
 from agentdev.api.settings import YAML_DIR
 from agentdev.runtime.node.agent import account_fallback
+from agentdev.runtime.node.agent.providers._cli_common import CliProviderError
 from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled, cli_cancel_scope
+
+logger = logging.getLogger(__name__)
 
 VENDOR_LABELS = {"anthropic": "Claude", "openai": "Codex"}
 MAX_REPAIRS = 2
@@ -36,8 +40,11 @@ HISTORY_LIMIT = 40  # (20 turns) longer histories are trimmed
 HISTORY_TAIL = 24  # messages kept, after the first user message, once trimmed
 CALL_TIMEOUT = 180
 MAX_QUICK_REPLIES = 4
+MAX_CONCURRENT_TURNS = 4  # each turn runs a CLI for up to (MAX_REPAIRS + 1) x CALL_TIMEOUT
+MAX_REQUEST_CHARS = 400_000  # sum of message contents and pending_yaml
 
-ERROR_CODES = ("quota_exhausted", "not_signed_in", "timeout", "cancelled", "provider_error", "bad_request")
+ERROR_CODES = ("quota_exhausted", "not_signed_in", "timeout", "cancelled", "provider_error", "bad_request",
+               "busy")
 
 ModelCall = Callable[[str, List[dict]], str]
 
@@ -132,8 +139,40 @@ def _is_timeout(exc: BaseException) -> bool:
     return isinstance(exc, (TimeoutError, subprocess.TimeoutExpired))
 
 
+_SIGNED_OUT_MARKERS = ("not logged in", "not installed")
+
+
+def _is_signed_out(exc: BaseException) -> bool:
+    """The CLI providers report a logged-out or missing CLI as ``CliProviderError("... is not logged in:
+    ...")`` / ``("... is not installed or not on PATH")``; look along the cause chain too."""
+    seen = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, CliProviderError) and any(m in str(current).lower() for m in _SIGNED_OUT_MARKERS):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+# What the browser sees for each failure. The raw provider text can hold CLI stderr, local paths and the
+# account email, so it is only logged here.
+_PUBLIC_MESSAGES = {
+    "quota_exhausted": "The account has reached its usage limit.",
+    "timeout": "The model took too long to answer.",
+    "not_signed_in": "The CLI is not signed in or not installed.",
+    "provider_error": "The model call failed. Details are in the server log.",
+}
+
+
+def _provider_failure(code: str, exc: BaseException) -> AssistantError:
+    logger.warning("Workflow assistant model call failed (%s): %s", code, exc)
+    return AssistantError(code, _PUBLIC_MESSAGES[code])
+
+
 def _guarded_call(call: ModelCall, system: str, messages: List[dict], event: threading.Event) -> str:
-    """Run one model call inside the cancel scope and map failures to ``AssistantError``."""
+    """Run one model call inside the cancel scope and map failures to ``AssistantError`` (with a short
+    message safe to show in the browser; the provider's own text goes to the server log)."""
     if event.is_set():
         raise AssistantError("cancelled", "Stopped")
     try:
@@ -147,10 +186,12 @@ def _guarded_call(call: ModelCall, system: str, messages: List[dict], event: thr
         if event.is_set():
             raise AssistantError("cancelled", "Stopped") from exc
         if account_fallback.is_quota_error(exc) or account_fallback.is_exhaustion_error(exc):
-            raise AssistantError("quota_exhausted", str(exc)) from exc
+            raise _provider_failure("quota_exhausted", exc) from exc
         if _is_timeout(exc):
-            raise AssistantError("timeout", str(exc)) from exc
-        raise AssistantError("provider_error", str(exc)) from exc
+            raise _provider_failure("timeout", exc) from exc
+        if _is_signed_out(exc):
+            raise _provider_failure("not_signed_in", exc) from exc
+        raise _provider_failure("provider_error", exc) from exc
     if event.is_set():
         raise AssistantError("cancelled", "Stopped")
     return text or ""
@@ -159,6 +200,11 @@ def _guarded_call(call: ModelCall, system: str, messages: List[dict], event: thr
 # ---------------------------------------------------------------------------- parsing
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n\s*```", re.DOTALL)
+# Text that is meant to be the JSON reply: an object, a fenced object, or one naming the contract keys.
+_JSON_LIKE_RE = re.compile(r'\A\s*(?:\{|```(?:json)?\s*\{)|"(?:reply|proposal)"\s*:')
+# strict=False accepts raw control characters (real newlines) inside strings: models often write the
+# YAML of ``proposal.yaml`` that way instead of with \n escapes.
+_DECODER = json.JSONDecoder(strict=False)
 
 
 def _json_object(text: str) -> Optional[dict]:
@@ -166,16 +212,15 @@ def _json_object(text: str) -> Optional[dict]:
     "{" in the text that has a ``reply`` key (or the first object decoded at all)."""
     for candidate in [text.strip()] + [m.group(1) for m in _FENCE_RE.finditer(text)]:
         try:
-            data = json.loads(candidate)
+            data = _DECODER.decode(candidate)
         except ValueError:
             continue
         if isinstance(data, dict):
             return data
-    decoder = json.JSONDecoder()
     first: Optional[dict] = None
     for match in re.finditer(r"\{", text):
         try:
-            data, _ = decoder.raw_decode(text, match.start())
+            data, _ = _DECODER.raw_decode(text, match.start())
         except ValueError:
             continue
         if isinstance(data, dict):
@@ -185,12 +230,28 @@ def _json_object(text: str) -> Optional[dict]:
     return first
 
 
-def parse_model_output(text: str) -> dict:
-    """``{reply, quick_replies, proposal}`` from the model's text. Text that holds no JSON object is
-    the reply itself (``proposal`` None). ``proposal`` is returned as sent (validated later)."""
-    data = _json_object(text or "")
+def _json_error(text: str) -> str:
+    """Why ``text``, which looks like the JSON reply, could not be used (a repair request line)."""
+    stripped = text.strip()
+    fence = _FENCE_RE.search(stripped)
+    candidate = fence.group(1) if fence else re.sub(r"\A```(?:json)?\s*", "", stripped)
+    try:
+        _DECODER.decode(candidate)
+        reason = "it has no `reply` or `proposal` key"
+    except ValueError as exc:
+        reason = str(exc)
+    return f"Your reply was not valid JSON or was cut off ({reason})."
+
+
+def _parse(text: str) -> Tuple[dict, Optional[str]]:
+    """(parsed reply, None), or (empty reply, error) when the text was meant as the JSON reply but is
+    broken or truncated: showing it raw would put braces and escaped YAML in the chat bubble."""
+    text = text or ""
+    data = _json_object(text)
     if data is None or not ({"reply", "proposal"} & data.keys()):
-        return {"reply": (text or "").strip(), "quick_replies": [], "proposal": None}
+        if _JSON_LIKE_RE.search(text):
+            return {"reply": "", "quick_replies": [], "proposal": None}, _json_error(text)
+        return {"reply": text.strip(), "quick_replies": [], "proposal": None}, None
     quick = data.get("quick_replies")
     quick_replies = [str(q) for q in quick if isinstance(q, (str, int, float)) and str(q).strip()] \
         if isinstance(quick, list) else []
@@ -199,7 +260,14 @@ def parse_model_output(text: str) -> dict:
         "reply": str(data.get("reply") or ""),
         "quick_replies": quick_replies[:MAX_QUICK_REPLIES],
         "proposal": proposal if proposal not in (None, {}, "") else None,
-    }
+    }, None
+
+
+def parse_model_output(text: str) -> dict:
+    """``{reply, quick_replies, proposal}`` from the model's text. Text that holds no JSON object is
+    the reply itself (``proposal`` None), unless it was meant as the JSON reply and is broken: the reply
+    is then empty. ``proposal`` is returned as sent (validated later)."""
+    return _parse(text)[0]
 
 
 # ---------------------------------------------------------------------------- validation
@@ -217,9 +285,32 @@ def _duplicate_edges(data: Any) -> List[Tuple[str, str]]:
     return [pair for pair, count in seen.items() if count > 1]
 
 
-def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str],
-                    last_user_text: str) -> Tuple[Optional[dict], List[str]]:
-    """(proposal for the client, []) when valid, else (None, errors to send back to the model)."""
+def _load_saved(saved_text: Optional[str]) -> Optional[dict]:
+    """The saved workflow as a mapping, or None when there is none or it is broken (unparseable, or not
+    a mapping): the diff then treats every proposed node as new. Never raises."""
+    if saved_text is None:
+        return None
+    try:
+        data = yaml.safe_load(saved_text)
+    except Exception:  # noqa: BLE001 - YAMLError, or a pathological document (e.g. deep nesting)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _dangerous_tools_check(old: Optional[dict], data: Any) -> Optional[dict]:
+    """A WARN check listing the commands, MCP servers and code execution a proposal adds (for an edit,
+    only those new or changed versus the saved file). None when there is nothing to report."""
+    items = new_dangerous_tool_items(old, data)
+    if not items:
+        return None
+    detail = "; ".join(f"{i['node']}: {i['detail']}" for i in items)
+    return {"id": "dangerous_tools", "status": WARN, "detail": detail, "items": items}
+
+
+def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str], saved_doc: Optional[dict],
+                    user_texts: List[str]) -> Tuple[Optional[dict], List[str]]:
+    """(proposal for the client, []) when valid, else (None, errors to send back to the model).
+    ``saved_doc`` is ``_load_saved(saved_text)``; ``user_texts`` every user message of the chat."""
     if not isinstance(raw, dict):
         return None, ["`proposal` must be an object with kind, filename and yaml, or null."]
     kind = raw.get("kind")
@@ -260,12 +351,7 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
     report = static_check_data(data)
     errors = [f"{c['id']}: {c.get('detail') or 'failed'}" for c in report["checks"]
               if c["status"] == FAIL and c["id"] != "accounts"]
-    old = None
-    if kind == "edit" and saved_text is not None:
-        try:
-            old = yaml.safe_load(saved_text)
-        except yaml.YAMLError:
-            old = None  # a broken saved file: diff as if every node were new
+    old = saved_doc if kind == "edit" else None
 
     # 4. Duplicate edges. The runtime keeps one link per (from, to) pair, so a second edge between the
     # same nodes silently replaces the first. Pairs already duplicated in the saved file are left alone:
@@ -275,9 +361,14 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
                "Merge them into one edge." for src, dst in _duplicate_edges(data) if (src, dst) not in already]
     if errors:
         return None, errors
-    diff = diff_workflows(old if isinstance(old, dict) else None, data)
-    # Removed/changed nodes the user never named (edit only).
-    warnings = list(unrequested_changes(diff, last_user_text)) if kind == "edit" else []
+    diff = diff_workflows(old, data)
+    # Removed/changed nodes the user never named in any turn (edit only).
+    warnings = list(unrequested_changes(diff, user_texts)) if kind == "edit" else []
+    # Commands, MCP servers and code execution (independent of the unsafe-code switch on this machine).
+    danger = _dangerous_tools_check(old, data)
+    if danger is not None:
+        report = {**report, "status": FAIL if report["status"] == FAIL else WARN,
+                  "checks": report["checks"] + [danger]}
     return {
         "kind": kind,
         "filename": filename,
@@ -289,13 +380,19 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
     }, []
 
 
-def _repair_request(errors: List[str]) -> str:
+_REPAIR_FOOTER = "\nThe user does not see this check: your new `reply` replaces the previous one, so write " \
+    "it for the user, in their language, as if it were your first answer, without mentioning the fix." \
+    "\nReturn the corrected full JSON."
+
+
+def _repair_request(errors: List[str], *, bad_json: bool = False) -> str:
     # The user never sees this exchange: the corrected ``reply`` replaces the first one, so it must still
     # be written for them (seen in a real run: "Merged the duplicate connections..." in English).
-    return "Your proposal failed validation:\n" + "\n".join(f"- {e}" for e in errors) + \
-        "\nThe user does not see this check: your new `reply` replaces the previous one, so write it for " \
-        "the user, in their language, as if it were your first answer, without mentioning the fix." \
-        "\nReturn the corrected full JSON."
+    if bad_json:
+        return errors[0] + " Return the complete JSON object (`reply`, `quick_replies`, `proposal`), with " \
+            "newlines inside strings written as \\n. If the workflow is large, keep `reply` short." + \
+            _REPAIR_FOOTER
+    return "Your proposal failed validation:\n" + "\n".join(f"- {e}" for e in errors) + _REPAIR_FOOTER
 
 
 # ---------------------------------------------------------------------------- turn
@@ -312,6 +409,8 @@ def _clean_messages(messages: Any) -> List[dict]:
         cleaned.append({"role": m["role"], "content": m["content"]})
     if cleaned[-1]["role"] != "user":
         raise AssistantError("bad_request", "the last message must come from the user")
+    if not cleaned[-1]["content"].strip():
+        raise AssistantError("bad_request", "the last message is empty")
     return cleaned
 
 
@@ -335,7 +434,10 @@ def _read_workflow(workflow: str) -> str:
     path = Path(YAML_DIR) / name
     if not path.is_file():
         raise AssistantError("bad_request", f"Workflow not found: {workflow}")
-    return path.read_text(encoding="utf-8")
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AssistantError("bad_request", f"The workflow file {name} is not UTF-8 text") from exc
 
 
 def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pending_yaml: Optional[str],
@@ -348,8 +450,16 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
     thread. ``cancel(request_id)`` from another thread stops it with code ``cancelled``."""
     if vendor not in VENDOR_LABELS:
         raise AssistantError("bad_request", f"Unknown vendor: {vendor}")
-    history = _trim_history(_clean_messages(messages))
+    cleaned = _clean_messages(messages)
+    if sum(len(m["content"]) for m in cleaned) + len(pending_yaml or "") > MAX_REQUEST_CHARS:
+        raise AssistantError("bad_request", f"The request is too large (over {MAX_REQUEST_CHARS} characters)")
+    history = _trim_history(cleaned)
+    # Every user turn counts as a request: the diff is against the saved file, so a change asked for in an
+    # earlier turn (still pending, not applied) is in it too. Taken before repair messages are appended.
+    user_texts = [m["content"] for m in cleaned if m["role"] == "user"]
+    # Read and parse the saved file before the (paid) model call, so a bad file fails or degrades here.
     saved_text = _read_workflow(workflow) if workflow else None
+    saved_doc = _load_saved(saved_text)
 
     model_used: Optional[str] = None
     if call is None:
@@ -363,26 +473,33 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
 
     system = build_system_prompt(current_yaml=saved_text, current_name=workflow if workflow else None,
                                  pending_yaml=pending_yaml or None, chat_vendor=vendor, **load_context())
-    last_user_text = history[-1]["content"]
 
     event = threading.Event()
     with _cancel_lock:
         if request_id in _cancel_events:
             raise AssistantError("bad_request", f"Request {request_id} is already running")
+        if len(_cancel_events) >= MAX_CONCURRENT_TURNS:
+            raise AssistantError("busy", "Too many concurrent requests; try again when one has finished")
         _cancel_events[request_id] = event
     try:
         errors: List[str] = []
         for attempt in range(MAX_REPAIRS + 1):
             text = _guarded_call(call, system, history, event)
-            parsed = parse_model_output(text)
-            if parsed["proposal"] is None:
+            parsed, json_error = _parse(text)
+            if json_error is not None:
+                # Broken or truncated JSON reply: never shown raw; the model resends it whole.
+                errors, repair = [json_error], _repair_request([json_error], bad_json=True)
+            elif parsed["proposal"] is None:
                 return {**parsed, "model_used": model_used, "validation_errors": []}
-            proposal, errors = _check_proposal(parsed["proposal"], workflow, saved_text, last_user_text)
-            if proposal is not None:
-                return {**parsed, "proposal": proposal, "model_used": model_used, "validation_errors": []}
+            else:
+                proposal, errors = _check_proposal(parsed["proposal"], workflow, saved_text, saved_doc,
+                                                   user_texts)
+                if proposal is not None:
+                    return {**parsed, "proposal": proposal, "model_used": model_used, "validation_errors": []}
+                repair = _repair_request(errors)
             if attempt < MAX_REPAIRS:
                 history = history + [{"role": "assistant", "content": text},
-                                     {"role": "user", "content": _repair_request(errors)}]
+                                     {"role": "user", "content": repair}]
         # Gave up: the UI shows its own (translated) header above ``validation_errors``.
         return {**parsed, "proposal": None, "model_used": model_used, "validation_errors": errors}
     finally:
