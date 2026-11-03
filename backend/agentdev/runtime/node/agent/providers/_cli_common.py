@@ -21,6 +21,10 @@ class CliProviderError(RuntimeError):
     """Raised when a vendor CLI is missing, not logged in, or fails."""
 
 
+class CliTimeoutError(CliProviderError, TimeoutError):
+    """The CLI did not answer in time. A ``TimeoutError`` so the agent retry policy retries it."""
+
+
 class CliClient:
     """Minimal client: the resolved executable path."""
 
@@ -224,7 +228,7 @@ def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str) ->
     try:
         return cli_auth.run_capture(cmd, input=prompt, timeout=timeout, cwd=cwd, env=cli_auth.cli_env())
     except subprocess.TimeoutExpired as exc:
-        raise CliProviderError(f"`{name}` CLI timed out after {timeout}s") from exc
+        raise CliTimeoutError(f"`{name}` CLI timed out after {timeout}s") from exc
     except (FileNotFoundError, PermissionError) as exc:
         raise CliProviderError(f"`{name}` CLI not installed or not executable") from exc
 
@@ -254,3 +258,131 @@ def record_token_usage(provider: Any, raw_response: Any, provider_name: str) -> 
 
 def make_tempdir() -> Any:
     return tempfile.TemporaryDirectory(prefix="agentdev-cli-")
+
+
+# ---------------------------------------------------------------------------
+# Attachments (images, PDFs, documents) for the text-only CLI prompt
+# ---------------------------------------------------------------------------
+
+MAX_INLINE_TEXT_BYTES = 100 * 1024
+MAX_STAGED_FILE_BYTES = 30 * 1024 * 1024
+_TEXT_MIME_PREFIXES = ("text/",)
+_TEXT_MIME_TYPES = {
+    "application/json", "application/xml", "application/x-yaml", "application/yaml",
+    "application/javascript", "application/x-sh", "application/sql", "application/toml",
+}
+_TEXT_SUFFIXES = {
+    ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".yaml", ".yml", ".xml", ".html", ".css", ".js",
+    ".ts", ".tsx", ".jsx", ".vue", ".py", ".java", ".kt", ".go", ".rs", ".rb", ".php", ".cs", ".c", ".h",
+    ".cpp", ".hpp", ".sql", ".sh", ".ps1", ".toml", ".ini", ".env.example", ".log", ".srt", ".vtt",
+}
+
+
+class StagedAttachment:
+    """An attachment made available to a CLI call: inlined text, or a file copied into its cwd."""
+
+    def __init__(self, name: str, mime: str, kind: str, rel_path: str = "", text: str = "", size: int = 0):
+        self.name = name
+        self.mime = mime
+        self.kind = kind  # "text" | "image" | "pdf" | "media" | "file"
+        self.rel_path = rel_path
+        self.text = text
+        self.size = size
+
+
+def _attachment_bytes(ref: Any) -> Optional[bytes]:
+    import base64
+    import os
+
+    path = getattr(ref, "local_path", None)
+    if path and os.path.isfile(path):
+        if os.path.getsize(path) > MAX_STAGED_FILE_BYTES:
+            return None
+        with open(path, "rb") as fh:
+            return fh.read()
+    data_uri = getattr(ref, "data_uri", None)
+    if data_uri and "," in data_uri:
+        header, payload = data_uri.split(",", 1)
+        try:
+            return base64.b64decode(payload) if ";base64" in header else payload.encode("utf-8")
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def _kind_of(name: str, mime: str) -> str:
+    lower = name.lower()
+    if mime.startswith("image/"):
+        return "image"
+    if mime == "application/pdf" or lower.endswith(".pdf"):
+        return "pdf"
+    if mime.startswith(("video/", "audio/")):
+        return "media"
+    if mime.startswith(_TEXT_MIME_PREFIXES) or mime in _TEXT_MIME_TYPES or any(lower.endswith(s) for s in _TEXT_SUFFIXES):
+        return "text"
+    return "file"
+
+
+def stage_attachments(conversation: List[Message], cwd: str) -> List[StagedAttachment]:
+    """Collect attachments from non-system messages: small text files are inlined, the rest are
+    copied into ``<cwd>/attachments`` so the CLI can open them (images/PDFs)."""
+    import os
+
+    staged: List[StagedAttachment] = []
+    seen: set = set()
+    for msg in conversation:
+        if msg.role == MessageRole.SYSTEM or isinstance(msg.content, str) or msg.content is None:
+            continue
+        for block in msg.blocks():
+            ref = block.attachment
+            if ref is None:
+                continue
+            key = ref.attachment_id or ref.local_path or ref.name
+            if key in seen:
+                continue
+            seen.add(key)
+            name = os.path.basename(ref.name or ref.local_path or ref.attachment_id or "attachment")
+            name = re.sub(r"[^\w.\- ]+", "_", name).strip() or "attachment"
+            mime = (ref.mime_type or "").lower()
+            kind = _kind_of(name, mime)
+            data = _attachment_bytes(ref)
+            if data is None:
+                staged.append(StagedAttachment(name, mime, "missing", size=ref.size or 0))
+                continue
+            if kind == "text" and len(data) <= MAX_INLINE_TEXT_BYTES:
+                staged.append(StagedAttachment(name, mime, "text", text=data.decode("utf-8", errors="replace"), size=len(data)))
+                continue
+            folder = os.path.join(cwd, "attachments")
+            os.makedirs(folder, exist_ok=True)
+            target = os.path.join(folder, name)
+            stem, ext = os.path.splitext(name)
+            n = 1
+            while os.path.exists(target):
+                n += 1
+                target = os.path.join(folder, f"{stem}-{n}{ext}")
+            with open(target, "wb") as fh:
+                fh.write(data)
+            rel = os.path.relpath(target, cwd).replace(os.sep, "/")
+            staged.append(StagedAttachment(name, mime, "text" if kind == "text" else kind, rel_path=rel, size=len(data)))
+    return staged
+
+
+def attachments_section(staged: List[StagedAttachment], *, can_read_files: bool) -> str:
+    """Prompt section that tells the model what was attached and how to open it."""
+    if not staged:
+        return ""
+    lines = ["[Attached files]"]
+    for item in staged:
+        size_kb = max(1, item.size // 1024) if item.size else 0
+        if item.kind == "text" and item.text:
+            lines.append(f"--- {item.name} ({size_kb} KB) ---\n{item.text}\n--- end of {item.name} ---")
+        elif item.kind == "missing":
+            lines.append(f"- {item.name}: the file could not be loaded.")
+        elif item.kind == "media":
+            lines.append(f"- {item.name} ({item.mime or 'media'}, {size_kb} KB) at `{item.rel_path}`: audio/video cannot be "
+                         "viewed directly; work from its name and the user's description, and say so if you need a transcript.")
+        elif can_read_files:
+            lines.append(f"- {item.name} ({item.mime or item.kind}, {size_kb} KB) at `{item.rel_path}`: open it with the Read tool.")
+        else:
+            lines.append(f"- {item.name} ({item.mime or item.kind}, {size_kb} KB) at `{item.rel_path}`.")
+    return "\n".join(lines)
