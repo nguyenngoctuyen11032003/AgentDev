@@ -22,7 +22,8 @@ import { workflowKey } from '@/utils/workflowSync.js'
 import { reconcileLayout } from '@/utils/layoutReconcile.js'
 
 const VENDOR_STORAGE_KEY = 'agentdev:assistant-vendor'
-const CREATE_KEY = 'create'
+// ":" cannot appear in a workflow name, so no workflow thread can take this key.
+const CREATE_KEY = ':create'
 
 /** sha256 hex of a saved workflow text, line endings normalised (matches the backend base_hash). */
 export async function workflowTextHash(text) {
@@ -72,7 +73,7 @@ const createThread = (workflow) => ({
 const context = ref({ mode: 'create', workflow: null })
 const providers = ref([])
 const vendor = ref(readStoredVendor())
-const threads = reactive(new Map([[CREATE_KEY, createThread(null)]]))
+const threads = reactive(new Map([[threadKey('create', null), createThread(null)]]))
 // Last applied edit, kept for the Undo action: {workflow, oldYaml, oldLayout}
 const lastApplied = ref(null)
 
@@ -85,7 +86,7 @@ const ensureThread = (key, workflow) => {
 
 const currentThread = computed(() => {
   const { mode, workflow } = context.value
-  return threads.get(threadKey(mode, workflow)) || threads.get(CREATE_KEY)
+  return threads.get(threadKey(mode, workflow)) || threads.get(threadKey('create', null))
 })
 
 const canUndo = computed(() => !!lastApplied.value)
@@ -216,10 +217,10 @@ async function applyCreate(thread, proposal) {
 
   // The conversation goes on in the new workflow's thread; "create" starts fresh.
   const name = workflowKey(proposal.filename)
-  if (thread === threads.get(CREATE_KEY)) {
+  if (thread === threads.get(threadKey('create', null))) {
     thread.workflow = name
-    threads.set(name, thread)
-    threads.set(CREATE_KEY, createThread(null))
+    threads.set(threadKey('workflow', name), thread)
+    threads.set(threadKey('create', null), createThread(null))
   }
   setContext('workflow', name)
   return { ok: true, filename: proposal.filename }
@@ -249,7 +250,18 @@ async function applyEdit(thread, proposal, formOpen) {
 
   const merged = await mergeWorkflowDocument(name, document)
   if (!merged.success) return { ok: false, reason: 'failed', message: merged.message }
-  lastApplied.value = { workflow: name, oldYaml, oldLayout }
+  // Hash of what was written, so Undo can tell whether the file changed again since.
+  let appliedText = typeof merged.content === 'string' ? merged.content : null
+  if (appliedText === null) {
+    const reread = await fetchYaml(name)
+    appliedText = reread.success ? reread.content ?? '' : null
+  }
+  lastApplied.value = {
+    workflow: name,
+    oldYaml,
+    oldLayout,
+    appliedHash: appliedText === null ? null : await workflowTextHash(appliedText)
+  }
 
   let flow = null
   try {
@@ -292,13 +304,25 @@ async function applyProposal({ formOpen = false } = {}) {
   }
 }
 
-/** Restores the YAML text and layout saved before the last applied edit. */
+/**
+ * Restores the YAML text and layout saved before the last applied edit. Refuses (reason 'stale')
+ * without writing when the file changed after the apply, so later edits are never wiped.
+ * @returns {Promise<{ok: boolean, reason?: 'none'|'stale'|'failed', filename?: string, message?: string}>}
+ */
 async function undoLast() {
   const applied = lastApplied.value
-  if (!applied) return { ok: false }
+  if (!applied) return { ok: false, reason: 'none' }
 
+  const current = await fetchYaml(applied.workflow)
+  if (!current.success) return { ok: false, reason: 'failed', message: current.message }
+  if (!applied.appliedHash || (await workflowTextHash(current.content ?? '')) !== applied.appliedHash) {
+    lastApplied.value = null
+    return { ok: false, reason: 'stale' }
+  }
+
+  // oldYaml came from /get, which reads in text mode: a CRLF file is restored with LF line endings.
   const restored = await updateYaml(applied.workflow, applied.oldYaml)
-  if (!restored.success) return { ok: false, message: restored.message }
+  if (!restored.success) return { ok: false, reason: 'failed', message: restored.message }
   lastApplied.value = null
 
   if (applied.oldLayout) {
