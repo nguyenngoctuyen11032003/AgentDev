@@ -765,6 +765,63 @@ export const checkWorkflowConnections = (yamlContent) =>
     'errors.api.connections_failed'
   )
 
+// ---------------------------------------------------------------------------
+// Workflow assistant (chat that explains, creates and edits workflows)
+// ---------------------------------------------------------------------------
+
+const ASSISTANT_ERROR_KEY = 'workflow_assistant.errors.request_failed'
+
+// The chat route answers its own failures as {error: <code>, message}; keep the code so the panel
+// can react to it (quota_exhausted, cancelled, ...).
+async function assistantRequest(path, options = {}) {
+  try {
+    const response = await fetch(apiUrl(`/api/workflow-assistant${path}`), {
+      headers: { 'Content-Type': 'application/json' },
+      ...FRESH,
+      ...options
+    })
+    const data = await response.json().catch(() => ({}))
+    if (typeof data?.error === 'string') {
+      const detail = typeof data.message === 'string' ? data.message : ''
+      return {
+        success: false,
+        error: data.error,
+        detail: detail || undefined,
+        message: errorMessage(ASSISTANT_ERROR_KEY, detail),
+        status: response.status
+      }
+    }
+    if (response.ok) {
+      return { success: true, ...data }
+    }
+    return failureResult(ASSISTANT_ERROR_KEY, response, data)
+  } catch (error) {
+    console.error('Workflow assistant request failed:', error)
+    return networkFailure(error)
+  }
+}
+
+// -> {success, providers: [{vendor, label, connection_id, model, available}]}
+export const fetchAssistantProviders = () => assistantRequest('/providers')
+
+// -> {success, reply, quick_replies, proposal, model_used, validation_errors}
+//    or {success: false, error?: code, detail?, message, status?}
+export const sendAssistantMessage = ({ vendor, workflow, messages, pendingYaml, requestId }) =>
+  assistantRequest('/chat', {
+    method: 'POST',
+    body: JSON.stringify({
+      vendor,
+      workflow: workflow || null,
+      messages,
+      pending_yaml: pendingYaml || null,
+      request_id: requestId
+    })
+  })
+
+// -> {success, cancelled}
+export const cancelAssistantRequest = (requestId) =>
+  assistantRequest('/cancel', { method: 'POST', body: JSON.stringify({ request_id: requestId }) })
+
 export const fetchCliStatus = (vendor) =>
   connectionsRequest(`/cli-status/${encodeURIComponent(vendor)}`, {}, 'errors.api.connections_failed')
 
