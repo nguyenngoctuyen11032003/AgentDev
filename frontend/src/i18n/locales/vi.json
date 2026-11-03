@@ -162,7 +162,14 @@
     "dept_content": "Phòng nội dung",
     "dept_content_desc": "Tổng biên tập giao việc nghiên cứu và kiểm chứng, viết, tối ưu SEO và soát lỗi.",
     "dept_video": "Phòng sản xuất video",
-    "dept_video_desc": "Nhà sản xuất điều phối kịch bản, storyboard, lồng tiếng và phụ đề, dựng video, thumbnail và duyệt."
+    "dept_video_desc": "Nhà sản xuất điều phối kịch bản, storyboard, lồng tiếng và phụ đề, dựng video, thumbnail và duyệt.",
+    "delete": "Xoá",
+    "delete_aria": "Xoá quy trình {name}",
+    "confirm_delete_title": "Xoá quy trình \"{name}\"?",
+    "confirm_delete_message": "Tệp YAML của quy trình sẽ bị xoá vĩnh viễn. Không thể hoàn tác.",
+    "confirm_delete_open": "Quy trình này đang mở trong trình chỉnh sửa: thay đổi chưa lưu sẽ mất và tệp YAML sẽ bị xoá vĩnh viễn. Không thể hoàn tác.",
+    "delete_success": "Đã xoá quy trình \"{name}\".",
+    "delete_failed": "Không thể xoá quy trình."
   },
   "workflow_view": {
     "yaml_parse_error": "Lỗi phân tích YAML: ",
@@ -211,7 +218,8 @@
     "duplicate_many_done_team": "Đã tạo {count} bản sao (\"{first}\" … \"{last}\") và thêm vào nhóm của {leads}.",
     "try_in_lab": "Thử trong Lab",
     "try_in_lab_hint": "Mở Lab với quy trình này để chạy thử các kịch bản và chấm điểm",
-    "more_actions": "Thêm thao tác"
+    "more_actions": "Thêm thao tác",
+    "delete_workflow": "Xoá quy trình"
   },
   "batch_run": {
     "title": "Chạy hàng loạt",
@@ -432,7 +440,12 @@
       "tool": "Đang dùng {name}",
       "member_working": "{chain} đang làm",
       "member_working_doing": "{chain} · {doing}",
-      "member_file": "{member} đã tạo {file}"
+      "member_file": "{member} đã tạo {file}",
+      "working": "Đang làm việc",
+      "browser": "Đang thao tác trình duyệt",
+      "member_step": "{member} · {step}",
+      "more_steps": "+{n} bước trước",
+      "fewer_steps": "Thu gọn"
     },
     "activity_done": {
       "thinking": "Đã suy nghĩ",
@@ -446,7 +459,11 @@
       "write": "Đã chỉnh sửa tệp",
       "run": "Đã chạy lệnh",
       "web": "Đã tra cứu trên web",
-      "tool": "Đã dùng {name}"
+      "tool": "Đã dùng {name}",
+      "browser": "Đã thao tác trình duyệt",
+      "reflect": "Đã suy ngẫm lại",
+      "memory_read": "Đã tra cứu bộ nhớ",
+      "memory_write": "Đã ghi vào bộ nhớ"
     },
     "workflow_completed": "Quy trình đã hoàn tất",
     "errors": {
@@ -887,7 +904,9 @@
       "suggestions_label": "Gợi ý câu hỏi",
       "suggestion_intro": "Giới thiệu đội của bạn và cách các bạn làm việc",
       "suggestion_plan": "Lên kế hoạch làm một ứng dụng ghi chú đơn giản",
-      "suggestion_review": "Rà soát mã trong dự án và đề xuất cải tiến"
+      "suggestion_review": "Rà soát mã trong dự án và đề xuất cải tiến",
+      "composer_label_agent": "Nhập tin nhắn",
+      "running_draft_placeholder_agent": "Đang làm việc… bạn có thể soạn tin tiếp theo hoặc dừng lượt chạy"
     },
     "run_new_turn": "Chạy lượt mới",
     "running_placeholder": "Đang chạy… bạn có thể dừng hoặc chờ trưởng nhóm hỏi",
@@ -1383,7 +1402,8 @@
       "connections_failed": "Không thể tải danh sách kết nối",
       "sessions_failed": "Không thể tải danh sách phiên",
       "skills_failed": "Không thể xử lý thư viện skill",
-      "lab_failed": "Phòng thí nghiệm gặp lỗi"
+      "lab_failed": "Phòng thí nghiệm gặp lỗi",
+      "delete_workflow_failed": "Không thể xoá quy trình."
     },
     "backend": {
       "technical": "Chi tiết kỹ thuật: {detail}",

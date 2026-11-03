@@ -190,7 +190,7 @@
 import { ref, reactive, watch, nextTick, computed, onMounted, onBeforeUnmount, markRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import yaml from 'js-yaml'
-import { fetchConfigSchema, postYaml, fetchWorkflowYAML, updateYaml } from '@/api/client.js'
+import { fetchConfigSchema, postYaml, fetchWorkflowYAML, mergeWorkflowDocument } from '@/api/client.js'
 import { configStore } from '@/stores/configStore.js'
 import DynamicFormField from './DynamicFormField.vue'
 import InlineConfigRenderer from './InlineConfigRenderer.vue'
@@ -1186,6 +1186,33 @@ const toggleAdvancedFields = (modalId) => {
 
 const sanitizeFormData = (data) => JSON.parse(JSON.stringify(data ?? {}))
 
+const sameJson = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+// When editing an existing entry, the form pre-fills every field the entry does not set (schema
+// defaults such as the default account connection, empty strings, nulls). Saving those would write
+// keys the author never chose, so drop each pre-filled key the user left as it was. Inline config
+// forms (e.g. a node's `config`) are pruned the same way against their own snapshot.
+const dropUntouchedPrefills = (modal, payload) => {
+  const initial = modal?.initialData
+  if (!payload || typeof payload !== 'object' || !initial || typeof initial !== 'object' || Array.isArray(initial)) {
+    return
+  }
+  if (Object.keys(initial).length === 0) {
+    return // a new entry: the pre-filled defaults are what the user is creating
+  }
+  const original = modal.originalFormData || {}
+  Object.keys(payload).forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(initial, key) && sameJson(payload[key], original[key])) {
+      delete payload[key]
+    }
+  })
+  Object.entries(modal.inlineChildModals || {}).forEach(([field, child]) => {
+    if (payload[field] && typeof payload[field] === 'object') {
+      dropUntouchedPrefills(child, payload[field])
+    }
+  })
+}
+
 const generateChildSummary = (modal, formData) => {
   if (!modal || !modal.schema || !Array.isArray(modal.schema.fields)) {
     return ''
@@ -1350,11 +1377,16 @@ const resolveTargetFilename = () => {
   return resolveWorkflowFilename()
 }
 
-const saveWorkflowYaml = (filename, yamlString) => {
+// Existing workflow: send the data and let the server change only the lines that differ, so the
+// file keeps its comments, anchors/aliases and block text. New workflow: upload the dumped YAML.
+// Resolves to the API result plus the saved YAML text.
+const saveWorkflowDocument = async (filename, yamlObject) => {
   if (props.workflowName) {
-    return updateYaml(filename, yamlString)
+    const result = await mergeWorkflowDocument(filename, yamlObject ?? {})
+    return { ...result, yamlString: result.content ?? '' }
   }
-  return postYaml(filename, yamlString)
+  const yamlString = yaml.dump(yamlObject ?? null, yamlDumpOptions)
+  return { ...(await postYaml(filename, yamlString)), yamlString }
 }
 
 const getUpperBreadcrumbsField = (modal) => {
@@ -1576,9 +1608,8 @@ const deleteEntry = async (modalId) => {
       removeNodeRelatedYamlInfo(yamlObjectToSave, targetNodeId)
     }
 
-    const yamlString = yaml.dump(yamlObjectToSave ?? null, yamlDumpOptions)
-
-    const result = await saveWorkflowYaml(filename, yamlString)
+    const result = await saveWorkflowDocument(filename, yamlObjectToSave)
+    const yamlString = result.yamlString
     if (!result.success) {
       modal.formError = result.message || result.detail || t('form_generator.failed_to_save')
       return
@@ -1634,6 +1665,7 @@ const submitForm = async (modalId) => {
   }
 
   const payload = sanitizeFormData(modal.formData)
+  dropUntouchedPrefills(modal, payload)
 
   // Uncomment to skip process if no changes made to the form
   // if (!hasModalChanges(modal, payload)) {
@@ -1691,10 +1723,10 @@ const submitForm = async (modalId) => {
       : structuredData
 
     restoreNodeOrder(mergedYamlObject, nodeIdChangeInfo)
-    const yamlString = yaml.dump(mergedYamlObject ?? null, yamlDumpOptions)
 
     // Save updated, full YAML through API
-    const result = await saveWorkflowYaml(filename, yamlString)
+    const result = await saveWorkflowDocument(filename, mergedYamlObject)
+    const yamlString = result.yamlString
     if (!result.success) {
       modal.formError = result.message || result.detail || t('form_generator.failed_to_save')
       return

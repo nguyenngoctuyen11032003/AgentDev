@@ -61,6 +61,18 @@
             :aria-label="`${$t('workflow_list.try_in_lab')}: ${displayName(file.name)}`"
             @click.stop="goToLab(file.name)"
           >{{ $t('workflow_list.try_in_lab') }}</button>
+          <button
+            type="button"
+            class="delete-btn"
+            :title="$t('workflow_list.delete')"
+            :aria-label="$t('workflow_list.delete_aria', { name: displayName(file.name) })"
+            :disabled="deleting === file.name"
+            @click.stop="confirmDelete(file)"
+          >
+            <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />
+            </svg>
+          </button>
           <div class="file-arrow">→</div>
         </div>
       </transition-group>
@@ -103,14 +115,16 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { fetchWorkflowsWithDesc } from '@/api/client.js'
+import { fetchWorkflowsWithDesc, deleteWorkflow } from '@/api/client.js'
 import { onWorkflowChanged } from '@/utils/workflowSync.js'
+import { confirmDialog } from '@/utils/confirm.js'
+import { toast } from '@/utils/toast.js'
 import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
 import FormGenerator from '@/components/form/FormGenerator.vue'
 import DepartmentTemplatePicker from '@/components/workflow/DepartmentTemplatePicker.vue'
 
 const router = useRouter()
-const { locale } = useI18n()
+const { locale, t } = useI18n()
 const props = defineProps({
   selected: {
     type: String,
@@ -127,6 +141,7 @@ const loading = ref(false)
 const error = ref(null)
 
 const showFormGenerator = ref(false)
+const deleting = ref('')
 const showTemplatePicker = ref(false)
 const searchQuery = ref('')
 
@@ -187,6 +202,13 @@ onBeforeUnmount(() => {
   clearTimeout(syncTimer)
   stopWorkflowSync()
 })
+
+// After our own create/copy the change notification has already queued a quiet refresh:
+// run it now instead of loading twice.
+const refreshNow = () => {
+  clearTimeout(syncTimer)
+  return loadWorkflows({ silent: true })
+}
 
 // Expose loadWorkflows method for parent components
 defineExpose({
@@ -264,7 +286,7 @@ const openBlankForm = () => {
 
 const handleTemplateCreated = async (fileName) => {
   showTemplatePicker.value = false
-  await loadWorkflows({ silent: true })
+  await refreshNow()
   goToWorkflowView(fileName)
 }
 
@@ -275,16 +297,46 @@ const goToLab = (fileName) => {
   router.push({ path: '/lab', query: { workflow: /\.ya?ml$/i.test(name) ? name : `${name}.yaml` } })
 }
 
+// The editor saves graph edits as they are made, so an open workflow has no unsaved work
+// except a node/edge form in progress; the confirmation warns about that case.
+const confirmDelete = async (file) => {
+  const name = file?.name
+  if (!name || deleting.value) return
+  const confirmed = await confirmDialog({
+    title: t('workflow_list.confirm_delete_title', { name: displayName(name) }),
+    message: isSelected(file) ? t('workflow_list.confirm_delete_open') : t('workflow_list.confirm_delete_message'),
+    confirmText: t('confirm.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  deleting.value = name
+  try {
+    const result = await deleteWorkflow(name)
+    if (!result.success) {
+      toast.error(result.message || t('workflow_list.delete_failed'))
+      return
+    }
+    toast.success(t('workflow_list.delete_success', { name: displayName(name) }))
+    yamlFiles.value = yamlFiles.value.filter((entry) => entry?.name !== name)
+    if (isSelected(file)) {
+      emit('select', '') // close the deleted workflow in the editor
+      if (props.useRouting) router.push('/workflows')
+    }
+    await refreshNow()
+  } finally {
+    deleting.value = ''
+  }
+}
+
 const closeFormGenerator = () => {
   showFormGenerator.value = false
 }
 
 const handleFormGeneratorSubmit = async (payload) => {
-  await loadWorkflows()
   showFormGenerator.value = false
+  await refreshNow()
 
   const graphId = extractGraphIdFromPayload(payload)
-  console.log('Extracted graphId:', graphId)
   if (!graphId) {
     return
   }
@@ -579,6 +631,40 @@ const handleFormGeneratorSubmit = async (payload) => {
 .lab-btn:hover {
   border-color: var(--accent-indigo);
   background: rgb(var(--ink) / 0.08);
+}
+
+.delete-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-right: 2px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgb(var(--ink-softer) / 0.6);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s ease, color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.file-item:hover .delete-btn,
+.delete-btn:focus-visible {
+  opacity: 1;
+}
+
+.delete-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgb(var(--ink) / 0.06);
+}
+
+.delete-btn:disabled {
+  cursor: wait;
+  opacity: 0.4;
 }
 
 .file-info {

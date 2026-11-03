@@ -140,6 +140,7 @@ class WorkflowSessionStore:
         self._sessions: Dict[str, WorkflowSession] = {}
         self.history = history
         self.logger = logging.getLogger(__name__)
+        self._titles_backfilled = False
 
     @staticmethod
     def _meta(session: WorkflowSession) -> Dict[str, Any]:
@@ -221,6 +222,7 @@ class WorkflowSessionStore:
     def list_summaries(self) -> List[Dict[str, Any]]:
         """Every known session, newest first; live sessions override their saved copy."""
         merged: Dict[str, Dict[str, Any]] = {}
+        self._backfill_small_talk_titles()
         if self.history is not None:
             for meta in self.history.list_meta():
                 merged[meta["session_id"]] = meta
@@ -237,6 +239,24 @@ class WorkflowSessionStore:
             if item.get("status") in (SessionStatus.CANCELLED.value, SessionStatus.ERROR.value):
                 item["awaiting_plan"] = False
         return sorted(merged.values(), key=lambda item: item.get("updated_at") or 0, reverse=True)
+
+    def _backfill_small_talk_titles(self) -> None:
+        """Once per process (and once per storage folder, via a marker): re-title sessions
+        saved before ``_retitle_after_small_talk`` existed."""
+        if self._titles_backfilled or self.history is None:
+            return
+        self._titles_backfilled = True
+        from agentdev.runtime.node.agent.team import is_small_talk
+
+        try:
+            changed = self.history.retitle_small_talk_sessions(is_small_talk)
+        except Exception as exc:  # a broken storage folder must not break the sidebar
+            self.logger.warning("Re-titling saved sessions failed: %s", exc)
+            return
+        for session_id, title in changed.items():
+            session = self._sessions.get(session_id)
+            if session is not None and is_small_talk(session.title):
+                session.title = title
 
     def delete_session(self, session_id: str) -> bool:
         removed = self._sessions.pop(session_id, None) is not None

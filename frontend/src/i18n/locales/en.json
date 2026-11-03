@@ -162,7 +162,14 @@
     "dept_content": "Content department",
     "dept_content_desc": "An editor in chief assigning research and fact checking, writing, SEO editing and proofreading.",
     "dept_video": "Video production department",
-    "dept_video_desc": "A producer coordinating script, storyboard, voice and subtitles, editing, thumbnails and review."
+    "dept_video_desc": "A producer coordinating script, storyboard, voice and subtitles, editing, thumbnails and review.",
+    "delete": "Delete",
+    "delete_aria": "Delete workflow {name}",
+    "confirm_delete_title": "Delete workflow \"{name}\"?",
+    "confirm_delete_message": "The workflow's YAML file will be deleted permanently. This cannot be undone.",
+    "confirm_delete_open": "This workflow is open in the editor: unsaved changes will be lost and its YAML file will be deleted permanently. This cannot be undone.",
+    "delete_success": "Deleted workflow \"{name}\".",
+    "delete_failed": "Could not delete the workflow."
   },
   "workflow_view": {
     "yaml_parse_error": "YAML Parse Error: ",
@@ -211,7 +218,8 @@
     "duplicate_many_done_team": "Created {count} copies (\"{first}\" … \"{last}\") and added them to the team of {leads}.",
     "try_in_lab": "Try in Lab",
     "try_in_lab_hint": "Open the Lab on this workflow to run test scenarios and score them",
-    "more_actions": "More actions"
+    "more_actions": "More actions",
+    "delete_workflow": "Delete Workflow"
   },
   "batch_run": {
     "title": "Batch run",
@@ -432,7 +440,12 @@
       "tool": "Using {name}",
       "member_working": "{chain} is working",
       "member_working_doing": "{chain} · {doing}",
-      "member_file": "{member} created {file}"
+      "member_file": "{member} created {file}",
+      "working": "Working",
+      "browser": "Using the browser",
+      "member_step": "{member} · {step}",
+      "more_steps": "+{n} earlier steps",
+      "fewer_steps": "Show less"
     },
     "activity_done": {
       "thinking": "Thought",
@@ -446,7 +459,11 @@
       "write": "Edited files",
       "run": "Ran a command",
       "web": "Searched the web",
-      "tool": "Used {name}"
+      "tool": "Used {name}",
+      "browser": "Used the browser",
+      "reflect": "Reflected",
+      "memory_read": "Searched memory",
+      "memory_write": "Saved to memory"
     },
     "workflow_completed": "Workflow completed",
     "errors": {
@@ -887,7 +904,9 @@
       "suggestions_label": "Suggested prompts",
       "suggestion_intro": "Introduce your team and how you work",
       "suggestion_plan": "Plan a simple note-taking app",
-      "suggestion_review": "Review the code in this project and suggest improvements"
+      "suggestion_review": "Review the code in this project and suggest improvements",
+      "composer_label_agent": "Message",
+      "running_draft_placeholder_agent": "Working… you can draft your next message or stop the run"
     },
     "run_new_turn": "Run new turn",
     "running_placeholder": "Running… you can stop it or wait for the lead to ask you",
@@ -1383,7 +1402,8 @@
       "connections_failed": "Failed to load connections",
       "sessions_failed": "Failed to load sessions",
       "skills_failed": "Skill library request failed",
-      "lab_failed": "Lab request failed"
+      "lab_failed": "Lab request failed",
+      "delete_workflow_failed": "Could not delete the workflow."
     },
     "backend": {
       "technical": "Technical details: {detail}",

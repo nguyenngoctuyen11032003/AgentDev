@@ -16,7 +16,7 @@ import os
 import shutil
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from agentdev.paths import STORAGE_DIR
 from agentdev.utils.exceptions import ValidationError
@@ -32,6 +32,8 @@ REVIEW_FILE = "review.json"
 # Finished conversation turns (user message + final answer), fed to follow-up runs
 TURNS_FILE = "turns.json"
 TITLE_MAX_CHARS = 80
+# Written once the greeting-title backfill has scanned the folder (see retitle_small_talk_sessions)
+RETITLE_MARKER = ".retitled_small_talk_v1"
 
 
 def make_title(task_prompt: Optional[str], fallback: str = "") -> str:
@@ -176,6 +178,84 @@ class SessionHistoryStore:
                     items.append({**meta, "review": review} if review else meta)
         items.sort(key=lambda item: item.get("updated_at") or 0, reverse=True)
         return items
+
+    # ------------------------------------------------------------------ one-time fixes
+    def retitle_small_talk_sessions(self, is_small_talk: Callable[[str], bool]) -> Dict[str, str]:
+        """Re-title sessions saved before follow-ups replaced a greeting title ("chào bạn").
+
+        For each saved session titled by small talk (and never renamed by the user), the
+        first later user message that is a real request becomes the title, by the same
+        ``make_title`` rule as a live run. Runs once per storage folder: a marker file is
+        written when the scan finishes. Only ``title`` in meta.json is ever changed.
+        Returns ``{session_id: new_title}`` for the sessions it changed.
+        """
+        if not self.root.is_dir() or (self.root / RETITLE_MARKER).exists():
+            return {}
+        changed: Dict[str, str] = {}
+        for child in self.root.iterdir():
+            try:
+                if not child.is_dir() or is_link(child):
+                    continue
+                title = self._retitle_one(child, is_small_talk)
+                if title:
+                    changed[child.name] = title
+            except Exception as exc:  # one odd folder must not stop the rest
+                self.logger.warning("Skipped re-titling session %s: %s", child.name, exc)
+        try:
+            (self.root / RETITLE_MARKER).write_text(json.dumps({"retitled": len(changed)}), encoding="utf-8")
+        except OSError as exc:
+            self.logger.warning("Failed to write re-title marker: %s", exc)
+        if changed:
+            self.logger.info("Re-titled %d session(s) that opened with small talk", len(changed))
+        return changed
+
+    def _retitle_one(self, path: Path, is_small_talk: Callable[[str], bool]) -> Optional[str]:
+        meta = self._read_json(path / META_FILE)
+        if not meta or meta.get("session_id") != path.name or meta.get("title_custom"):
+            return None
+        if not is_small_talk(meta.get("title") or ""):
+            return None
+        new_title = next(
+            (t for t in (make_title(text) for text in self._user_texts(path)) if t and not is_small_talk(t)),
+            None,
+        )
+        if not new_title:
+            return None
+        target = path / META_FILE
+        tmp = path / (META_FILE + ".tmp")
+        with self._lock:
+            current = self._read_json(target)
+            # Re-check under the lock: a live write or a rename may have landed meanwhile
+            if not current or current.get("title_custom") or current.get("title") != meta.get("title"):
+                return None
+            tmp.write_text(json.dumps({**current, "title": new_title}, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, target)
+        return new_title
+
+    def _user_texts(self, path: Path) -> List[str]:
+        """What the user typed, in order: from the replay log, else from the saved turns."""
+        texts: List[str] = []
+        try:
+            with open(path / MESSAGES_FILE, encoding="utf-8") as handle:
+                for line in handle:
+                    try:
+                        message = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(message, dict) and message.get("type") == "user_message":
+                        data = message.get("data")
+                        text = data.get("text") if isinstance(data, dict) else None
+                        if isinstance(text, str):
+                            texts.append(text)
+        except OSError:
+            pass
+        if texts:
+            return texts
+        data = self._read_json(path / TURNS_FILE) or {}
+        turns = data.get("turns")
+        if not isinstance(turns, list):
+            return []
+        return [t["user"] for t in turns if isinstance(t, dict) and isinstance(t.get("user"), str)]
 
     def load_messages(self, session_id: str, limit: int) -> List[Dict[str, Any]]:
         path = self._dir(session_id)

@@ -278,6 +278,7 @@
                 <div @click="openManageMemoriesModal" class="menu-item">{{ $t('workflow_view.manage_memories') }}</div>
               </RichTooltip>
               <div v-else @click="openManageMemoriesModal" class="menu-item">{{ $t('workflow_view.manage_memories') }}</div>
+              <div @click="handleDeleteWorkflow" class="menu-item menu-item-danger">{{ $t('workflow_view.delete_workflow') }}</div>
             </div>
           </transition>
         </div>
@@ -428,7 +429,7 @@ import RichTooltip from '@/components/common/RichTooltip.vue'
 import yaml from 'js-yaml'
 import { buildOrgChart, computeTeamLinks, layoutOrgTree } from '@/utils/teamLinks.js'
 import { duplicateNodeInGraph } from '@/utils/nodeDuplicate.js'
-import { fetchYaml, fetchVueGraph, postVuegraphs, updateYaml, postYamlNameChange, postYamlCopy } from '@/api/client.js'
+import { fetchYaml, fetchVueGraph, postVuegraphs, mergeWorkflowDocument, deleteWorkflow, postYamlNameChange, postYamlCopy } from '@/api/client.js'
 import { helpContent } from '@/utils/helpContent.js'
 import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
@@ -760,8 +761,8 @@ const persistYamlSnapshot = async (snapshot) => {
     if (!currentWorkflowName.value) {
       return false
     }
-    const yamlString = yaml.dump(snapshot ?? {})
-    const result = await updateYaml(currentWorkflowName.value, yamlString)
+    // The server applies only what changed, keeping the file's comments, anchors and layout
+    const result = await mergeWorkflowDocument(currentWorkflowName.value, snapshot ?? {})
     if (!result?.success) {
       console.error('Failed to update workflow YAML:', result?.message || result?.detail)
       toast.error(withErrorDetail(t('workflow_view.alert_save_failed'), result))
@@ -2245,6 +2246,33 @@ const handleRenameSubmit = async () => {
   }
 }
 
+// Graph edits are saved as they are made; the only unsaved work is an open node/edge form, so
+// the confirmation says so when one is open.
+const handleDeleteWorkflow = async () => {
+  showMenu.value = false
+  const name = currentWorkflowName.value
+  if (!name) return
+  const displayName = name.replace(/.ya?ml$/i, '')
+  const confirmed = await confirmDialog({
+    title: t('workflow_list.confirm_delete_title', { name: displayName }),
+    message: showDynamicFormGenerator.value
+      ? t('workflow_list.confirm_delete_open')
+      : t('workflow_list.confirm_delete_message'),
+    confirmText: t('confirm.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  const result = await deleteWorkflow(name)
+  if (!result.success) {
+    toast.error(withErrorDetail(t('workflow_list.delete_failed'), result))
+    return
+  }
+  closeDynamicFormGenerator()
+  toast.success(t('workflow_list.delete_success', { name: displayName }))
+  // the workflow list refreshes itself from the change notification
+  router.push({ path: '/workflows' })
+}
+
 const openCopyWorkflowModal = () => {
   showMenu.value = false
   copyWorkflowName.value = currentWorkflowName.value.replace('.yaml', '') + '_copy'
@@ -2630,6 +2658,11 @@ const handleCopySubmit = async () => {
 .menu-item:hover {
   background-color: rgb(var(--ink) / 0.1);
   color: var(--text-1);
+}
+
+.menu-item-danger,
+.menu-item-danger:hover {
+  color: var(--danger);
 }
 
 /* Transitions */

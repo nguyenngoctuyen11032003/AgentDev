@@ -353,7 +353,14 @@ def is_small_talk(text: Optional[str]) -> bool:
     return False, so they keep the full lead protocol and the team tools.
     """
     words = _SMALL_TALK_STRIP.sub(" ", (text or "").lower()).split()
-    return 0 < len(words) <= 4 and " ".join(words) in _SMALL_TALK_PHRASES
+    if not 0 < len(words) <= 6:
+        return False
+    # The whole message is one phrase, or a few joined ("hi chào", "hello xin chào")
+    ends = {0}
+    for end in range(1, len(words) + 1):
+        if any(" ".join(words[start:end]) in _SMALL_TALK_PHRASES for start in ends if start < end):
+            ends.add(end)
+    return len(words) in ends
 
 
 def team_digest(state: Any) -> List[Dict[str, str]]:

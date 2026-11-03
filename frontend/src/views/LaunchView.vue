@@ -165,22 +165,30 @@
                     class="activity"
                     :class="{ 'activity-running': message.isLoading, 'activity-open': message.activityOpen }"
                   >
+                    <!-- Finished: one collapsed line; the steps on demand -->
                     <button
+                      v-if="!message.isLoading"
                       type="button"
                       class="activity-summary"
                       :aria-expanded="!!message.activityOpen"
                       @click="toggleActivity(message)"
                     >
-                      <span v-if="message.isLoading" class="activity-spinner" aria-hidden="true"></span>
-                      <svg v-else class="activity-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
+                      <svg class="activity-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
                       <span class="activity-label">{{ activityHeadline(message) }}</span>
-                      <span v-if="message.isLoading" class="activity-time">
-                        <LiveDuration :started-at="message.startedAt" />
-                      </span>
                     </button>
-                    <ol v-if="message.activityOpen" class="activity-steps">
+                    <!-- Running: the last few finished steps grow above the live one -->
+                    <button
+                      v-if="message.isLoading && hiddenStepCount(message)"
+                      type="button"
+                      class="activity-more"
+                      :aria-expanded="!!message.activityOpen"
+                      @click="toggleActivity(message)"
+                    >
+                      {{ message.activityOpen ? $t('launch.activity.fewer_steps') : $t('launch.activity.more_steps', { n: hiddenStepCount(message) }) }}
+                    </button>
+                    <ol v-if="message.activityOpen || (message.isLoading && shownSteps(message).length)" class="activity-steps">
                       <li
-                        v-for="entry in message.loadingEntries"
+                        v-for="entry in shownSteps(message)"
                         :key="entry.key"
                         class="activity-step"
                         :class="{ 'step-running': entry.status === 'running' }"
@@ -194,9 +202,9 @@
                           @click="entry.detailHtml && toggleStepDetail(message, entry)"
                         >
                           <span class="activity-step-dot" aria-hidden="true"></span>
-                          <span class="activity-step-label">{{ stepLabel(entry) }}</span>
+                          <span class="activity-step-label">{{ stepLabel(entry) }}<span v-if="entry.count > 1" class="activity-step-count"> ×{{ entry.count }}</span></span>
                           <svg v-if="entry.detailHtml" class="activity-step-chevron" :class="{ 'is-open': entry.detailOpen }" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
-                          <span v-if="entry.startedAt" class="activity-step-time">
+                          <span v-if="showStepTime(entry)" class="activity-step-time">
                             <LiveDuration :started-at="entry.startedAt" :ended-at="entry.endedAt || 0" />
                           </span>
                         </component>
@@ -210,6 +218,13 @@
                         </div>
                       </li>
                     </ol>
+                    <div v-if="message.isLoading" class="activity-live" role="status">
+                      <span class="activity-spinner" aria-hidden="true"></span>
+                      <span class="activity-label">{{ liveStep(message).label }}</span>
+                      <span class="activity-time">
+                        <LiveDuration :key="liveStep(message).at" :started-at="liveStep(message).at" />
+                      </span>
+                    </div>
                   </div>
 
                   <!-- The lead's plan waiting for your go-ahead (replaces its normal answer) -->
@@ -466,7 +481,7 @@
                   rows="1"
                   :disabled="!isConnectionReady || isStopping"
                   :placeholder="composerPlaceholder"
-                  :aria-label="$t('launch.chat_ui.composer_label')"
+                  :aria-label="$t(leadName ? 'launch.chat_ui.composer_label' : 'launch.chat_ui.composer_label_agent')"
                   ref="taskInputRef"
                   @input="autoResizeTaskInput"
                   @keydown.enter="handleEnterKey"
@@ -1002,6 +1017,8 @@ const LOG_EVENT_KEYS = {
   THINKING_PROCESS: 'launch.log_events.thinking_process',
   MEMORY_OPERATION: 'launch.log_events.memory_operation'
 }
+// Run set-up lines that mean nothing to the user (memory stores being loaded)
+const SETUP_LOG_RE = /^(Global memory '.*' built successfully|Memory manager built for node )/
 // Actionable hint for well-known backend/provider failures (appended after the raw detail)
 const ERROR_HINTS = [
   [/MAC_ALLOW_UNSAFE_CODE_EXECUTION/, 'launch.error_hints.python_disabled'],
@@ -1146,7 +1163,7 @@ const addTotalLoadingMessage = (nodeId, at = Date.now()) => {
 
 // Add a loading entry (model/tool call) and associate it with baseKey
 // `at` is the backend event time (ms), so a replayed session shows the real durations
-const addLoadingEntry = (nodeId, baseKey, label, { isModel = false, at = Date.now(), member = '', doneLabel = '' } = {}) => {
+const addLoadingEntry = (nodeId, baseKey, label, { isModel = false, at = Date.now(), member = '', doneLabel = '', delegates = false } = {}) => {
   const nodeState = addTotalLoadingMessage(nodeId, at)
   if (!nodeState || !baseKey) return null
 
@@ -1161,6 +1178,7 @@ const addLoadingEntry = (nodeId, baseKey, label, { isModel = false, at = Date.no
     doneLabel,
     isModel,
     member,
+    delegates,
     status: 'running',
     startedAt: at,
     endedAt: null
@@ -1232,6 +1250,12 @@ const settleNodeTurn = (nodeId, content = null, at = Date.now()) => {
   const endedAt = Math.max(at, nodeState.message.startedAt)
   finalizeAllLoadingEntries(nodeState, endedAt)
   const message = nodeState.message
+  // Members' steps shown in this bubble end with it too
+  for (const entry of message.loadingEntries || []) {
+    if (entry.status !== 'running') continue
+    entry.status = 'done'
+    entry.endedAt = Math.max(endedAt, entry.startedAt)
+  }
   message.isLoading = false
   message.endedAt = endedAt
   message.duration = formatDuration(message.startedAt, endedAt)
@@ -1385,24 +1409,56 @@ const downloadTurnFile = async (message, file) => {
   message.rev += 1
 }
 
-// Human-friendly activity labels (no raw model ids in the chat)
+// Human-friendly activity labels (no raw model ids in the chat). Covers the workflow's own
+// tools and those a CLI agent reports (claude:Bash, codex:shell, mcp__playwright__browser_click …)
 const TOOL_ACTIVITY_KEYS = {
   ask_user: 'ask_user',
   delegate_task: 'delegate',
   delegate_parallel: 'delegate_parallel',
   read_file_segment: 'read',
   read_file: 'read',
+  read: 'read',
+  notebookread: 'read',
   list_directory: 'list',
   describe_available_files: 'list',
+  ls: 'list',
   search_in_files: 'search',
+  glob: 'search',
+  grep: 'search',
   write_file: 'write',
+  save_file: 'write',
   edit_file: 'write',
   apply_patch: 'write',
+  apply_text_edits: 'write',
+  create_folder: 'write',
+  move_path: 'write',
+  rename_path: 'write',
+  delete_path: 'write',
+  write: 'write',
+  edit: 'write',
+  multiedit: 'write',
+  notebookedit: 'write',
   run_command: 'run',
+  run_shell_command: 'run',
   execute_code: 'run',
+  bash: 'run',
+  shell: 'run',
+  powershell: 'run',
   web_search: 'web',
-  fetch_url: 'web'
+  websearch: 'web',
+  fetch_url: 'web',
+  webfetch: 'web'
 }
+
+const bareToolName = (toolName) => String(toolName || '').split('__').pop().replace(/^(claude|codex):/i, '')
+
+const toolActivityKey = (toolName) => {
+  const base = bareToolName(toolName).toLowerCase()
+  if (base.startsWith('browser_')) return 'browser'
+  return TOOL_ACTIVITY_KEYS[base] || ''
+}
+
+const isDelegateTool = (toolName) => ['delegate', 'delegate_parallel'].includes(toolActivityKey(toolName))
 
 // `done`: the past-tense label of a finished step ("Đã giao việc cho …")
 const toolActivityLabel = (toolName, rawArgs, done = false) => {
@@ -1411,10 +1467,10 @@ const toolActivityLabel = (toolName, rawArgs, done = false) => {
     try { args = JSON.parse(args) } catch { args = null }
   }
   const group = done ? 'launch.activity_done' : 'launch.activity'
-  const key = TOOL_ACTIVITY_KEYS[String(toolName || '').split('__').pop()]
+  const key = toolActivityKey(toolName)
   if (key === 'delegate' && args?.member) return t(`${group}.delegate_to`, { member: args.member })
   if (key) return t(`${group}.${key}`)
-  const pretty = String(toolName || t('launch.unknown_name')).replace(/[_-]+/g, ' ')
+  const pretty = (bareToolName(toolName) || t('launch.unknown_name')).replace(/[_-]+/g, ' ')
   return t(`${group}.tool`, { name: pretty })
 }
 
@@ -1425,46 +1481,148 @@ const humanDuration = (ms) => {
   return m ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`
 }
 
-// While a lead waits on a member: who is actually working now, down the chain of
-// sub-leads ("Project Manager → QA Tester"), and what that person is doing
-const MEMBER_ACTIVITY_KEYS = { model: 'launch.activity.thinking' }
-const delegationHeadline = (entry) => {
-  const chain = [entry.member]
-  const seen = new Set(chain)
+// What each delegated member is doing right now: { kind: 'model' | 'tool' | null, name, args, at }
+// (`at`: when that step began, or when the last one ended)
+const memberNow = new Map()
+const setMemberNow = (member, kind, at, name = '', args = null) => {
+  memberNow.set(member, { kind, name, args, at })
+}
+
+// An agent run through a CLI in native mode works on its own (reads, edits, runs commands)
+// and reports those steps only when it is done: while it runs it is "working", not "thinking"
+const isNativeNode = (id) => {
+  const node = (workflowYaml.value?.graph?.nodes || []).find((item) => item?.id === id)
+  return Boolean(node?.config?.native_mode?.enabled)
+}
+
+const memberDoing = (member) => {
+  const now = memberNow.get(member)
+  if (now?.kind === 'tool') return toolActivityLabel(now.name, now.args)
+  if (now?.kind === 'model') return t(isNativeNode(member) ? 'launch.activity.working' : 'launch.activity.thinking')
+  return ''
+}
+
+// The member actually working under `lead` (down the chain of sub-leads, the most recently
+// active one when several work at once) and what it is doing, timed from that step's start
+const activeWorkerStep = (lead) => {
+  const chain = []
+  let current = lead
   for (;;) {
-    const last = chain[chain.length - 1]
     let next = ''
-    for (const [member, lead] of delegatedNodes) {
-      if (lead === last && !seen.has(member)) next = member
+    let nextAt = -1
+    for (const [member, by] of delegatedNodes) {
+      if (by !== current || member === lead || chain.includes(member)) continue
+      const at = memberNow.get(member)?.at ?? memberStarts.get(member) ?? 0
+      if (at > nextAt) {
+        next = member
+        nextAt = at
+      }
     }
     if (!next) break
     chain.push(next)
-    seen.add(next)
+    current = next
   }
+  if (!chain.length) return null
   const worker = chain[chain.length - 1]
-  if (!delegatedNodes.has(worker)) return entry.label
-  const node = runTracker.state.nodes[worker]
-  const run = node?.runs?.[node.runs.length - 1]
-  const doing = run?.activity
-    ? run.activity.kind === 'tool'
-      ? toolActivityLabel(run.activity.name)
-      : t(MEMBER_ACTIVITY_KEYS.model)
-    : ''
-  return t(doing ? 'launch.activity.member_working_doing' : 'launch.activity.member_working', {
-    chain: chain.join(' → '),
-    doing
-  })
+  const doing = memberDoing(worker)
+  return {
+    label: t(doing ? 'launch.activity.member_working_doing' : 'launch.activity.member_working', {
+      chain: chain.join(' → '),
+      doing
+    }),
+    at: memberNow.get(worker)?.at || memberStarts.get(worker) || 0
+  }
 }
 
-const activityHeadline = (message) => {
-  if (message.isLoading) {
-    const entries = message.loadingEntries || []
-    for (let i = entries.length - 1; i >= 0; i--) {
-      if (entries[i].status !== 'running') continue
-      return entries[i].member ? delegationHeadline(entries[i]) : entries[i].label
+// The live line of a running bubble: the step going on right now, timed from its start
+const liveStep = (message) => {
+  const entries = message.loadingEntries || []
+  let running = null
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].status === 'running' && !entries[i].sub) {
+      running = entries[i]
+      break
     }
-    return t('launch.activity.thinking')
   }
+  if (!running || running.delegates) {
+    const worker = activeWorkerStep(message.name)
+    if (worker) return { label: worker.label, at: worker.at || running?.startedAt || message.startedAt }
+  }
+  if (running) return { label: running.label, at: running.startedAt }
+  const last = entries[entries.length - 1]
+  return { label: t('launch.activity.thinking'), at: last?.endedAt || message.startedAt }
+}
+
+// While running, the last few finished steps stay in view above the live line
+const LIVE_STEP_ROWS = 3
+const finishedSteps = (message) => (message.loadingEntries || []).filter((entry) => entry.status !== 'running')
+const shownSteps = (message) => {
+  if (!message.isLoading) return message.loadingEntries || []
+  const done = finishedSteps(message)
+  return message.activityOpen ? done : done.slice(-LIVE_STEP_ROWS)
+}
+const hiddenStepCount = (message) => Math.max(0, finishedSteps(message).length - LIVE_STEP_ROWS)
+// A step that took no measurable time (e.g. a CLI agent's steps, reported all at once) shows none
+const showStepTime = (entry) =>
+  Boolean(entry.startedAt) && (entry.status === 'running' || !entry.endedAt || entry.endedAt - entry.startedAt >= 1000)
+
+// A member's own step (a command it ran, a file it read …) in its lead's activity block.
+// Repeats of the same step in a row share one row ("QA Tester · Đã chạy lệnh ×3").
+const memberStepKeys = new Map()
+const addMemberStep = (member, toolName, args, at) => {
+  const message = findTurnBubble(member)
+  if (!message?.loadingEntries || message.name === member) return
+  const label = t('launch.activity.member_step', { member, step: toolActivityLabel(toolName, args) })
+  const doneLabel = t('launch.activity.member_step', { member, step: toolActivityLabel(toolName, args, true) })
+  const entries = message.loadingEntries
+  const last = entries[entries.length - 1]
+  let entry = last
+  if (last?.sub === member && last.doneLabel === doneLabel && last.status !== 'running') {
+    last.count = (last.count || 1) + 1
+    last.status = 'running'
+    last.endedAt = null
+  } else {
+    entry = {
+      key: `member-${++teamStepSeq}`,
+      baseKey: 'member',
+      label,
+      doneLabel,
+      isModel: false,
+      member: '',
+      sub: member,
+      count: 1,
+      status: 'running',
+      startedAt: at,
+      endedAt: null
+    }
+    entries.push(entry)
+  }
+  memberStepKeys.set(`${member}|${toolName}`, { entry, message })
+  message.rev += 1
+  scheduleScrollToBottom()
+}
+
+const endMemberStep = (key, found, at) => {
+  memberStepKeys.delete(key)
+  found.entry.status = 'done'
+  found.entry.endedAt = Math.max(at, found.entry.startedAt)
+  found.message.rev += 1
+}
+
+const finishMemberStep = (member, toolName, at) => {
+  const key = `${member}|${toolName}`
+  const found = memberStepKeys.get(key)
+  if (found) endMemberStep(key, found, at)
+}
+
+const finishMemberSteps = (member, at) => {
+  for (const [key, found] of [...memberStepKeys.entries()]) {
+    if (found.entry.sub === member) endMemberStep(key, found, at)
+  }
+}
+
+// The finished turn's collapsed line: "Đã xử lý trong 12s · 5 bước"
+const activityHeadline = (message) => {
   // The count is the number of rows the block lists; thinking alone is just "thought for 5s"
   const entries = message.loadingEntries || []
   const steps = entries.some((e) => !e.isModel) ? entries.length : 0
@@ -1974,7 +2132,7 @@ const composerPlaceholder = computed(() => {
     return asker ? t('launch.reply_placeholder', { name: asker }) : t('launch.reply_placeholder_any')
   }
   // The box is locked while the team works: say why, and what can be done meanwhile
-  if (isWorkflowRunning.value) return t('launch.chat_ui.running_draft_placeholder')
+  if (isWorkflowRunning.value) return t(leadName.value ? 'launch.chat_ui.running_draft_placeholder' : 'launch.chat_ui.running_draft_placeholder_agent')
   if (isRunFinished.value) return t('launch.followup_placeholder')
   return t('launch.enter_prompt')
 })
@@ -2088,6 +2246,8 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
     delegatedNodes.clear()
     memberLeads.clear()
     memberStarts.clear()
+    memberNow.clear()
+    memberStepKeys.clear()
     refreshTeamEdges()
     nameToSpriteMap.clear()
     nodeSpriteMap.value.clear()
@@ -3065,6 +3225,8 @@ const clearReplayedState = () => {
   delegatedNodes.clear()
   memberLeads.clear()
   memberStarts.clear()
+  memberNow.clear()
+  memberStepKeys.clear()
   refreshTeamEdges()
   officeRef.value?.reset()
   runTracker.reset()
@@ -4294,7 +4456,13 @@ const processMessage = async (msg) => {
     if (data.status === 'running' || data.status === 'waiting_for_input' || data.status === 'cancelling') {
       isWorkflowRunning.value = true
       if (data.status === 'cancelling') startStopping()
-    } else if (runTracker.state.task && !runTracker.state.outcome) {
+    } else {
+      // The run this page was following ended while the connection was down (e.g. a server
+      // restart): unlock the box instead of still saying the team is at work
+      isWorkflowRunning.value = false
+      endStopping()
+    }
+    if (!['running', 'waiting_for_input', 'cancelling'].includes(data.status) && runTracker.state.task && !runTracker.state.outcome) {
       // The replay never recorded the end of the last turn, but the server is not running it:
       // close it, so the next request starts a turn of its own
       const outcome = { completed: 'completed', error: 'error' }[data.status] || 'cancelled'
@@ -4524,6 +4692,7 @@ const processMessage = async (msg) => {
         delegatedNodes.set(nodeId, delegatedBy)
         memberLeads.set(nodeId, delegatedBy)
         memberStarts.set(nodeId, eventAt)
+        setMemberNow(nodeId, null, eventAt)
         refreshTeamEdges()
         touchWorkingTurns()
         officeRef.value?.handoff(delegatedBy, nodeId, { visit: true })
@@ -4548,7 +4717,10 @@ const processMessage = async (msg) => {
             doneLabel: t('launch.activity_done.thinking')
           })
         }
-        else touchWorkingTurns()
+        else {
+          setMemberNow(nodeId, 'model', eventAt)
+          touchWorkingTurns()
+        }
         officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', true)
         runTracker.activity(nodeId, 'model', msg.data.details.model_name || '', true, msg.data.timestamp)
       }
@@ -4557,6 +4729,10 @@ const processMessage = async (msg) => {
       if (msg.data.details.stage === "after") {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
         finishLoadingEntry(nodeId, baseKey, eventAt)
+        if (delegatedNodes.has(nodeId)) {
+          setMemberNow(nodeId, null, eventAt)
+          touchWorkingTurns()
+        }
         officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', false)
         runTracker.activity(nodeId, 'model', msg.data.details.model_name || '', false, msg.data.timestamp)
       }
@@ -4576,9 +4752,13 @@ const processMessage = async (msg) => {
           addLoadingEntry(nodeId, baseKey, toolActivityLabel(msg.data.details.tool_name, msg.data.details.arguments), {
             at: eventAt,
             doneLabel: toolActivityLabel(msg.data.details.tool_name, msg.data.details.arguments, true),
-            member: delegateTarget(msg.data.details.tool_name, msg.data.details.arguments)
+            member: delegateTarget(msg.data.details.tool_name, msg.data.details.arguments),
+            delegates: isDelegateTool(msg.data.details.tool_name)
           })
         } else {
+          // A member's step: live on its lead's bubble (the line below the finished steps)
+          setMemberNow(nodeId, 'tool', eventAt, msg.data.details.tool_name || '', msg.data.details.arguments || null)
+          addMemberStep(nodeId, msg.data.details.tool_name || '', msg.data.details.arguments || null, eventAt)
           touchWorkingTurns()
         }
         officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', true, msg.data.details.arguments || null)
@@ -4589,6 +4769,11 @@ const processMessage = async (msg) => {
       if (msg.data.details.stage === "after") {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
         finishLoadingEntry(nodeId, baseKey, eventAt)
+        if (delegatedNodes.has(nodeId)) {
+          finishMemberStep(nodeId, msg.data.details.tool_name || '', eventAt)
+          setMemberNow(nodeId, null, eventAt)
+          touchWorkingTurns()
+        }
         officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', false, msg.data.details.arguments || null)
         runTracker.activity(nodeId, 'tool', msg.data.details.tool_name || '', false, msg.data.timestamp)
       }
@@ -4613,6 +4798,7 @@ const processMessage = async (msg) => {
       const memberReported = Boolean(delegatedBy) && !memberCancelled && details.output_count !== 0
       if (delegatedBy && nodeId) {
         settleNodeTurn(nodeId, null, eventAt)
+        finishMemberSteps(nodeId, eventAt)
         // The lead summarises for the user; the member's full report stays in Tasks / Overview / Review.
         delegatedNodes.delete(nodeId)
         refreshTeamEdges()
@@ -4631,6 +4817,7 @@ const processMessage = async (msg) => {
           if (!added) addChatNotification(t('launch.team.reported', { lead: delegatedBy, member: nodeId }), { at })
         }
         memberStarts.delete(nodeId)
+        memberNow.delete(nodeId)
       } else if (!settleNodeTurn(nodeId, msg.data.details?.output, eventAt)) {
         addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output, at)
       }
@@ -4652,6 +4839,27 @@ const processMessage = async (msg) => {
     // "Run started" / "run finished": the turn's bubble already shows it working and done.
     // The end line stays only for a turn where no agent said anything.
     else if (eventType === 'WORKFLOW_START' || (eventType === 'WORKFLOW_END' && turnHasAgentBubble())) {
+      // nothing to add
+    }
+
+    // An agent looked up / saved memory or reflected: a step of its own turn, not a chat line
+    // (a member's goes nowhere: its lead's block lists what it did)
+    else if (eventType === 'MEMORY_OPERATION' || eventType === 'THINKING_PROCESS') {
+      if (nodeId && !delegatedNodes.has(nodeId)) {
+        const details = msg.data.details || {}
+        const label = eventType === 'THINKING_PROCESS'
+          ? t('launch.activity_done.reflect')
+          : t(String(details.operation_type || '').toUpperCase() === 'RETRIEVE' ? 'launch.activity_done.memory_read' : 'launch.activity_done.memory_write')
+        const baseKey = `note-${eventType}`
+        addLoadingEntry(nodeId, baseKey, label, { at: eventAt, doneLabel: label })
+        finishLoadingEntry(nodeId, baseKey, eventAt)
+      } else if (!nodeId) {
+        addChatNotification(localizeLogMessage(msg.data), { at })
+      }
+    }
+
+    // Set-up chatter ("Global memory 'X' built successfully", "Memory manager built for node A")
+    else if (!eventType && SETUP_LOG_RE.test(msg.data.message || '')) {
       // nothing to add
     }
 
@@ -5647,6 +5855,46 @@ watch(
 @keyframes activityShimmer {
   from { background-position: 100% 0; }
   to { background-position: -100% 0; }
+}
+
+/* The step going on now, under the finished ones */
+.activity-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 4px 8px 4px 2px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* "+4 earlier steps": opens the whole list while the turn runs */
+.activity-more {
+  padding: 2px 6px 2px 2px;
+  margin: 0 0 -2px 21px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--ink) / 0.42);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.activity-more:hover {
+  color: rgb(var(--ink) / 0.75);
+  background: rgb(var(--ink) / 0.05);
+}
+
+.activity-more:focus-visible {
+  outline: 2px solid rgb(var(--accent-sky-rgb) / 0.6);
+  outline-offset: 1px;
+}
+
+.activity-step-count {
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--ink) / 0.4);
 }
 
 .activity-time {

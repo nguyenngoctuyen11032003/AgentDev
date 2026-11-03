@@ -40,7 +40,7 @@ def _team(runner=None, state=None, **kwargs):
 
 
 @pytest.mark.parametrize(
-    "text", ["hi", "Hello!", "Xin chào!", "chào bạn", "cảm ơn nhé 🙏", "thanks!!", "Thank you.", "こんにちは", "cam on"]
+    "text", ["hi", "Hello!", "Xin chào!", "chào bạn", "cảm ơn nhé 🙏", "thanks!!", "Thank you.", "こんにちは", "cam on", "hi chào", "hello xin chào", "chào bạn, cảm ơn nhé"]
 )
 def test_greetings_and_thanks_are_small_talk(text):
     assert is_small_talk(text)
@@ -49,7 +49,7 @@ def test_greetings_and_thanks_are_small_talk(text):
 @pytest.mark.parametrize(
     "text",
     ["", "ok", "làm đi", "đồng ý", "go ahead", "hi, fix the login bug", "chào bạn, giúp mình sửa lỗi đăng nhập",
-     "what is react?", "thanks, now add a logout button"],
+     "what is react?", "thanks, now add a logout button", "hi chào làm web"],
 )
 def test_requests_and_approvals_are_not_small_talk(text):
     assert not is_small_talk(text)
