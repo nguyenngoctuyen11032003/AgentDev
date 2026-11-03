@@ -31,6 +31,8 @@ MAX_DELEGATION_DEPTH = 3
 
 # Workers start their answer with this when only the user can decide something.
 DECISION_MARKER = "DECISION NEEDED:"
+# A member whose model call failed answers with this (see AgentNodeExecutor.execute).
+MODEL_ERROR_PREFIX = "MODEL ERROR:"
 
 DelegateRunner = Callable[[str, List[Message], str], List[Message]]
 

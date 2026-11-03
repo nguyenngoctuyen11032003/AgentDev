@@ -53,7 +53,6 @@ from agentdev.runtime.node.agent.team import (
     TeamDelegation,
     get_team_state,
     is_delegated_call,
-    latest_user_message,
     resolve_members,
 )
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV, require_unsafe_code_execution
@@ -1148,9 +1147,6 @@ class AgentNodeExecutor(NodeExecutor):
             self.log_manager.warning(f"[Node: {node.id}] Team members not found or not agents: {missing}", node_id=node.id)
         state = get_team_state(self.context.global_state)
         delegated = is_delegated_call()
-        if not delegated:
-            # The lead talking to the user sets the language members write user-facing text in.
-            state.set_user_language(latest_user_message(input_text))
         return TeamDelegation(
             lead_id=node.id,
             members=members,
