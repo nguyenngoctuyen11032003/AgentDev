@@ -177,7 +177,7 @@ nodes:
 
 - Credentials come from the signed-in CLI account; there is no key to configure in YAML or `.env`.
 - `params.timeout`: CLI call timeout in seconds (default `300`).
-- See `workspace/workflows/demo_claude.yaml` for a runnable example (it uses the `provider: anthropic` vendor hint, so it binds to a signed-in Claude account automatically).
+- See `workspace/workflows/software_company.yaml` for a runnable example (it uses the `provider: anthropic` vendor hint, so it binds to a signed-in Claude account automatically).
 
 ### Configuring Retry Strategy
 

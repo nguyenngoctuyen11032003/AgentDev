@@ -8,7 +8,7 @@
 - 理解 `FIELD_SPECS`（见 [field_specs.md](field_specs.md)）与 Schema API（见 [config_schema_contract.md](config_schema_contract.md)）可被前端/IDE 用于动态表单。
 
 ## 2. YAML 顶层结构
-所有工作流文件都遵循 `DesignConfig` 根结构，仅包含 `version`、`vars`、`graph` 三个键。下面示例节选自 `workspace/workflows/net_example.yaml`，可以直接运行：
+所有工作流文件都遵循 `DesignConfig` 根结构，仅包含 `version`、`vars`、`graph` 三个键。下面示例节选自 `workspace/workflows/demo_loop_counter.yaml`，可以直接运行：
 ```yaml
 version: 0.4.0
 vars:

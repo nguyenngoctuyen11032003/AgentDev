@@ -164,7 +164,7 @@ AgentDev 让你搭建一家“AI 公司”：每位员工都是一个**智能体
 <a id="example-linked-workflow"></a>
 ### 示例：带连线的文章工作流
 
-`net_example_en` 工作流展示了如何用连线串联节点：
+`demo_loop_counter` 工作流展示了如何用连线串联节点：
 
 1. 创建三个智能体节点：**Poet**（写诗）、**Article Writer**（写文章）和 **Editor 1**（把两者合并）。
 2. 把开始节点连到 Poet 和 Article Writer：它们并行运行。
@@ -368,7 +368,7 @@ def my_tool(
 
 嵌入另一个工作流以便复用。来源类型为 `file`（相对于 `workspace/workflows/` 的 YAML 路径）或 `config`（内联定义）。子图继承父工作流的变量；由它的结束节点决定返回什么。
 
-示例：`workspace/workflows/react.yaml`、`workspace/workflows/deep_research_v1.yaml`。
+示例：`workspace/workflows/software_company.yaml`、`workspace/workflows/marketing_agency.yaml`。
 
 ---
 

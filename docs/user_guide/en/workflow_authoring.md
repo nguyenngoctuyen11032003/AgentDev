@@ -8,7 +8,7 @@ This guide covers YAML structure, node types, provider configuration, edge condi
 - Review `FIELD_SPECS` (see [field_specs.md](field_specs.md)) and the Schema API contract ([config_schema_contract.md](config_schema_contract.md)) if you rely on dynamic forms in the frontend/IDE.
 
 ## 2. YAML Top-level Structure
-Every workflow file follows the `DesignConfig` root with only three keys: `version`, `vars`, and `graph`. The snippet below is adapted from `workspace/workflows/net_example.yaml` and can run as-is:
+Every workflow file follows the `DesignConfig` root with only three keys: `version`, `vars`, and `graph`. The snippet below is adapted from `workspace/workflows/demo_loop_counter.yaml` and can run as-is:
 ```yaml
 version: 0.4.0
 vars:

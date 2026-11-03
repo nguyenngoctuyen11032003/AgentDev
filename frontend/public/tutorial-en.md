@@ -164,7 +164,7 @@ In the agent form, **Agent skills** lists the whole skill library. Tick the skil
 <a id="example-linked-workflow"></a>
 ### Example: an article workflow with edges
 
-The `net_example_en` workflow shows how to chain nodes with edges:
+The `demo_loop_counter` workflow shows how to chain nodes with edges:
 
 1. Create three agent nodes: **Poet** (writes a poem), **Article Writer** (writes an article) and **Editor 1** (merges the two).
 2. Connect the start node to Poet and Article Writer: they run in parallel.
@@ -368,7 +368,7 @@ Example: `workspace/workflows/demo_loop_counter.yaml`.
 
 Embeds another workflow so it can be reused. The source type is `file` (a YAML path relative to `workspace/workflows/`) or `config` (defined inline). A subgraph inherits its parent's variables; its end nodes decide what it returns.
 
-Examples: `workspace/workflows/react.yaml`, `workspace/workflows/deep_research_v1.yaml`.
+Examples: `workspace/workflows/software_company.yaml`, `workspace/workflows/marketing_agency.yaml`.
 
 ---
 

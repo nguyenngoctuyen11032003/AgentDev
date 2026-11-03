@@ -38,7 +38,7 @@ Tools for file and directory management within `code_workspace/`.
 | `move_path` | Move a file or directory |
 | `search_in_files` | Search for text or regex patterns in workspace files |
 
-**Example YAML**: [AgentDev_v1.yaml](../../../../../workspace/workflows/AgentDev_v1.yaml), [file_tool_use_case.yaml](../../../../../workspace/workflows/file_tool_use_case.yaml)
+**Example YAML**: [software_company.yaml](../../../../../workspace/workflows/software_company.yaml)
 
 ---
 
@@ -52,7 +52,7 @@ Manage Python environments and dependencies using uv.
 | `init_python_env` | Initialize Python environment (uv lock + venv) |
 | `uv_run` | Execute uv run in workspace to run modules or scripts |
 
-**Example YAML**: [AgentDev_v1.yaml](../../../../../workspace/workflows/AgentDev_v1.yaml)
+**Example YAML**: [software_company.yaml](../../../../../workspace/workflows/software_company.yaml)
 
 ---
 
@@ -83,7 +83,7 @@ Search result management and report generation tools for automated research work
 | `report_del_chapter` | Delete a chapter |
 | `report_export_pdf` | Export report to PDF |
 
-**Example YAML**: [deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
+**Example YAML**: [software_company.yaml](../../../../../workspace/workflows/software_company.yaml)
 
 ---
 
@@ -98,7 +98,7 @@ Web search and webpage content retrieval.
 
 No API key or environment variable is needed.
 
-**Example YAML**: [deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
+**Example YAML**: [software_company.yaml](../../../../../workspace/workflows/software_company.yaml)
 
 ---
 

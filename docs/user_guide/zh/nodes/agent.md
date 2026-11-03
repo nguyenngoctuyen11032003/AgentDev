@@ -177,7 +177,7 @@ nodes:
 
 - 凭据来自已登录的 CLI 账号，无需在 YAML 或 `.env` 中配置任何密钥。
 - `params.timeout`：CLI 调用超时（秒，默认 `300`）。
-- 可运行示例见 `workspace/workflows/demo_claude.yaml`（其中使用 `provider: anthropic` 厂商提示，运行时会自动绑定到已登录的 Claude 账号）。
+- 可运行示例见 `workspace/workflows/software_company.yaml`（其中使用 `provider: anthropic` 厂商提示，运行时会自动绑定到已登录的 Claude 账号）。
 
 ### 配置重试策略
 

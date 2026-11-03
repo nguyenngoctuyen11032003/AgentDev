@@ -164,7 +164,7 @@ Trong biểu mẫu nút agent, mục **Skill của agent** liệt kê toàn bộ
 <a id="example-linked-workflow"></a>
 ### Ví dụ: quy trình viết bài có liên kết
 
-Quy trình mẫu `net_example_en` minh họa cách nối các nút bằng liên kết:
+Quy trình mẫu `demo_loop_counter` minh họa cách nối các nút bằng liên kết:
 
 1. Tạo ba nút agent **Poet** (viết thơ), **Article Writer** (viết bài) và **Editor 1** (gộp bài và thơ).
 2. Nối nút bắt đầu tới Poet và Article Writer: hai nút này chạy song song.
@@ -371,7 +371,7 @@ Ví dụ: `workspace/workflows/demo_loop_counter.yaml`.
 
 Nhúng một quy trình khác vào quy trình hiện tại để dùng lại. **Loại nguồn quy trình con** là `file` (đường dẫn tệp YAML, tương đối so với `workspace/workflows/`) hoặc `config` (viết trực tiếp). Quy trình con kế thừa biến của quy trình cha; **Nút kết thúc** quyết định kết quả trả về.
 
-Ví dụ: `workspace/workflows/react.yaml`, `workspace/workflows/deep_research_v1.yaml`.
+Ví dụ: `workspace/workflows/software_company.yaml`, `workspace/workflows/marketing_agency.yaml`.
 
 ---
 

@@ -136,6 +136,15 @@
               >
                 {{ $t('workflow_view.duplicate_node') }}
               </div>
+              <!-- Build a roster fast: N numbered copies at once, all joining the original's teams -->
+              <div
+                v-if="contextNodeIsAgent"
+                class="context-menu-item"
+                :title="$t('workflow_view.duplicate_many_hint')"
+                @click.stop="() => { const id = contextNodeId; hideContextMenu(); openDuplicateManyModal(id); }"
+              >
+                {{ $t('workflow_view.duplicate_many') }}
+              </div>
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.deleteNode" placement="right">
                 <div
                   class="context-menu-item"
@@ -223,7 +232,16 @@
         <button v-else @click="goToLaunch" class="launch-button-primary">
           <span>{{ $t('workflow_view.launch') }}</span>
         </button>
-        
+        <button
+          type="button"
+          class="glass-button"
+          :title="$t('workflow_view.try_in_lab_hint')"
+          :disabled="labNavigating"
+          @click="goToLab"
+        >
+          <span>{{ $t('workflow_view.try_in_lab') }}</span>
+        </button>
+
         <div
           class="menu-container"
           @mouseenter="showMenu = true"
@@ -343,6 +361,49 @@
       <div class="modal-footer">
         <button @click="closeCopyModal" class="cancel-button">{{ $t('common.cancel') }}</button>
         <button @click="handleCopySubmit" class="submit-button" :disabled="!copyWorkflowName.trim()">{{ $t('common.submit') }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Duplicate node xN Modal -->
+  <div v-if="showDuplicateManyModal" class="modal-overlay" @click.self="closeDuplicateManyModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">{{ $t('workflow_view.duplicate_many_title', { name: duplicateManyNodeId }) }}</h3>
+        <button @click="closeDuplicateManyModal" class="close-button" :aria-label="$t('common.cancel')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="duplicate-many-count" class="form-label">{{ $t('workflow_view.duplicate_many_count') }}</label>
+          <input
+            id="duplicate-many-count"
+            v-model.number="duplicateManyCount"
+            type="number"
+            min="1"
+            :max="DUPLICATE_MANY_MAX"
+            step="1"
+            class="form-input"
+            @keyup.enter="handleDuplicateManySubmit"
+          />
+          <p class="duplicate-many-help">{{ duplicateManyPreview }}</p>
+          <p v-if="duplicateManyLeads.length" class="duplicate-many-help">
+            {{ $t('workflow_view.duplicate_many_team_note', { leads: duplicateManyLeads.join(', ') }) }}
+          </p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="closeDuplicateManyModal" class="cancel-button">{{ $t('common.cancel') }}</button>
+        <button
+          @click="handleDuplicateManySubmit"
+          class="submit-button"
+          :disabled="!duplicateManyValid || duplicateManyBusy"
+        >
+          {{ $t('workflow_view.duplicate_many_submit', { count: duplicateManyValid ? duplicateManyCount : 0 }) }}
+        </button>
       </div>
     </div>
   </div>
@@ -749,6 +810,114 @@ const onDuplicateNodeFromContext = async () => {
   toast.success(result.leads.length
     ? t('workflow_view.duplicate_node_done_team', { name: result.newId, leads: result.leads.join(', ') })
     : t('workflow_view.duplicate_node_done', { name: result.newId }))
+}
+
+// "Nhân bản ×N": N numbered copies of an agent in one save. Each copy goes through the same
+// duplicateNodeInGraph() as the single duplicate, so it gets the next free "<name> <n>" ID and is
+// inserted into every lead's explicit team.members list that contains the original. Leads with an
+// empty member list already pick up every edge-less agent, so the copies join them automatically.
+const DUPLICATE_MANY_MAX = 20
+const showDuplicateManyModal = ref(false)
+const duplicateManyNodeId = ref('')
+const duplicateManyCount = ref(1)
+const duplicateManyBusy = ref(false)
+
+const contextNodeIsAgent = computed(() => {
+  const id = contextNodeId.value
+  if (!id) return false
+  const node = (yamlContent.value?.graph?.nodes || []).find(item => item?.id === id)
+  return node?.type === 'agent'
+})
+
+const duplicateManyValid = computed(() => {
+  const n = duplicateManyCount.value
+  return Number.isInteger(n) && n >= 1 && n <= DUPLICATE_MANY_MAX
+})
+
+const duplicateNodeTimes = (graph, nodeId, count) => {
+  let current = graph
+  const newIds = []
+  let leads = []
+  for (let i = 0; i < count; i += 1) {
+    const result = duplicateNodeInGraph(current, nodeId)
+    if (!result) return null
+    current = result.graph
+    newIds.push(result.newId)
+    if (i === 0) leads = result.leads
+  }
+  return { graph: current, newIds, leads }
+}
+
+const duplicateManyPlan = computed(() => {
+  const graph = yamlContent.value?.graph
+  if (!showDuplicateManyModal.value || !graph || !duplicateManyValid.value) return null
+  return duplicateNodeTimes(graph, duplicateManyNodeId.value, duplicateManyCount.value)
+})
+
+const duplicateManyLeads = computed(() => duplicateManyPlan.value?.leads || [])
+
+const duplicateManyPreview = computed(() => {
+  if (!duplicateManyValid.value) return t('workflow_view.duplicate_many_range', { max: DUPLICATE_MANY_MAX })
+  const ids = duplicateManyPlan.value?.newIds || []
+  if (!ids.length) return ''
+  return ids.length === 1
+    ? t('workflow_view.duplicate_many_preview_one', { first: ids[0] })
+    : t('workflow_view.duplicate_many_preview', { first: ids[0], last: ids[ids.length - 1] })
+})
+
+const openDuplicateManyModal = (nodeId) => {
+  if (!nodeId) return
+  duplicateManyNodeId.value = nodeId
+  duplicateManyCount.value = 1
+  showDuplicateManyModal.value = true
+}
+
+const closeDuplicateManyModal = () => {
+  if (duplicateManyBusy.value) return
+  showDuplicateManyModal.value = false
+}
+
+// Copies stand in a block next to the original: down a column of 6, then the next column right.
+const DUPLICATE_COLUMN = 6
+const DUPLICATE_GAP_X = 330
+const DUPLICATE_GAP_Y = 170
+
+const handleDuplicateManySubmit = async () => {
+  const nodeId = duplicateManyNodeId.value
+  const source = yamlContent.value
+  if (!duplicateManyValid.value || duplicateManyBusy.value || !source?.graph || !nodeId) return
+  const plan = duplicateNodeTimes(source.graph, nodeId, duplicateManyCount.value)
+  if (!plan) return
+  duplicateManyBusy.value = true
+  try {
+    const original = vueFlowNodeById(nodeId)
+    const origin = original?.position ? { ...original.position } : null
+    const ok = await persistYamlSnapshot({ ...source, graph: plan.graph })
+    if (!ok) return
+    await loadYamlFile()
+    syncVueNodesAndEdgesData()
+    await nextTick()
+    if (origin) {
+      plan.newIds.forEach((id, i) => {
+        const copy = vueFlowNodeById(id)
+        if (!copy) return
+        const slot = i + 1 // slot 0 is the original
+        copy.position = {
+          x: origin.x + Math.floor(slot / DUPLICATE_COLUMN) * DUPLICATE_GAP_X,
+          y: origin.y + (slot % DUPLICATE_COLUMN) * DUPLICATE_GAP_Y
+        }
+      })
+    }
+    await saveVueFlowGraph()
+    const first = plan.newIds[0]
+    const last = plan.newIds[plan.newIds.length - 1]
+    toast.success(plan.leads.length
+      ? t('workflow_view.duplicate_many_done_team', { count: plan.newIds.length, first, last, leads: plan.leads.join(', ') })
+      : t('workflow_view.duplicate_many_done', { count: plan.newIds.length, first, last }))
+    showDuplicateManyModal.value = false
+  } finally {
+    duplicateManyBusy.value = false
+  }
 }
 
 const vueFlowNodeById = (id) => (nodes.value || []).find(node => node.id === id)
@@ -1991,6 +2160,27 @@ const goToLaunch = () => {
   window.open(resolved.href, '_blank', 'noopener')
 }
 
+// "Thử trong Lab": every graph edit is written to the YAML immediately (persistYamlSnapshot), so the
+// file the Lab loads is current; flush the canvas layout too, then open the Lab on this workflow.
+const labNavigating = ref(false)
+const goToLab = async () => {
+  if (!currentWorkflowName.value || labNavigating.value) return
+  const fileName = currentWorkflowName.value.endsWith('.yaml')
+    ? currentWorkflowName.value
+    : `${currentWorkflowName.value}.yaml`
+  labNavigating.value = true
+  try {
+    try {
+      await saveVueFlowGraph()
+    } catch (error) {
+      console.warn('Could not save the canvas layout before opening the Lab:', error)
+    }
+    router.push({ path: '/lab', query: { workflow: fileName } })
+  } finally {
+    labNavigating.value = false
+  }
+}
+
 // Modal functions for rename and copy workflow
 const openRenameWorkflowModal = () => {
   showMenu.value = false
@@ -2619,6 +2809,13 @@ const handleCopySubmit = async () => {
   font-size: 13px;
   font-weight: 500;
   margin-bottom: 8px;
+}
+
+.duplicate-many-help {
+  margin: 8px 0 0;
+  color: var(--text-2, rgb(var(--ink) / 0.65));
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .form-input {

@@ -38,7 +38,7 @@ tooling:
 | `move_path` | 移动文件或目录 |
 | `search_in_files` | 在工作区文件中搜索文本或正则模式 |
 
-**示例 YAML**：[AgentDev_v1.yaml](../../../../../workspace/workflows/AgentDev_v1.yaml)、[file_tool_use_case.yaml](../../../../../workspace/workflows/file_tool_use_case.yaml)
+**示例 YAML**：[software_company.yaml](../../../../../workspace/workflows/software_company.yaml)、[file_tool_use_case.yaml](../../../../../workspace/workflows/file_tool_use_case.yaml)
 
 ---
 
@@ -52,7 +52,7 @@ tooling:
 | `init_python_env` | 初始化 Python 环境（uv lock + venv） |
 | `uv_run` | 在工作区内执行 uv run，运行模块或脚本 |
 
-**示例 YAML**：[AgentDev_v1.yaml](../../../../../workspace/workflows/AgentDev_v1.yaml)
+**示例 YAML**：[software_company.yaml](../../../../../workspace/workflows/software_company.yaml)
 
 ---
 
@@ -83,7 +83,7 @@ tooling:
 | `report_del_chapter` | 删除章节 |
 | `report_export_pdf` | 导出报告为 PDF |
 
-**示例 YAML**：[deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
+**示例 YAML**：[software_company.yaml](../../../../../workspace/workflows/software_company.yaml)
 
 ---
 
@@ -98,7 +98,7 @@ tooling:
 
 无需任何 API 密钥或环境变量。
 
-**示例 YAML**：[deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
+**示例 YAML**：[software_company.yaml](../../../../../workspace/workflows/software_company.yaml)
 
 ---
 

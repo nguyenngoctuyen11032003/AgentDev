@@ -54,6 +54,13 @@
             <div class="file-name" :title="file.name">{{ displayName(file.name) }}</div>
             <div class="file-description">{{ localizedWorkflowDescription(file.name, file.description) }}</div>
           </div>
+          <button
+            type="button"
+            class="lab-btn"
+            :title="$t('workflow_list.try_in_lab_hint')"
+            :aria-label="`${$t('workflow_list.try_in_lab')}: ${displayName(file.name)}`"
+            @click.stop="goToLab(file.name)"
+          >{{ $t('workflow_list.try_in_lab') }}</button>
           <div class="file-arrow">→</div>
         </div>
       </transition-group>
@@ -63,6 +70,17 @@
         <p>{{ searchQuery.trim() && yamlFiles.length ? $t('workflow_list.no_search_results') : $t('workflow_list.no_files') }}</p>
       </div>
     </div>
+
+    <!-- Create: blank workflow or a ready-made department (lead + roster) -->
+    <Teleport to="body">
+      <DepartmentTemplatePicker
+        v-if="showTemplatePicker"
+        :existing-files="yamlFiles.map((f) => f?.name).filter(Boolean)"
+        @close="showTemplatePicker = false"
+        @blank="openBlankForm"
+        @created="handleTemplateCreated"
+      />
+    </Teleport>
 
     <!-- FormGenerator Modal -->
     <!-- Teleport to body in WorkflowWorkbench -->
@@ -88,6 +106,7 @@ import { fetchWorkflowsWithDesc } from '@/api/client.js'
 import { onWorkflowChanged } from '@/utils/workflowSync.js'
 import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
 import FormGenerator from '@/components/form/FormGenerator.vue'
+import DepartmentTemplatePicker from '@/components/workflow/DepartmentTemplatePicker.vue'
 
 const router = useRouter()
 const { locale } = useI18n()
@@ -107,6 +126,7 @@ const loading = ref(false)
 const error = ref(null)
 
 const showFormGenerator = ref(false)
+const showTemplatePicker = ref(false)
 const searchQuery = ref('')
 
 // Debounced copy of the search query so filtering/sorting and the list
@@ -231,8 +251,27 @@ const extractGraphIdFromPayload = (payload) => {
   return String(graphId).trim()
 }
 
+// "Tạo" first offers a blank workflow or a department template ("Mẫu phòng ban").
 const openFormGenerator = () => {
+  showTemplatePicker.value = true
+}
+
+const openBlankForm = () => {
+  showTemplatePicker.value = false
   showFormGenerator.value = true
+}
+
+const handleTemplateCreated = async (fileName) => {
+  showTemplatePicker.value = false
+  await loadWorkflows({ silent: true })
+  goToWorkflowView(fileName)
+}
+
+// Workflow edits are saved as they are made, so the Lab always loads the current file.
+const goToLab = (fileName) => {
+  const name = String(fileName || '')
+  if (!name) return
+  router.push({ path: '/lab', query: { workflow: /\.ya?ml$/i.test(name) ? name : `${name}.yaml` } })
 }
 
 const closeFormGenerator = () => {
@@ -513,6 +552,33 @@ const handleFormGeneratorSubmit = async (payload) => {
 }
 
 /* Removed the left border glow ::before pseudo-element */
+
+.lab-btn {
+  flex-shrink: 0;
+  margin: 0 8px 0 10px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  border: 1px solid rgb(var(--ink) / 0.15);
+  background: rgb(var(--ink) / 0.04);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.file-item:hover .lab-btn,
+.lab-btn:focus-visible {
+  opacity: 1;
+}
+
+.lab-btn:hover {
+  border-color: var(--accent-indigo);
+  background: rgb(var(--ink) / 0.08);
+}
 
 .file-info {
   flex: 1;
