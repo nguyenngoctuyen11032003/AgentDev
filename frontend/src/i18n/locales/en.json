@@ -583,7 +583,11 @@
       "asked": "Task: {task}",
       "assigned_by": "Assigned by {lead}",
       "progress_team": "{done}/{total} tasks done · {people} people involved",
-      "section_unassigned": "Not assigned"
+      "section_unassigned": "Not assigned",
+      "turn": "Turn {n}",
+      "turn_current": "Turn {n} · current",
+      "turn_all": "All turns ({n})",
+      "turn_filter": "Show tasks by turn"
     },
     "dashboard": {
       "view": "Dashboard",
@@ -651,7 +655,14 @@
       "kpi_usage": "Tokens used",
       "kpi_usage_later": "Shown when the run ends",
       "pipeline_team_sub": "People who took part · {n} not assigned",
-      "tasks_of": "{done}/{total} tasks"
+      "tasks_of": "{done}/{total} tasks",
+      "kpi_time_turns": "{n} turns · this one {time}",
+      "turn_of": "Turn {n}/{total}",
+      "turns": "Turns in this session",
+      "turns_sub": "{n} turns · newest first",
+      "col_request": "Request",
+      "col_tasks": "Tasks",
+      "turn_now": "Current turn"
     },
     "review": {
       "view": "Review",
@@ -1269,6 +1280,29 @@
       "sessions_failed": "Failed to load sessions",
       "skills_failed": "Skill library request failed",
       "lab_failed": "Lab request failed"
+    },
+    "backend": {
+      "technical": "Technical details: {detail}",
+      "account_exhausted": "The account reached its usage limit and no other signed-in account is available. Sign in to another account on the Connections page.",
+      "no_account": "No signed-in account can run this agent. Sign in on the Connections page and pick the connection on the node.",
+      "connection_not_found": "This connection was not found. It may have been removed; reload the Connections page.",
+      "unknown_vendor": "Unsupported provider: {vendor}.",
+      "cli_not_installed": "The {cli} CLI is not installed on this machine (or not on PATH).",
+      "cli_not_logged_in": "The {cli} CLI is not signed in. Sign in again on the Connections page.",
+      "cli_timeout": "The {cli} CLI did not answer within {seconds} seconds and was stopped.",
+      "quota": "The account hit its usage limit (quota). Wait for it to reset or use another account.",
+      "cli_failed": "The {cli} CLI failed.",
+      "code_execution_disabled": "Running code (Python / commands) is disabled on the server. Start the backend with MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 if you trust this workflow.",
+      "run_in_progress": "A run is already in progress in this session. Wait for it to finish or stop it first.",
+      "workflow_exists": "A workflow with this name already exists. Rename it or open that workflow to edit it.",
+      "workflow_not_found": "Workflow not found. The file may have been renamed or deleted.",
+      "session_not_found": "Run session not found. It may have expired or been deleted.",
+      "lab_run_not_found": "Lab run not found.",
+      "project_workspace_not_found": "Project folder not found. Pick the folder again.",
+      "skill_permission_denied": "Could not write to the skill folder: a file is open in another program or read-only.",
+      "skill_folder_failed": "Could not update the skill folder.",
+      "invalid_yaml": "The YAML content is invalid.",
+      "validation_failed": "The workflow configuration is invalid."
     }
   },
   "schema_enum": {

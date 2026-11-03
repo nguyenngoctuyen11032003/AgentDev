@@ -583,7 +583,11 @@
       "asked": "Việc: {task}",
       "assigned_by": "Do {lead} giao",
       "progress_team": "{done}/{total} việc xong · {people} người tham gia",
-      "section_unassigned": "Chưa được giao"
+      "section_unassigned": "Chưa được giao",
+      "turn": "Lượt {n}",
+      "turn_current": "Lượt {n} · hiện tại",
+      "turn_all": "Tất cả lượt ({n})",
+      "turn_filter": "Xem việc theo lượt"
     },
     "dashboard": {
       "view": "Tổng quan",
@@ -651,7 +655,14 @@
       "kpi_usage": "Token đã dùng",
       "kpi_usage_later": "Có khi chạy xong",
       "pipeline_team_sub": "Những người đã tham gia · {n} người chưa được giao",
-      "tasks_of": "{done}/{total} việc"
+      "tasks_of": "{done}/{total} việc",
+      "kpi_time_turns": "{n} lượt · lượt này {time}",
+      "turn_of": "Lượt {n}/{total}",
+      "turns": "Các lượt trong phiên",
+      "turns_sub": "{n} lượt · mới nhất trước",
+      "col_request": "Yêu cầu",
+      "col_tasks": "Việc",
+      "turn_now": "Lượt hiện tại"
     },
     "review": {
       "view": "Duyệt",
@@ -1269,6 +1280,29 @@
       "sessions_failed": "Không thể tải danh sách phiên",
       "skills_failed": "Không thể xử lý thư viện skill",
       "lab_failed": "Phòng thí nghiệm gặp lỗi"
+    },
+    "backend": {
+      "technical": "Chi tiết kỹ thuật: {detail}",
+      "account_exhausted": "Tài khoản đã dùng hết hạn mức và không còn tài khoản đã đăng nhập nào khác. Hãy đăng nhập thêm tài khoản ở trang Kết nối.",
+      "no_account": "Chưa có tài khoản nào đã đăng nhập để chạy agent này. Hãy đăng nhập ở trang Kết nối rồi chọn kết nối cho node.",
+      "connection_not_found": "Không tìm thấy kết nối này. Có thể nó đã bị xoá; hãy tải lại trang Kết nối.",
+      "unknown_vendor": "Nhà cung cấp không được hỗ trợ: {vendor}.",
+      "cli_not_installed": "Chưa cài {cli} CLI trên máy (hoặc không có trong PATH).",
+      "cli_not_logged_in": "{cli} CLI chưa đăng nhập. Hãy đăng nhập lại ở trang Kết nối.",
+      "cli_timeout": "{cli} CLI không trả lời sau {seconds} giây nên đã bị dừng.",
+      "quota": "Tài khoản đã chạm giới hạn sử dụng (quota). Hãy chờ hạn mức được làm mới hoặc dùng tài khoản khác.",
+      "cli_failed": "{cli} CLI gặp lỗi khi chạy.",
+      "code_execution_disabled": "Chạy mã (Python / lệnh) đang bị tắt trên máy chủ. Đặt MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 khi khởi động backend nếu bạn tin tưởng workflow này.",
+      "run_in_progress": "Phiên này đang có một lượt chạy. Hãy chờ nó xong hoặc dừng nó trước.",
+      "workflow_exists": "Đã có workflow trùng tên. Hãy đổi tên hoặc mở workflow đó để sửa.",
+      "workflow_not_found": "Không tìm thấy workflow. Có thể tệp đã bị đổi tên hoặc xoá.",
+      "session_not_found": "Không tìm thấy phiên chạy. Có thể nó đã hết hạn hoặc bị xoá.",
+      "lab_run_not_found": "Không tìm thấy lượt thử nghiệm trong Lab.",
+      "project_workspace_not_found": "Không tìm thấy thư mục dự án. Hãy chọn lại thư mục.",
+      "skill_permission_denied": "Không ghi được vào thư mục skill: có tệp đang mở trong chương trình khác hoặc chỉ đọc.",
+      "skill_folder_failed": "Không cập nhật được thư mục skill.",
+      "invalid_yaml": "Nội dung YAML không hợp lệ.",
+      "validation_failed": "Cấu hình workflow không hợp lệ."
     }
   },
   "schema_enum": {

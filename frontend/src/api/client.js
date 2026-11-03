@@ -1,5 +1,6 @@
 import i18n from '@/i18n'
 import { notifyWorkflowChanged } from '@/utils/workflowSync.js'
+import { localizeBackendError } from '@/utils/errorTranslate.js'
 
 const apiUrl = (path) => path
 
@@ -56,10 +57,12 @@ export function extractErrorDetail(payload, depth = 0) {
   return String(payload)
 }
 
-// Localized summary, optionally followed by the backend detail.
+// Localized summary, optionally followed by the backend detail. A recognised backend error text
+// (see utils/errorTranslate.js) is shown in the UI language; callers keep the raw text as `detail`.
 const errorMessage = (key, detail) => {
   const summary = t(key)
-  return detail ? t('errors.with_detail', { summary, detail }) : summary
+  if (!detail) return summary
+  return t('errors.with_detail', { summary, detail: localizeBackendError(detail) || detail })
 }
 
 const httpStatusDetail = (response) => {
@@ -72,7 +75,8 @@ const responseError = async (key, response) => {
   const detail = extractErrorDetail(body) || httpStatusDetail(response)
   const error = new Error(errorMessage(key, detail))
   error.status = response.status
-  error.detail = detail
+  error.detail = detail // original technical text
+  error.code = body?.code || body?.error?.code || undefined
   return error
 }
 

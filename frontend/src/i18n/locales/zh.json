@@ -543,7 +543,11 @@
       "asked": "任务：{task}",
       "assigned_by": "由 {lead} 分配",
       "progress_team": "已完成 {done}/{total} 项任务 · {people} 人参与",
-      "section_unassigned": "未分配"
+      "section_unassigned": "未分配",
+      "turn": "第 {n} 轮",
+      "turn_current": "第 {n} 轮 · 当前",
+      "turn_all": "全部轮次（{n}）",
+      "turn_filter": "按轮次查看任务"
     },
     "dashboard": {
       "view": "概览",
@@ -611,7 +615,14 @@
       "kpi_usage": "已用 Token",
       "kpi_usage_later": "运行结束后显示",
       "pipeline_team_sub": "参与人员 · {n} 人未分配",
-      "tasks_of": "{done}/{total} 项任务"
+      "tasks_of": "{done}/{total} 项任务",
+      "kpi_time_turns": "{n} 轮 · 本轮 {time}",
+      "turn_of": "第 {n}/{total} 轮",
+      "turns": "本会话的轮次",
+      "turns_sub": "{n} 轮 · 最新在前",
+      "col_request": "请求",
+      "col_tasks": "任务",
+      "turn_now": "当前轮次"
     },
     "review": {
       "view": "验收",
@@ -1269,6 +1280,29 @@
       "sessions_failed": "无法加载会话列表",
       "skills_failed": "技能库请求失败",
       "lab_failed": "实验室请求失败"
+    },
+    "backend": {
+      "technical": "技术详情：{detail}",
+      "account_exhausted": "该账号已达到使用上限，且没有其他已登录的账号可用。请在“连接”页面登录其他账号。",
+      "no_account": "没有可运行此智能体的已登录账号。请在“连接”页面登录，并为该节点选择连接。",
+      "connection_not_found": "找不到此连接，可能已被删除；请刷新“连接”页面。",
+      "unknown_vendor": "不支持的提供商：{vendor}。",
+      "cli_not_installed": "本机未安装 {cli} CLI（或不在 PATH 中）。",
+      "cli_not_logged_in": "{cli} CLI 尚未登录。请在“连接”页面重新登录。",
+      "cli_timeout": "{cli} CLI 在 {seconds} 秒内没有响应，已被停止。",
+      "quota": "账号已达到使用上限（配额）。请等待额度重置或使用其他账号。",
+      "cli_failed": "{cli} CLI 运行出错。",
+      "code_execution_disabled": "服务器已禁用代码执行（Python / 命令）。如果信任此工作流，请以 MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 启动后端。",
+      "run_in_progress": "此会话中已有一个运行正在进行。请等待其完成或先停止它。",
+      "workflow_exists": "已存在同名工作流。请重命名，或打开该工作流进行编辑。",
+      "workflow_not_found": "找不到工作流，文件可能已被重命名或删除。",
+      "session_not_found": "找不到运行会话，可能已过期或被删除。",
+      "lab_run_not_found": "找不到 Lab 测试运行。",
+      "project_workspace_not_found": "找不到项目文件夹，请重新选择。",
+      "skill_permission_denied": "无法写入技能文件夹：有文件在其他程序中打开或为只读。",
+      "skill_folder_failed": "无法更新技能文件夹。",
+      "invalid_yaml": "YAML 内容无效。",
+      "validation_failed": "工作流配置无效。"
     }
   },
   "schema_enum": {
