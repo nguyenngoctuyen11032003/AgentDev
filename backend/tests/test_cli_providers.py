@@ -31,16 +31,31 @@ def _done(rc=0, out="", err=""):
     return subprocess.CompletedProcess([], rc, out, err)
 
 
+def _capture_claude(out):
+    """Fake claude run that also keeps the system prompt file (the static part of the prompt lives there)."""
+    seen = {}
+
+    def fake(cmd, **kw):
+        with open(cmd[cmd.index("--system-prompt-file") + 1], encoding="utf-8") as fh:
+            seen["system"] = fh.read()
+        seen["input"] = kw["input"]
+        seen["full"] = seen["system"] + "\n\n" + kw["input"]
+        return _done(out=out)
+
+    return fake, seen
+
+
 def test_claude_success_and_stdin():
     p = ClaudeCliProvider(_cfg())
     with patch("shutil.which", return_value="/bin/claude"):
         client = p.create_client()
     payload = '{"result":"hi","is_error":false,"usage":{"input_tokens":3,"output_tokens":2}}'
-    with patch("agentdev.connections.cli_auth.run_capture", return_value=_done(out=payload)) as run:
+    fake, seen = _capture_claude(payload)
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake) as run:
         resp = p.call_model(client, _conv(), [], tool_specs=None)
     assert resp.message.content == "hi"
     args, kw = run.call_args
-    assert SECRET_PROMPT in kw["input"] and "be brief" in kw["input"]
+    assert SECRET_PROMPT in kw["input"] and "be brief" in seen["system"]
     assert not any(SECRET_PROMPT in a for a in args[0])
     assert not kw.get("shell")
     assert p.extract_token_usage(resp.raw_response).total_tokens == 5
@@ -168,8 +183,10 @@ def _tool_run(reply=None, result_text=None, usage=None, path="claude"):
     if result_text is not None:
         payload["result"] = result_text
     p = ClaudeCliProvider(_cfg())
-    with patch("agentdev.connections.cli_auth.run_capture", return_value=_done(out=json.dumps(payload))) as run:
+    fake, seen = _capture_claude(json.dumps(payload))
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake) as run:
         resp = p.call_model(CliClient(path), _conv(), [], tool_specs=[WEATHER])
+    run.seen = seen
     return p, resp, run
 
 
@@ -185,8 +202,9 @@ def test_claude_tools_tool_call_parsed():
     assert cmd[cmd.index("--tools") + 1] == ""  # Claude Code's own tools stay disabled
     schema = json.loads(cmd[cmd.index("--json-schema") + 1])
     assert "tool_calls" in schema["properties"]
-    assert "get_temperature" in kw["input"] and "Get the current temperature" in kw["input"]
-    assert '"city"' in kw["input"] and SECRET_PROMPT in kw["input"]
+    # Static part (tool protocol + schemas) in the system prompt, the conversation on stdin.
+    assert "get_temperature" in run.seen["system"] and "Get the current temperature" in run.seen["system"]
+    assert '"city"' in run.seen["system"] and SECRET_PROMPT in kw["input"]
     assert not any(SECRET_PROMPT in a for a in cmd)
     assert p.extract_token_usage(resp.raw_response).total_tokens == 5
 
@@ -237,7 +255,7 @@ def test_claude_tools_json_in_fenced_text_without_structured_output():
 def test_claude_tools_cmd_shim_skips_json_schema_argv():
     _, resp, run = _tool_run({"text": "ok"}, path="C:/npm/claude.cmd")
     assert "--json-schema" not in run.call_args.args[0]
-    assert "Output ONLY the JSON object" in run.call_args.kwargs["input"]
+    assert "Output ONLY the JSON object" in run.seen["system"]
     assert resp.message.content == "ok"
 
 
@@ -260,9 +278,10 @@ def test_claude_tools_round_trip_renders_calls_and_results():
     ]
     p = ClaudeCliProvider(_cfg())
     payload = json.dumps({"is_error": False, "structured_output": {"text": "It is 31C."}, "result": "{}"})
-    with patch("agentdev.connections.cli_auth.run_capture", return_value=_done(out=payload)) as run:
+    fake, seen = _capture_claude(payload)
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake):
         resp = p.call_model(CliClient("claude"), conv, [], tool_specs=[WEATHER])
-    prompt = run.call_args.kwargs["input"]
+    prompt = seen["full"]
     assert "[System instructions]\nbe brief" in prompt
     assert 'id=call_abc name=get_temperature arguments={"city": "Hanoi"}' in prompt
     assert "[Tool result] call_id=call_abc name=get_temperature\n31C and humid\n[End tool result]" in prompt

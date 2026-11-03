@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
 import tempfile
+import threading
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+import weakref
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agentdev.connections import cli_auth
 from agentdev.connections.security import MODEL_NAME_RE
@@ -40,15 +45,55 @@ def flatten_conversation(conversation: List[Message], tool_preamble: str = "") -
     With it, assistant tool calls and tool results are rendered explicitly and the
     tool-calling protocol is placed after the system instructions.
     """
+    return "\n\n".join(part for part in split_conversation(conversation, tool_preamble) if part)
+
+
+def split_conversation(conversation: List[Message], tool_preamble: str = "") -> Tuple[str, str]:
+    """``(static, transcript)`` parts of :func:`flatten_conversation` (joined by a blank line they equal it).
+
+    ``static`` (system instructions with the role and skills catalog, then the tool protocol with the JSON
+    schemas) does not change between the steps of one agent's tool loop and is rendered byte-identically
+    on every step, so the vendor's prompt cache can reuse it; ``transcript`` is the growing conversation.
+    """
     tools_mode = bool(tool_preamble)
-    names_by_id = _tool_names_by_id(conversation) if tools_mode else {}
-    system: List[str] = []
+    system = [m.text_content().strip() for m in conversation if m.role == MessageRole.SYSTEM]
+    system = [text for text in system if text]
+    static: List[str] = []
+    if system:
+        static.append("[System instructions]\n" + "\n\n".join(system))
+    if tools_mode:
+        static.append(tool_preamble)
+    turns = _render_turns(conversation, tools_mode, _tool_names_by_id(conversation) if tools_mode else {})
+    if len(turns) == 1 and turns[0].startswith("User: "):
+        transcript = turns[0][len("User: "):]
+    elif turns:
+        transcript = "[Conversation]\n" + "\n\n".join(turns) + "\n\n" + _respond_tail(tools_mode)
+    else:
+        transcript = ""
+    return "\n\n".join(static), transcript
+
+
+def render_followup(conversation: List[Message], start: int, tools_mode: bool) -> str:
+    """Prompt for a resumed CLI session: only ``conversation[start:]`` (the session holds everything before)."""
+    names = _tool_names_by_id(conversation) if tools_mode else {}
+    turns = _render_turns(conversation[start:], tools_mode, names)
+    return "\n\n".join(turns + [_respond_tail(tools_mode)])
+
+
+def _respond_tail(tools_mode: bool) -> str:
+    if tools_mode:
+        return (
+            "Respond as the Assistant to the conversation so far, following the tool-calling protocol. "
+            "If the last entries are tool results, use them to answer; call another tool only if still needed."
+        )
+    return "Respond as the Assistant to the last User message."
+
+
+def _render_turns(messages: List[Message], tools_mode: bool, names_by_id: Dict[str, str]) -> List[str]:
     turns: List[str] = []
-    for msg in conversation:
+    for msg in messages:
         text = msg.text_content().strip()
         if msg.role == MessageRole.SYSTEM:
-            if text:
-                system.append(text)
             continue
         if tools_mode and msg.role == MessageRole.ASSISTANT and msg.tool_calls:
             lines = [f"Assistant: {text}" if text else "Assistant:"]
@@ -74,22 +119,7 @@ def flatten_conversation(conversation: List[Message], tool_preamble: str = "") -
         if not text:
             continue
         turns.append(f"{_LABELS.get(msg.role, 'User')}: {text}")
-    parts: List[str] = []
-    if system:
-        parts.append("[System instructions]\n" + "\n\n".join(system))
-    if tools_mode:
-        parts.append(tool_preamble)
-    if len(turns) == 1 and turns[0].startswith("User: "):
-        parts.append(turns[0][len("User: "):])
-    elif turns:
-        tail = "Respond as the Assistant to the last User message."
-        if tools_mode:
-            tail = (
-                "Respond as the Assistant to the conversation so far, following the tool-calling protocol. "
-                "If the last entries are tool results, use them to answer; call another tool only if still needed."
-            )
-        parts.append("[Conversation]\n" + "\n\n".join(turns) + "\n\n" + tail)
-    return "\n\n".join(parts)
+    return turns
 
 
 def _tool_names_by_id(conversation: List[Message]) -> Dict[str, str]:
@@ -263,6 +293,162 @@ def record_token_usage(provider: Any, raw_response: Any, provider_name: str) -> 
 
 def make_tempdir() -> Any:
     return tempfile.TemporaryDirectory(prefix="agentdev-cli-")
+
+
+# ---------------------------------------------------------------------------
+# Per-run CLI state: a stable working folder and a resumable session for the tool loop
+# ---------------------------------------------------------------------------
+
+SESSION_REUSE_ENV = "AGENTDEV_CLI_SESSION_REUSE"
+
+
+def session_reuse_enabled(params: Optional[Dict[str, Any]]) -> bool:
+    """Session reuse switch: the node param ``session_reuse`` wins, then the env var; on by default."""
+    value = (params or {}).get("session_reuse")
+    if value is None:
+        value = os.environ.get(SESSION_REUSE_ENV)
+    if value is None or value == "":
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() not in ("0", "false", "off", "no")
+    return bool(value)
+
+
+def message_key(msg: Message) -> str:
+    """Identity of a message as the CLI saw it (role, text, tool calls / call id, attachments)."""
+    calls = [[c.id, c.function_name, _compact_args(c.arguments)] for c in (msg.tool_calls or [])]
+    files = []
+    if not isinstance(msg.content, str) and msg.content is not None:
+        files = [getattr(b.attachment, "attachment_id", None) or getattr(b.attachment, "local_path", None) or "?"
+                 for b in msg.blocks() if b.attachment is not None]
+    return json.dumps([str(msg.role), msg.text_content(), msg.tool_call_id, calls, files], ensure_ascii=False, default=str)
+
+
+def has_attachments(messages: List[Message]) -> bool:
+    return any(
+        b.attachment is not None
+        for m in messages
+        if m.content is not None and not isinstance(m.content, str)
+        for b in m.blocks()
+    )
+
+
+@dataclass
+class CliSession:
+    """A vendor CLI conversation kept alive across the steps of one agent's tool loop."""
+
+    session_id: str
+    scope: str  # model + tool specs + reply mode: a resumed call must offer exactly the same tools
+    keys: List[str] = field(default_factory=list)  # message_key of every message the session already holds
+    busy: bool = False
+    options: Dict[str, Any] = field(default_factory=dict)  # per-vendor call settings fixed at start
+
+
+class CliRunState:
+    """State a CLI provider keeps for one agent run (a provider instance lives for one node execution).
+
+    * ``workdir``: one working folder for every call of the run. The CLIs put the working directory in
+      their prompt, so a per-call temp folder would change the prompt prefix and defeat prompt caching.
+    * ``session``: the resumable CLI session of the tool loop (see :meth:`match`).
+
+    ``close()`` deletes the folder and, through ``cleanup(session, workdir)``, the vendor's files for each
+    session and finally for the folder itself (``session`` None); it also runs when the provider is
+    garbage-collected or at interpreter exit.
+    """
+
+    def __init__(self, owner: Any, cleanup: Optional[Callable[[Optional[CliSession], str], None]] = None):
+        self._lock = threading.Lock()
+        self._cleanup = cleanup
+        self._workdir: Optional[str] = None
+        self.session: Optional[CliSession] = None
+        self.resume_broken = False  # a resume failed once: stay stateless for the rest of the run
+        # What the finalizer releases; it must not reference the owner (or this object) to let GC run it.
+        self._box: Dict[str, Any] = {"workdir": None, "sessions": [], "cleanup": cleanup}
+        self._finalizer = weakref.finalize(owner, CliRunState._release, self._lock, self._box)
+
+    def _parts(self) -> Dict[str, Any]:
+        return self._box
+
+    def workdir(self) -> str:
+        with self._lock:
+            if self._workdir is None or not os.path.isdir(self._workdir):
+                self._workdir = tempfile.mkdtemp(prefix="agentdev-cli-")
+                self._parts()["workdir"] = self._workdir
+            return self._workdir
+
+    def match(self, conversation: List[Message], scope: str) -> Optional[Tuple[CliSession, int]]:
+        """``(session, start)`` when the session holds exactly ``conversation[:start]`` and only new
+        non-system, attachment-free messages follow; the session is then marked busy."""
+        with self._lock:
+            session = self.session
+            if session is None or session.busy or self.resume_broken or session.scope != scope:
+                return None
+            start = len(session.keys)
+            if len(conversation) <= start:
+                return None
+            if [message_key(m) for m in conversation[:start]] != session.keys:
+                return None
+            delta = conversation[start:]
+            if any(m.role == MessageRole.SYSTEM for m in delta) or has_attachments(delta):
+                return None
+            session.busy = True
+            return session, start
+
+    def start(self, scope: str, session_id: Optional[str] = None) -> CliSession:
+        """A new session (replacing the current one, whose files are deleted). Marked busy."""
+        session = CliSession(session_id=session_id or str(uuid.uuid4()), scope=scope, busy=True)
+        with self._lock:
+            old, self.session = self.session, session
+            self._parts()["sessions"].append(session)
+        if old is not None:
+            self.discard(old)
+        return session
+
+    def remember(self, session: CliSession, conversation: List[Message], reply: Message) -> None:
+        """The call succeeded: the session now holds ``conversation`` plus the reply."""
+        with self._lock:
+            session.keys = [message_key(m) for m in conversation] + [message_key(reply)]
+            session.busy = False
+
+    def discard(self, session: CliSession, *, broken: bool = False) -> None:
+        """Forget a session and delete its files. ``broken``: no more resumes in this run."""
+        with self._lock:
+            if self.session is session:
+                self.session = None
+            if broken:
+                self.resume_broken = True
+            sessions = self._parts()["sessions"]
+            if session in sessions:
+                sessions.remove(session)
+            workdir = self._workdir
+        if self._cleanup is not None and session.session_id:
+            try:
+                self._cleanup(session, workdir or "")
+            except Exception:  # cleanup is best effort
+                pass
+
+    def close(self) -> None:
+        self._finalizer()
+
+    @staticmethod
+    def _release(lock: threading.Lock, box: Dict[str, Any]) -> None:
+        with lock:
+            sessions, box["sessions"] = list(box["sessions"]), []
+            workdir, box["workdir"] = box["workdir"], None
+        cleanup = box.get("cleanup")
+        for session in sessions:
+            if cleanup is not None and session.session_id:
+                try:
+                    cleanup(session, workdir or "")
+                except Exception:
+                    pass
+        if workdir:
+            if cleanup is not None:
+                try:
+                    cleanup(None, workdir)
+                except Exception:
+                    pass
+            shutil.rmtree(workdir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

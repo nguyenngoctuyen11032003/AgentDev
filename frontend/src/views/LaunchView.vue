@@ -1158,6 +1158,19 @@ const settleNodeTurn = (nodeId, content = null, at = Date.now()) => {
   return merged
 }
 
+// The run is over (completed, stopped, failed, or cut off by a server restart): no bubble may
+// keep spinning. `interrupted` marks the turns that never got to finish.
+const settleAllNodeTurns = ({ at = Date.now(), interrupted = false } = {}) => {
+  for (const [nodeId, nodeState] of [...nodesLoadingMessagesMap.entries()]) {
+    const message = nodeState.message
+    settleNodeTurn(nodeId, null, at)
+    if (interrupted) {
+      message.interrupted = true
+      message.rev += 1
+    }
+  }
+}
+
 // Human-friendly activity labels (no raw model ids in the chat)
 const TOOL_ACTIVITY_KEYS = {
   ask_user: 'ask_user',
@@ -1238,6 +1251,7 @@ const activityHeadline = (message) => {
   }
   const steps = (message.loadingEntries || []).filter((e) => !e.isModel).length
   const time = humanDuration((message.endedAt || Date.now()) - message.startedAt)
+  if (message.interrupted) return t('launch.activity.interrupted', { time })
   return steps
     ? t('launch.activity.done_steps', { time, steps })
     : t('launch.activity.done', { time })
@@ -3995,6 +4009,20 @@ const processMessage = async (msg) => {
       const outcome = { completed: 'completed', error: 'error' }[data.status] || 'cancelled'
       runTracker.finish(outcome, { error: outcome === 'error' ? formatErrorDetail(data.error_message) : '' })
     }
+    const isLive = ['running', 'waiting_for_input', 'cancelling'].includes(data.status)
+    if (!isLive || data.error_message === 'Interrupted by a server restart') {
+      // The replay left turns open (the run was cut off, e.g. by a server restart): close them
+      // at their last recorded activity rather than letting their timers run on
+      const lastAt = (state) => Math.max(state.message.startedAt, ...state.message.loadingEntries.map((e) => e.endedAt || e.startedAt))
+      for (const [nodeId, state] of [...nodesLoadingMessagesMap.entries()]) {
+        const message = state.message
+        settleNodeTurn(nodeId, null, lastAt(state))
+        if (data.status !== 'completed') {
+          message.interrupted = true
+          message.rev += 1
+        }
+      }
+    }
 
     if (data.status === 'waiting_for_input') {
       shouldGlow.value = true
@@ -4324,6 +4352,7 @@ const processMessage = async (msg) => {
       if (isEndLine) chatMessages.value.pop()
     } else if (!isEndLine) addChatNotification(t('launch.workflow_completed'), { at })
     runTracker.finish('completed', { summary: formatErrorDetail(msg.data?.summary), tokenUsage: msg.data?.token_usage })
+    settleAllNodeTurns({ at: at || Date.now() })
     status.value = 'Completed'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
@@ -4370,6 +4399,7 @@ const processMessage = async (msg) => {
     const errorMessage = withErrorHint(errorWithDetail('launch.errors.workflow_error', msg.data?.message))
     addChatNotification(errorMessage, { type: 'error', at })
     runTracker.finish('error', { error: formatErrorDetail(msg.data?.message) })
+    settleAllNodeTurns({ at: at || Date.now(), interrupted: true })
     status.value = 'Error'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
@@ -4390,9 +4420,7 @@ const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
   status.value = 'Cancelled'
   isWorkflowRunning.value = false
   sessionIdToDownload = sessionId
-  for (const nodeId of [...nodesLoadingMessagesMap.keys()]) {
-    settleNodeTurn(nodeId)
-  }
+  settleAllNodeTurns({ at: at || Date.now(), interrupted: true })
 }
 
 // Stop the running workflow (also while it waits for the user's answer, or is launching).

@@ -417,6 +417,7 @@
       "thinking": "Thinking…",
       "done": "Thought for {time}",
       "done_steps": "Worked for {time} · {steps} steps",
+      "interrupted": "Interrupted after {time}",
       "ask_user": "Writing a question for you",
       "delegate": "Assigning work to the team",
       "delegate_to": "Assigning work to {member}",

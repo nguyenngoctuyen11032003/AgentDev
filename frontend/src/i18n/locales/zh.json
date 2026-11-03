@@ -377,6 +377,7 @@
       "thinking": "思考中…",
       "done": "思考了 {time}",
       "done_steps": "处理了 {time} · {steps} 步",
+      "interrupted": "{time} 后中断",
       "ask_user": "正在为你准备问题",
       "delegate": "正在给团队分配任务",
       "delegate_to": "正在给 {member} 分配任务",

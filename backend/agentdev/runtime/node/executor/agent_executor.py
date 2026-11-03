@@ -187,6 +187,7 @@ class AgentNodeExecutor(NodeExecutor):
         # (the user's chosen account and model stay as they were for the next run).
         agent_config = copy.copy(base_config)
         self._run_configs()[node.id] = agent_config
+        provider: ModelProvider | None = None
 
         try:
             # Every agent runs on a signed-in account (see connections.autobind for older YAML).
@@ -340,8 +341,16 @@ class AgentNodeExecutor(NodeExecutor):
             ) from e
         finally:
             self._active_teams().pop(node.id, None)
-            self._provider_overrides().pop(node.id, None)
+            override = self._provider_overrides().pop(node.id, None)
             self._run_configs().pop(node.id, None)
+            # CLI providers keep a working folder / resumable session for the run: release them now.
+            for used in (provider, override[0] if override else None):
+                close = getattr(used, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:  # cleanup is best effort
+                        pass
 
     def _team_failure_summary(self, node: Node, reason: str) -> Message | None:
         """The top lead's model failed after its team did work: report that work instead of losing it."""

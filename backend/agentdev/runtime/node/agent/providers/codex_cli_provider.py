@@ -6,6 +6,7 @@ import json
 import re
 import logging
 import os
+import uuid
 from typing import Any, Dict, List, Optional
 
 from agentdev.connections.cli_auth import find_cli
@@ -15,6 +16,7 @@ from agentdev.runtime.node.agent import ModelProvider, ModelResponse
 from agentdev.runtime.node.agent.providers._cli_common import (
     CliClient,
     CliProviderError,
+    CliRunState,
     attachments_section,
     build_tool_preamble,
     flatten_conversation,
@@ -167,37 +169,47 @@ class CodexCliProvider(ModelProvider):
         else:
             prompt = flatten_conversation(conversation)
         timeout = self.params.get("timeout", 300)
-        with make_tempdir() as cwd:
-            out_file = os.path.join(cwd, "last_message.txt")
-            cmd = [
-                client.path, "exec", "--skip-git-repo-check", "--sandbox", "read-only",
-                "--color", "never", "--json", "-o", out_file, *CODEX_ISOLATION_ARGS,
-                # The temp working dir has no AGENTS.md of interest; never pick up one from a parent folder.
-                "-c", "project_doc_max_bytes=0",
-            ]
-            if tool_specs:
-                schema_file = os.path.join(cwd, "reply_schema.json")
-                with open(schema_file, "w", encoding="utf-8") as fh:
-                    json.dump(tool_reply_schema(tool_specs), fh)
-                cmd += ["--output-schema", schema_file]
-            # Attachments: images go to Codex natively (-i); other files sit in the working directory,
-            # which the read-only sandbox can read; small text files are inlined in the prompt.
-            staged = stage_attachments(conversation, cwd)
-            for item in staged:
-                if item.kind == "image" and item.rel_path:
-                    # --image takes several values; the = form keeps the trailing "-" (stdin prompt) separate.
-                    cmd.append(f"--image={os.path.join(cwd, item.rel_path)}")
-            section = attachments_section(staged, can_read_files=False)
-            if section:
-                prompt = prompt + chr(10) * 2 + section
-            if self.model_name:
-                cmd += ["--model", validate_model_name(self.model_name)]
-            cmd.append("-")  # read prompt from stdin
+        # One working folder for every call of this agent run: Codex puts the cwd in its prompt, so a
+        # per-call temp folder changes the prompt prefix and no step reuses the previous one's cache.
+        cwd = self._run_state().workdir()
+        tag = uuid.uuid4().hex[:8]
+        out_file = os.path.join(cwd, f"last_message_{tag}.txt")
+        schema_file = os.path.join(cwd, f"reply_schema_{tag}.json")
+        cmd = [
+            client.path, "exec", "--skip-git-repo-check", "--sandbox", "read-only",
+            "--color", "never", "--json", "-o", out_file, *CODEX_ISOLATION_ARGS,
+            # The temp working dir has no AGENTS.md of interest; never pick up one from a parent folder.
+            "-c", "project_doc_max_bytes=0",
+        ]
+        if tool_specs:
+            with open(schema_file, "w", encoding="utf-8") as fh:
+                json.dump(tool_reply_schema(tool_specs), fh)
+            cmd += ["--output-schema", schema_file]
+        # Attachments: images go to Codex natively (-i); other files sit in the working directory,
+        # which the read-only sandbox can read; small text files are inlined in the prompt.
+        staged = stage_attachments(conversation, cwd)
+        for item in staged:
+            if item.kind == "image" and item.rel_path:
+                # --image takes several values; the = form keeps the trailing "-" (stdin prompt) separate.
+                cmd.append(f"--image={os.path.join(cwd, item.rel_path)}")
+        section = attachments_section(staged, can_read_files=False)
+        if section:
+            prompt = prompt + chr(10) * 2 + section
+        if self.model_name:
+            cmd += ["--model", validate_model_name(self.model_name)]
+        cmd.append("-")  # read prompt from stdin
+        try:
             proc = run_cli(cmd, prompt, timeout, "codex", cwd)
             text = ""
             if os.path.exists(out_file):
                 with open(out_file, "r", encoding="utf-8", errors="replace") as fh:
                     text = fh.read().strip()
+        finally:
+            for path in (out_file, schema_file):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
         if proc.returncode != 0:
             _raise_codex_failure(proc)
         usage, event_text = _read_events(proc.stdout or "")
@@ -219,6 +231,18 @@ class CodexCliProvider(ModelProvider):
             message=Message(role=MessageRole.ASSISTANT, content=text),
             raw_response=raw,
         )
+
+    def _run_state(self) -> CliRunState:
+        state = self.__dict__.get("_cli_state")
+        if state is None:
+            state = self.__dict__["_cli_state"] = CliRunState(self)
+        return state
+
+    def close(self) -> None:
+        """End of the agent run: delete the working folder."""
+        state = self.__dict__.get("_cli_state")
+        if state is not None:
+            state.close()
 
     def _call_native(self, client, conversation: List[Message], native: NativeRunContext) -> ModelResponse:
         """Codex's own agent with ``-C`` = project workspace.

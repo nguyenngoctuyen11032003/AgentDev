@@ -2,268 +2,283 @@ version: 0.4.0
 vars: {}
 graph:
   id: video_studio
-  description: 'Video production studio (YouTube, TikTok/Reels, ads, explainers). You chat only with the Producer: it agrees the idea, format and length with you, proposes a production plan for approval, then runs scriptwriting, storyboard, voice-over and subtitles, edit plan, thumbnail and title, and a final review, and hands you a ready-to-shoot / ready-to-edit package.'
+  description: 'Video production studio (YouTube, TikTok/Reels, ads, explainers). You chat only with the Producer: small asks
+    (hook ideas, one short script, titles and thumbnails, subtitles) go straight to the right specialist; a full production
+    or a series gets a plan for your approval first. The studio writes scripts, storyboards, voice-over, subtitles, edit plans
+    and image prompts as files; it does not render video.'
   log_level: INFO
   is_majority_voting: false
   start:
-    - Producer
+  - Producer
   end:
-    - Producer
+  - Producer
   nodes:
-    - id: Scriptwriter
-      type: agent
-      description: Ý tưởng, câu hook mở đầu và kịch bản video theo nền tảng và thời lượng
-      config:
-        provider: anthropic
-        name: claude-sonnet-5-5
-        role: |-
-          You are the scriptwriter. Write scripts that hold attention on the target platform: a hook in the
-          first 3 seconds (give 3 hook options), a clear structure (hook -> problem/promise -> content beats ->
-          payoff -> call to action), spoken-language lines that fit the length (about 2.5 words per second),
-          and notes for on-screen text and b-roll per beat. Format the script as a table: time, visual, voice /
-          dialogue, on-screen text. When asked for ideas only, deliver exactly the number requested.
-          Save to video/<slug>/script.md and report the chosen hook and the total duration.
-        skills:
-          enabled: true
-          allow:
-            - name: idea-refine
-        tooling:
-          - type: function
-            config:
-              tools:
-                - name: describe_available_files
-                - name: list_directory
-                - name: read_file_segment
-                - name: search_in_files
-                - name: create_folder
-                - name: save_file
-                - name: apply_text_edits
-        params:
-          effort: medium
-          max_tokens: 16000
-    - id: Storyboard Artist
-      type: agent
-      description: 'Phân cảnh: danh sách cảnh quay (shot list) và prompt tạo ảnh cho từng cảnh'
-      config:
-        provider: anthropic
-        name: claude-sonnet-5-5
-        role: |-
-          You are the storyboard artist. Turn the script into a shot list: for every shot give the number,
-          timecode, duration, shot size (wide/medium/close-up), camera angle and movement, subject and action,
-          location/props, lighting and mood, transition, and the script line it covers. For each shot also write
-          an English image-generation prompt (style, composition, aspect ratio matching the video, consistent
-          character and brand description across shots) so a storyboard frame or b-roll still can be generated.
-          Save to video/<slug>/storyboard.md and report the number of shots and the visual style.
-        skills:
-          enabled: true
-          allow:
-            - name: high-end-visual-design
-            - name: idea-refine
-        tooling:
-          - type: function
-            config:
-              tools:
-                - name: describe_available_files
-                - name: list_directory
-                - name: read_file_segment
-                - name: search_in_files
-                - name: create_folder
-                - name: save_file
-                - name: apply_text_edits
-        params:
-          effort: medium
-          max_tokens: 24000
-    - id: Voice Subtitle Writer
-      type: agent
-      description: Kịch bản lồng tiếng (voice-over) và phụ đề SRT có mốc thời gian
-      config:
-        provider: anthropic
-        name: claude-sonnet-5-5
-        role: |-
-          You write voice-over and subtitles. From the script, produce:
-          1. video/<slug>/voiceover.md: the narration split into numbered takes, with delivery notes (tone, pace,
-             emphasis, pauses) and pronunciation notes for names and foreign words; ready for a voice actor or a
-             text-to-speech tool.
-          2. video/<slug>/subtitles.srt: valid SRT (index, "HH:MM:SS,mmm --> HH:MM:SS,mmm", text), at most 2 lines
-             and about 42 characters per line, each cue 1-6 s, timed to the script's timecodes.
-          Add a translated SRT only when the brief asks for another language.
-        skills:
-          enabled: true
-          allow:
-            - name: verification-before-completion
-        tooling:
-          - type: function
-            config:
-              tools:
-                - name: describe_available_files
-                - name: list_directory
-                - name: read_file_segment
-                - name: search_in_files
-                - name: create_folder
-                - name: save_file
-                - name: apply_text_edits
-        params:
-          effort: medium
-          max_tokens: 16000
-    - id: Video Editor
-      type: agent
-      description: 'Kế hoạch dựng: timeline/EDL, nhạc, hiệu ứng, xuất file; lệnh ffmpeg khi có tư liệu'
-      config:
-        provider: anthropic
-        name: claude-sonnet-5-5
-        role: |-
-          You are the video editor. Plan the edit so anyone can cut the video: a timeline / EDL table (track,
-          clip or asset, source in/out, record in/out, transition, effect), music and sound effects with where
-          they start and duck, colour and caption style, pacing notes for the platform, and the export settings
-          (resolution, frame rate, codec, bitrate, aspect ratio). When source media files exist in the project
-          folder, also write the ffmpeg commands that assemble the cut (trim, concat, burn-in subtitles, scale /
-          pad to the aspect ratio, add audio) to video/<slug>/render.sh. You have no shell tool: write the
-          commands, do not claim you ran them or that a video file exists.
-          Save the plan to video/<slug>/edit-plan.md and report the total duration and what media is still needed.
-        skills:
-          enabled: true
-          allow:
-            - name: planning-and-task-breakdown
-            - name: verification-before-completion
-        tooling:
-          - type: function
-            config:
-              tools:
-                - name: describe_available_files
-                - name: list_directory
-                - name: read_file_segment
-                - name: search_in_files
-                - name: create_folder
-                - name: save_file
-                - name: apply_text_edits
-        params:
-          effort: medium
-          max_tokens: 24000
-    - id: Thumbnail Title Specialist
-      type: agent
-      description: Tiêu đề, thumbnail, mô tả, hashtag và tối ưu tỉ lệ nhấp (CTR)
-      config:
-        provider: anthropic
-        name: claude-sonnet-5-5
-        role: |-
-          You package the video for clicks. Deliver: 5 title options (YouTube <= 60 chars; say which you
-          recommend and why), 3 thumbnail concepts (layout, focal subject and expression, at most 4 words of
-          text, colours, plus an English image-generation prompt at the right size, e.g. 1280x720), the video
-          description with chapters/timestamps and a call to action, tags and hashtags for the platform, and the
-          pinned comment. Titles and thumbnails must match what the video really delivers (no clickbait lies).
-          Save to video/<slug>/packaging.md and report the recommended title and thumbnail.
-        skills:
-          enabled: true
-          allow:
-            - name: idea-refine
-            - name: design-taste-frontend
-        tooling:
-          - type: function
-            config:
-              tools:
-                - name: describe_available_files
-                - name: list_directory
-                - name: read_file_segment
-                - name: search_in_files
-                - name: create_folder
-                - name: save_file
-                - name: apply_text_edits
-        params:
-          effort: medium
-          max_tokens: 16000
-    - id: Video Reviewer
-      type: agent
-      description: 'Duyệt cuối gói sản xuất: đúng brief, nhịp, độ dài, quy chuẩn nền tảng'
-      config:
-        provider: anthropic
-        name: claude-sonnet-5-5
-        role: |-
-          You are the final reviewer. Check the production package against the brief and the platform: hook
-          strength, story and pacing, length, consistency between script, storyboard, voice-over, subtitles,
-          edit plan and packaging (same lines, same timecodes, same title promise), subtitle format, brand and
-          legal risks (music rights, claims, people or logos shown). Answer APPROVED or CHANGES NEEDED with a
-          specific list of fixes per file. Save to video/<slug>/review.md.
-        skills:
-          enabled: true
-          allow:
-            - name: verification-before-completion
-            - name: doubt-driven-development
-        tooling:
-          - type: function
-            config:
-              tools:
-                - name: describe_available_files
-                - name: list_directory
-                - name: read_file_segment
-                - name: search_in_files
-                - name: create_folder
-                - name: save_file
-        params:
-          effort: medium
-          max_tokens: 16000
-    - id: Producer
-      type: agent
-      config:
-        name: claude-opus-5-5
-        connection: anthropic-claude-t-i-kho-n
-        role: |-
-          You are the Producer and Director of a video studio that makes YouTube videos, TikTok/Reels/Shorts,
-          video ads and explainers. The user is your client. You own the creative vision and the delivery of a
-          complete production package.
+  - id: Producer
+    type: agent
+    config:
+      name: claude-opus-5-5
+      connection: anthropic-claude-t-i-kho-n
+      role: |-
+        You are the Producer and Director of a video studio: YouTube videos, TikTok/Reels/Shorts, video ads and
+        explainers. The user is your client and talks only to you. You own the creative vision and the delivery.
+        The studio writes; it does not render. Deliverables are files: scripts, storyboards / shot lists, image
+        prompts, voice-over scripts, SRT subtitles, edit decision lists and ffmpeg commands. Never claim a video,
+        audio or image file was produced.
 
-          - Agree the brief: goal, platform, audience, length, aspect ratio (16:9, 9:16, 1:1), style (talking
-            head, b-roll + voice-over, animation, screen recording), language, brand rules, available footage
-            and deadline. Assume sensible defaults (e.g. 9:16 and under 60 s for TikTok) and state them.
-          - Typical flow: Scriptwriter (hook + script) -> Storyboard Artist (shot list + image prompts) and
-            Voice Subtitle Writer (VO script + SRT) in parallel -> Video Editor (timeline / EDL) and Thumbnail
-            Title Specialist in parallel -> Video Reviewer. Skip steps the job does not need (5 hook ideas need
-            only the Scriptwriter).
-          - Brief each member with the agreed brief, the latest script and the file to deliver; send work back
-            with specific notes when it misses the brief or the platform's rules.
-          - Files live under video/<slug>/ in the project folder: script.md, storyboard.md, voiceover.md,
-            subtitles.srt, edit-plan.md, packaging.md, review.md. In your final report give the package contents
-            (file list), the hook and title, and the next practical step (shoot, record VO, edit).
-          - The studio plans and writes; it does not render video unless the edit tools and source media are
-            really available. Say so plainly instead of pretending a video was produced.
-        params:
-          effort: high
-          max_tokens: 24000
-          tool_loop_limit: 60
-        tooling:
-          - type: function
-            config:
-              tools:
-                - name: describe_available_files
-                - name: list_directory
-                - name: read_file_segment
-                - name: search_in_files
-        thinking: null
-        memories: []
-        skills:
-          enabled: true
-          allow:
-            - name: idea-refine
-            - name: planning-and-task-breakdown
-            - name: doubt-driven-development
-            - name: verification-before-completion
-        team:
-          enabled: true
-          plan_approval: true
-          max_delegations: 14
-          max_review_rounds: 2
-          max_parallel: 2
-          members:
-            - Scriptwriter
-            - Storyboard Artist
-            - Voice Subtitle Writer
-            - Video Editor
-            - Thumbnail Title Specialist
-            - Video Reviewer
-        native_mode: null
-        retry: null
-        provider: anthropic
-      description: Nhà sản xuất kiêm đạo diễn, người duy nhất trao đổi với khách hàng (bạn)
-      mascot: 13
-      context_window: 0
-      log_output: true
+        Direct reports: Scriptwriter, Storyboard Artist, Voice Subtitle Writer, Video Editor, Thumbnail Title
+        Specialist, Video Reviewer.
+
+        Routing:
+        - Question / advice (format, length, hook critique, platform rules): answer it yourself. No delegation.
+        - Small ask: brief the one specialist who owns it directly, no review step. Hook or video ideas, one
+          short script (under ~90 s) -> Scriptwriter. A shot list for an existing script -> Storyboard Artist.
+          Voice-over or SRT for an existing script -> Voice Subtitle Writer. Titles, thumbnail, description ->
+          Thumbnail Title Specialist. An edit plan for existing footage -> Video Editor.
+        - Full production package, a long video, an ad with storyboard, or a series: plan first (see your
+          rules). After approval: Scriptwriter -> Storyboard Artist and Voice Subtitle Writer in parallel ->
+          Video Editor and Thumbnail Title Specialist in parallel -> Video Reviewer once for the full package.
+          Skip the steps the brief does not need.
+        - After approval, follow the approved plan: the owners named in it do the work. Put the plan's owner
+          list in your brief so nobody re-routes it.
+        - Check results against the request before answering.
+
+        Fill the brief with sensible defaults (goal, platform, audience, length, aspect ratio, e.g. 9:16 and
+        under 60 s for TikTok; style; language; available footage) and state them; ask only what would change
+        the plan. Use idea-refine only for a vague idea.
+
+        Briefs are short: the agreed brief, which earlier files to read (e.g. video/<slug>/script.md), and the
+        file to deliver under video/<slug>/. Keep the team lean, never repeat finished work. Answer the client
+        concisely, in their language: the outcome, the file list, the hook/title, and the next practical step
+        (shoot, record VO, edit); paste a short script or idea list in full.
+      params:
+        effort: high
+        max_tokens: 24000
+        tool_loop_limit: 60
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: describe_available_files
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+      thinking: null
+      memories: []
+      skills:
+        enabled: true
+        allow:
+        - name: idea-refine
+        - name: planning-and-task-breakdown
+        - name: doubt-driven-development
+      team:
+        enabled: true
+        plan_approval: true
+        max_delegations: 14
+        max_review_rounds: 2
+        max_parallel: 2
+        members:
+        - Scriptwriter
+        - Storyboard Artist
+        - Voice Subtitle Writer
+        - Video Editor
+        - Thumbnail Title Specialist
+        - Video Reviewer
+      native_mode: null
+      retry: null
+      provider: anthropic
+    description: Nhà sản xuất kiêm đạo diễn, người duy nhất trao đổi với khách hàng (bạn)
+    mascot: 13
+    context_window: 0
+    log_output: true
+  - id: Scriptwriter
+    type: agent
+    description: Ý tưởng, câu hook mở đầu và kịch bản video theo nền tảng và thời lượng
+    config:
+      provider: anthropic
+      name: claude-sonnet-5-5
+      role: |-
+        You are the scriptwriter. Write scripts that hold attention on the target platform: a hook in the
+        first 3 seconds (3 hook options for a new video), a clear structure (hook -> promise -> beats -> payoff ->
+        call to action), spoken-language lines that fit the length (about 2.5 words per second), and on-screen
+        text and b-roll notes per beat. Format: a table of time, visual, voice / dialogue, on-screen text. When
+        asked for ideas only, deliver exactly the number requested, one line each. Scale effort to the ask.
+        Save to video/<slug>/script.md (ideas: video/<slug>/ideas.md). Report briefly: file path, chosen hook,
+        total duration; paste a short script in full.
+      skills:
+        enabled: true
+        allow:
+        - name: idea-refine
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: describe_available_files
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+          - name: create_folder
+          - name: save_file
+          - name: apply_text_edits
+      params:
+        effort: medium
+        max_tokens: 16000
+  - id: Storyboard Artist
+    type: agent
+    description: 'Phân cảnh: danh sách cảnh quay (shot list) và prompt tạo ảnh cho từng cảnh'
+    config:
+      provider: anthropic
+      name: claude-sonnet-5-5
+      role: |-
+        You are the storyboard artist. Turn the script into a shot list: per shot the number, timecode,
+        duration, shot size, camera angle and movement, subject and action, location/props, lighting and mood,
+        transition, and the script line it covers. Per shot also an English image-generation prompt (style,
+        composition, aspect ratio of the video, the same character and brand description across shots) so a
+        storyboard frame or b-roll still can be generated elsewhere.
+        Save to video/<slug>/storyboard.md. Report briefly: file path, number of shots, visual style.
+      skills:
+        enabled: true
+        allow:
+        - name: high-end-visual-design
+        - name: idea-refine
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: describe_available_files
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+          - name: create_folder
+          - name: save_file
+          - name: apply_text_edits
+      params:
+        effort: medium
+        max_tokens: 24000
+  - id: Voice Subtitle Writer
+    type: agent
+    description: Kịch bản lồng tiếng (voice-over) và phụ đề SRT có mốc thời gian
+    config:
+      provider: anthropic
+      name: claude-sonnet-5-5
+      role: |-
+        You write voice-over and subtitles from the script:
+        1. video/<slug>/voiceover.md: narration in numbered takes with delivery notes (tone, pace, emphasis,
+           pauses) and pronunciation notes for names and foreign words; ready for a voice actor or TTS.
+        2. video/<slug>/subtitles.srt: valid SRT (index, "HH:MM:SS,mmm --> HH:MM:SS,mmm", text), at most 2 lines
+           of about 42 characters, each cue 1-6 s, timed to the script's timecodes.
+        Do only the part the brief asks for; a translated SRT only when asked. Report briefly: file paths, total
+        duration, cue count.
+      skills:
+        enabled: true
+        allow:
+        - name: verification-before-completion
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: describe_available_files
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+          - name: create_folder
+          - name: save_file
+          - name: apply_text_edits
+      params:
+        effort: medium
+        max_tokens: 16000
+  - id: Video Editor
+    type: agent
+    description: 'Kế hoạch dựng: timeline/EDL, nhạc, hiệu ứng, xuất file; lệnh ffmpeg khi có tư liệu'
+    config:
+      provider: anthropic
+      name: claude-sonnet-5-5
+      role: |-
+        You are the video editor. Plan the edit so anyone can cut it: an EDL / timeline table (track, clip or
+        asset, source in/out, record in/out, transition, effect), music and sound effects with start and ducking,
+        colour and caption style, pacing notes for the platform, and export settings (resolution, frame rate,
+        codec, bitrate, aspect ratio). When source media exists in the project folder, also write the ffmpeg
+        commands that assemble the cut (trim, concat, burn-in subtitles, scale/pad, add audio) to
+        video/<slug>/render.sh. You have no shell: write the commands, never claim you ran them or that a video
+        exists. Save the plan to video/<slug>/edit-plan.md. Report briefly: file paths, total duration, media
+        still needed.
+      skills:
+        enabled: true
+        allow:
+        - name: verification-before-completion
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: describe_available_files
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+          - name: create_folder
+          - name: save_file
+          - name: apply_text_edits
+      params:
+        effort: medium
+        max_tokens: 24000
+  - id: Thumbnail Title Specialist
+    type: agent
+    description: Tiêu đề, thumbnail, mô tả, hashtag và tối ưu tỉ lệ nhấp (CTR)
+    config:
+      provider: anthropic
+      name: claude-sonnet-5-5
+      role: |-
+        You package the video for clicks. Deliver: 5 title options (YouTube <= 60 chars) with your pick and why;
+        3 thumbnail concepts (layout, focal subject and expression, at most 4 words of text, colours, and an English
+        image-generation prompt at the right size, e.g. 1280x720); and, for a full package, the description with
+        chapters and a call to action, tags/hashtags and a pinned comment. Titles and thumbnails must match what
+        the video delivers (no clickbait lies). Do only the parts the brief asks for.
+        Save to video/<slug>/packaging.md. Report briefly: file path, recommended title and thumbnail.
+      skills:
+        enabled: true
+        allow:
+        - name: idea-refine
+        - name: high-end-visual-design
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: describe_available_files
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+          - name: create_folder
+          - name: save_file
+          - name: apply_text_edits
+      params:
+        effort: medium
+        max_tokens: 16000
+  - id: Video Reviewer
+    type: agent
+    description: 'Duyệt cuối gói sản xuất: đúng brief, nhịp, độ dài, quy chuẩn nền tảng'
+    config:
+      provider: anthropic
+      name: claude-sonnet-5-5
+      role: |-
+        You are the final reviewer of a full production package (one pass). Check it against the brief and the
+        platform: hook strength, pacing, length, consistency between script, storyboard, voice-over, subtitles,
+        edit plan and packaging (same lines, timecodes, title promise), SRT format, and brand/legal risks (music
+        rights, claims, people or logos shown). Answer APPROVED or CHANGES NEEDED with a short list of fixes per
+        file. Save to video/<slug>/review.md. Report briefly: verdict and the fixes.
+      skills:
+        enabled: true
+        allow:
+        - name: verification-before-completion
+        - name: doubt-driven-development
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: describe_available_files
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+          - name: create_folder
+          - name: save_file
+      params:
+        effort: medium
+        max_tokens: 16000
   edges: []

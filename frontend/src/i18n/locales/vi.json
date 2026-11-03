@@ -417,6 +417,7 @@
       "thinking": "Đang suy nghĩ…",
       "done": "Đã suy nghĩ trong {time}",
       "done_steps": "Đã xử lý trong {time} · {steps} bước",
+      "interrupted": "Bị gián đoạn sau {time}",
       "ask_user": "Đang soạn câu hỏi cho bạn",
       "delegate": "Đang giao việc cho đội",
       "delegate_to": "Đang giao việc cho {member}",
