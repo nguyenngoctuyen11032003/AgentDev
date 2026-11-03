@@ -226,7 +226,13 @@ def _ignore_links_and_junk(directory: str, names: List[str]) -> set:
 def _import_one(src: Path, dest: Path, overwrite: bool) -> str:
     """Copy one skill folder. Returns "imported" or "skipped"; raises on a problem."""
     if is_link(src):
-        raise ValidationError("Source skill folder is a link; only real folders are imported")
+        # Installers (npx skills, Claude Code) expose skills as links into a shared store.
+        # The top-level folder is the user's own pick, so copy the real folder it points to;
+        # links *inside* the skill are still never followed (see _ignore_links_and_junk).
+        resolved = Path(os.path.realpath(src))
+        if not resolved.is_dir() or is_link(resolved):
+            raise ValidationError("Source skill folder is a broken link")
+        src = resolved
     entry = _entry_for(src) if (src / "SKILL.md").is_file() and not is_link(src / "SKILL.md") else None
     if entry is None or not entry.valid:
         raise ValidationError(entry.error if entry else "SKILL.md not found")

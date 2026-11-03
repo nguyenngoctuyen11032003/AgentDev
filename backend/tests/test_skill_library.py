@@ -180,14 +180,19 @@ def test_import_does_not_follow_links(client, library, tmp_path):
     assert not any(p.name == "id_rsa" for p in copied.rglob("*"))
 
 
-def test_import_refuses_linked_skill_folder(client, library, tmp_path):
+def test_import_copies_real_folder_behind_linked_skill(client, library, tmp_path):
     src = _source(tmp_path)
-    _make_link(src / "linked-skill", src / "systematic-debugging")
-    res = client.post(
-        "/api/skills/import", json={"names": ["linked-skill", "systematic-debugging"], "source": str(src)}
-    ).json()
-    assert res["imported"] == ["systematic-debugging"]
-    assert res["failed"][0]["name"] == "linked-skill" and "link" in res["failed"][0]["error"]
+    store = tmp_path / "store"
+    store.mkdir()
+    real = store / "linked-skill"
+    real.mkdir()
+    (real / "SKILL.md").write_text("---\nname: linked-skill\ndescription: d\n---\n\nBody\n", encoding="utf-8")
+    _make_link(src / "linked-skill", real)
+    res = client.post("/api/skills/import", json={"names": ["linked-skill"], "source": str(src)}).json()
+    assert res["imported"] == ["linked-skill"] and not res["failed"]
+    copied = library / "linked-skill"
+    assert (copied / "SKILL.md").is_file()
+    assert not skill_library.is_link(copied)
 
 
 def test_import_continues_after_one_copy_fails(client, library, tmp_path, monkeypatch):
