@@ -114,7 +114,8 @@ export function createRunTracker() {
     }
   }
 
-  const nodeEnd = (id, output, at) => {
+  // `status`: 'done', or 'cancelled' for a step cut short by Stop (it reported nothing)
+  const nodeEnd = (id, output, at, { status = 'done' } = {}) => {
     if (!id) return
     const time = toMs(at)
     const node = nodeOf(id)
@@ -125,7 +126,7 @@ export function createRunTracker() {
       run = openRun(node)
     }
     run.endedAt = time
-    run.status = 'done'
+    run.status = status
     run.activity = null
     run.output = preview(output)
     node.waiting = false

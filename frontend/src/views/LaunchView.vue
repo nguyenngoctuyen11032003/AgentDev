@@ -4178,20 +4178,28 @@ const processMessage = async (msg) => {
 
       }
 
+      // A member cut short by Stop ends with nothing to hand over: it did not report anything
+      const details = msg.data.details || {}
+      const memberCancelled = Boolean(delegatedBy) && (
+        details.cancelled === true || details.status === 'cancelled' || isStopping.value || locallyCancelled
+      )
+      const memberReported = Boolean(delegatedBy) && !memberCancelled && details.output_count !== 0
       if (delegatedBy && nodeId) {
         settleNodeTurn(nodeId, null, eventAt)
         // The lead summarises for the user; the member's full report stays in Tasks / Overview / Review.
         delegatedNodes.delete(nodeId)
         refreshTeamEdges()
         touchWorkingTurns()
-        officeRef.value?.handoff(nodeId, delegatedBy, { visit: true })
-        runTracker.handoff(nodeId, delegatedBy, msg.data.timestamp)
-        addChatNotification(t('launch.team.reported', { lead: delegatedBy, member: nodeId }), { at })
+        if (memberReported) {
+          officeRef.value?.handoff(nodeId, delegatedBy, { visit: true })
+          runTracker.handoff(nodeId, delegatedBy, msg.data.timestamp)
+          addChatNotification(t('launch.team.reported', { lead: delegatedBy, member: nodeId }), { at })
+        }
       } else if (!settleNodeTurn(nodeId, msg.data.details?.output, eventAt)) {
         addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output, at)
       }
       if (nodeId) officeRef.value?.nodeEnd(nodeId, msg.data.details?.output)
-      runTracker.nodeEnd(nodeId, msg.data.details?.output, msg.data.timestamp)
+      runTracker.nodeEnd(nodeId, msg.data.details?.output, msg.data.timestamp, { status: memberCancelled ? 'cancelled' : 'done' })
     }
 
     // Edge condition met - trigger sprite animation
