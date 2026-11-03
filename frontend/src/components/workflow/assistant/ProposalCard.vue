@@ -1,6 +1,6 @@
 <template>
   <article
-    :class="['proposal-card', { superseded, applied, inactive: !active && !applied }]"
+    :class="['proposal-card', { superseded: superseded || conflicted, applied, inactive: !active && !applied, collapsed }]"
     :aria-label="$t('workflow_assistant.proposal.aria', { file: proposal.filename })"
   >
     <header class="proposal-head">
@@ -9,54 +9,84 @@
       </span>
       <code class="proposal-file" :title="proposal.filename">{{ proposal.filename }}</code>
       <span v-if="applied" class="proposal-state ok">{{ $t('workflow_assistant.proposal.applied') }}</span>
+      <span v-else-if="conflicted" class="proposal-state">{{ $t('workflow_assistant.proposal.conflicted') }}</span>
       <span v-else-if="superseded" class="proposal-state">{{ $t('workflow_assistant.proposal.superseded') }}</span>
       <span v-else-if="!active" class="proposal-state">{{ $t('workflow_assistant.proposal.discarded') }}</span>
     </header>
 
-    <!-- What changes, computed by the backend from the two YAML files (not from the AI's words) -->
-    <div class="proposal-changes">
-      <p v-if="!groups.length" class="proposal-empty">{{ $t('workflow_assistant.proposal.no_changes') }}</p>
-      <div v-for="group in groups" :key="group.key" :class="['change-group', group.tone]">
-        <div class="change-title">{{ group.title }} <span class="change-count">{{ group.items.length }}</span></div>
-        <ul class="change-list">
-          <li v-for="item in group.items" :key="item.key">
-            <code>{{ item.label }}</code>
-            <span v-if="item.fields?.length" class="change-fields">
-              <code v-for="field in item.fields" :key="field" class="field">{{ field }}</code>
-            </span>
-          </li>
-        </ul>
+    <!-- Replaced, discarded or out of date: one line is enough, the full card stays above/below. -->
+    <p v-if="collapsed" class="proposal-summary">{{ summaryLine }}</p>
+
+    <template v-else>
+      <!-- What changes, computed by the backend from the two YAML files (not from the AI's words) -->
+      <div class="proposal-changes">
+        <p v-if="!groups.length" class="proposal-empty">{{ $t('workflow_assistant.proposal.no_changes') }}</p>
+        <div v-for="group in groups" :key="group.key" :class="['change-group', group.tone]">
+          <div class="change-title">{{ group.title }} <span class="change-count">{{ group.items.length }}</span></div>
+          <ul class="change-list">
+            <li v-for="item in group.items" :key="item.key">
+              <code>{{ item.label }}</code>
+              <span v-if="item.fields?.length" class="change-fields">
+                <code v-for="field in item.fields" :key="field" class="field">{{ field }}</code>
+              </span>
+            </li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- Changes the user never asked for, and checks that did not fully pass. Never block Apply. -->
-    <ul v-if="warnings.length" class="proposal-warnings" :aria-label="$t('workflow_assistant.proposal.warnings')">
-      <li v-for="item in warnings" :key="item.key" class="warning-chip">
-        <svg aria-hidden="true" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 21h20L12 3Z" /><path d="M12 10v4M12 18h.01" /></svg>
-        <span>{{ item.text }}<code v-if="item.detail" class="warning-detail">{{ item.detail }}</code></span>
-      </li>
-    </ul>
+      <!-- Tools that run commands on this machine, reach the network or run code: high severity. -->
+      <ul v-if="dangers.length" class="proposal-dangers" :aria-label="$t('workflow_assistant.proposal.dangers')">
+        <li v-for="item in dangers" :key="item.key" class="danger-chip">
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 21h20L12 3Z" /><path d="M12 10v4M12 18h.01" /></svg>
+          <span>{{ item.text }}</span>
+        </li>
+      </ul>
 
-    <WorkflowGraphPreview v-if="graph" :graph="graph" :diff="proposal.kind === 'edit' ? proposal.diff_summary : null" />
+      <!-- Changes the user never asked for, and checks that did not fully pass. Never block Apply. -->
+      <ul v-if="warnings.length" class="proposal-warnings" :aria-label="$t('workflow_assistant.proposal.warnings')">
+        <li v-for="item in warnings" :key="item.key" class="warning-chip">
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 21h20L12 3Z" /><path d="M12 10v4M12 18h.01" /></svg>
+          <span class="warning-body">
+            <span v-if="item.title" class="warning-title">{{ item.title }}: </span>{{ item.text }}
+            <details v-if="item.detail" class="warning-more">
+              <summary>{{ $t('workflow_assistant.error_detail') }}</summary>
+              <code class="warning-detail">{{ item.detail }}</code>
+            </details>
+          </span>
+        </li>
+      </ul>
 
-    <details class="proposal-yaml">
-      <summary>{{ $t('workflow_assistant.proposal.show_yaml') }}</summary>
-      <pre><code>{{ proposal.yaml }}</code></pre>
-    </details>
+      <WorkflowGraphPreview v-if="graph" :graph="graph" :diff="proposal.kind === 'edit' ? proposal.diff_summary : null" />
+
+      <details class="proposal-yaml">
+        <summary>{{ $t('workflow_assistant.proposal.show_yaml') }}</summary>
+        <pre><code>{{ proposal.yaml }}</code></pre>
+      </details>
+    </template>
 
     <footer v-if="active" class="proposal-actions">
       <button type="button" class="btn-ghost" :disabled="busy" @click="emit('discard')">
         {{ $t('workflow_assistant.proposal.discard') }}
       </button>
-      <button type="button" class="btn-primary" :disabled="busy" @click="emit('apply')">
-        {{ applying ? $t('workflow_assistant.proposal.applying') : $t('workflow_assistant.proposal.apply') }}
+      <button
+        type="button"
+        :class="['btn-primary', { danger: confirming }]"
+        :disabled="busy"
+        @click="onApply"
+      >
+        {{ applyLabel }}
+      </button>
+    </footer>
+    <footer v-else-if="applied && canUndo" class="proposal-actions">
+      <button type="button" class="btn-ghost" @click="emit('undo')">
+        {{ $t('workflow_assistant.undo') }}
       </button>
     </footer>
   </article>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import yaml from 'js-yaml'
 import WorkflowGraphPreview from './WorkflowGraphPreview.vue'
@@ -65,16 +95,22 @@ const props = defineProps({
   proposal: { type: Object, required: true },
   // A newer proposal replaced this one.
   superseded: { type: Boolean, default: false },
+  // The file changed after this proposal was made, so it was not saved (and is no longer pending).
+  conflicted: { type: Boolean, default: false },
   // Apply / a reply is in progress: the buttons are disabled.
   busy: { type: Boolean, default: false },
   // This proposal is being written right now (label "Applying…").
   applying: { type: Boolean, default: false },
   // This is the thread's pending proposal: Apply / Discard are offered.
   active: { type: Boolean, default: false },
-  applied: { type: Boolean, default: false }
+  applied: { type: Boolean, default: false },
+  // This applied proposal is the one Undo would revert: the card offers Undo too.
+  canUndo: { type: Boolean, default: false }
 })
-const emit = defineEmits(['apply', 'discard'])
+const emit = defineEmits(['apply', 'discard', 'undo'])
 const { t, te } = useI18n()
+
+const collapsed = computed(() => !props.applied && !props.active)
 
 const graph = computed(() => {
   try {
@@ -137,21 +173,83 @@ const groups = computed(() => {
   return list.filter((g) => g.items.length && !(props.proposal.kind === 'create' && g.key === 'graph_fields_changed'))
 })
 
-const checkTitle = (id) => (te(`lab.checks.${id}.title`) ? t(`lab.checks.${id}.title`) : id)
+const summaryLine = computed(() =>
+  groups.value.length
+    ? groups.value.map((g) => `${g.title}: ${g.items.length}`).join(' · ')
+    : t('workflow_assistant.proposal.no_changes')
+)
+
+// `proposal.checks` is the static check summary ({status, checks: [...]}).
+const checkList = computed(() => {
+  const checks = props.proposal.checks
+  const list = Array.isArray(checks) ? checks : checks?.checks
+  return Array.isArray(list) ? list : []
+})
+
+// dangerous_tools (backend): one chip per tool that runs a local command, calls out to the
+// network or can run code. Absent → nothing shown.
+const DANGER_KINDS = ['mcp_local', 'mcp_remote', 'code_execution']
+const dangers = computed(() => {
+  const check = checkList.value.find((c) => c?.id === 'dangerous_tools')
+  const items = Array.isArray(check?.items) ? check.items : []
+  return items
+    .filter((item) => item && typeof item === 'object')
+    .map((item, i) => {
+      const kind = DANGER_KINDS.includes(item.kind) ? item.kind : 'other'
+      const params = { node: String(item.node ?? '?'), detail: String(item.detail ?? '') }
+      return { key: `d:${i}:${params.node}:${kind}`, text: t(`workflow_assistant.proposal.danger.${kind}`, params) }
+    })
+})
+
+const checkTitle = (id) => (te(`lab.checks.${id}.title`) ? t(`lab.checks.${id}.title`) : '')
+const checkText = (id) =>
+  te(`workflow_assistant.checks.${id}`) ? t(`workflow_assistant.checks.${id}`) : t('workflow_assistant.checks.other')
 
 const warnings = computed(() => {
   const items = (props.proposal.warnings || []).map((id) => ({
     key: `w:${id}`,
     text: t('workflow_assistant.proposal.also_changes', { id })
   }))
-  // WARN checks, plus an `accounts` FAIL (no connection bound on this machine yet): shown, not blocking.
-  for (const check of props.proposal.checks?.checks || []) {
+  // WARN checks, plus an `accounts` FAIL (no connection bound on this machine yet): shown, not
+  // blocking. The headline is a short localised sentence; the backend's raw text (English, YAML
+  // paths) only sits behind "Details".
+  for (const check of checkList.value) {
+    if (!check || check.id === 'dangerous_tools') continue
     if (check.status === 'warn' || (check.status === 'fail' && check.id === 'accounts')) {
-      items.push({ key: `c:${check.id}`, text: checkTitle(check.id), detail: check.detail || '' })
+      items.push({
+        key: `c:${check.id}`,
+        title: checkTitle(check.id),
+        text: checkText(check.id),
+        detail: check.detail || ''
+      })
     }
   }
   return items
 })
+
+// With dangerous tools, Apply takes a second, deliberate click ("I understand the risk").
+const confirming = ref(false)
+watch(
+  () => props.proposal,
+  () => {
+    confirming.value = false
+  }
+)
+const applyLabel = computed(() => {
+  if (props.applying) return t('workflow_assistant.proposal.applying')
+  return confirming.value ? t('workflow_assistant.proposal.confirm_danger') : t('workflow_assistant.proposal.apply')
+})
+const onApply = (event) => {
+  if (dangers.value.length) {
+    // The second click of a double click is not a confirmation.
+    if (event?.detail > 1) return
+    if (!confirming.value) {
+      confirming.value = true
+      return
+    }
+  }
+  emit('apply')
+}
 </script>
 
 <style scoped>
@@ -168,7 +266,18 @@ const warnings = computed(() => {
 
 .proposal-card.superseded,
 .proposal-card.inactive {
-  opacity: 0.6;
+  opacity: 0.75;
+}
+
+.proposal-card.collapsed {
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.proposal-summary {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-soft-1);
 }
 
 .proposal-head {
@@ -312,6 +421,53 @@ const warnings = computed(() => {
   margin-top: 2px;
 }
 
+.warning-title {
+  font-weight: 600;
+}
+
+.warning-more summary {
+  cursor: pointer;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-soft-1);
+}
+
+.warning-more summary:focus-visible {
+  outline: 2px solid var(--accent-sky);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.proposal-dangers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.danger-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.danger-chip svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--danger);
+}
+
 .warning-detail {
   display: block;
   margin-top: 2px;
@@ -378,6 +534,15 @@ const warnings = computed(() => {
 }
 
 :root[data-theme="light"] .btn-primary {
+  color: #fff;
+}
+
+.btn-primary.danger {
+  background: var(--danger);
+  color: #05141f;
+}
+
+:root[data-theme="light"] .btn-primary.danger {
   color: #fff;
 }
 

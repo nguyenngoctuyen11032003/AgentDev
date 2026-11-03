@@ -72,3 +72,41 @@ def test_rejects_non_local_origin(client):
     assert client.get("/api/workflow-assistant/providers", headers=evil).status_code == 403
     assert client.post("/api/workflow-assistant/chat", json=BODY, headers=evil).status_code == 403
     assert client.post("/api/workflow-assistant/cancel", json={"request_id": "r1"}, headers=evil).status_code == 403
+
+
+def test_chat_route_unexpected_error_is_sanitised_json(client, monkeypatch):
+    def fake(**kw):
+        raise KeyError("C:\\Users\\someone\\secret path")
+
+    monkeypatch.setattr(route.service, "run_turn", fake)
+    res = TestClient(client.app, raise_server_exceptions=False).post("/api/workflow-assistant/chat", json=BODY)
+    assert res.status_code == 500
+    data = res.json()
+    assert data["error"] == "internal"
+    assert "someone" not in data["message"] and data["message"]
+
+
+def test_chat_route_busy_returns_error_payload(client, monkeypatch):
+    def fake(**kw):
+        raise AssistantError("busy", "too many concurrent requests")
+
+    monkeypatch.setattr(route.service, "run_turn", fake)
+    res = client.post("/api/workflow-assistant/chat", json=BODY)
+    assert res.status_code == 200 and res.json()["error"] == "busy"
+
+
+def test_chat_route_rejects_blank_last_user_message(client, monkeypatch):
+    monkeypatch.setattr(route.service, "run_turn", lambda **kw: {"reply": "ok"})
+    for content in ("", "   \n "):
+        bad = {**BODY, "messages": [{"role": "user", "content": content}]}
+        assert client.post("/api/workflow-assistant/chat", json=bad).status_code == 422
+    # An empty assistant message earlier in the history (a give-up turn) is fine.
+    ok = {**BODY, "messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": ""},
+                               {"role": "user", "content": "b"}]}
+    assert client.post("/api/workflow-assistant/chat", json=ok).status_code == 200
+
+
+def test_chat_route_rejects_oversized_request(client, monkeypatch):
+    monkeypatch.setattr(route.service, "run_turn", lambda **kw: {"reply": "ok"})
+    big = {**BODY, "messages": [{"role": "user", "content": "x" * 50_000}] * 8, "pending_yaml": "y" * 10}
+    assert client.post("/api/workflow-assistant/chat", json=big).status_code == 422

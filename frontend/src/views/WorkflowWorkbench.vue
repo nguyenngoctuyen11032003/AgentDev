@@ -97,6 +97,7 @@
       v-if="isAssistantOpen"
       @close="closeAssistant"
       @apply="handleApply"
+      @undo="undoApply"
     />
   </div>
 </template>
@@ -110,7 +111,7 @@ import WorkflowView from './WorkflowView.vue'
 import WorkflowTemplateCards from '@/components/workflow/WorkflowTemplateCards.vue'
 import WorkflowAssistantPanel from '@/components/workflow/assistant/WorkflowAssistantPanel.vue'
 import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
-import { toast } from '@/utils/toast.js'
+import { dismissToast, toast } from '@/utils/toast.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -218,15 +219,19 @@ watch(selectedWorkflow, (name) => {
   if (isAssistantOpen.value) assistant.setContext(name ? 'workflow' : 'create', name || null)
 })
 
-// Success toast of an applied edit, with an Undo button for 10 seconds.
+// Success toast of an applied edit, with an Undo button for 10 seconds (the applied card in the
+// chat offers Undo too).
+let undoToastId = null
 function showUndoToast(name) {
-  toast.success(t('workflow_assistant.applied_edit', { name }), {
+  undoToastId = toast.success(t('workflow_assistant.applied_edit', { name }), {
     duration: 10000,
     action: { label: t('workflow_assistant.undo'), run: () => undoApply(name) }
   })
 }
 
+let undoing = false
 async function undoApply(name) {
+  if (undoing) return
   // Same guard as Apply: an open node/edge form holds edits the reload would throw away.
   // Clicking the action closed the toast, so offer Undo again.
   if (workflowViewRef.value?.hasOpenForm?.()) {
@@ -234,12 +239,25 @@ async function undoApply(name) {
     showUndoToast(name)
     return
   }
-  const result = await assistant.undoLast()
+  undoing = true
+  let result
+  try {
+    // Undo only the change this button belongs to, never a later apply to another workflow.
+    result = await assistant.undoLast(name)
+  } finally {
+    undoing = false
+  }
+  if (undoToastId !== null) {
+    dismissToast(undoToastId)
+    undoToastId = null
+  }
   if (result.ok) {
     toast.success(t('workflow_assistant.undone'))
     if (normalizeName(result.filename) === selectedWorkflow.value) reloadKey.value += 1
   } else if (result.reason === 'stale') {
     toast.error(t('workflow_assistant.undo_stale'))
+  } else if (result.reason === 'none') {
+    toast.warning(t('workflow_assistant.undo_unavailable'))
   } else {
     toast.error(result.message || t('workflow_assistant.undo_failed'))
   }
@@ -250,6 +268,8 @@ const handleApply = async () => {
   if (!proposal) return
   const formOpen = !!workflowViewRef.value?.hasOpenForm?.()
   const result = await assistant.applyProposal({ formOpen })
+  // A second click while the first apply runs (or nothing pending any more): nothing to say.
+  if (!result.ok && (result.reason === 'busy' || result.reason === 'none')) return
   if (!result.ok) {
     // The chat keeps a conflict notice with a "redo" button, so the toast need not stay forever
     // (it would cover the panel header).
@@ -268,6 +288,8 @@ const handleApply = async () => {
   // YAML and layout are both saved by now: reload the canvas from them.
   if (name === selectedWorkflow.value) reloadKey.value += 1
   showUndoToast(name)
+  // Saved, but the canvas layout could not be updated: still a success, with a soft note.
+  if (result.warning === 'layout') toast.warning(t('workflow_assistant.applied_layout_warning'))
 }
 
 const handleRefreshWorkflows = async () => {
