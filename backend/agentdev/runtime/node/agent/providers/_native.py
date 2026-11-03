@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import os
+import queue
+import threading
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from agentdev.runtime.node.agent.providers._cli_common import StagedAttachment, trim
 
@@ -80,16 +82,21 @@ def with_preamble(prompt: str, preamble: str) -> str:
     return preamble + "\n\n" + prompt if prompt else preamble
 
 
+def _event(line: str) -> Optional[Dict[str, Any]]:
+    line = (line or "").strip()
+    if not line.startswith("{"):
+        return None
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return None
+    return event if isinstance(event, dict) else None
+
+
 def _jsonl(stdout: str):
     for line in (stdout or "").splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(event, dict):
+        event = _event(line)
+        if event is not None:
             yield event
 
 
@@ -105,39 +112,45 @@ def _tool_result_text(content: Any) -> str:
     return "" if content is None else str(content)
 
 
-def read_claude_stream(stdout: str, native: Optional[NativeRunContext]) -> tuple[Optional[Dict[str, Any]], List[str]]:
-    """Parse ``--output-format stream-json`` output.
+class ClaudeStreamReader:
+    """Incremental parser of ``--output-format stream-json`` events.
 
-    Returns (final ``result`` event or None, files written by edit tools). Tool use / tool result pairs
-    are reported to ``native.on_tool`` as ``claude:<Tool>`` calls (after the run; best effort).
+    ``feed(event)`` reports tool use / tool result pairs to ``native.on_tool`` as ``claude:<Tool>`` calls the
+    moment they are seen; ``result`` (final ``result`` event) and ``changed`` (files written by edit tools)
+    accumulate. Each event is fed once, so each call is reported once.
     """
-    result: Optional[Dict[str, Any]] = None
-    pending: Dict[str, Dict[str, Any]] = {}
-    changed: List[str] = []
-    for event in _jsonl(stdout):
+
+    def __init__(self, native: Optional[NativeRunContext]):
+        self.native = native
+        self.result: Optional[Dict[str, Any]] = None
+        self.changed: List[str] = []
+        self._pending: Dict[str, Dict[str, Any]] = {}
+
+    def feed(self, event: Dict[str, Any]) -> None:
+        native = self.native
         kind = event.get("type")
         if kind == "result":
-            result = event
-            continue
+            self.result = event
+            return
         message = event.get("message")
         content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, list):
-            continue
+            return
         for block in content:
             if not isinstance(block, dict):
                 continue
             if kind == "assistant" and block.get("type") == "tool_use":
                 name = str(block.get("name") or "tool")
                 args = block.get("input") if isinstance(block.get("input"), dict) else {}
-                pending[str(block.get("id") or "")] = {"name": name, "args": args}
+                self._pending[str(block.get("id") or "")] = {"name": name, "args": args}
                 if name in _CLAUDE_EDIT_TOOLS:
                     path = args.get("file_path") or args.get("notebook_path")
-                    if isinstance(path, str) and path and path not in changed:
-                        changed.append(path)
+                    if isinstance(path, str) and path and path not in self.changed:
+                        self.changed.append(path)
                 if native is not None:
                     native.emit("before", f"claude:{name}", None, None, {"arguments": _compact(args)})
             elif kind == "user" and block.get("type") == "tool_result":
-                call = pending.pop(str(block.get("tool_use_id") or ""), None)
+                call = self._pending.pop(str(block.get("tool_use_id") or ""), None)
                 if call is None or native is None:
                     continue
                 ok = not bool(block.get("is_error"))
@@ -145,39 +158,160 @@ def read_claude_stream(stdout: str, native: Optional[NativeRunContext]) -> tuple
                     "after", f"claude:{call['name']}", ok, trim(_tool_result_text(block.get("content")), 2000),
                     {"arguments": _compact(call["args"])},
                 )
-    return result, changed
+
+
+def read_claude_stream(stdout: str, native: Optional[NativeRunContext]) -> tuple[Optional[Dict[str, Any]], List[str]]:
+    """Parse a whole ``--output-format stream-json`` output.
+
+    Returns (final ``result`` event or None, files written by edit tools). With ``native`` the tool calls
+    are reported to ``native.on_tool`` too; pass None when :class:`LiveEvents` already reported them.
+    """
+    reader = ClaudeStreamReader(native)
+    for event in _jsonl(stdout):
+        reader.feed(event)
+    return reader.result, reader.changed
+
+
+def _codex_call(item: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]]]:
+    kind = item.get("type")
+    if kind == "file_change":
+        return "codex:apply_patch", {"changes": item.get("changes")}
+    if kind == "command_execution":
+        return "codex:shell", {"command": item.get("command")}
+    if kind in ("mcp_tool_call", "web_search"):
+        return f"codex:{kind}", {k: v for k, v in item.items() if k not in ("id", "type")}
+    return None
+
+
+class CodexActivityReader:
+    """Incremental reader of ``codex exec --json`` events.
+
+    ``item.started`` reports a call as begun; ``item.completed`` reports it finished (and begun first, when
+    its start was not seen). ``changed`` collects the paths of completed file changes.
+    """
+
+    def __init__(self, native: Optional[NativeRunContext]):
+        self.native = native
+        self.changed: List[str] = []
+        self._started: Set[str] = set()
+
+    def feed(self, event: Dict[str, Any]) -> None:
+        kind = event.get("type")
+        if kind not in ("item.started", "item.completed"):
+            return
+        item = event.get("item")
+        if not isinstance(item, dict):
+            return
+        call = _codex_call(item)
+        if call is None:
+            return
+        name, args = call
+        item_id = str(item.get("id") or "")
+        native = self.native
+        if kind == "item.started":
+            if item_id and item_id not in self._started:
+                self._started.add(item_id)
+                if native is not None:
+                    native.emit("before", name, None, None, {"arguments": _compact(args)})
+            return
+        item_type = item.get("type")
+        if item_type == "file_change":
+            paths = [c.get("path") for c in item.get("changes") or [] if isinstance(c, dict) and c.get("path")]
+            for path in paths:
+                if path not in self.changed:
+                    self.changed.append(path)
+            ok = item.get("status") in (None, "completed")
+            output: Any = ", ".join(paths)
+        elif item_type == "command_execution":
+            ok = item.get("exit_code") in (None, 0) and item.get("status") != "failed"
+            output = trim(str(item.get("aggregated_output") or ""), 2000)
+        else:
+            ok, output = True, None
+        started = bool(item_id) and item_id in self._started
+        self._started.discard(item_id)
+        if native is None:
+            return
+        if not started:
+            native.emit("before", name, None, None, {"arguments": _compact(args)})
+        native.emit("after", name, ok, output, {"arguments": _compact(args)})
 
 
 def read_codex_activity(stdout: str, native: Optional[NativeRunContext]) -> List[str]:
-    """Report completed Codex items (commands, file changes, MCP/web calls) and return changed file paths."""
-    changed: List[str] = []
+    """Report the Codex items (commands, file changes, MCP/web calls) of a whole output; return changed paths."""
+    reader = CodexActivityReader(native)
     for event in _jsonl(stdout):
-        if event.get("type") != "item.completed":
-            continue
-        item = event.get("item")
-        if not isinstance(item, dict):
-            continue
-        kind = item.get("type")
-        if kind == "file_change":
-            paths = [c.get("path") for c in item.get("changes") or [] if isinstance(c, dict) and c.get("path")]
-            for path in paths:
-                if path not in changed:
-                    changed.append(path)
-            name, args = "codex:apply_patch", {"changes": item.get("changes")}
-            ok = item.get("status") in (None, "completed")
-            output: Any = ", ".join(paths)
-        elif kind == "command_execution":
-            name, args = "codex:shell", {"command": item.get("command")}
-            ok = item.get("exit_code") in (None, 0) and item.get("status") != "failed"
-            output = trim(str(item.get("aggregated_output") or ""), 2000)
-        elif kind in ("mcp_tool_call", "web_search"):
-            name, args, ok, output = f"codex:{kind}", {k: v for k, v in item.items() if k not in ("id", "type")}, True, None
-        else:
-            continue
-        if native is not None:
-            native.emit("before", name, None, None, {"arguments": _compact(args)})
-            native.emit("after", name, ok, output, {"arguments": _compact(args)})
-    return changed
+        reader.feed(event)
+    return reader.changed
+
+
+class LiveEvents:
+    """Feeds a CLI's JSON-lines stdout to a reader (:class:`ClaudeStreamReader` / :class:`CodexActivityReader`)
+    while the CLI runs, so tool calls reach the UI as they happen instead of all at once at the end.
+
+    ``push`` is the ``on_line`` hook of ``run_cli``. It runs on the stdout reader thread and only queues the
+    line, so a slow listener (a WebSocket send) never stalls the pipe; one pump thread feeds the reader in
+    order (``native.emit`` -> log manager is lock-protected and the WebSocket send is thread-safe).
+    ``finish(stdout)`` waits for the pump, then feeds whatever it did not see (all of it when the output was
+    not streamed), so every line is fed exactly once. ``abort()`` (cancel / timeout / error) stops at once.
+    """
+
+    FINISH_WAIT = 30.0
+
+    def __init__(self, reader: Any):
+        self.reader = reader
+        self._queue: "queue.Queue[Optional[str]]" = queue.Queue()
+        self._consumed = 0  # characters of stdout fed by the pump (read only after it has stopped)
+        self._stopped = False
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+
+    def push(self, line: str) -> None:
+        with self._lock:
+            if self._stopped:
+                return
+            if self._thread is None:
+                self._thread = threading.Thread(target=self._pump, name="agentdev-cli-events", daemon=True)
+                self._thread.start()
+            self._queue.put(line)
+
+    def _pump(self) -> None:
+        while True:
+            line = self._queue.get()
+            if line is None or self._stopped:
+                return
+            self._consumed += len(line)
+            self._feed(line)
+
+    def _feed(self, line: str) -> None:
+        event = _event(line)
+        if event is None:
+            return
+        try:
+            self.reader.feed(event)
+        except Exception:  # reporting is best effort and must never fail the run
+            pass
+
+    def finish(self, stdout: str) -> None:
+        # run_cli has returned: the stdout reader thread is done, so no push races this.
+        with self._lock:
+            thread, closed = self._thread, self._stopped
+        if closed:
+            return
+        if thread is not None:
+            self._queue.put(None)
+            thread.join(self.FINISH_WAIT)
+            if thread.is_alive():  # listener stuck: stop reporting rather than race the pump
+                self._stopped = True
+                return
+        self._stopped = True
+        for line in (stdout or "")[self._consumed:].splitlines():
+            self._feed(line)
+
+    def abort(self) -> None:
+        with self._lock:
+            self._stopped = True
+            if self._thread is not None:
+                self._queue.put(None)
 
 
 def changed_files_note(workspace: str, changed: List[str]) -> str:

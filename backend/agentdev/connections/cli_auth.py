@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 DETECT_TIMEOUT = 10
 
@@ -83,6 +83,7 @@ def run_capture(
     cwd: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     cancel_event: Optional[threading.Event] = None,
+    on_stdout_line: Optional[Callable[[str], None]] = None,
 ) -> "subprocess.CompletedProcess[str]":
     """Run a CLI with a hard timeout (and an optional cancel event) that also kills child processes.
 
@@ -90,6 +91,9 @@ def run_capture(
     which hangs forever when a grandchild still holds them (Windows .cmd shims). Here stdin is
     fed and stdout/stderr are drained by threads while the main thread polls every 0.2s for
     exit, timeout (-> ``subprocess.TimeoutExpired``) or cancellation (-> ``CliCancelled``).
+
+    ``on_stdout_line`` (optional) is called from the stdout reader thread with each stdout line as it
+    arrives (newline included); it must not block. The returned stdout is the same text either way.
     """
     if cancel_event is not None and cancel_event.is_set():
         raise _cancelled_error(cmd)
@@ -110,7 +114,15 @@ def run_capture(
 
     def _drain(stream: Any, key: str) -> None:
         try:
-            chunks[key].append(stream.read())
+            if key == "out" and on_stdout_line is not None:
+                for line in iter(stream.readline, ""):
+                    chunks[key].append(line)
+                    try:
+                        on_stdout_line(line)
+                    except Exception:  # noqa: BLE001 - a listener must never stop the draining
+                        pass
+            else:
+                chunks[key].append(stream.read())
         except (OSError, ValueError):
             pass
 
