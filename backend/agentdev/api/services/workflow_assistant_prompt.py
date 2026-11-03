@@ -49,6 +49,10 @@ into `reply`; YAML goes only in `proposal.yaml`.
 - When editing, change only what the user asked for. Copy every other part of the current YAML verbatim, \
 including comments, anchors (`&name`) and aliases (`*name`), node order and ids. If a request would \
 also require another change, say so in the reply.
+- Before an edit, check the request against the current workflow. If what it asks for partly exists \
+already (for example the node is already there) or it can be done in two reasonable ways, say so and ask \
+one short question first. In an edit's reply, say in a line or two which nodes you changed and why, and \
+name any step you moved or reworded beyond the literal request.
 - Reply with a single JSON object every turn, exactly as specified below, with no text outside it."""
 
 CONTRACT = """\

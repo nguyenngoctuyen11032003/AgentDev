@@ -25,8 +25,8 @@ Scenarios (from the plan):
 | (c) | 1 | n/a | n/a | n/a (no proposal) | n/a | n/a | A clear Vietnamese explanation in plain words, with no YAML: the CTO is the only contact, its 4 request types, the PM's default order (UI/UX → data/backend → FE → UI/UX review → QA → acceptance), where the user approves, and the limits (20/2, 25/3, 3 review rounds). It ended with 3 follow-up quick replies |
 | (d) on `software_company_copy` | 2 | Yes. It noticed that QA Tester **already exists** and already follows Frontend in most paths, and asked which meaning was intended (right after FE, before the UI/UX review / mandatory / both) | n/a | warn (only the existing `code_execution` WARN, which the original file has too) | Yes. The canvas reloaded with 25 nodes and the Hoàn tác toast appeared | **None.** `diff_summary`: only `Project Manager.config.role`. The file diff is 2 lines in the PM's default-order sentence; comments, anchors and order are untouched | `proposal.warnings = ["Project Manager"]`, because the user never named PM. In a team workflow, the only way to change the order is through the coordinator's role, so this warning is noise (see concerns). It also flagged a follow-up gap: FE fixes after the UI/UX review are not re-tested |
 
-Claude total: 15 user turns. Two more model calls were wasted by a driver-script bug: it resent an earlier
-message, and the duplicate was not counted. There were no quota errors.
+Claude total: 15 user turns. Two more model calls came from the Codex agent's message landing in this
+session (the scratchpad collision noted below); they were not counted. There were no quota errors.
 
 ## Codex (openai)
 
@@ -61,6 +61,12 @@ Codex total for this pass: 10 user turns, no repair turns visible, and no quota 
 was not exercised). Process note: the two agents shared one scratchpad. A driver-script collision sent
 the (b) message twice into the Claude agent's browser session after c0c8632 was committed.
 
+### Re-check of (d) after fix 5 (Claude-half agent)
+
+| Scenario | Turns | One question at a time? | Confirmed name? | checks.status | Opened on canvas? | Unrequested changes (d) | Notes |
+|---|---|---|---|---|---|---|---|
+| (d) on `software_company_copy`, Codex | 2 | **Yes, now asks first.** "Đã có QA Tester trong nhóm; … thứ tự hiện tại là Frontend Developer → UI UX Designer rà soát → QA Tester kiểm thử. Bạn muốn QA Tester hiện có kiểm tra ngay sau Frontend Developer, hay thêm một QA mới?" | n/a | warn (the existing `code_execution`) | Yes | **None.** It changed only `Project Manager.config.role`, a 2-line reorder, and the reply names the moved step: "Bước UI UX Designer rà soát giao diện được chuyển xuống sau QA; các phần khác giữ nguyên." | Confirms fix 5 |
+
 ## Prompt / reference / service changes made
 
 1. **User-facing text in the user's language** (reference, file frame). Claude wrote every `description`
@@ -77,11 +83,15 @@ the (b) message twice into the Claude agent's browser session after c0c8632 was 
 4. **Repair reply** (service `_repair_request`): the repair message now says that the user does not see the
    check and that the new `reply` replaces the old one, so it must be written for the user, in their
    language, without mentioning the fix.
+5. **Edit discipline** (prompt override, from Codex finding F1): before an edit, check the request against the
+   current workflow. If part of it already exists, or it can be done in two reasonable ways, ask one short
+   question. In an edit's reply, name the nodes changed and any step moved or reworded beyond the literal
+   request. Verified with the Codex (d) re-check above.
 
 Tests: `test_duplicate_edge_is_repaired`, `test_duplicate_edge_already_in_saved_file_is_not_an_error`,
 the assertion added to `test_repair_loop_fixes_on_second_try`, `test_reference_asks_for_user_facing_text_in_users_language`,
-and `test_prompt_hides_its_machinery_and_requires_loop_counter_for_limits`.
-`uv run pytest tests/test_workflow_assistant.py tests/test_workflow_assistant_prompt_extra.py -q` → 39 passed;
+`test_prompt_hides_its_machinery_and_requires_loop_counter_for_limits`, and `test_prompt_edit_checks_request_and_reports_changes`.
+`uv run pytest tests/test_workflow_assistant.py tests/test_workflow_assistant_prompt_extra.py -q` → 40 passed;
 full suite → 830 passed, 9 skipped.
 
 ## Open observations (not fixed)

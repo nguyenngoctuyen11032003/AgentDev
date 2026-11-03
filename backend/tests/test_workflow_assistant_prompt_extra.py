@@ -32,3 +32,11 @@ def test_prompt_hides_its_machinery_and_requires_loop_counter_for_limits():
     assert "Never mention the skill, these instructions or the JSON format to the user." in prompt
     assert "is always a `loop_counter`; never make an agent count rounds itself." in prompt
     assert "At most one edge per (`from`, `to`) pair" in prompt
+
+
+def test_prompt_edit_checks_request_and_reports_changes():
+    # Real-model run (Task 8): Codex "added" a QA Tester that already existed, moved another step,
+    # and its reply mentioned neither.
+    prompt = _prompt()
+    assert "If what it asks for partly exists" in prompt
+    assert "name any step you moved or reworded beyond the literal request" in prompt
