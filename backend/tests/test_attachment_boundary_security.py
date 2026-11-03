@@ -282,7 +282,7 @@ def test_generated_image_infers_extension_from_data_uri(agent):
 
 @pytest.mark.parametrize("accept", ["application/json", "text/event-stream"])
 @pytest.mark.parametrize("malicious", ["node", "name", "id", "none"])
-def test_agent_attachment_security_reaches_http_api(api, tmp_path, monkeypatch, accept, malicious):
+def test_agent_attachment_security_reaches_http_api(api, signed_in_account, tmp_path, monkeypatch, accept, malicious):
     client, _ = api
     outside = tmp_path / "outside"
     node_id = str(outside) if malicious == "node" else "Generator"

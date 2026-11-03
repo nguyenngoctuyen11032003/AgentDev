@@ -7,6 +7,12 @@ from types import ModuleType
 
 import pytest
 
+# Never read the developer's ``.env`` into ``os.environ``: a clean checkout has none,
+# so tests must not depend on it. Marking the loader as done keeps it a no-op.
+import agentdev.utils.env_loader as _env_loader
+
+_env_loader._DOTENV_LOADED = True
+
 # Module attributes holding the absolute runtime output locations from
 # ``agentdev.paths``. They are redirected into each test's ``tmp_path`` so the
 # suite never writes into the real repository ``WareHouse/`` or ``logs/``.
@@ -22,6 +28,7 @@ _WAREHOUSE_ATTRS = (
 )
 _LOGS_ATTRS = (("agentdev.utils.structured_logger", "LOGS_DIR"),)
 _SESSIONS_ATTRS = (("agentdev.api.services.session_history", "SESSIONS_DIR"),)
+_MEMORY_ATTRS = (("agentdev.workflow.graph", "MEMORY_DIR"),)
 
 
 def _patch_loaded(monkeypatch, targets, value) -> None:
@@ -37,8 +44,49 @@ def _isolate_runtime_dirs(tmp_path, monkeypatch):
     _patch_loaded(monkeypatch, _WAREHOUSE_ATTRS, tmp_path / "WareHouse")
     _patch_loaded(monkeypatch, _LOGS_ATTRS, tmp_path / "logs")
     _patch_loaded(monkeypatch, _SESSIONS_ATTRS, tmp_path / "sessions")
+    _patch_loaded(monkeypatch, _MEMORY_ATTRS, tmp_path / "memory")
     monkeypatch.setenv("VUEGRAPHS_DB_PATH", str(tmp_path / "data" / "vuegraphs.db"))
+    # Code that resolves ``agentdev.paths.STORAGE_DIR`` at call time (e.g. Lab jobs).
+    import agentdev.paths as paths_module
+
+    monkeypatch.setattr(paths_module, "STORAGE_DIR", tmp_path / "storage")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_connection_store(tmp_path, monkeypatch):
+    """Point the connection store at an empty per-test file.
+
+    ``get_store()`` caches one ``ConnectionStore`` in ``store._store``; replacing that
+    cache (restored by monkeypatch afterwards) means no test ever sees or writes the
+    developer's real ``storage/connections.json``.
+    """
+    from agentdev.connections import store as store_module
+
+    path = tmp_path / "storage" / "connections.json"
+    monkeypatch.setattr(store_module, "CONNECTIONS_FILE", path)
+    monkeypatch.setattr(store_module, "_store", store_module.ConnectionStore(path))
+    yield
+
+
+@pytest.fixture
+def signed_in_account(monkeypatch):
+    """A fake signed-in CLI account in the isolated store, used by autobind.
+
+    The account's model list is not probed (that would read the real CLI's local state),
+    so autobind falls back to the static vendor catalog.
+    """
+    from agentdev.connections import autobind
+    from agentdev.connections.store import Connection, get_store
+
+    monkeypatch.setattr(autobind, "_default_model", lambda _conn: None)
+    store = get_store()
+    conn = Connection(id="claude-test", vendor="anthropic", label="Test", auth_type="cli")
+    with store._lock:
+        connections = store._load()
+        connections[conn.id] = conn
+        store._save(connections)
+    return conn
 
 
 # --- Filesystem links -------------------------------------------------------

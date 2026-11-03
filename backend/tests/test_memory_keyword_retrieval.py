@@ -208,7 +208,7 @@ def test_strip_legacy_embeddings_before_placeholder_resolution():
     strip_legacy_memory_embeddings("not a mapping")
 
 
-def test_legacy_workflow_with_unset_embedding_placeholders_loads(tmp_path, monkeypatch):
+def test_legacy_workflow_with_unset_embedding_placeholders_loads(signed_in_account, tmp_path, monkeypatch):
     """A whole workflow with an old openai embedding block loads without API_KEY set."""
     from agentdev.paths import WORKFLOWS_DIR
     from agentdev.validation.check import _stub_missing_env_placeholders, load_config
