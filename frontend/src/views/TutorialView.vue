@@ -1,9 +1,10 @@
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import markdownItAnchor from 'markdown-it-anchor'
 import { useI18n } from 'vue-i18n'
+import mediaSizes from '@/utils/tutorialMediaSizes.json'
 
 // ---------------------------------------------------------------------------
 // Module-level: one parser for the app lifetime (built once, not per visit)
@@ -33,12 +34,20 @@ md.use(markdownItAnchor, {
       .replace(/\s+/g, '-')
 })
 
-// Defer off-screen images so the long tutorial paints quickly.
+// Images load up front (only a handful) but decode off the main thread, so nothing
+// pops in and shifts the text while the reader is scrolling.
+// Each image also gets its real size (scripts/tutorial-media-sizes.mjs), so the browser reserves
+// the box before the file arrives: no layout shift while a large image is still downloading.
 const defaultImageRenderer = md.renderer.rules.image
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx]
-  token.attrSet('loading', 'lazy')
   token.attrSet('decoding', 'async')
+  const file = (token.attrGet('src') || '').split('/').pop().split('?')[0]
+  const size = mediaSizes[file]
+  if (size && !token.attrGet('width')) {
+    token.attrSet('width', String(size[0]))
+    token.attrSet('height', String(size[1]))
+  }
   return defaultImageRenderer(tokens, idx, options, env, self)
 }
 
@@ -66,8 +75,8 @@ const fetchRendered = (file) => {
       text = text.replace(/\]\(media\//g, '](/media/')
       // For HTML image tags: src="media/file.webp" -> src="/media/file.webp"
       text = text.replace(/src="media\//g, 'src="/media/')
-      // Raw <img> tags in the markdown are deferred as well
-      text = text.replace(/<img\s(?![^>]*\bloading=)/g, '<img loading="lazy" decoding="async" ')
+      // Raw <img> tags in the markdown decode asynchronously as well
+      text = text.replace(/<img\s(?![^>]*\bdecoding=)/g, '<img decoding="async" ')
 
       const html = md.render(text)
       renderedCache.set(file, html)
@@ -133,6 +142,91 @@ const addCopyButtons = () => {
   })
 }
 
+// ---------------------------------------------------------------------------
+// Table of contents (sticky side panel) + scroll spy
+// ---------------------------------------------------------------------------
+const scroller = ref(null)
+const toc = ref([]) // { id, text, level }
+const activeId = ref('')
+let headingEls = []
+let spyFrame = 0
+// While a TOC click scrolls the page, keep the clicked item highlighted instead of
+// flickering through every heading the smooth scroll passes.
+let lockUntil = 0
+
+// The active section is the last heading that has reached the top band of the viewport.
+// Stable in both directions, unlike "first heading currently intersecting".
+const updateActive = () => {
+  spyFrame = 0
+  const root = scroller.value
+  if (!root || !headingEls.length || Date.now() < lockUntil) return
+  const limit = root.getBoundingClientRect().top + 96
+  let current = headingEls[0]
+  for (const el of headingEls) {
+    if (el.getBoundingClientRect().top <= limit) current = el
+    else break
+  }
+  if (root.scrollTop + root.clientHeight >= root.scrollHeight - 2) current = headingEls[headingEls.length - 1]
+  if (current && activeId.value !== current.id) activeId.value = current.id
+}
+
+const onScroll = () => {
+  if (!spyFrame) spyFrame = requestAnimationFrame(updateActive)
+}
+
+const headingText = (el) =>
+  Array.from(el.childNodes)
+    .filter((node) => !(node.nodeType === 1 && node.classList.contains('header-anchor')))
+    .map((node) => node.textContent)
+    .join('')
+    .trim()
+
+const buildToc = () => {
+  nextTick(() => {
+    const container = markdownBody.value
+    if (!container) return
+    const headings = Array.from(container.querySelectorAll('h1[id], h2[id]'))
+    let inReference = false
+    toc.value = headings.slice(1).map((el) => {
+      if (el.tagName === 'H1') inReference = true
+      return { id: el.id, text: headingText(el), level: el.tagName === 'H1' ? 0 : inReference ? 1 : 0, group: el.tagName === 'H1' }
+    })
+    // The markdown has its own link list under the title; the side panel replaces it on wide screens.
+    const firstList = container.querySelector(':scope > ul')
+    if (firstList && Array.from(firstList.querySelectorAll('a')).every((a) => a.getAttribute('href')?.startsWith('#'))) {
+      firstList.classList.add('inline-toc')
+    }
+    headingEls = headings.slice(1)
+    updateActive()
+  })
+}
+
+const goTo = (id) => {
+  const el = document.getElementById(id)
+  if (!el) return
+  activeId.value = id
+  const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  lockUntil = smooth ? Date.now() + 900 : 0
+  el.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' })
+  history.replaceState(history.state, '', `#${id}`)
+}
+
+const releaseLock = () => {
+  lockUntil = 0
+  updateActive()
+}
+
+onMounted(() => {
+  scroller.value?.addEventListener('scroll', onScroll, { passive: true })
+  scroller.value?.addEventListener('scrollend', releaseLock, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  scroller.value?.removeEventListener('scroll', onScroll)
+  scroller.value?.removeEventListener('scrollend', releaseLock)
+  if (spyFrame) cancelAnimationFrame(spyFrame)
+})
+
 // Guards against a slow earlier request overwriting a newer language choice
 let loadToken = 0
 
@@ -143,6 +237,7 @@ const loadTutorial = async () => {
     if (token !== loadToken) return
     renderedContent.value = html
     addCopyButtons()
+    buildToc()
     scrollToHash()
   } catch (error) {
     if (error && error.notOk) {
@@ -163,347 +258,426 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="tutorial-view">
-    <div ref="markdownBody" class="markdown-body" v-html="renderedContent"></div>
+  <div ref="scroller" class="tutorial-view">
+    <div class="tutorial-layout">
+      <nav v-if="toc.length" class="toc" :aria-label="$t('tutorial.toc')">
+        <p class="toc-title">{{ $t('tutorial.toc') }}</p>
+        <ul>
+          <li v-for="item in toc" :key="item.id" :class="[`lvl-${item.level}`, { group: item.group }]">
+            <a
+              :href="`#${item.id}`"
+              :class="{ active: activeId === item.id }"
+              :aria-current="activeId === item.id ? 'location' : undefined"
+              @click.prevent="goTo(item.id)"
+            >{{ item.text }}</a>
+          </li>
+        </ul>
+      </nav>
+      <article ref="markdownBody" class="markdown-body" v-html="renderedContent"></article>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .tutorial-view {
-  padding: 40px;
-  width: 100%;
-  max-width: 100%;
-  margin: 0 auto;
-  height: calc(100vh - 55px); /* Adjust the height of the .sidebar */
-  background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface-1) 100%);
-  overflow-y: auto;
-  overflow-x: hidden;
+  --doc-text: var(--text-2);
+  --doc-muted: var(--text-muted-4);
+  --doc-strong: var(--text-strong);
+  --doc-line: rgb(var(--ink) / 0.1);
+  --doc-soft: rgb(var(--ink) / 0.04);
+  --doc-accent: var(--accent-sky);
+  --doc-accent-rgb: var(--accent-sky-rgb);
+
   box-sizing: border-box;
-  /* Glowing border and card shadow */
-  border-radius: 18px;
-  box-shadow: 0 4px 32px 0 rgb(var(--cyan-rgb-2) / 0.08), 0 0 0 2px rgb(var(--cyan-rgb) / 0.2);
-  border: 1.5px solid rgb(var(--cyan-rgb) / 0.2);
-  /* Height snaps when the nav hides: animating it re-laid out the whole long
-     article (with its animated images) on every frame mid-scroll. */
-  transition: box-shadow 0.3s;
-  scroll-behavior: smooth;
+  width: 100%;
+  height: calc(100vh - 55px); /* below the top bar */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg-base);
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
 :global(body.nav-hidden .tutorial-view) {
   height: 100vh;
 }
 
-:deep(.markdown-body) {
-  max-width: 980px;
-  margin: 0 auto;
-  color: var(--text-2);
-  font-family: 'JetBrains Mono', 'Fira Mono', 'Consolas', 'Menlo', 'Monaco', 'monospace', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  line-height: 1.7;
-  letter-spacing: 0.01em;
-  background: rgb(var(--panel-30) / 0.85);
-  border-radius: 14px;
-  box-shadow: 0 2px 16px 0 rgb(var(--cyan-rgb-2) / 0.04);
-  padding: 32px 36px 32px 36px;
-  border: 1px solid rgb(var(--cyan-rgb) / 0.13);
-  /* No backdrop-filter here: it sits over a static gradient (no visible effect)
-     but would force the compositor to re-blur the whole article on every scroll. */
-}
-
-:deep(.markdown-body h1),
-:deep(.markdown-body h2),
-:deep(.markdown-body h3),
-:deep(.markdown-body h4),
-:deep(.markdown-body h5),
-:deep(.markdown-body h6) {
-  margin-top: 24px;
-  margin-bottom: 16px;
-  font-weight: 700;
-  line-height: 1.25;
-  color: var(--cyan);
-  text-shadow: 0 0 8px rgb(var(--cyan-rgb) / 0.27);
-  letter-spacing: 0.02em;
-  scroll-margin-top: 20px; /* Offset for hash scroll target */
-  transition: background 0.3s ease;
-}
-
-/* Highlight targeted heading */
-:deep(.markdown-body h1:target),
-:deep(.markdown-body h2:target),
-:deep(.markdown-body h3:target),
-:deep(.markdown-body h4:target),
-:deep(.markdown-body h5:target),
-:deep(.markdown-body h6:target) {
-  background: rgb(var(--cyan-rgb) / 0.15);
-  padding: 8px 12px;
-  margin-left: -12px;
-  margin-right: -12px;
-  border-radius: 6px;
-  box-shadow: 0 0 16px rgb(var(--cyan-rgb) / 0.3);
-}
-
-:deep(.markdown-body h1) { font-size: 2.2em; border-bottom: 1px solid rgb(var(--cyan-rgb) / 0.2); padding-bottom: 0.3em; }
-:deep(.markdown-body h2) { font-size: 1.6em; border-bottom: 1px solid rgb(var(--cyan-rgb) / 0.13); padding-bottom: 0.3em; }
-:deep(.markdown-body h3) { font-size: 1.3em; }
-
-:deep(.markdown-body p) {
-  margin-top: 0;
-  margin-bottom: 16px;
-  color: var(--accent-sky-3);
-  font-size: 1.08em;
-}
-
-:deep(.markdown-body a) {
-  color: var(--cyan);
-  text-decoration: none;
-  border-bottom: 1px dashed rgb(var(--cyan-rgb) / 0.6);
-  transition: color 0.2s, border-bottom 0.2s;
-}
-:deep(.markdown-body a:hover) {
-  color: var(--text-strong);
-  border-bottom: 1px solid var(--cyan);
-  text-shadow: 0 0 6px rgb(var(--cyan-rgb) / 0.6);
-}
-
-:deep(.markdown-body img) {
-  width: 100%;
-  max-width: 100%;
-  /* With the width/height attributes this reserves the box before a lazy image
-     loads, so the article does not jump while scrolling. */
-  height: auto;
+.tutorial-layout {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 780px);
+  justify-content: center;
+  gap: 56px;
   box-sizing: border-box;
-  background-color: transparent;
-  border-radius: 10px;
-  border: 1.5px solid rgb(var(--cyan-rgb) / 0.2);
-  box-shadow: 0 2px 16px 0 rgb(var(--cyan-rgb) / 0.13);
-  margin: 16px 0;
-  transition: box-shadow 0.2s;
-}
-:deep(.markdown-body img:hover) {
-  box-shadow: 0 0 24px 2px rgb(var(--cyan-rgb) / 0.53);
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 48px 32px 120px;
 }
 
-:deep(.markdown-body video) {
-  max-width: 100%;
-  border-radius: 10px;
-  border: 1.5px solid rgb(var(--cyan-rgb) / 0.2);
-  margin-bottom: 16px;
-  box-shadow: 0 2px 16px 0 rgb(var(--cyan-rgb) / 0.13);
+/* ---------------------------------------------------------------- TOC */
+.toc {
+  position: sticky;
+  top: 32px;
+  align-self: start;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
-:deep(.markdown-body code) {
-  padding: 0.2em 0.5em;
+.toc-title {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--doc-muted);
+}
+
+.toc ul {
   margin: 0;
-  font-size: 90%;
-  background: linear-gradient(90deg, var(--surface-2) 60%, rgb(var(--cyan-rgb) / 0.13) 100%);
-  border-radius: 6px;
-  color: var(--cyan);
-  font-family: 'JetBrains Mono', 'Fira Mono', 'Consolas', 'Menlo', 'Monaco', 'monospace';
-  border: 1px solid rgb(var(--cyan-rgb) / 0.2);
-  box-shadow: 0 0 8px rgb(var(--cyan-rgb) / 0.13);
+  padding: 0;
+  list-style: none;
+  border-left: 1px solid var(--doc-line);
 }
 
-:deep(.markdown-body pre) {
+.toc li.group {
+  margin-top: 14px;
+}
+
+.toc a {
+  display: block;
+  margin-left: -1px;
+  padding: 5px 0 5px 14px;
+  border-left: 2px solid transparent;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--doc-muted);
+  text-decoration: none;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.toc li.group > a {
+  font-weight: 650;
+  color: var(--doc-text);
+}
+
+.toc li.lvl-1 a {
+  padding-left: 26px;
+  font-size: 13px;
+}
+
+.toc a:hover {
+  color: var(--doc-strong);
+}
+
+.toc a.active {
+  color: var(--doc-accent);
+  border-left-color: var(--doc-accent);
+}
+
+.toc a:focus-visible {
+  outline: 2px solid var(--doc-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------- article */
+.markdown-body {
+  min-width: 0;
+  color: var(--doc-text);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.markdown-body :deep(> :first-child) {
+  margin-top: 0;
+}
+
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4) {
+  position: relative;
+  color: var(--doc-strong);
+  font-weight: 750;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  scroll-margin-top: 24px;
+}
+
+.markdown-body :deep(h1) {
+  margin: 64px 0 20px;
+  font-size: 34px;
+  letter-spacing: -0.03em;
+}
+
+.markdown-body :deep(h1:first-child) {
+  font-size: 40px;
+}
+
+.markdown-body :deep(h2) {
+  margin: 52px 0 16px;
+  padding-top: 28px;
+  border-top: 1px solid var(--doc-line);
+  font-size: 25px;
+}
+
+/* The markdown already separates sections with "---": no second rule on the heading */
+.markdown-body :deep(hr + h1),
+.markdown-body :deep(hr + h2),
+.markdown-body :deep(h1 + h2) {
+  margin-top: 24px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.markdown-body :deep(h3) {
+  margin: 36px 0 12px;
+  font-size: 19px;
+}
+
+.markdown-body :deep(h4) {
+  margin: 28px 0 10px;
+  font-size: 16px;
+}
+
+/* Permalink "#" shows on hover, outside the text column */
+.markdown-body :deep(.header-anchor) {
+  position: absolute;
+  left: -1em;
+  padding-right: 0.25em;
+  color: var(--doc-muted);
+  font-weight: 500;
+  text-decoration: none;
+  border: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.markdown-body :deep(h1:hover .header-anchor),
+.markdown-body :deep(h2:hover .header-anchor),
+.markdown-body :deep(h3:hover .header-anchor),
+.markdown-body :deep(.header-anchor:focus-visible) {
+  opacity: 1;
+}
+
+.markdown-body :deep(p),
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 0 0 18px;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  padding-left: 1.4em;
+}
+
+.markdown-body :deep(li + li) {
+  margin-top: 6px;
+}
+
+.markdown-body :deep(li > ul),
+.markdown-body :deep(li > ol) {
+  margin: 6px 0 0;
+}
+
+.markdown-body :deep(li::marker) {
+  color: var(--doc-muted);
+}
+
+.markdown-body :deep(strong) {
+  color: var(--doc-strong);
+  font-weight: 650;
+}
+
+.markdown-body :deep(a) {
+  color: var(--doc-accent);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--doc-accent-rgb) / 0.4);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s ease;
+}
+
+.markdown-body :deep(a:hover) {
+  text-decoration-color: currentColor;
+}
+
+/* Inline code */
+.markdown-body :deep(code) {
+  padding: 0.15em 0.4em;
+  border-radius: 6px;
+  font-family: ui-monospace, 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.87em;
+  color: var(--doc-strong);
+  background: rgb(var(--ink) / 0.07);
+  box-shadow: inset 0 0 0 1px var(--doc-line);
+}
+
+/* Code blocks */
+.markdown-body :deep(pre) {
+  position: relative;
+  margin: 0 0 22px;
   padding: 18px 20px;
   overflow: auto;
-  font-size: 95%;
-  line-height: 1.55;
-  background: linear-gradient(90deg, var(--bg-deep-2) 80%, rgb(var(--cyan-rgb) / 0.07) 100%);
-  border-radius: 10px;
-  margin-bottom: 18px;
-  border: 1.5px solid rgb(var(--cyan-rgb) / 0.2);
-  box-shadow: 0 0 16px rgb(var(--cyan-rgb) / 0.07);
-  position: relative;
+  border-radius: 12px;
+  background: var(--bg-deep-2);
+  box-shadow: inset 0 0 0 1px var(--doc-line);
+  font-size: 13.5px;
+  line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-:deep(.markdown-body pre code) {
-  display: inline;
+.markdown-body :deep(pre code) {
   padding: 0;
-  margin: 0;
-  overflow: visible;
-  line-height: inherit;
-  word-wrap: normal;
+  font-size: inherit;
+  color: var(--text-soft-3);
   background: transparent;
-  border: 0;
-  color: var(--cyan);
+  box-shadow: none;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-:deep(.markdown-body pre.has-copy-button) {
+.markdown-body :deep(pre.has-copy-button) {
   padding-top: 44px;
 }
 
-:deep(.markdown-body .copy-code-btn) {
+.markdown-body :deep(.copy-code-btn) {
   position: absolute;
   top: 10px;
   right: 10px;
-  background: linear-gradient(90deg, var(--surface-2) 60%, rgb(var(--cyan-rgb) / 0.13) 100%);
-  color: var(--cyan);
-  border: 1px solid rgb(var(--cyan-rgb) / 0.27);
-  border-radius: 6px;
   padding: 4px 10px;
-  font-size: 0.85em;
+  border-radius: 7px;
+  border: 0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--doc-muted);
+  background: rgb(var(--ink) / 0.06);
+  box-shadow: inset 0 0 0 1px var(--doc-line);
   cursor: pointer;
-  transition: background 0.2s, color 0.2s, border 0.2s, box-shadow 0.2s;
-  box-shadow: 0 2px 8px rgb(var(--cyan-rgb) / 0.07);
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-:deep(.markdown-body .copy-code-btn:hover) {
-  background: linear-gradient(90deg, var(--cyan) 0%, var(--cyan-deep) 100%);
-  color: #fff;
-  border: 1px solid var(--cyan);
-  box-shadow: 0 0 12px rgb(var(--cyan-rgb) / 0.27);
+.markdown-body :deep(.copy-code-btn:hover) {
+  color: var(--doc-strong);
+  background: rgb(var(--ink) / 0.12);
 }
 
-:deep(.markdown-body blockquote) {
-  padding: 0 1em;
-  color: var(--accent-mint-3);
-  border-left: 0.25em solid rgb(var(--cyan-rgb) / 0.6);
-  margin: 0 0 16px 0;
-  background: rgb(var(--cyan-rgb) / 0.04);
-  border-radius: 6px;
+/* Callouts */
+.markdown-body :deep(blockquote) {
+  margin: 0 0 22px;
+  padding: 14px 18px;
+  border-left: 3px solid var(--doc-accent);
+  border-radius: 0 10px 10px 0;
+  color: var(--doc-text);
+  background: rgb(var(--doc-accent-rgb) / 0.07);
 }
 
-:deep(.markdown-body hr) {
-  height: 0.25em;
-  padding: 0;
-  margin: 24px 0;
-  background: linear-gradient(90deg, rgb(var(--cyan-rgb) / 0.2) 0%, var(--surface-2) 100%);
+.markdown-body :deep(blockquote > :last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(hr) {
+  height: 1px;
+  margin: 48px 0 40px;
   border: 0;
-  border-radius: 2px;
+  background: var(--doc-line);
 }
 
-:deep(.markdown-body table) {
-  border-spacing: 0;
-  border-collapse: collapse;
-  margin-top: 0;
-  margin-bottom: 16px;
+/* Tables */
+.markdown-body :deep(table) {
+  display: block;
   width: 100%;
-  overflow: auto;
-  background: rgb(var(--cyan-rgb) / 0.02);
-  border-radius: 8px;
+  margin: 0 0 22px;
+  overflow-x: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--doc-line);
+  font-size: 14.5px;
+  line-height: 1.6;
 }
 
-:deep(.markdown-body table th),
-:deep(.markdown-body table td) {
-  padding: 8px 15px;
-  border: 1px solid rgb(var(--cyan-rgb) / 0.13);
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  padding: 10px 14px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--doc-line);
 }
 
-:deep(.markdown-body table th) {
+.markdown-body :deep(th) {
+  font-size: 12.5px;
   font-weight: 700;
-  background: rgb(var(--cyan-rgb) / 0.08);
-  color: var(--cyan);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--doc-muted);
+  background: var(--doc-soft);
 }
 
-:deep(.markdown-body table tr) {
-  background: rgb(var(--panel-30) / 0.7);
-  border-top: 1px solid rgb(var(--cyan-rgb) / 0.07);
+.markdown-body :deep(tr:last-child td) {
+  border-bottom: 0;
 }
 
-:deep(.markdown-body table tr:nth-child(2n)) {
-  background: rgb(var(--cyan-rgb) / 0.03);
+.markdown-body :deep(td:first-child) {
+  color: var(--doc-strong);
 }
 
-/* Custom Scrollbar */
-.tutorial-view::-webkit-scrollbar {
-  width: 10px;
-  background: var(--surface-2);
+/* Media */
+.markdown-body :deep(img),
+.markdown-body :deep(video) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0 22px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  /* Hairline only: a large blurred shadow under animated images repaints every frame while scrolling */
+  border: 1px solid var(--doc-line);
+  background: var(--doc-soft);
+  /* Own layer: animated webp frames do not invalidate the text around them */
+  contain: paint;
+  transform: translateZ(0);
 }
+
+/* Scrollbar */
+.tutorial-view::-webkit-scrollbar { width: 10px; }
 .tutorial-view::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, var(--cyan) 0%, var(--surface-2) 100%);
+  border: 3px solid var(--bg-base);
   border-radius: 8px;
+  background: rgb(var(--ink) / 0.18);
 }
 
-:deep(.markdown-body::-webkit-scrollbar) {
-  height: 8px;
-  background: var(--surface-2);
-}
-:deep(.markdown-body::-webkit-scrollbar-thumb) {
-  background: linear-gradient(90deg, var(--cyan) 0%, var(--surface-2) 100%);
-  border-radius: 8px;
+/* ---------------------------------------------------------------- responsive */
+@media (min-width: 1025px) {
+  .markdown-body :deep(.inline-toc),
+  .markdown-body :deep(.inline-toc + hr) {
+    display: none;
+  }
 }
 
-/* ---------- Light theme: dark body copy, cyan kept for headings/links/code ---------- */
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body p),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body li),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body td),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body blockquote) {
-  color: var(--text-2);
+@media (max-width: 1024px) {
+  .tutorial-layout {
+    grid-template-columns: minmax(0, 780px);
+    padding: 36px 24px 96px;
+  }
+
+  .toc {
+    display: none;
+  }
 }
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body strong) {
-  color: var(--text-strong);
-}
-/* Light: --cyan (#0891b2) is ~3.7:1 on white; use the deeper cyan (>= 5:1) for
-   small accent text and drop the neon glows that blur text on a light background. */
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body) {
-  border-color: rgb(var(--cyan-rgb) / 0.28);
-  box-shadow: 0 1px 3px rgb(var(--shade) / 0.12);
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body h1),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body h2),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body h3),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body h4),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body h5),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body h6) {
-  color: var(--cyan-2);
-  text-shadow: none;
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body h1) {
-  border-bottom-color: rgb(var(--cyan-rgb) / 0.35);
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body h2) {
-  border-bottom-color: rgb(var(--cyan-rgb) / 0.28);
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body a),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body code),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body pre code),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body table th),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body .copy-code-btn) {
-  color: var(--cyan-2);
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body a:hover) {
-  color: var(--text-strong);
-  text-shadow: none;
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body code) {
-  background: rgb(var(--cyan-rgb) / 0.08);
-  border-color: rgb(var(--cyan-rgb) / 0.3);
-  box-shadow: none;
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body pre) {
-  background: var(--surface-4);
-  border-color: rgb(var(--cyan-rgb) / 0.3);
-  box-shadow: none;
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body pre code) {
-  background: transparent;
-  border: 0;
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body .copy-code-btn) {
-  background: var(--surface-1);
-  border-color: rgb(var(--cyan-rgb) / 0.45);
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body .copy-code-btn:hover) {
-  background: var(--cyan-2);
-  color: #fff;
-  border-color: var(--cyan-2);
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body blockquote) {
-  border-left-color: var(--cyan-2);
-  background: rgb(var(--cyan-rgb) / 0.06);
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body table th),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body table td) {
-  border-color: rgb(var(--cyan-rgb) / 0.28);
-}
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body img),
-:root[data-theme="light"] .tutorial-view :deep(.markdown-body video) {
-  border-color: var(--line-3);
-  box-shadow: 0 1px 4px rgb(var(--shade) / 0.18);
+
+@media (max-width: 600px) {
+  .tutorial-layout { padding: 28px 16px 72px; }
+  .markdown-body { font-size: 15.5px; }
+  .markdown-body :deep(h1:first-child) { font-size: 30px; }
+  .markdown-body :deep(h1) { font-size: 26px; }
+  .markdown-body :deep(h2) { font-size: 21px; }
+  .markdown-body :deep(.header-anchor) { display: none; }
 }
 
 </style>

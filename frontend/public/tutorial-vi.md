@@ -1,311 +1,306 @@
-# Xây dựng quy trình đa Agent dạng đồ thị đầu tiên
+# Hướng dẫn sử dụng AgentDev
 
-[Xem nhanh](http://localhost:5173/workflows/net_example_en)
+AgentDev giúp bạn dựng một "công ty AI": mỗi nhân viên là một **agent**, các agent được sắp xếp thành một **quy trình**, và bạn giao việc cho cả đội ngay trong khung trò chuyện. Hướng dẫn này đi theo đúng thứ tự bạn sẽ làm trong ứng dụng.
 
-Ví dụ ở trên minh họa một quy trình đa Agent dùng để **sáng tác nội dung**.
-Hướng dẫn này sẽ chỉ cho bạn cách dùng cấu trúc **Đồ thị (Graph)** để tổ chức nhiều nút Agent, hoàn thành trọn vẹn quá trình từ tạo nội dung, biên tập cho đến duyệt bởi con người. Làm theo các bước dưới đây, bạn sẽ xây dựng được quy trình đa Agent dạng đồ thị đầu tiên của mình.
-
-- [1. Tạo đồ thị](#1-create-a-graph)
-  - [Đồ thị là gì?](#what-is-a-graph)
-  - [Biến là gì?](#what-is-a-variable)
-- [2. Tạo nút](#2-create-nodes)
-  - [Nút là gì?](#what-is-a-node)
-  - [Tạo các nút Agent](#creating-agent-nodes)
-- [3. Truyền thông tin giữa các nút](#3-transfer-information-between-nodes)
-  - [Message là gì?](#what-is-a-message)
-  - [Liên kết là gì?](#what-is-an-edge)
-  - [Kết nối các nút](#establishing-node-connections)
-- [4. Khởi động và logic thực thi của đồ thị](#4-graph-startup-and-execution-logic)
-  - [Nút đầu vào](#entry-nodes)
-- [5. Xây dựng vòng lặp duyệt và chỉnh sửa](#5-build-review-and-revise-loop)
-  - [Tạo nút biên tập thứ hai](#creating-a-second-editing-node)
-  - [Thiết lập cửa sổ ngữ cảnh](#set-the-context-window)
-  - [Nút Human: đưa con người tham gia vào quy trình](#human-node-introducing-human-in-the-loop)
-- [Tìm hiểu thêm](#more-things)
----
-
-<a id="1-create-a-graph"></a>
-## 1. Tạo đồ thị
-
-<a id="what-is-a-graph"></a>
-### Đồ thị là gì?
-
-**Đồ thị (Graph)** là nơi chứa và cấu trúc điều phối việc thực thi của hệ thống đa Agent. Nó mô tả quan hệ phụ thuộc và thứ tự thực thi giữa các nút (Agent), về bản chất chính là một **quy trình hoàn chỉnh**.
-
-Bản thân đồ thị không trực tiếp thực hiện công việc cụ thể nào, mà chịu trách nhiệm tổ chức, sắp xếp và điều phối logic thực thi của từng nút.
-
-<img src="media/graph_create.webp" width="800" height="450" />
+- [1. Khái niệm cơ bản](#concepts)
+- [2. Kết nối tài khoản](#connections)
+- [3. Thư viện skill](#skill-library)
+- [4. Xây dựng quy trình](#build-workflow)
+  - [Tạo nút](#2-create-nodes)
+  - [Liên kết các nút](#what-is-an-edge)
+  - [Trưởng nhóm và thành viên](#team-lead)
+  - [Gắn skill cho agent](#attach-skills)
+  - [Ví dụ: quy trình viết bài có liên kết](#example-linked-workflow)
+- [5. Mẫu "Công ty phần mềm"](#software-company)
+- [6. Chạy quy trình](#run-page)
+- [7. Phòng thí nghiệm](#lab)
+- [Tham khảo: các loại nút](#node-types-explained)
+- [Tham khảo: cấu hình liên kết](#edge-configuration)
+- [Tham khảo: logic thực thi](#graph-execution-logic)
+- [Tham khảo: chế độ thực thi động](#dynamic-execution-mode)
+- [Tham khảo: cấu trúc thư mục](#workspace-structure)
 
 ---
 
-<a id="what-is-a-variable"></a>
-### Biến là gì?
+<a id="concepts"></a>
+## 1. Khái niệm cơ bản
 
-**Biến (Variable)** cung cấp các tham số toàn cục hoặc cục bộ có thể cấu hình cho đồ thị. Sau khi được định nghĩa, các nút (Agent) có thể tham chiếu trực tiếp tới những biến này, giúp chia sẻ tham số và tách rời phần cấu hình.
-
-Nên quản lý tập trung tại đây các cấu hình dùng chung hoặc nhạy cảm, chẳng hạn như ngôn ngữ đầu ra. Quyền dùng model lấy từ kết nối tài khoản chọn ở từng nút agent (trang Kết nối).
-
-Lưu ý: nếu các biến môi trường cần thiết đã được định nghĩa trong tệp `.env` bên ngoài và bạn muốn dùng trực tiếp, thì không cần cấu hình lại ở đây.
-Nếu biến được cấu hình tại đây, **thiết lập này sẽ được ưu tiên** hơn giá trị trong tệp `.env` bên ngoài.
-
-<img src="media/config_graph.webp" width="800" height="450" />
+| Thuật ngữ | Nghĩa |
+|-----------|-------|
+| **Quy trình** (workflow) | Một tệp YAML mô tả đội agent và cách họ phối hợp. Danh sách quy trình nằm ở mục **Quy trình** trên thanh bên. |
+| **Nút** (node) | Một bước trong quy trình. Loại nút hay dùng nhất là **Agent**; ngoài ra có Người dùng, Python, Văn bản cố định, Chuyển tiếp, Bộ đếm vòng lặp, Quy trình con. |
+| **Liên kết** (edge) | Mũi tên nối hai nút: chuyển kết quả của nút nguồn sang nút đích và có thể kích hoạt nút đích chạy. |
+| **Agent** | Một nút gọi model AI (Claude, Codex, Gemini) với vai trò, prompt, công cụ và skill riêng. |
+| **Trưởng nhóm** | Agent duy nhất trò chuyện với bạn (ví dụ CTO, PM, CEO). Trưởng nhóm tự quyết định giao việc cho thành viên nào, khi nào. |
+| **Thành viên** | Các agent mà trưởng nhóm được giao việc. Thường là các nút agent **không có liên kết nào**. |
+| **Skill** | Một tệp hướng dẫn (SKILL.md) dạy agent cách làm một loại việc, ví dụ "lập kế hoạch", "review code". Skill nằm trong thư viện dùng chung. |
+| **Kết nối** | Tài khoản AI bạn đã đăng nhập (Claude, Codex/ChatGPT, Gemini). Mỗi agent chạy bằng một kết nối. |
+| **Phiên** | Một lần làm việc trên trang **Chạy**: gồm lịch sử trò chuyện, tệp đính kèm và (nếu có) thư mục dự án. |
 
 ---
+
+<a id="connections"></a>
+## 2. Kết nối tài khoản
+
+Agent cần một tài khoản AI để chạy. Mở **Cài đặt → Kết nối** (nút bánh răng ở góc phải thanh trên cùng).
+
+1. Ở mục **Nhà cung cấp**, chọn thẻ của nhà cung cấp rồi bấm **Kết nối**.
+2. Chọn cách đăng nhập và làm theo hướng dẫn trong hộp thoại:
+   - **Anthropic Claude**: **Đăng nhập bằng tài khoản**, dùng công cụ dòng lệnh Claude CLI trên máy. Nếu máy đã đăng nhập sẵn, chỉ cần bấm **Kết nối**; nếu chưa, bấm **Tiếp tục với tài khoản Claude**, mở liên kết đăng nhập, đăng nhập rồi dán mã xác nhận vào ô **Dán mã vào đây** và bấm **Xác nhận**.
+   - **OpenAI (Codex)**: **Đăng nhập bằng ChatGPT** (mở trang đăng nhập OpenAI, dùng gói Plus/Pro/Team) hoặc **Dùng mã thiết bị** (nhận một mã rồi nhập vào trình duyệt, tiện khi trình duyệt không nằm cùng máy với máy chủ).
+   - **Google Gemini**: **Đăng nhập với Google**. Máy chủ cần đặt `GOOGLE_OAUTH_CLIENT_ID` và `GOOGLE_OAUTH_CLIENT_SECRET` trong tệp `.env`.
+3. Kết nối mới hiện ở mục **Kết nối của bạn**. Bấm vào một kết nối để xem tài khoản, **Mức sử dụng** (theo phiên 5 giờ, theo tuần...) và **Model khả dụng**.
+
+Mẹo:
+
+- **Đặt làm mặc định**: mọi nút agent chưa chọn kết nối riêng sẽ chạy bằng kết nối mặc định.
+- **Kiểm tra**: kiểm tra nhanh kết nối còn dùng được không. Khi chạy quy trình báo lỗi xác thực, hãy bấm Kiểm tra trước.
+- Thông tin đăng nhập chỉ nằm trên máy chủ của bạn, không bao giờ được ghi vào tệp quy trình.
+- Nếu Claude CLI hoặc Codex CLI chưa được cài, hộp thoại sẽ nhắc bạn cài trước.
+
+**Tự chuyển tài khoản khi hết hạn mức.** Khi tài khoản một agent đang dùng báo hết lượt (ví dụ Claude hết hạn mức 5 giờ), AgentDev tự chuyển agent đó sang một tài khoản khác đã đăng nhập: ưu tiên nhà cung cấp khác (Claude → Codex, Codex → Claude, rồi Gemini). Model được đổi sang model mặc định của tài khoản mới. Khung trò chuyện và một thông báo nổi cho bạn biết đã chuyển từ tài khoản nào sang tài khoản nào. Các agent chạy sau trong cùng lượt dùng luôn tài khoản mới. Nếu không còn tài khoản nào, bạn sẽ nhận thông báo lỗi và cần đăng nhập thêm ở trang **Kết nối**. Vì vậy nên đăng nhập cả Claude và Codex.
+
+---
+
+<a id="skill-library"></a>
+## 3. Thư viện skill
+
+Mở **Cài đặt → Skill**. Đây là kho skill dùng chung: thêm một lần, dùng cho mọi agent. Sửa một skill thì mọi agent đang dùng nó đều được cập nhật.
+
+**Thêm skill**
+
+1. Bấm **Thêm skill**.
+2. Dán nội dung SKILL.md vào ô **Nội dung** (có hoặc không có phần frontmatter `---`), hoặc bấm **Tải tệp .md lên** / kéo thả tệp `.md` vào ô (tối đa 256 KB).
+3. Nếu nội dung không có frontmatter, điền **Tên** (chữ thường, số, dấu `-`) và **Mô tả: dùng khi nào**. Mô tả rất quan trọng: agent đọc nó để biết lúc nào cần nạp skill.
+4. Bấm **Lưu skill**. Nếu trùng tên, ứng dụng hỏi bạn có muốn **Ghi đè** không.
+
+**Nhập skill từ Claude**
+
+Nếu bạn đã có skill trong `~/.claude/skills`, bấm **Nhập từ Claude**. Hộp thoại **Nhập skill từ thư mục** liệt kê các skill tìm thấy; chọn skill cần nhập (hoặc **Chọn tất cả**), bật **Ghi đè skill đã có** nếu muốn thay bản cũ, rồi bấm **Nhập N skill**. Bạn có thể đổi **Thư mục nguồn** và bấm **Tải lại**.
+
+Mỗi thẻ skill có nút **Sửa** và **Xóa**. Skill có lỗi định dạng được đánh dấu **Lỗi định dạng**.
+
+---
+
+<a id="build-workflow"></a>
+## 4. Xây dựng quy trình
+
+Mở **Quy trình** trên thanh bên. Bên trái là danh sách quy trình; bấm **Tạo quy trình** để tạo mới, hoặc chọn một quy trình có sẵn để sửa.
+
+Trình sửa quy trình có hai thẻ:
+
+- **Sơ đồ quy trình**: kéo thả các nút và liên kết.
+- **Mã YAML**: xem và sửa trực tiếp tệp YAML.
+
+Thanh công cụ phía trên sơ đồ gồm:
+
+- **Tạo nút**: mở biểu mẫu tạo nút (hoặc nhấp chuột phải vào vùng trống của sơ đồ để tạo nút tại chỗ).
+- **Cài đặt quy trình**: mô tả, chỉ dẫn ban đầu, mức nhật ký, bộ nhớ, nút bắt đầu và kết thúc.
+- **Chạy**: mở trang Chạy với quy trình này.
+- Menu (rê chuột lên biểu tượng cuối thanh công cụ): **Đổi tên quy trình**, **Sao chép quy trình**, **Quản lý biến**, **Quản lý bộ nhớ**, **Tạo liên kết**.
+
+Trong **Cài đặt**, bật **Bật chú thích trợ giúp** để xem giải thích khi rê chuột lên nút, liên kết và các nút bấm.
 
 <a id="2-create-nodes"></a>
-## 2. Tạo nút
+### Tạo nút
 
-<a id="what-is-a-node"></a>
-### Nút là gì?
+Bấm **Tạo nút**, chọn **Loại nút** rồi điền biểu mẫu. Với nút **Agent**, các trường quan trọng là:
 
-**Nút (Node)** là đơn vị thực thi nhỏ nhất trong đồ thị, thường tương ứng với một Agent.
-Mỗi nút nên có năng lực tương đối độc lập và trách nhiệm rõ ràng.
+| Trường | Ý nghĩa |
+|--------|---------|
+| **ID nút** | Tên duy nhất của nút, ví dụ `Backend Developer`. Trưởng nhóm gọi thành viên bằng ID này. |
+| **Mô tả nút** | Một câu tóm tắt nút làm gì. Trưởng nhóm đọc mô tả này để chọn đúng người giao việc, nên hãy viết rõ ràng. |
+| **Nhân vật** | Hình đại diện của nút trên sơ đồ, trang Chạy và Văn phòng. |
+| **Kết nối tài khoản** | Tài khoản dùng để gọi model. Để trống sẽ dùng kết nối mặc định. |
+| **Model** | Chọn từ danh sách model của tài khoản đã kết nối, hoặc chọn **Nhập tên model khác...** |
+| **Prompt hệ thống (vai trò)** | Vai trò, nhiệm vụ và quy tắc làm việc của agent. |
+| **Skill của agent** | Chọn skill từ thư viện (xem [Gắn skill cho agent](#attach-skills)). |
+| **Trưởng nhóm** | Biến agent thành trưởng nhóm (xem [Trưởng nhóm và thành viên](#team-lead)). |
+| **Cấu hình công cụ** | Các công cụ agent được dùng: đọc/ghi tệp, chạy mã, tìm kiếm web, máy chủ MCP... |
+| **Số tin nhắn ngữ cảnh** | Số tin nhắn cũ agent được nhớ giữa các lần chạy. `-1` là không giới hạn. |
 
----
-
-<a id="creating-agent-nodes"></a>
-### Tạo các nút Agent
-
-Trong đồ thị ví dụ này, chúng ta tạo ba nút sau:
-
-* **Poet** (Nhà thơ): chịu trách nhiệm sáng tác thơ hoặc nội dung sáng tạo
-* **Article Writer** (Người viết bài): chịu trách nhiệm viết bài có cấu trúc
-* **Editor 1** (Biên tập viên 1): chịu trách nhiệm biên tập ban đầu và tổng hợp nội dung
-
-Tất cả các nút trên đều là **nút Agent**. Dưới đây, chúng ta lấy nút *Poet* làm ví dụ để minh họa toàn bộ quá trình tạo một nút Agent.
-
-#### Lời nhắc (sao chép để cấu hình)
-
-Dùng các lời nhắc sau làm trường `role` cho từng nút Agent.
-
-**Poet**
-
-```
-You are a poet who crafts a modern English poem based on a single word or short phrase.
-The user will input a word or short phrase. Write a modern English poem inspired by it.
-```
-
-**Article Writer**
-
-```
-You are a writer who excels at generating a full article from a single word or short phrase.
-The user will input a word or short phrase, and you must produce an article of at least 2000 words with multiple paragraphs.
-```
-
-**Editor 1**
-
-```
-You are an editor. Combine the article and the poem, and append the poem at the end of the article.
-```
-
-<img src="media/create_node.webp" width="800" height="450" />
-
----
-
-<a id="3-transfer-information-between-nodes"></a>
-## 3. Truyền thông tin giữa các nút
-
-<a id="what-is-a-message"></a>
-### Message là gì?
-
-**Message** (thông điệp) là đơn vị cơ bản để truyền và lưu trữ thông tin, là đơn vị cơ bản để kiểm soát ngữ cảnh, đồng thời cũng là đơn vị cơ bản để liên kết xử lý và điều khiển.
-
-* Message có thể truyền văn bản và thông tin đa phương thức.
-* Đầu vào và đầu ra của một nút có thể gồm nhiều message.
-* Đầu vào ban đầu của người dùng là một message duy nhất.
-* Khi liên kết chưa được cấu hình **[Chế độ thực thi động](#dynamic-execution-mode)** (tạm thời có thể bỏ qua), đầu ra của mọi loại nút, ngoại trừ **[nút Passthrough](#passthrough-node)** và **[nút Đồ thị con](#subgraph-node)** (khi đồ thị con kết thúc bằng một nút Passthrough), đều là một message duy nhất. Mọi cấu hình trong hướng dẫn này đều chỉ tạo ra một message đầu ra.
+Một số trường ít dùng nằm trong **Cài đặt nâng cao** ở cuối biểu mẫu. Bấm **Lưu** để lưu nút; **Sao chép nút** để nhân bản (bản sao cần một ID mới); **Xóa nút** để xóa nút cùng các liên kết của nó.
 
 <a id="what-is-an-edge"></a>
-### Liên kết là gì?
+### Liên kết các nút
 
-**Liên kết (Edge)** nối các nút với nhau, với các chức năng cốt lõi gồm:
+**Liên kết** nối hai nút với nhau và có hai tác dụng:
 
-1. **Truyền thông tin**: chuyển đầu ra của nút phía trước thành đầu vào cho nút phía sau
-2. **Điều khiển thực thi**: xác định quan hệ phụ thuộc và quan hệ kích hoạt giữa các nút
+1. **Truyền dữ liệu**: kết quả của nút nguồn trở thành đầu vào của nút đích.
+2. **Điều khiển thứ tự chạy**: khi nút nguồn chạy xong, liên kết có thể kích hoạt nút đích chạy.
 
-> **Lưu ý**: Nếu nút phía trước xuất ra nhiều message, liên kết sẽ đánh giá, xử lý và truyền **từng message một**.
+Cách tạo: kéo từ chấm nối ở cạnh một nút sang nút khác, hoặc dùng **Tạo liên kết** trong menu. Bấm vào một liên kết để sửa hoặc **Xóa liên kết**.
 
----
+**Nút bắt đầu** là điểm khởi đầu của quy trình: mọi nút nối với nút bắt đầu sẽ nhận nhiệm vụ của bạn và chạy song song ngay khi quy trình khởi động. Nút bắt đầu phải giữ ít nhất một liên kết.
 
-<a id="establishing-node-connections"></a>
-### Kết nối các nút
+Chi tiết các tùy chọn của liên kết (điều kiện, chỉ truyền dữ liệu mà không kích hoạt, giữ tin nhắn...) xem ở [Tham khảo: cấu hình liên kết](#edge-configuration).
 
-Dựa trên ba nút vừa tạo, hãy thiết lập các liên kết sau:
+<a id="team-lead"></a>
+### Trưởng nhóm và thành viên
 
-* `Poet → Editor 1`
-* `Article Writer → Editor 1`
+Thay vì nối cứng thứ tự các bước bằng liên kết, bạn có thể dựng một **đội** có trưởng nhóm. Trưởng nhóm là agent duy nhất trò chuyện với bạn; trong lúc làm việc, trưởng nhóm tự quyết định giao việc cho thành viên nào, bao nhiêu lần và theo thứ tự nào, rồi tổng hợp kết quả báo lại cho bạn.
 
-Lúc này, đồ thị tạo thành một cấu trúc điển hình "tạo nội dung song song → tổng hợp biên tập".
+Cách dựng:
+
+1. Tạo nút agent cho trưởng nhóm (ví dụ `CTO`) và nối nút bắt đầu tới nút này.
+2. Tạo các nút agent cho thành viên. **Không nối liên kết nào** tới các nút này: trưởng nhóm sẽ gọi họ khi cần. Viết **Mô tả nút** thật rõ để trưởng nhóm biết ai làm gì.
+3. Mở biểu mẫu của trưởng nhóm, bấm cấu hình mục **Trưởng nhóm** và điền:
+
+| Trường | Ý nghĩa |
+|--------|---------|
+| **Làm trưởng nhóm** | Bật để agent này làm trưởng nhóm. |
+| **Thành viên** | ID các nút agent được giao việc. Để trống = mọi nút agent không có liên kết nào. |
+| **Trình kế hoạch trước khi làm** | Với việc mới, trưởng nhóm trình kế hoạch (công nghệ, kiến trúc, đầu việc) và chờ bạn duyệt, trừ khi bạn đã bảo cứ làm luôn. |
+| **Số lần giao việc tối đa mỗi yêu cầu** | (Cài đặt nâng cao) Giới hạn số lần giao việc trong một lượt, để kiểm soát lượng token. |
+| **Số vòng sửa/duyệt tối đa** | (Cài đặt nâng cao) Số lần một việc chưa đạt được gửi lại để sửa trước khi trưởng nhóm báo cáo cho bạn. |
+
+Khi chạy, trưởng nhóm có thể **hỏi lại bạn** nếu yêu cầu chưa rõ. Câu hỏi hiện trong khung trò chuyện; bạn chỉ cần trả lời như bình thường. Việc giao và nhận việc hiện thành các dòng như "CTO giao việc cho Backend Developer" và "Backend Developer đã báo cáo CTO".
+
+<a id="attach-skills"></a>
+### Gắn skill cho agent
+
+Trong biểu mẫu nút agent, mục **Skill của agent** liệt kê toàn bộ thư viện skill. Đánh dấu các skill trang bị cho agent này; số skill đã chọn hiện ở góc trên. Bấm **Mở thư viện skill** để thêm hoặc sửa skill trong thẻ mới. Agent chỉ nạp nội dung skill khi việc đang làm khớp với phần mô tả "dùng khi nào" của skill.
+
+<a id="example-linked-workflow"></a>
+### Ví dụ: quy trình viết bài có liên kết
+
+Quy trình mẫu `net_example_en` minh họa cách nối các nút bằng liên kết:
+
+1. Tạo ba nút agent **Poet** (viết thơ), **Article Writer** (viết bài) và **Editor 1** (gộp bài và thơ).
+2. Nối nút bắt đầu tới Poet và Article Writer: hai nút này chạy song song.
+3. Nối `Poet → Editor 1` và `Article Writer → Editor 1`: Editor 1 chạy sau khi nhận đủ hai kết quả.
 
 <img src="media/create_edge.webp" width="800" height="450" />
 
----
-<a id="4-graph-startup-and-execution-logic"></a>
-## 4. Khởi động và logic thực thi của đồ thị
+Muốn thêm vòng duyệt, tạo nút **Người dùng** (human) hỏi bạn "Góp ý cho bài viết, hoặc nhập ACCEPT để kết thúc", rồi dùng **liên kết có điều kiện**: nếu bạn nhập `ACCEPT` thì kết thúc, ngược lại chuyển sang **Editor 2** để sửa tiếp. Xem [Điều kiện liên kết](#edge-condition).
 
-<a id="entry-nodes"></a>
-### Nút đầu vào
-
-Khi đồ thị khởi động:
-
-* Mọi nút được nối với nút **start** đều được coi là **nút đầu vào** của quy trình
-* Các nút này nhận đầu vào của người dùng **cùng lúc** khi khởi động và thực thi **song song**
-* Một quy trình có thể có nhiều nút đầu vào; bạn chỉ cần kéo thả để tạo liên kết nối với nút **start**
-
-Vì vậy, với thiết lập hiện tại, **Poet** và **Article Writer** sẽ chạy song song, như hình dưới đây.
-
-<img src="media/run.webp" width="800" height="450" />
-
-> Đến đây, bạn đã xây dựng xong một quy trình đa Agent tối giản.
-
----
-
-<a id="5-build-review-and-revise-loop"></a>
-## 5. Xây dựng vòng lặp duyệt và chỉnh sửa
-
-<a id="creating-a-second-editing-node"></a>
-### Tạo nút biên tập thứ hai
-
-Tiếp theo, chúng ta tạo một nút Agent mới là **Editor 2**, chịu trách nhiệm chỉnh sửa và trau chuốt nội dung dựa trên góp ý của con người.
-
-Sau đó thiết lập liên kết sau:
-
-* `Editor 1 → Editor 2` (`trigger = false`)
-
-<img src="media/condition_edge_1.webp" width="800" height="450" />
-
-Cấu hình này liên quan đến một thuộc tính quan trọng của liên kết: `trigger`
-
-* `trigger` quyết định nút đích có được thực thi hay không
-* Khi liên kết đang hoạt động và `trigger = true`, nút đích được đánh dấu là cần kích hoạt và sẽ thực thi khi quá trình thực thi đến tầng chứa nút đó
-
-**Lời nhắc cho Editor 2 (sao chép để cấu hình)**
-
-```
-You are an editor skilled at integrating and polishing an article.
-Based on the article and the revision suggestions, refine and revise the article. Output only the revised article.
-```
-
----
-<a id="set-the-context-window"></a>
-### Thiết lập cửa sổ ngữ cảnh
-
-Để Agent có bộ nhớ ngữ cảnh, hãy thiết lập trên **Editor 2**:
-
-* `Context Window Size = 7`
-
-Thiết lập này giữ lại 7 message mới nhất (bao gồm cả message đầu vào và đầu ra của nút).
-
-#### Cửa sổ ngữ cảnh là gì?
-
-Trong AgentDev, **cửa sổ ngữ cảnh (context window)** là một **chính sách lưu giữ ở cấp nút**. Sau mỗi lần chạy, nút sẽ cố gắng dọn hàng đợi message đầu vào của chính nó, chỉ giữ lại những gì thỏa mãn quy tắc lưu giữ để kiểm soát kích thước ngữ cảnh. Việc này không ảnh hưởng đến lần chạy hiện tại; nó chỉ ảnh hưởng đến đầu vào mà nút nhìn thấy ở các lần chạy sau.
-
-**Quy tắc** (cấu hình qua trường `Context Window Size` của nút):
-* `0`: xóa toàn bộ ngữ cảnh, chỉ giữ lại các message được đánh dấu bằng `Keep Message Input = True` trên liên kết.
-* `-1`: giữ lại tất cả message.
-* `> 0`: giữ lại N message mới nhất (các message được giữ cố định vẫn được tính vào giới hạn).
-* Khi `Context Window Size != 0`, hệ thống tự động lưu các message đầu ra của nút vào ngữ cảnh của chính nút đó để dùng cho các lần chạy sau.
-
-**Mẹo**:
-* Với ngữ cảnh cần giữ lâu dài, hãy dùng `Keep Message Input` trong cấu hình liên kết hoặc dùng mô-đun Bộ nhớ.
-
----
-
-<a id="human-node-introducing-human-in-the-loop"></a>
-<a id="human-node-introducing-human-in-the-Loop"></a>
-### Nút Human: đưa con người tham gia vào quy trình
-
-**Nút Human** là một loại nút đặc biệt, cho phép con người tham gia vào luồng thực thi của đồ thị.
-Bản thân nút này không tạo ra nội dung; thay vào đó, nó đóng vai trò **nút điều khiển luồng**, tiếp nhận và xử lý đầu vào, góp ý của con người để tác động đến các nhánh thực thi tiếp theo.
-
-Các trường hợp sử dụng phổ biến:
-
-* **Duyệt nội dung**: con người kiểm tra và phê duyệt kết quả được tạo ra
-* **Ra quyết định và xác nhận**: để con người quyết định ở các bước quan trọng
-* **Điều khiển nhánh thực thi**: chọn nhánh đi tiếp của quy trình dựa trên góp ý của con người
-
-<img src="media/human_node.webp" width="800" height="450" />
-
-**Hướng dẫn cho nút Human (sao chép để cấu hình)**
-
-Dùng đoạn văn bản sau làm trường `description` cho nút Human.
-
-```
-Please provide revision suggestions for the article, or enter ACCEPT to exit the loop.
-```
-
-Trong ví dụ này, chúng ta muốn dựa vào đầu vào mà nút Human nhận được để quyết định có cần bước biên tập thứ hai hay không:
-
-* Khi nút Human nhận được `ACCEPT`, kết quả được coi là đã duyệt và không cần `editor2` chỉnh sửa thêm
-* Ngược lại, quy trình sẽ chuyển sang `editor2` để chỉnh sửa tiếp
-
-Để hiện thực logic này, chúng ta cần cấu hình **liên kết có điều kiện** giữa các nút.
-
-<img src="media/condition_edge_2.webp" width="800" height="450" />
-
-Cấu hình ở trên sử dụng một thuộc tính quan trọng của liên kết: `condition`, dùng để quyết định liên kết có hoạt động hay không:
-
-* Khi `condition` được đánh giá là `true`, liên kết hoạt động và quy trình có thể đi tiếp theo nhánh này
-* Khi `condition` là `false`, liên kết được coi như bị ngắt và không có tác dụng gì đối với nút phía sau
-
----
-
-Với các bước trên, chúng ta đã bổ sung một quy trình duyệt và chỉnh sửa phức tạp hơn. Luồng thực thi được minh họa như dưới đây.
 <img src="media/complex_run.webp" width="800" height="450" />
 
 ---
-Dưới đây là thông tin chi tiết hơn về hệ thống:
 
-<a id="more-things"></a>
-## Tìm hiểu thêm
+<a id="software-company"></a>
+## 5. Mẫu "Công ty phần mềm"
 
-Chúng tôi cung cấp sẵn một bộ ví dụ: các tệp có tên dạng `demo_*.yaml` là bản minh họa cho từng tính năng/mô-đun, còn các tệp được đặt tên trực tiếp (ví dụ `AgentDev_v1.yaml`) là các quy trình tự phát triển hoặc được dựng lại.
+Quy trình `software_company` là một công ty phần mềm dựng sẵn (web, web app, desktop) gồm **CTO** làm trưởng nhóm và 11 thành viên:
 
-- [Giải thích các loại nút](#node-types-explained)
-  - [Nút Agent](#agent-node)
-  - [Nút Human](#human-node)
-  - [Nút Python](#python-node)
-  - [Nút Passthrough](#passthrough-node)
-  - [Nút Literal](#literal-node)
-  - [Nút Loop Counter](#loop-counter-node)
-  - [Nút Đồ thị con (Subgraph)](#subgraph-node)
-- [Cấu hình liên kết](#edge-configuration)
-- [Logic thực thi của đồ thị](#graph-execution-logic)
-  - [Thực thi DAG](#dag-execution)
-  - [Thực thi đồ thị có vòng lặp](#loop-graph-execution)
-- [Cấu trúc không gian làm việc](#workspace-structure)
-- [Chế độ thực thi động](#dynamic-execution-mode)
+| Thành viên | Việc chính |
+|-----------|------------|
+| Project Manager | Yêu cầu, user story, tiêu chí nghiệm thu, chia việc và lịch |
+| Solution Architect | Phân tích hệ thống, kiến trúc, ranh giới module, API, lỗi ở mức thiết kế |
+| Data Engineer | Lược đồ CSDL, migration, truy vấn, toàn vẹn và hiệu năng dữ liệu |
+| Backend Lead | Dẫn dắt kỹ thuật backend, thiết kế API, review code backend |
+| Backend Developer | Làm tính năng và API backend kèm test |
+| Frontend Developer | Trang, component, state, tích hợp API, responsive và accessibility |
+| UI UX Designer | Luồng UX, bố cục, hệ thống thiết kế, đặc tả giao diện |
+| Bug Fixer | Tái hiện, tìm nguyên nhân gốc và sửa lỗi, kèm test chống tái phát |
+| QA Tester | Kiểm thử theo tiêu chí nghiệm thu, báo đạt/không đạt kèm bằng chứng |
+| Acceptance Reviewer | Nghiệm thu cuối: kết quả có đúng yêu cầu và đạt chất lượng không |
+| DevOps Engineer | Build, CI/CD, môi trường, triển khai và giám sát |
+
+Cách làm việc: bạn chỉ trò chuyện với CTO. Với dự án mới, CTO làm rõ mục tiêu, đề xuất công nghệ và kiến trúc, chia việc rồi **trình kế hoạch để bạn duyệt**. Sau khi bạn đồng ý, CTO giao việc lần lượt: PM → kiến trúc/thiết kế → lập trình → QA → nghiệm thu → DevOps (nếu cần triển khai). Với dự án có sẵn hoặc báo lỗi, CTO đọc mã nguồn trước rồi chọn người phù hợp. Câu hỏi không cần làm gì thì CTO tự trả lời.
+
+Mỗi thành viên đã được gắn sẵn các skill phù hợp (ví dụ CTO dùng `planning-and-task-breakdown`, `spec-driven-development`; Acceptance Reviewer dùng `code-review-and-quality`, `security-and-hardening`).
+
+Tùy biến: mở quy trình, dùng **Sao chép quy trình** để tạo bản của riêng bạn, rồi đổi model, kết nối tài khoản, skill hoặc thêm/bớt thành viên. Thêm thành viên chỉ cần tạo một nút agent mới không có liên kết và viết mô tả rõ ràng.
+
+---
+
+<a id="run-page"></a>
+## 6. Chạy quy trình
+
+Mở **Chạy** trên thanh bên (hoặc bấm **Chạy** trong trình sửa quy trình).
+
+**Chọn quy trình và dự án**
+
+1. Ở khung bên phải, mục **Chọn quy trình**, chọn quy trình cần chạy (ví dụ `software_company`).
+2. Nếu muốn agent làm việc trên một dự án có sẵn, bấm **Thêm dự án mới** ở cuối danh sách phiên (bên trái), hoặc bấm nút **+** cạnh ô nhập rồi chọn **Mở thư mục dự án**. Trong hộp thoại **Mở thư mục dự án**, chọn thư mục trên máy (hoặc nhập đường dẫn rồi nhấn Enter) và bấm **Mở thư mục**. Agent sửa **trực tiếp** tệp trong thư mục này, vì vậy nên dùng git để xem lại và hoàn tác thay đổi.
+3. Muốn gửi kèm tệp (tài liệu, ảnh, bảng tính...), bấm **+** → **Tải tệp lên**, hoặc kéo thả tệp vào khung trò chuyện.
+
+**Trò chuyện với trưởng nhóm**
+
+Nhập nhiệm vụ vào ô **Nhập nhiệm vụ cho quy trình...** rồi bấm **Chạy**. Với quy trình có trưởng nhóm, bạn trò chuyện với trưởng nhóm như với một người: trả lời câu hỏi, duyệt kế hoạch ("Đồng ý, làm đi") hoặc yêu cầu chỉnh. Khi quy trình đang chờ bạn, trạng thái hiện **Chờ bạn trả lời**; nhập câu trả lời rồi bấm **Gửi**. Bấm **Chạy lại** để chạy lại từ đầu.
+
+Danh sách bên trái lưu mọi **phiên**, nhóm theo dự án. Bấm **Phiên mới** để mở phiên mới; phiên đang chạy ngầm vẫn báo khi xong hoặc khi cần bạn trả lời.
+
+**Các chế độ xem** (mục **Chế độ xem** ở khung bên phải)
+
+| Chế độ | Nội dung |
+|--------|----------|
+| **Trò chuyện** | Toàn bộ hội thoại, kết quả từng agent, tệp kết quả. |
+| **Sơ đồ** | Sơ đồ quy trình, tô sáng nút đang chạy. |
+| **Văn phòng** | Văn phòng 2D: mỗi agent là một nhân vật ngồi ở phòng ban của mình, đi lại khi giao và nhận việc. Bấm vào nhân vật để xem trạng thái, model và kết quả gần nhất. |
+| **Công việc** | Bảng công việc theo nhóm hoặc theo bước: việc đang làm, sắp làm, đã xong của từng agent. |
+| **Tổng quan** | Tiến độ, thời gian chạy, số lần gọi model và dùng công cụ, dòng thời gian và hoạt động gần đây. |
+| **Duyệt** | Nghiệm thu kết quả (xem bên dưới). |
+
+**Duyệt kết quả**
+
+Ở chế độ **Duyệt**, mỗi lần chạy xong là một công việc **Chờ duyệt**. Mở công việc để xem yêu cầu, kết quả bàn giao, các tệp đã thay đổi và bàn giao của từng agent. Chấm điểm chất lượng, chọn **Điểm tốt** / **Cần khắc phục**, viết góp ý rồi bấm:
+
+- **Nghiệm thu** nếu đạt.
+- **Yêu cầu làm lại** nếu chưa đạt. Bật **Giao lại ngay cho đội agent theo góp ý** để đội làm lại ngay trong cùng dự án (vòng 2, 3...).
+
+Bấm **Tải xuống nhật ký** để lấy nhật ký chạy chi tiết.
+
+---
+
+<a id="lab"></a>
+## 7. Phòng thí nghiệm
+
+**Phòng thí nghiệm** dùng để kiểm định một quy trình trước khi dùng thật. Chọn quy trình ở ô **Quy trình cần kiểm định**, rồi làm theo hai bước:
+
+**1. Kiểm tra cấu hình** (tức thì, không tốn token). Trang tự kiểm tra và đánh dấu xanh (đạt), vàng (cảnh báo) hoặc đỏ (lỗi) cho từng mục: cấu trúc quy trình, tài khoản AI, vai trò của từng agent, skill có trong thư viện không, công cụ có tồn tại không, quyền chạy mã/lệnh, trưởng nhóm và thành viên, và các nút không bao giờ được chạy. Sửa hết mục đỏ trước khi chạy thử.
+
+**2. Chạy thử theo kịch bản.** Mỗi kịch bản gồm:
+- **Yêu cầu gửi cho quy trình**: câu bạn sẽ chat thật, ví dụ "Sửa lỗi nút Đăng nhập không phản hồi trên điện thoại".
+- **Tiêu chí đạt**: điều câu trả lời phải đáp ứng, ví dụ "Trả lời bằng tiếng Việt; nêu nguyên nhân; có giao cho Bug Fixer và QA Tester". Để trống thì chỉ cần trả lời không lỗi là đạt.
+
+Bấm **Thêm kịch bản mẫu** để có sẵn hai kịch bản cho mẫu "Công ty phần mềm". Chọn **Số lần chạy mỗi kịch bản** (chạy 2–3 lần để đo độ ổn định), rồi bấm **Bắt đầu chạy thử**. Quy trình chạy thật bằng tài khoản của bạn; câu hỏi của quy trình (như xin duyệt kế hoạch) được tự động trả lời "Đồng ý". Một AI giám khảo chấm từng câu trả lời theo tiêu chí và ghi lý do.
+
+Kết quả gồm: tỷ lệ đạt, số token, chi phí ước tính, thời gian, các agent đã tham gia, câu hỏi quy trình đã hỏi, và từng câu trả lời. Quy trình **Đạt** khi tỷ lệ đạt từ 80% trở lên và không có lượt lỗi. Kịch bản được ghi nhớ theo từng quy trình trên trình duyệt, nên sau khi sửa quy trình bạn chỉ cần bấm chạy lại.
+
+**Chạy hàng loạt từ Excel/CSV.** Nút ở góc trên mở trang chạy một quy trình trên nhiều đầu vào:
+1. **Chọn quy trình**.
+2. **Chọn tệp đầu vào** dạng `.xlsx` hoặc `.csv`. Tệp cần ít nhất cột `task` và/hoặc `attachments`:
+   - `id`: mã duy nhất của dòng (tự tạo nếu không có cột này)
+   - `task`: nội dung nhiệm vụ
+   - `vars`: đối tượng JSON chứa biến toàn cục
+   - `attachments`: mảng JSON đường dẫn tuyệt đối của các tệp đính kèm
+3. Đặt **Số lượt chạy song song tối đa** và **Mức nhật ký**, rồi bấm **Chạy**.
+4. Theo dõi tiến độ ở chế độ **Bảng điều khiển** hoặc **Terminal**; bấm **Tải xuống nhật ký** khi xong.
+
+---
 
 <a id="node-types-explained"></a>
-# Giải thích các loại nút
-
-AgentDev cung cấp nhiều loại nút, mỗi loại có mục đích và tùy chọn cấu hình riêng.
+# Tham khảo: các loại nút
 
 <a id="agent-node"></a>
 ## Nút Agent
 
-Nút Agent là loại nút cốt lõi, dùng để gọi mô hình ngôn ngữ lớn (LLM) cho việc tạo văn bản, hội thoại, suy luận, v.v. Nút hỗ trợ nhiều nhà cung cấp mô hình (OpenAI, Gemini, Anthropic Claude, v.v.) và có thể cấu hình gọi công cụ, bộ nhớ cùng các tính năng nâng cao khác.
-
-### Ví dụ cấu hình cơ bản
+Loại nút chính, gọi model AI để viết nội dung, lập trình, phân tích, ra quyết định. Agent có thể dùng công cụ, bộ nhớ, skill và làm trưởng nhóm.
 
 ![agent_node_config.png](media/agent_node_config.png)
 
-### Công cụ (Tooling)
+### Công cụ
 
-Nút Agent có thể được cấu hình công cụ, cho phép mô hình gọi API bên ngoài hoặc thực thi hàm. Nhấn **Cài đặt nâng cao** để xem các tùy chọn. Có thể cấu hình nhiều công cụ cùng lúc, chẳng hạn vừa có công cụ MCP vừa có công cụ Function, hoặc nhiều công cụ MCP.
-![agent_tooling_config.png](media/agent_toolig_config.png)
+Trong **Cấu hình công cụ**, bạn có thể thêm nhiều nguồn công cụ cùng lúc:
 
-AgentDev hỗ trợ hai loại công cụ:
-
-#### 1. Function Tooling (hàm cục bộ)
-
-Gọi các hàm Python có trong kho mã (nằm trong `workspace/functions/function_calling/`):
+**1. Hàm Python cục bộ (function)**: các hàm trong `workspace/functions/function_calling/`. Mục dạng `file:All` nạp mọi hàm trong `file.py`; các mục còn lại nạp từng hàm.
 
 ![agent_tooling_function_config.png](media/agent_tooling_function_config.png)
 
-`uv_related:All` trong hình có nghĩa là nạp tất cả các hàm trong `workspace/functions/function_calling/uv_related.py`. Các mục còn lại nạp từng hàm cụ thể.
+| Mô-đun | Hàm chính | Công dụng |
+|--------|-----------|-----------|
+| `file.py` | `save_file`, `read_file_segment`, `list_directory`, `search_in_files`... | Đọc/ghi tệp trong dự án |
+| `code_executor.py` | `execute_code` | Chạy mã |
+| `shell.py` | `run_shell_command` | Chạy lệnh trong thư mục dự án (`npm test`, `npm run build`, `pytest`…) |
+| `uv_related.py` | `install_python_packages`, `init_python_env`, `uv_run` | Quản lý môi trường Python |
+| `web.py` | `web_search`, `read_webpage_content` | Tìm kiếm web, đọc trang web |
+| `deep_research.py` | `search_save_result`, các hàm `report_*` | Nghiên cứu và viết báo cáo |
+| `user.py` | `call_user` | Hỏi người dùng |
+| `utils.py` | `get_current_time`, `wait` | Tiện ích |
 
-Để thêm hàm tùy chỉnh, hãy tạo một tệp Python trong `workspace/functions/function_calling/` và dùng chú thích kiểu (type annotation) cho các tham số:
+Thêm hàm của riêng bạn: tạo tệp Python trong `workspace/functions/function_calling/`, khai báo tham số bằng type annotation, viết docstring (model đọc docstring này), rồi khởi động lại backend.
 
 ```python
 from typing import Annotated
@@ -314,424 +309,152 @@ from agentdev.utils.function_catalog import ParamMeta
 def my_tool(
     param1: Annotated[str, ParamMeta(description="Parameter description")],
     *,
-    _context: dict | None = None,  # Optional, for accessing context. The system injects this automatically and does not expose it to the model. See workspace/functions/function_calling/file.py for usage.
+    _context: dict | None = None,  # optional, injected by the system, hidden from the model
 ) -> str:
-    """Function description (will be shown to LLM)"""
-    # The return value can be any type; the system will convert it to a string for the model.
-    # If the return value is MessageBlock or List[MessageBlock], multimodal information can be passed to the model (see load_file in workspace/functions/function_calling/file.py)
+    """Function description (shown to the model)"""
     return "result"
 ```
 
-Trong đoạn mã trên: `_context` là tham số không bắt buộc, dùng để truy cập ngữ cảnh; hệ thống tự động truyền vào và không hiển thị cho mô hình (xem cách dùng trong `workspace/functions/function_calling/file.py`). Docstring của hàm sẽ được hiển thị cho LLM. Giá trị trả về có thể là kiểu bất kỳ, hệ thống sẽ chuyển thành chuỗi cho mô hình; nếu trả về `MessageBlock` hoặc `List[MessageBlock]` thì có thể truyền thông tin đa phương thức cho mô hình (xem `load_file` trong `workspace/functions/function_calling/file.py`).
+**2. Máy chủ MCP**: `mcp_remote` kết nối tới một máy chủ MCP qua HTTP; `mcp_local` khởi chạy một máy chủ MCP cục bộ qua stdio (ví dụ `uvx ...`).
 
-Sau khi thêm, hãy khởi động lại máy chủ backend để dùng hàm này trong nút Agent.
-
-#### Tra cứu nhanh các công cụ có sẵn
-
-Hệ thống có sẵn một số công cụ có thể dùng trực tiếp trong nút Agent:
-
-| Mô-đun | Hàm chính | Mô tả | Ví dụ |
-|--------|--------------|-------------|---------|
-| **file.py** | `save_file`, `load_file`, `list_directory`, `search_in_files`, v.v. | Thao tác với tệp | [AgentDev_v1](http://localhost:5173/workflows/AgentDev_v1) |
-| **uv_related.py** | `install_python_packages`, `init_python_env`, `uv_run` | Quản lý môi trường Python | [AgentDev_v1](http://localhost:5173/workflows/AgentDev_v1) |
-| **deep_research.py** | `search_save_result`, chuỗi hàm `report_*` | Nghiên cứu chuyên sâu và tạo báo cáo | [deep_research_v1](http://localhost:5173/workflows/deep_research_v1) |
-| **web.py** | `web_search`, `read_webpage_content` | Tìm kiếm web và lấy nội dung trang | [deep_research_v1](http://localhost:5173/workflows/deep_research_v1) |
-| **video.py** | `render_manim`, `concat_videos` | Dựng video bằng Manim | [teach_video](http://localhost:5173/workflows/teach_video) |
-| **code_executor.py** | `execute_code` | Thực thi mã | - |
-| **user.py** | `call_user` | Tương tác với người dùng | - |
-
-> Tài liệu đầy đủ về công cụ xem tại `docs/user_guide/en/modules/tooling/function_catalog.md`
-
-#### 2. MCP Tooling (dịch vụ bên ngoài)
-
-Kết nối tới các dịch vụ bên ngoài tuân theo Model Context Protocol:
-
-**Chế độ Remote** (kết nối tới một dịch vụ HTTP đã được triển khai):
 ![agent_tooling_mcp_remote.png](media/agent_tooling_mcp_remote.png)
-Header Authorization trong hình là không bắt buộc, bạn có thể điền khi cần.
 
-**Chế độ Local** (khởi chạy một tiến trình cục bộ):
-![agent_tooling_mcp_local.png](media/agent_tooling_mcp_local.png)
+### Bộ nhớ
 
-### Mô-đun Bộ nhớ (Memory)
+1. Mở menu → **Quản lý bộ nhớ**, thêm một kho bộ nhớ:
 
-Mô-đun Bộ nhớ cho phép Agent truy xuất và lưu trữ thông tin, có hỗ trợ kiểm soát quyền đọc/ghi.
+| Loại | Đặc điểm | Dùng cho |
+|------|----------|----------|
+| `simple` | Lưu kết quả trước đó, truy xuất theo từ khóa (không cần khóa API); có thể bật model embedding cục bộ | Bộ nhớ hội thoại |
+| `file` | Lập chỉ mục tệp/thư mục trên máy, chỉ đọc | Kho tri thức |
+| `blackboard` | Bảng chung nhiều nút cùng đọc/ghi, chỉ trong lần chạy hiện tại | Chia sẻ thông tin giữa các nút |
 
-#### Các bước cấu hình
+2. Trong nút agent, mở **Bộ nhớ gắn kèm**, chọn kho, bật **Cho phép đọc** / **Cho phép ghi** và chọn **Giai đoạn truy xuất**.
 
-1. Khai báo một Memory Store (kho bộ nhớ) ở cấp đồ thị:
-
-![memory_graph.png](media/memory_graph.png)
-
-Di chuột lên biểu tượng ba gạch ở góc dưới bên phải trang quy trình, nhấn **Quản lý bộ nhớ** (Manage Memories) và thêm một Memory Store mới. Ở đây chúng ta thêm một SimpleMemory Store tên là `Paper Gen Memory` để lưu bộ nhớ hội thoại.
-
-![memory_global_simple.png](media/memory_global_simple.png)
-
-SimpleMemory cần cấu hình Embedding. Nhấn **Embedding Configuration**, chọn một Embedding Provider (hiện chỉ hỗ trợ openai, người dùng có thể tự mở rộng) và chỉ định mô hình (ví dụ `text-embedding-3-small`).
-
-![memory_global_embedding.png](media/memory_global_embedding.png)
-
-Có ba loại bộ nhớ có sẵn:
-
-| Loại        | Đặc điểm                        | Trường hợp dùng         | Cần Embedding | Cấu hình ví dụ                        |
-|-------------|---------------------------------|------------------|----------------|---------------------------------------|
-| `simple`    | Tìm kiếm vector + xếp hạng lại theo ngữ nghĩa | Bộ nhớ hội thoại | Có            | workspace/workflows/demo_simple_memory.yaml |
-| `file`      | Chỉ mục vector cho tệp/thư mục, chỉ đọc | Cơ sở tri thức   | Có            | workspace/workflows/demo_file_memory.yaml   |
-| `blackboard`| Nhật ký đơn giản, cắt theo thời gian/độ dài  | Bảng tin chung  | Không             | workspace/workflows/subgraphs/reflexion_loop.yaml |
-
-2. Tham chiếu trong nút Agent:
-Nhấn **Memory Attachments**, chọn Memory Store, rồi cấu hình quyền đọc/ghi và giai đoạn truy xuất.
-
-![memory_node.png](media/memory_node_select.png)
-
-Top K quyết định số kết quả trả về mỗi lần truy xuất; Read/Write quyết định nút có được đọc/ghi bộ nhớ hay không; Retrieve Stage quyết định truy xuất ở những giai đoạn thực thi nào (có thể chọn nhiều; các giai đoạn còn lại dành cho giai đoạn Suy luận (Thinking), hiện chưa dùng; ở đây chúng ta chỉ chọn Gen Stage).
-
-![memory_node.png](media/memory_node.png)
-
----
+Ví dụ: `workspace/workflows/demo_simple_memory.yaml`.
 
 <a id="human-node"></a>
-## Nút Human
+## Nút Người dùng (Human)
 
-Nút Human đưa tương tác của con người vào quy trình. Khi nút này được thực thi, quy trình sẽ tạm dừng và chờ người dùng nhập liệu.
+Tạm dừng quy trình và chờ bạn nhập: duyệt nội dung, góp ý, ra quyết định hoặc bổ sung thông tin. Trường **Mô tả nhiệm vụ cho người dùng** là câu hỏi hiện cho bạn.
 
 ![human.png](media/human.png)
 
-**Công dụng điển hình:**
-- Duyệt và xác nhận nội dung
-- Thu thập góp ý
-- Các điểm cần ra quyết định quan trọng
-- Bổ sung dữ liệu
-
----
+> Với quy trình có trưởng nhóm, bạn thường không cần nút này: trưởng nhóm tự hỏi bạn khi cần.
 
 <a id="python-node"></a>
 ## Nút Python
 
-Nút Python thực thi các tập lệnh Python. Tập lệnh chạy trong thư mục `code_workspace/`. Thường dùng để thực thi mã do Agent tạo ra; nếu muốn chạy mã của riêng bạn, hãy thêm một nút Literal để xuất ra mã và nối nó với nút Python.
+Chạy mã Python trên máy. Nút tự lấy khối ```` ```python ... ``` ```` trong đầu vào (nếu không có thì coi cả đầu vào là mã), chạy trong thư mục `code_workspace/` của phiên và chuyển stdout cho nút sau. Có thể đặt biến môi trường, tham số khởi động và thời gian chờ.
 
-![python.png](media/python.png)
-
-**Cơ chế thực thi:**
-- Nút tự động trích xuất nội dung ```python ...``` từ đầu vào; nếu không trích xuất được, toàn bộ đầu vào sẽ được coi là tập lệnh.
-- Đầu ra stdout của tập lệnh được chuyển thành một Message cho các nút phía sau.
-- Bạn có thể chỉ định biến môi trường, tham số khởi động và thời gian chờ tối đa (timeout). Thường không cần đổi Python Path, trừ khi cần một phiên bản Python hoặc venv cụ thể.
-- Mọi nút Python dùng chung thư mục `code_workspace/`, và tệp người dùng tải lên được lưu trong các thư mục con để tập lệnh có thể truy cập.
-
----
+Vì lý do an toàn, việc chạy mã Python mặc định bị tắt. Nếu tin tưởng quy trình, đặt `MAC_ALLOW_UNSAFE_CODE_EXECUTION=1` trong tệp `.env` rồi khởi động lại backend (mã chạy trực tiếp, không có sandbox). Quyền này cũng áp dụng cho `run_shell_command`; công cụ này chỉ chạy trong thư mục dự án và tự chặn các lệnh nguy hiểm như xóa toàn ổ đĩa, `git push` hay `npm publish`. Ảnh và PDF bạn đính kèm khi chat được chuyển tới agent (Claude đọc bằng công cụ Read, Codex nhận ảnh trực tiếp); tệp văn bản nhỏ được đưa thẳng vào prompt.
 
 <a id="passthrough-node"></a>
-## Nút Passthrough
+## Nút Chuyển tiếp (Passthrough)
 
-Nút Passthrough không xử lý gì cả mà chỉ chuyển tiếp message xuống phía sau. **Theo mặc định, chỉ message cuối cùng được chuyển tiếp**; bạn có thể đổi cấu hình (`Only Last Message`) để chuyển tiếp tất cả message.
-
-![passthrough.png](media/passthrough.png)
-
-**Công dụng chính:**
-
-1. **Làm nút đầu vào để giữ lại ngữ cảnh ban đầu**: kết hợp với `Keep Message Input` trên liên kết để đảm bảo nhiệm vụ gốc luôn được giữ lại (ví dụ `workspace/workflows/AgentDev_v1.yaml`)
-2. **Lọc đầu ra thừa trong vòng lặp**: chỉ chuyển tiếp kết quả cuối cùng để kiểm soát đầu ra của vòng lặp và tránh ngữ cảnh phình to
-3. **Đơn giản hóa cấu trúc đồ thị**: làm nút giữ chỗ về mặt logic để tổ chức và dễ đọc hơn (ví dụ `workspace/workflows/AgentDev_v1.yaml`)
-
----
+Không xử lý gì, chỉ chuyển tin nhắn sang nút sau. Mặc định chỉ chuyển tin nhắn cuối (đổi bằng **Chỉ tin nhắn cuối**). Hay dùng để giữ nhiệm vụ gốc trong vòng lặp (kết hợp **Giữ lại tin nhắn này** trên liên kết) hoặc lọc đầu ra thừa của vòng lặp.
 
 <a id="literal-node"></a>
-## Nút Literal
+## Nút Văn bản cố định (Literal)
 
-Nút Literal xuất ra một đoạn văn bản cố định và bỏ qua mọi đầu vào. Bạn có thể đặt vai trò (Role) của Message là `user` hoặc `assistant`.
-
-![literal.png](media/literal.png)
-
-**Công dụng điển hình:**
-- Chèn chỉ dẫn hoặc ngữ cảnh cố định (ví dụ `workspace/workflows/AgentDev_v1.yaml`)
-- Kiểm thử các nút phía sau (ví dụ `workspace/workflows/demo_dynamic.yaml`)
-- Phản hồi cố định trong các nhánh điều kiện
-
----
+Xuất ra một đoạn văn bản cố định và bỏ qua mọi đầu vào; có thể chọn **Vai trò tin nhắn** là `user` hoặc `assistant`. Dùng để chèn chỉ dẫn cố định hoặc thử các nút phía sau.
 
 <a id="loop-counter-node"></a>
-## Nút Loop Counter
+## Nút Bộ đếm vòng lặp (Loop Counter)
 
-Nút Loop Counter (bộ đếm vòng lặp) giới hạn số lần thực thi của vòng lặp. Nút đếm số lần được kích hoạt và chỉ xuất ra kết quả khi đạt giới hạn, qua đó kết thúc vòng lặp.
+Giới hạn số vòng lặp. Mỗi lần được kích hoạt, bộ đếm tăng 1; khi chưa đạt **Số vòng lặp tối đa** thì nút không xuất gì, khi đạt thì xuất **Tin nhắn khi đạt giới hạn** để thoát vòng lặp. Vì vậy cần nối nút này cả tới nút trong vòng lặp lẫn nút bên ngoài. **Hẹn giờ vòng lặp** (Loop Timer) hoạt động tương tự nhưng theo thời gian.
 
-![loop_counter.png](media/loop_counter.png)
-
-**Cách hoạt động:**
-1. Mỗi lần được kích hoạt, bộ đếm tăng thêm 1
-2. Bộ đếm < `max_iterations`: **không có đầu ra**, liên kết không được kích hoạt
-3. Bộ đếm = `max_iterations`: có đầu ra, liên kết được kích hoạt
-
-> **Quan trọng**: Vì nút không có đầu ra trước khi đạt giới hạn, liên kết của Loop Counter phải nối cả tới các nút bên trong vòng lặp (để duy trì vòng lặp, nhưng không có tác dụng gì) lẫn các nút bên ngoài (để thoát ra khi đạt giới hạn).
-
-Xem: `workspace/workflows/AgentDev_v1.yaml`
-
----
+Ví dụ: `workspace/workflows/demo_loop_counter.yaml`.
 
 <a id="subgraph-node"></a>
-## Nút Đồ thị con (Subgraph)
+## Nút Quy trình con (Subgraph)
 
-Nút Đồ thị con cho phép nhúng một đồ thị quy trình khác vào quy trình hiện tại để tái sử dụng và thiết kế theo mô-đun. Đồ thị con có thể lấy từ tệp YAML bên ngoài hoặc được định nghĩa trực tiếp (inline).
+Nhúng một quy trình khác vào quy trình hiện tại để dùng lại. **Loại nguồn quy trình con** là `file` (đường dẫn tệp YAML, tương đối so với `workspace/workflows/`) hoặc `config` (viết trực tiếp). Quy trình con kế thừa biến của quy trình cha; **Nút kết thúc** quyết định kết quả trả về.
 
-### Cấu hình chính
-
-| Trường                  | Kiểu   | Mô tả                                              |
-|------------------------|--------|---------------------------------------------------------|
-| `Subgraph Source Type` | string | Loại nguồn: `file` (tệp bên ngoài) hoặc `config` (định nghĩa trực tiếp)     |
-| `Config`               | object | Phụ thuộc vào `Subgraph Source Type` (xem bên dưới)           |
-
-**Cấu hình cho loại file:**
-
-| Trường                | Kiểu   | Bắt buộc | Mô tả                                 |
-|----------------------|--------|----------|---------------------------------------------|
-| `Subgraph File Path` | string | Có      | Đường dẫn tệp đồ thị con (tương đối so với `workspace/workflows/` hoặc tuyệt đối) |
-
-**Cấu hình cho loại config** (định nghĩa trực tiếp):
-
-Các mục cấu hình giống hệt một đồ thị thông thường.
-
-### Công dụng điển hình
-
-- **Tái sử dụng quy trình**: nhiều quy trình dùng chung một quy trình con (ví dụ mô-đun "trau chuốt bài viết")
-- **Thiết kế theo mô-đun**: chia các luồng phức tạp thành những đơn vị dễ quản lý
-- **Cộng tác nhóm**: các nhóm khác nhau bảo trì các mô-đun đồ thị con khác nhau
-
-> **Lưu ý**:
-> - Đồ thị con kế thừa các định nghĩa biến `vars` của đồ thị cha
-> - Đồ thị con thực thi như một đơn vị độc lập, có không gian tên nút riêng
-> - Các nút `start` và `end` quyết định luồng dữ liệu vào/ra:
->   - `start`: chỉ cần khi đồ thị con là một vòng lặp.
->   - `end`: danh sách các nút thoát. Hệ thống kiểm tra lần lượt theo thứ tự và trả về đầu ra của nút đầu tiên có kết quả làm kết quả của đồ thị con. Nếu không có nút nào có kết quả, hoặc không thiết lập, các nút không có nút kế tiếp sẽ được dùng làm nút thoát.
-
-Xem: `workspace/workflows/MACNet_optimize_sub.yaml`, `workspace/workflows/MACNet_Node_sub.yaml`, `workspace/workflows/MACNet_v1.yaml`.
+Ví dụ: `workspace/workflows/react.yaml`, `workspace/workflows/deep_research_v1.yaml`.
 
 ---
 
 <a id="edge-configuration"></a>
-# Cấu hình liên kết
+# Tham khảo: cấu hình liên kết
 
-Liên kết nối các nút với nhau, điều khiển luồng thực thi và dữ liệu. Mỗi nút có thể có nhiều đầu ra, và tất cả đầu ra đều được mọi liên kết xử lý.
-
-## Cấu hình chính
-
-Trong phần cấu hình liên kết, nhấn **Cài đặt nâng cao** để mở rộng các tùy chọn:
-
-| Trường                   | Mặc định   | Mô tả                                                    |
-|-------------------------|-----------|----------------------------------------------------------------|
-| `Edge Condition`        | -         | Liên kết có hoạt động hay không; mặc định luôn bật               |
-| `Can Trigger Successor` | `true`    | Có kích hoạt nút đích hay không. Nếu `false` thì không kích hoạt|
-| `Pass Data to Target`   | `true`    | Có truyền dữ liệu cho nút đích hay không. Nếu `false` thì không truyền   |
-| `Keep Message Input`    | `false`   | Có đánh dấu message là **được giữ lại** (không bị tự động xóa) hay không        |
-| `Clear Context`         | `false`   | Có xóa toàn bộ lịch sử không được giữ lại của nút đích hay không       |
-| `Clear Kept Context`    | `false`   | Có xóa toàn bộ lịch sử được giữ lại của nút đích hay không           |
-| `Payload Processor`     | -         | Bộ xử lý nội dung message                                  |
-| `Dynamic Expansion`     | -         | Cấu hình thực thi động, xem [Chế độ thực thi động](#dynamic-execution-mode) |
+| Trường | Mặc định | Ý nghĩa |
+|--------|----------|---------|
+| **Điều kiện liên kết** | luôn đúng | Liên kết chỉ hoạt động khi điều kiện đúng |
+| **Kích hoạt nút đích** | bật | Tắt: liên kết chỉ truyền dữ liệu, không làm nút đích chạy |
+| **Truyền dữ liệu tới nút đích** | bật | Tắt: chỉ kích hoạt, không truyền dữ liệu |
+| **Giữ lại tin nhắn này** | tắt | Tin nhắn không bị xóa khi nút đích dọn ngữ cảnh |
+| **Xóa ngữ cảnh cũ** | tắt | Xóa ngữ cảnh chưa được giữ của nút đích trước khi truyền dữ liệu mới |
+| **Xóa cả ngữ cảnh đã giữ** | tắt | Xóa cả các tin nhắn đã được giữ |
+| **Bộ xử lý dữ liệu truyền** | - | Biến đổi nội dung trước khi truyền (regex, hàm tùy chỉnh) |
+| **Chạy song song động** | - | Xem [chế độ thực thi động](#dynamic-execution-mode) |
 
 <a id="edge-condition"></a>
 ## Điều kiện liên kết
 
-Điều kiện quyết định liên kết có được bật hay không. Nếu đúng, liên kết được bật (dữ liệu có thể đi qua, có thể kích hoạt nút đích); ngược lại, liên kết bị tắt (không ảnh hưởng gì đến nút phía sau).
+- **Theo từ khóa** (`keyword`): **Chứa từ khóa**, **Loại trừ từ khóa**, **Biểu thức chính quy**. Loại trừ có ưu tiên cao nhất.
+- **Theo hàm** (`function`): các hàm trong `workspace/functions/edge/`, ví dụ `true` (luôn đúng), `code_pass`, `code_fail`, `always_false`.
 
-### Điều kiện theo từ khóa (thường dùng)
 ![edge_condition_keyword.png](media/edge_condition_keyword.png)
 
-### Điều kiện theo hàm
-Một số hàm có sẵn: `true` (mặc định, luôn bật), `code_pass` (mã chạy thành công), `code_fail` (mã chạy thất bại), `always_false` (luôn tắt, dùng để kiểm thử)
-
-Bạn có thể thêm hàm tùy chỉnh trong `workspace/functions/edge` rồi khởi động lại backend để sử dụng.
-
-![edge_condition_function.png](media/edge_condition_function.png)
-
 <a id="payload-processor"></a>
-## Bộ xử lý nội dung (Payload Processor)
+## Bộ xử lý dữ liệu truyền
 
-Payload Processor biến đổi hoặc xử lý nội dung message trước khi đi qua liên kết. Hữu ích khi cần trích xuất thông tin, chuyển đổi định dạng hoặc áp dụng logic tùy chỉnh.
+- `regex_extract`: trích xuất bằng regex Python (**Mẫu regex**, **Nhóm bắt**, **Mẫu đầu ra** dùng `{match}`, **Khi không khớp**: `pass` / `default` / `drop` / `empty`).
+- `function`: gọi hàm trong `workspace/functions/edge_processor/`, ví dụ `uppercase_payload`, `code_save_and_run`.
 
-### Các loại bộ xử lý có sẵn
-
-#### 1. regex_extract
-
-Dùng biểu thức chính quy (regex) của Python để trích xuất nội dung từ message:
-
-| Mục cấu hình         | Mô tả                  |
-|---------------------|-----------------------------|
-| `Regex Pattern`     | Mẫu regex (bắt buộc)     |
-| `Capture Group`     | Tên hoặc chỉ số nhóm bắt  |
-| `Case Sensitive`    | Phân biệt chữ hoa/thường (mặc định true)|
-| `Multiline Flag`    | Bật re.MULTILINE (mặc định false)  |
-| `Dotall Flag`       | Bật re.DOTALL (mặc định false)     |
-| `Return Multiple Matches` | Trả về tất cả kết quả khớp (mặc định chỉ trả về kết quả đầu tiên) |
-| `Output Template`   | Mẫu đầu ra, dùng `{match}`|
-| `No Match Behavior` | `pass`, `default`, `drop`    |
-| `Default Value`     | Dùng khi `No Match Behavior=default` |
-
-**Ví dụ**: trích xuất mã (xem `workspace/workflows/demo_edge_transform.yaml`)
-
-![edge_transform_regex.png](media/edge_transform_regex.png)
-
-#### 2. function
-
-Gọi các hàm Python trong `workspace/functions/edge_processor/` để xử lý tùy chỉnh:
-
-| Mục cấu hình | Mô tả |
-|-------------|-------------|
-| `name`      | Tên hàm (bắt buộc) |
-
-**Các hàm có sẵn:**
-- `uppercase_payload`: chuyển message thành chữ in hoa
-- `code_save_and_run`: lưu mã vào không gian làm việc và chạy `main.py` (xem `workspace/workflows/MACNet_optimize_sub.yaml`)
-
-### Hàm xử lý tùy chỉnh
-
-Tạo một tệp Python trong `workspace/functions/edge_processor/` và định nghĩa một hàm:
-
-```python
-from typing import Dict, Any
-
-def my_processor(data: str, _context: Dict[str, Any]) -> str:
-    """Function description (shown in config UI)"""
-    # data is the message text
-    # _context contains execution context
-    return processed_data
-```
-
-Trong đó, `data` là nội dung văn bản của message, `_context` chứa ngữ cảnh thực thi, còn docstring của hàm sẽ được hiển thị trên giao diện cấu hình.
-
-Khởi động lại backend để dùng hàm mới.
+Thêm hàm điều kiện hoặc hàm xử lý mới rồi khởi động lại backend để dùng.
 
 ---
 
 <a id="graph-execution-logic"></a>
-# Logic thực thi của đồ thị
+# Tham khảo: logic thực thi
 
 <a id="dag-execution"></a>
-## Thực thi DAG
+## Quy trình không có vòng lặp
 
-Với đồ thị quy trình không có chu trình, bộ máy thực thi dùng phương pháp sắp xếp tô-pô tiêu chuẩn:
-
-1. Xây dựng quan hệ nút trước/nút sau
-2. Tính bậc vào (in-degree) của từng nút
-3. Các nút có bậc vào bằng 0 được thực thi trước
-4. Các nút cùng tầng có thể thực thi song song
+Các nút được sắp xếp theo thứ tự phụ thuộc (sắp xếp tô-pô). Nút không còn chờ ai chạy trước; các nút cùng tầng chạy song song.
 
 <a id="loop-graph-execution"></a>
-## Thực thi đồ thị có vòng lặp
+## Quy trình có vòng lặp
 
-Với đồ thị có vòng lặp, bộ máy thực thi dùng **thuật toán thành phần liên thông mạnh của Tarjan** để phát hiện vòng lặp và thực thi đệ quy cho các vòng lặp lồng nhau.
+AgentDev dùng thuật toán Tarjan để tìm các vòng lặp, gói mỗi vòng lặp thành một "siêu nút" rồi chạy như một quy trình không vòng lặp. Bên trong mỗi vòng lặp:
 
-### Phát hiện vòng lặp và dựng siêu nút
-
-Hệ thống áp dụng thuật toán Tarjan lên toàn bộ đồ thị, xác định tất cả các thành phần liên thông mạnh (SCC) chỉ trong một lần duyệt (O(|N|+|E|)).
-
-- **SCC**: tập nút lớn nhất mà mọi cặp nút trong đó đều có thể đi tới nhau
-- **Vòng lặp**: SCC có nhiều hơn một nút; SCC chỉ có một nút và không có liên kết tự vòng là nút bình thường
-
-Sau khi phát hiện, mỗi vòng lặp nhiều nút được trừu tượng hóa thành một **siêu nút (Super Node)**, từ đó dựng đồ thị phụ thuộc giữa các siêu nút. Vì các vòng lặp đã được đóng gói, đồ thị siêu nút luôn là một DAG, nên có thể sắp xếp tô-pô.
-
-### Thực thi vòng lặp đệ quy
-
-Với siêu nút là vòng lặp, bộ máy thực thi dùng chiến lược đệ quy sau:
-
-#### Bước 1: Xác định nút khởi đầu
-
-Phân tích biên của vòng lặp để xác định nút đầu vào **được kích hoạt duy nhất** làm nút khởi đầu (Initial Node):
-- Phải được một nút trước nằm ngoài vòng lặp kích hoạt thông qua một liên kết thỏa điều kiện
-- Nếu không có nút nào được kích hoạt, bỏ qua việc thực thi vòng lặp
-- Nếu có nhiều nút được kích hoạt, báo lỗi cấu hình
-
-#### Bước 2: Dựng đồ thị con trong phạm vi vòng lặp
-
-Bên trong vòng lặp, dựng một đồ thị con trong đó **loại bỏ về mặt logic mọi liên kết đi vào nút khởi đầu**. Việc này phá vỡ biên của vòng lặp ngoài để phát hiện các vòng lặp lồng bên trong.
-
-#### Bước 3: Phát hiện vòng lặp lồng nhau
-
-Áp dụng thuật toán Tarjan lên đồ thị con để phát hiện vòng lặp lồng nhau. Vì các liên kết đi vào nút khởi đầu đã bị loại bỏ, chỉ những vòng lặp thật sự nằm bên trong mới được phát hiện.
-
-#### Bước 4: Sắp xếp tô-pô bên trong
-
-- Nếu có vòng lặp lồng nhau: trừu tượng hóa từng vòng lặp thành siêu nút, dựng đồ thị phụ thuộc rồi sắp xếp
-- Nếu không có: sắp xếp tô-pô trực tiếp đồ thị con
-
-#### Bước 5: Thực thi theo tầng
-
-Thực thi lần lượt từng tầng:
-- **Nút thường**: kiểm tra trạng thái kích hoạt rồi thực thi; nút khởi đầu bắt buộc được thực thi ở vòng đầu tiên
-- **Siêu nút vòng lặp bên trong**: **áp dụng đệ quy các bước trên**
-
-#### Bước 6: Kiểm tra điều kiện thoát
-
-Sau mỗi vòng, kiểm tra các điều kiện thoát:
-- **Liên kết thoát được kích hoạt**: nếu có nút nào kích hoạt liên kết đi ra ngoài vòng lặp thì thoát
-- **Số vòng lặp tối đa**: nếu đạt `max_iterations` (mặc định 100) thì buộc thoát
-- **Nút khởi đầu không được kích hoạt lại**: nếu không được các nút trước bên trong vòng lặp kích hoạt lại, vòng lặp tự nhiên kết thúc
-
-Nếu không điều kiện nào thỏa mãn, lặp lại từ Bước 2.
-
-> **Khả năng đệ quy**: Cơ chế này tạo thành một cấu trúc đệ quy hoàn chỉnh, cho phép hệ thống xử lý các vòng lặp lồng nhau ở độ sâu bất kỳ.
-
-### Lưu đồ thực thi
+1. Xác định nút khởi đầu duy nhất được kích hoạt từ bên ngoài (nhiều hơn một là lỗi cấu hình).
+2. Tạm bỏ các liên kết đi vào nút khởi đầu để tìm vòng lặp lồng bên trong, rồi chạy đệ quy theo tầng.
+3. Thoát khi có liên kết đi ra ngoài vòng lặp được kích hoạt, khi đạt số vòng tối đa (mặc định 100), hoặc khi nút khởi đầu không được kích hoạt lại.
 
 ![execution_flow.png](media/execution_flow.png)
 
----
-
-<a id="workspace-structure"></a>
-# Cấu trúc không gian làm việc
-
-AgentDev dùng cấu trúc không gian làm việc phân tầng để quản lý tệp:
-
-## Cấu trúc thư mục
-
-| Đường dẫn                                             | Mục đích                        |
-|--------------------------------------------------|--------------------------------|
-| `storage/warehouse/`                                     | Thư mục gốc chứa mọi phiên|
-| `storage/warehouse/<session>/`                   | Dữ liệu chạy của một phiên     |
-| `storage/warehouse/<session>/code_workspace/`            | Thư mục thực thi mã của nút Python |
-| `storage/warehouse/<session>/code_workspace/attachments/`| Tệp người dùng tải lên            |
-| `storage/warehouse/<session>/execution_logs.json`        | Nhật ký thực thi (sau khi chạy)     |
-| `storage/warehouse/<session>/node_outputs.yaml`          | Bản ghi đầu ra của các nút (sau khi chạy)|
-| `storage/warehouse/<session>/token_usage_<session>.json` | Thống kê lượng token sử dụng (sau khi chạy)  |
-| `storage/warehouse/<session>/workflow_summary.yaml`      | Tóm tắt quy trình (sau khi chạy)   |
+> Quy trình có trưởng nhóm không cần vòng lặp: trưởng nhóm tự gửi việc chưa đạt về để sửa, tối đa **Số vòng sửa/duyệt tối đa** lần.
 
 ---
 
 <a id="dynamic-execution-mode"></a>
-# Chế độ thực thi động
+# Tham khảo: chế độ thực thi động
 
-Chế độ thực thi động cho phép định nghĩa xử lý song song ở cấp liên kết, hỗ trợ hai chế độ **Map** (phân tán) và **Tree** (gộp dần).
+Cấu hình trên liên kết (**Chạy song song động**) để chia dữ liệu thành nhiều phần và chạy nút đích song song:
 
-Xem ví dụ tại `workspace/workflows/demo_dynamic.yaml`, `workspace/workflows/MACNet_Node_sub.yaml`.
+| Chế độ | Cách chạy | Đầu ra |
+|--------|-----------|--------|
+| **Map** | Chia ra, chạy song song | Danh sách kết quả |
+| **Tree** | Chia ra, chạy song song rồi gộp dần qua nhiều vòng | Một kết quả |
 
-## So sánh các chế độ
+**Cách tách dữ liệu**: `message` (mỗi tin nhắn một phần, mặc định), `regex` (theo đoạn khớp regex), `json_path` (theo phần tử của mảng JSON). Tin nhắn đến từ liên kết thường (không động) được sao chép cho từng lượt chạy song song.
 
-| Chế độ   | Mô tả         | Đầu ra             | Trường hợp dùng           |
-|--------|---------------------|--------------------|--------------------|
-| **Map**  | Phân tán, song song   | `List[Message]`    | Xử lý hàng loạt, song song    |
-| **Tree** | Gộp dần, hợp nhất    | Một `Message` duy nhất   | Tóm tắt      |
-
-## Cấu hình ví dụ
-
-Cấu hình động được định nghĩa trên **liên kết**, cho biết các message đi qua liên kết này cần được xử lý động:
-
-### Chế độ Map
 ![dynamic_map.png](media/dynamic_map.png)
 
-### Chế độ Tree
-Dùng cho tóm tắt:
-![dynamic_tree.png](media/dynamic_tree.png)
-![dynamic_tree_split.png](media/dynamic_tree_split.png)
-`(?s).{1,2000}(?:\s|$)` chia đầu vào thành các đoạn dài khoảng 2000 ký tự.
-Xem `workspace/workflows/demo_dynamic_tree.yaml`.
+---
 
-## Chiến lược chia nhỏ
+<a id="workspace-structure"></a>
+# Tham khảo: cấu trúc thư mục
 
-| Loại        | Mô tả                                 |
-|-------------|---------------------------------------------|
-| `message`   | Mỗi message là một đơn vị (mặc định)            |
-| `regex`     | Chia văn bản bằng regex                      |
-| `json_path` | Trích xuất các phần tử mảng từ đầu ra JSON     |
-
-## Kết hợp liên kết tĩnh và liên kết động
-
-Khi nút đích có cả liên kết đi vào dạng động và dạng tĩnh:
-- **Message từ liên kết động**: được chia nhỏ và thực thi nhiều lần
-- **Message từ liên kết tĩnh**: được **sao chép** cho từng phiên bản thực thi động
+| Đường dẫn | Nội dung |
+|-----------|----------|
+| `workspace/workflows/` | Các tệp quy trình YAML |
+| `workspace/skills/` | Thư viện skill dùng chung |
+| `workspace/functions/` | Hàm công cụ, hàm điều kiện và hàm xử lý cho liên kết |
+| `storage/warehouse/<phiên>/` | Dữ liệu của một phiên chạy |
+| `storage/warehouse/<phiên>/code_workspace/` | Thư mục làm việc của mã và tệp tải lên (`attachments/`) |
+| `storage/warehouse/<phiên>/execution_logs.json` | Nhật ký thực thi |
+| `storage/warehouse/<phiên>/node_outputs.yaml` | Đầu ra của từng nút |

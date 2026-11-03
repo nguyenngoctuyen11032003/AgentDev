@@ -1,291 +1,303 @@
-# Build Your First Graph-based Multi-Agent Workflow
+# AgentDev User Guide
 
-[Quick View](http://localhost:5173/workflows/net_example_en)
+AgentDev lets you build an "AI company": every employee is an **agent**, agents are arranged into a **workflow**, and you hand work to the whole team from a chat window. This guide follows the order in which you will actually use the app.
 
-The example above demonstrates a multi-agent workflow for **content creation**.
-This tutorial will walk you through how to use a **Graph** structure to organize multiple Agent nodes, completing a full process from content generation, editing, to human review. By following the steps below, you will build your first graph-based multi-agent workflow.
-
-- [1. Create a Graph](#1-create-a-graph)
-  - [What is a Graph?](#what-is-a-graph)
-  - [What is a Variable?](#what-is-a-variable)
-- [2. Create Nodes](#2-create-nodes)
-  - [What is a Node?](#what-is-a-node)
-  - [Creating Agent Nodes](#creating-agent-nodes)
-- [3. Transfer Information Between Nodes](#3-transfer-information-between-nodes)
-  - [What is a Message?](#what-is-a-message)
-  - [What is an Edge?](#what-is-an-edge)
-  - [Establishing Node Connections](#establishing-node-connections)
-- [4. Graph Startup and Execution Logic](#4-graph-startup-and-execution-logic)
-  - [Entry Node](#entry-nodes)
-- [5. Build Review and Revise Loop](#5-build-review-and-revise-loop)
-  - [Creating a Second Editor Node](#creating-a-second-editing-node)
-  - [Set the Context Window](#set-the-context-window)
-  - [Human Node: Introducing Human Participation](#human-node-introducing-human-in-the-Loop)
-- [More Details](#more-things)
----
-
-## 1. Create a Graph
-
-### What is a Graph?
-
-A **Graph** is the execution carrier and scheduling structure for multi-agent systems. It describes the dependencies and execution order between nodes (Agents), essentially representing a **complete workflow**.
-
-The Graph itself does not perform specific tasks, but is responsible for organizing, orchestrating, and scheduling the execution logic of each node.
-
-<img src="media/graph_create.webp" width="800" height="450" />
+- [1. Basic concepts](#concepts)
+- [2. Connect your accounts](#connections)
+- [3. Skill library](#skill-library)
+- [4. Build a workflow](#build-workflow)
+  - [Create nodes](#2-create-nodes)
+  - [Link nodes with edges](#what-is-an-edge)
+  - [Team lead and members](#team-lead)
+  - [Attach skills to an agent](#attach-skills)
+  - [Example: an article workflow with edges](#example-linked-workflow)
+- [5. The "Software company" template](#software-company)
+- [6. Run a workflow](#run-page)
+- [7. Laboratory](#lab)
+- [Reference: node types](#node-types-explained)
+- [Reference: edge configuration](#edge-configuration)
+- [Reference: execution logic](#graph-execution-logic)
+- [Reference: dynamic execution mode](#dynamic-execution-mode)
+- [Reference: folder structure](#workspace-structure)
 
 ---
 
-### What is a Variable?
+<a id="concepts"></a>
+## 1. Basic concepts
 
-A **Variable** provides configurable global or local parameters for the Graph. Once defined, nodes (Agents) can directly reference these variables, enabling parameter sharing and decoupling configuration.
-
-It is recommended to manage common or sensitive configurations such as the output language globally here. Model access comes from the account connection picked on each agent node (Connections page).
-
-Note that if the required environment variables are already defined in the outer `.env` file and you intend to use them directly, there is no need to configure them here again.
-If the variables are configured here, **these settings will take precedence** over those defined in the outer `.env` file.
-
-<img src="media/config_graph.webp" width="800" height="450" />
-
----
-
-## 2. Create Nodes
-
-### What is a Node?
-
-A **Node** is the smallest execution unit in a Graph, usually corresponding to an Agent.
-Each node should have relatively independent capabilities and clear responsibilities.
+| Term | Meaning |
+|------|---------|
+| **Workflow** | A YAML file that describes a team of agents and how they work together. Workflows are listed under **Workflows** in the sidebar. |
+| **Node** | One step of a workflow. The most common type is **Agent**; there are also Human, Python, Literal, Passthrough, Loop counter and Subgraph nodes. |
+| **Edge** | An arrow between two nodes: it passes the source node's output to the target node and can trigger the target to run. |
+| **Agent** | A node that calls an AI model (Claude, Codex, Gemini) with its own role, prompt, tools and skills. |
+| **Team lead** | The only agent that talks to you (for example a CTO, PM or CEO). The lead decides which member to delegate to, and when. |
+| **Member** | An agent the lead may delegate to. Usually an agent node **with no edges**. |
+| **Skill** | An instruction file (SKILL.md) that teaches an agent how to do one kind of work, such as planning or code review. Skills live in a shared library. |
+| **Connection** | An AI account you signed in to (Claude, Codex/ChatGPT, Gemini). Each agent runs on one connection. |
+| **Session** | One piece of work on the **Launch** page: the chat history, attachments and (optionally) a project folder. |
 
 ---
 
-### Creating Agent Nodes
+<a id="connections"></a>
+## 2. Connect your accounts
 
-In this example Graph, we create the following three nodes:
+Agents need an AI account to run. Open **Settings → Connections** (the gear button at the right of the top bar).
 
-* **Poet**: Responsible for generating poetry or creative content
-* **Article Writer**: Responsible for generating structured articles
-* **Editor 1**: Responsible for initial editing and content integration
+1. Under **Providers**, pick a provider card and click **Connect**.
+2. Choose how to sign in and follow the dialog:
+   - **Anthropic Claude**: **Sign in with your account**, using the Claude CLI on this machine. If the machine is already signed in, just click **Connect**; otherwise click **Continue with Claude account**, open the sign-in link, sign in, paste the code into **Paste the code here** and click **Confirm**.
+   - **OpenAI (Codex)**: **Sign in with ChatGPT** (opens the OpenAI sign-in page; Plus/Pro/Team plans) or **Use device code** (get a code and enter it in a browser, handy when the browser is not on the server machine).
+   - **Google Gemini**: **Sign in with Google**. The server needs `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` in `.env`.
+3. The new connection appears under **Your connections**. Click it to see the account, **Usage** (5-hour session, weekly...) and **Available models**.
 
-All of the above are **Agent Nodes**. Below, we use the *Poet* node as an example to show the complete process of creating an Agent node.
+Tips:
 
-#### Prompts (Copy to Configure)
+- **Make default**: every agent node without its own connection runs on the default one.
+- **Test**: quickly checks the connection still works. If a run fails with an authentication error, test first.
+- Credentials stay on your server and are never written to workflow files.
+- If the Claude CLI or Codex CLI is not installed, the dialog tells you to install it first.
 
-Use the following prompts as the `role` field for each Agent node.
-
-**Poet**
-
-```
-You are a poet who crafts a modern English poem based on a single word or short phrase.
-The user will input a word or short phrase. Write a modern English poem inspired by it.
-```
-
-**Article Writer**
-
-```
-You are a writer who excels at generating a full article from a single word or short phrase.
-The user will input a word or short phrase, and you must produce an article of at least 2000 words with multiple paragraphs.
-```
-
-**Editor 1**
-
-```
-You are an editor. Combine the article and the poem, and append the poem at the end of the article.
-```
-
-<img src="media/create_node.webp" width="800" height="450" />
+**Automatic account fallback.** When the account an agent is using reports it is out of usage (for example Claude's 5-hour limit), AgentDev moves that agent to another signed-in account, preferring another vendor (Claude → Codex, Codex → Claude, then Gemini), with that account's default model. A chat line and a pop-up tell you which account took over, and later agents in the same run use it straight away. If no account is left you get an error asking you to sign in to another one on **Connections**, so it is worth signing in to both Claude and Codex.
 
 ---
 
-## 3. Transfer Information Between Nodes
+<a id="skill-library"></a>
+## 3. Skill library
 
-### What is a Message?
+Open **Settings → Skills**. This is the shared skill library: add a skill once, use it in every agent. Editing a skill updates every agent that uses it.
 
-**Message** is the basic unit of information transmission and storage, the basic unit of context control, as well as the basic unit of edge processing and control.
+**Add a skill**
 
-* It can transmit text and multimodal information.
-* The input and output of a node can be multiple messages.
-* The user's initial input is a single message.
-* When **[Dynamic Execution Mode](#dynamic-execution-mode)** (which can be ignored for now) is not configured on the edge, the output of other node types except the **[Passthrough Node](#passthrough-node)** and **[Subgraph Node](#subgraph-node)** (when it ends with a Passthrough Node) is a single message. All configurations in this tutorial result in a single Message output.
+1. Click **Add skill**.
+2. Paste the SKILL.md content into **Content** (with or without the `---` frontmatter), or click **Upload .md** / drop a `.md` file onto the box (256 KB max).
+3. If there is no frontmatter, fill in **Name** (lowercase, digits, `-`) and **Description: use when**. The description matters: agents read it to decide when to load the skill.
+4. Click **Save skill**. If the name already exists you are asked whether to **Overwrite** it.
 
-### What is an Edge?
+**Import skills from Claude**
 
-An **Edge** connects nodes, and its core functions include:
+If you already have skills in `~/.claude/skills`, click **Import from Claude**. The **Import skills from a folder** dialog lists what it found; tick the skills (or **Select all**), turn on **Overwrite existing skills** to replace older copies, then click **Import**. You can change the **Source folder** and click **Reload**.
 
-1. **Information Transfer**: Passing the output of upstream nodes as input to downstream nodes
-2. **Execution Control**: Defining execution dependencies and trigger relationships between nodes
-
-> **Note**: If the upstream node outputs multiple messages, the edge will evaluate, process, and transmit each message **individually**.
+Each skill card has **Edit** and **Delete**. Skills that fail to parse are marked **Invalid**.
 
 ---
 
-### Establishing Node Connections
+<a id="build-workflow"></a>
+## 4. Build a workflow
 
-Based on the three nodes created, establish the following connections:
+Open **Workflows** in the sidebar. The list is on the left; click **Create Workflow** to start a new one, or pick an existing workflow to edit it.
 
-* `Poet → Editor 1`
-* `Article Writer → Editor 1`
+The editor has two tabs:
 
-At this point, the Graph forms a typical "parallel generation → summary editing" structure.
+- **Workflow Graph**: drag and drop nodes and edges.
+- **YAML Configuration**: view and edit the YAML file directly.
+
+The toolbar above the graph has:
+
+- **Create Node**: opens the node form (or right-click an empty spot of the canvas to create a node there).
+- **Configure Graph**: description, initial instruction, log level, memory, start and end nodes.
+- **Launch**: opens the Launch page with this workflow.
+- A menu (hover the icon at the end of the toolbar): **Rename Workflow**, **Copy Workflow**, **Manage Variables**, **Manage Memories**, **Create Edge**.
+
+Turn on **Enable help tooltips** in **Settings** to get explanations when you hover nodes, edges and buttons.
+
+<a id="2-create-nodes"></a>
+### Create nodes
+
+Click **Create Node**, choose the **Type** and fill in the form. For an **Agent** node the key fields are:
+
+| Field | Meaning |
+|-------|---------|
+| **ID** | Unique node name, e.g. `Backend Developer`. The lead calls members by this ID. |
+| **Description** | One sentence on what the node does. The lead reads it to pick the right member, so make it clear. |
+| **Mascot** | The node's character on the graph, the Launch page and the Office. |
+| **Account connection** | The account used to call the model. Leave empty to use the default connection. |
+| **Model** | Pick from the models of the connected account, or choose **Enter another model name...** |
+| **System Prompt** | The agent's role, job and working rules. |
+| **Agent skills** | Skills ticked from the library (see [Attach skills](#attach-skills)). |
+| **Team lead** | Makes the agent a team lead (see [Team lead and members](#team-lead)). |
+| **Tooling** | Tools the agent may use: read/write files, run code, web search, MCP servers... |
+| **Context Window** | How many earlier messages the agent keeps between runs. `-1` means unlimited. |
+
+Less common fields are under **Advanced Settings** at the bottom of the form. Click **Submit** to save the node, **Copy Node** to duplicate it (the copy needs a new ID), or **Delete Node** to remove it together with its edges.
+
+<a id="what-is-an-edge"></a>
+### Link nodes with edges
+
+An **edge** connects two nodes and does two things:
+
+1. **Passes data**: the source node's output becomes the target node's input.
+2. **Controls order**: when the source finishes, the edge can trigger the target to run.
+
+To create one, drag from the connection dot on a node's side to another node, or use **Create Edge** in the menu. Click an edge to edit or delete it.
+
+The **Start** node is where the workflow begins: every node connected to it receives your task and runs in parallel when the workflow starts. The start node must keep at least one edge.
+
+For edge options (conditions, data-only edges, kept messages...) see [Reference: edge configuration](#edge-configuration).
+
+<a id="team-lead"></a>
+### Team lead and members
+
+Instead of hard-wiring the order of steps with edges, you can build a **team** with a lead. The lead is the only agent that talks to you; while working, it decides which member to delegate to, how many times and in what order, then sums up the results for you.
+
+How to set it up:
+
+1. Create an agent node for the lead (e.g. `CTO`) and connect the start node to it.
+2. Create agent nodes for the members. **Do not connect any edges** to them: the lead calls them when needed. Write a clear **Description** so the lead knows who does what.
+3. Open the lead's form, configure the **Team lead** entry and fill in:
+
+| Field | Meaning |
+|-------|---------|
+| **Lead a team** | Turn on to make this agent the lead. |
+| **Members** | Node IDs of the agents the lead may delegate to. Empty = every agent node with no edges. |
+| **Ask before building** | For new work, the lead presents a plan (stack, architecture, tasks) and waits for your approval, unless you said to go ahead. |
+| **Max delegations per request** | (Advanced) Upper bound on delegations in one turn, to cap token use. |
+| **Max fix/review rounds** | (Advanced) How many times failed work may go back for fixes before the lead reports to you. |
+
+During a run the lead can **ask you questions** when the request is unclear. The question appears in the chat; just answer it. Delegations show up as lines such as "CTO assigned a task to Backend Developer" and "Backend Developer reported back to CTO".
+
+<a id="attach-skills"></a>
+### Attach skills to an agent
+
+In the agent form, **Agent skills** lists the whole skill library. Tick the skills this agent should have; the count is shown at the top. Click **Manage library** to add or edit skills in a new tab. An agent only loads a skill's content when the task matches the skill's "use when" description.
+
+<a id="example-linked-workflow"></a>
+### Example: an article workflow with edges
+
+The `net_example_en` workflow shows how to chain nodes with edges:
+
+1. Create three agent nodes: **Poet** (writes a poem), **Article Writer** (writes an article) and **Editor 1** (merges the two).
+2. Connect the start node to Poet and Article Writer: they run in parallel.
+3. Connect `Poet → Editor 1` and `Article Writer → Editor 1`: Editor 1 runs once both results arrive.
 
 <img src="media/create_edge.webp" width="800" height="450" />
 
----
-## 4. Graph Startup and Execution Logic
+To add a review loop, create a **Human** node that asks "Give feedback on the article, or enter ACCEPT to finish", then use **conditional edges**: `ACCEPT` ends the run, anything else goes to **Editor 2** for another revision. See [Edge condition](#edge-condition).
 
-### Entry Nodes
-
-When the Graph starts:
-
-* All Nodes connected to the **start** node are treated as workflow **Entry Nodes**
-* These nodes receive user input **simultaneously** at startup and execute **in parallel**
-* A workflow can have multiple Entry Nodes; simply create edges connected to the **start** node via drag-and-drop
-
-Therefore, in the current setup, **Poet** and **Article Writer** will run in parallel, as shown below.
-
-<img src="media/run.webp" width="800" height="450" />
-
-> At this point, you have built a minimal multi-agent workflow.
-
----
-
-## 5. Build Review and Revise Loop
-
-### Creating a Second Editing Node
-
-Next, we create a new Agent node **Editor 2**, which is responsible for revising and polishing the content based on human feedback.
-
-Then establish the following connection:
-
-* `Editor 1 → Editor 2` (`trigger = false`)
-
-<img src="media/condition_edge_1.webp" width="800" height="450" />
-
-In this configuration, an important edge attribute is involved: `trigger`
-
-* `trigger` controls whether the target node is executed
-* When the edge is active and `trigger = true`, the target node is marked to trigger and will execute once the execution layer reaches that node's layer
-
-**Editor 2 Prompt (Copy to Configure)**
-
-```
-You are an editor skilled at integrating and polishing an article.
-Based on the article and the revision suggestions, refine and revise the article. Output only the revised article.
-```
-
----
-### Set the Context Window
-
-To give the Agent contextual memory, set this on **Editor 2**:
-
-* `Context Window Size = 7`
-
-This keeps the newest 7 messages (including node input and output messages).
-
-#### What is a Context Window?
-
-In AgentDev, the **context window** is a **node-level retention policy**. After each run, the node tries to clean up its own input queue of Messages, keeping only what satisfies the retention rules to control context size. This does not affect the current run; it only affects inputs visible in later runs.
-
-**Rules** (configured via `Context Window Size` on the node):
-* `0`: clear all context, keeping only messages marked by `Keep Message Input = True` on edges.
-* `-1`: keep all messages.
-* `> 0`: keep the newest N messages (kept messages still count toward the limit).
-* When `Context Window Size != 0`, the system automatically saves the node's output messages into that node's context for later runs.
-
-**Tips**:
-* For long-lived context, use `Keep Message Input` in Edge config or the Memory module.
-
----
-
-### Human Node: Introducing Human-in-the-Loop
-
-**Human Node** is a special type of node that introduces human participation into the execution flow of the Graph.
-It does not generate content itself; instead, it serves as a **flow control node**, receiving and processing human input and feedback to influence subsequent execution paths.
-
-Common use cases include:
-
-* **Content review**: manual inspection and approval of generated results
-* **Decision and confirmation**: introducing human decisions at critical steps
-* **Execution path control**: determining workflow branching based on human feedback
-
-<img src="media/human_node.webp" width="800" height="450" />
-
-**Human Node Instruction (Copy to Configure)**
-
-Use the following text as the `description` for the Human node.
-
-```
-Please provide revision suggestions for the article, or enter ACCEPT to exit the loop.
-```
-
-In this example, we want to determine whether a second editing step is required based on the input received by the Human Node:
-
-* When the Human Node receives `ACCEPT`, the result is considered approved and no further modification by `editor2` is needed
-* Otherwise, the workflow proceeds to `editor2` for additional revision
-
-To implement this logic, we need to configure **Conditional Edges** between nodes.
-
-<img src="media/condition_edge_2.webp" width="800" height="450" />
-
-In the configuration above, a key edge attribute is used: `condition`, which controls whether the edge is active:
-
-* When `condition` evaluates to `true`, the edge becomes active and the workflow can continue along this path
-* When `condition` is `false`, the edge is treated as disconnected and has no effect on the
-
----
-
-With these steps, we have added a more complex review-and-revision workflow. The execution flow is shown below.
 <img src="media/complex_run.webp" width="800" height="450" />
 
 ---
-Below are more detailed informations about this system:
 
-## More Things
+<a id="software-company"></a>
+## 5. The "Software company" template
 
-We provide a set of examples: files named `demo_*.yaml` are feature/module demos, while files named directly (e.g., `AgentDev_v1.yaml`) are in-house implementations or recreated workflows.
+The `software_company` workflow is a ready-made software company (web, web app, desktop) with a **CTO** as team lead and 11 members:
 
-- [Node Types Explained](#node-types-explained)
-  - [Agent Node](#agent-node)
-  - [Human Node](#human-node)
-  - [Python Node](#python-node)
-  - [Passthrough Node](#passthrough-node)
-  - [Literal Node](#literal-node)
-  - [Loop Counter Node](#loop-counter-node)
-  - [Subgraph Node](#subgraph-node)
-- [Edge Configuration](#edge-configuration)
-- [Graph Execution Logic](#graph-execution-logic)
-  - [DAG Execution](#dag-execution)
-  - [Loop Graph Execution](#loop-graph-execution)
-- [Workspace Structure](#workspace-structure)
-- [Dynamic Execution Mode](#dynamic-execution-mode)
+| Member | Main job |
+|--------|----------|
+| Project Manager | Requirements, user stories, acceptance criteria, task breakdown and schedule |
+| Solution Architect | System analysis, architecture, module boundaries, APIs, design-level bugs |
+| Data Engineer | Database schema, migrations, queries, data integrity and performance |
+| Backend Lead | Backend technical lead, API design, backend code review |
+| Backend Developer | Backend features and APIs with tests |
+| Frontend Developer | Pages, components, state, API integration, responsive and accessible UI |
+| UI UX Designer | UX flows, layout, design system and UI specs |
+| Bug Fixer | Reproduces, finds the root cause of and fixes bugs, with a regression test |
+| QA Tester | Tests against the acceptance criteria, reports pass/fail with evidence |
+| Acceptance Reviewer | Final acceptance: does the result meet the request and the quality bar |
+| DevOps Engineer | Build, CI/CD, environments, deployment and monitoring |
 
-# Node Types Explained
+How it works: you only chat with the CTO. For a new project the CTO clarifies the goal, proposes the stack and architecture, splits the work and **presents the plan for your approval**. Once you agree, it delegates step by step: PM → architecture/design → implementation → QA → acceptance → DevOps (when deployment is in scope). For an existing project or a bug report, the CTO reads the code first and picks the right people. Questions that need no work are answered by the CTO directly.
 
-AgentDev provides various node types, each with specific purposes and configuration options.
+Each member comes with suitable skills (for example the CTO uses `planning-and-task-breakdown` and `spec-driven-development`; the Acceptance Reviewer uses `code-review-and-quality` and `security-and-hardening`).
 
-## Agent Node
+To customise it, open the workflow, use **Copy Workflow** to make your own version, then change models, account connections, skills, or add/remove members. Adding a member is just creating a new agent node with no edges and a clear description.
 
-Agent Nodes are the core node type, used to call large language models (LLMs) for text generation, dialogue, reasoning, etc. They support multiple model providers (OpenAI, Gemini, Anthropic Claude, etc.) and can be configured for tool calling, memory, and other advanced features.
+---
 
-### Basic Configuration Example
+<a id="run-page"></a>
+## 6. Run a workflow
+
+Open **Launch** in the sidebar (or click **Launch** in the workflow editor).
+
+**Pick a workflow and a project**
+
+1. In the right panel, under **Workflow Selection**, pick the workflow (e.g. `software_company`).
+2. To let agents work on an existing project, click **Add new project** at the bottom of the session list (left), or click the **+** button next to the input and choose **Open project folder**. In the **Open project folder** dialog, pick a folder on this machine (or type a path and press Enter) and click **Open folder**. Agents edit files **in place** in that folder, so use git to review and undo changes.
+3. To attach files (documents, images, spreadsheets...), click **+** → **Upload File**, or drag files onto the chat.
+
+**Chat with the lead**
+
+Type the task into **Please enter task prompt...** and click **Launch**. With a team-lead workflow you talk to the lead like a person: answer its questions, approve the plan ("OK, go ahead") or ask for changes. When the workflow is waiting for you, the status shows **Waiting for you**; type your answer and click **Send**. **Relaunch** runs it again from the start.
+
+The left list keeps every **session**, grouped by project. Click **New session** to start another one; sessions running in the background still notify you when they finish or need an answer.
+
+**Views** (the **View** section of the right panel)
+
+| View | What it shows |
+|------|---------------|
+| **Chat** | The whole conversation, each agent's output, result files. |
+| **Graph** | The workflow graph with the running node highlighted. |
+| **Office** | A 2D office: each agent is a character at its department desk, walking around when handing over or receiving work. Click a character to see its status, model and latest output. |
+| **Tasks** | A task board by team or by step: what each agent is doing, has queued and has finished. |
+| **Dashboard** | Progress, run time, model calls and tool use, a timeline and recent activity. |
+| **Review** | Accept or reject the result (see below). |
+
+**Review results**
+
+In **Review**, every finished run becomes an item **To review**. Open it to see your request, the delivered result, changed files and each agent's handover. Rate the quality, pick **Strengths** / **To fix**, write feedback, then click:
+
+- **Accept** when it is good.
+- **Request rework** when it is not. Turn on **Hand it straight back to the agent team with this feedback** to have the team redo it right away in the same project (round 2, 3...).
+
+**Download Logs** gives you the detailed run log.
+
+---
+
+<a id="lab"></a>
+## 7. Laboratory
+
+The **Lab** validates a workflow before you rely on it. Choose it under **Workflow to validate**, then:
+
+**1. Configuration check** (instant, no tokens). Each item is marked green (pass), amber (warning) or red (error): workflow structure, AI accounts, each agent's role, whether selected skills are in the library, whether tools exist, code/command execution permission, team lead and members, and nodes that can never run. Fix every red item before test runs.
+
+**2. Test scenarios.** Each scenario has a **Request sent to the workflow** (what you would really type) and **Pass criteria** (what the answer must satisfy; empty means any error-free answer passes). **Add sample scenarios** fills two scenarios for the Software company template. Pick **Runs per scenario** (2–3 runs measure stability) and click **Start test run**. The workflow really runs on your accounts; questions it asks (such as plan approval) are answered "Approved" automatically, and an AI judge grades every answer with a reason.
+
+Results show the pass rate, tokens, estimated cost, time, which agents took part, the questions asked and every answer. A workflow is **Passed** at an 80% pass rate or higher with no errored runs. Scenarios are remembered per workflow in your browser, so after editing the workflow you just run them again.
+
+**Batch run from Excel/CSV.** The button at the top opens the batch page:
+
+1. Pick the workflow under **Workflow Selection**.
+2. Pick an `.xlsx` or `.csv` input file under **Input File Selection**. It needs at least a `task` and/or `attachments` column:
+   - `id`: unique row ID (generated if the column is missing)
+   - `task`: the task text
+   - `vars`: a JSON object of global variables
+   - `attachments`: a JSON array of absolute paths of attachments
+3. Set **Max. Parallel Launches** and the log level, then click **Launch**.
+4. Follow progress in the **Dashboard** or **Terminal** view; click **Download Logs** when done.
+
+---
+
+<a id="node-types-explained"></a>
+# Reference: node types
+
+<a id="agent-node"></a>
+## Agent node
+
+The main node type. It calls an AI model to write, code, analyse and decide. Agents can use tools, memory and skills, and can act as a team lead.
 
 ![agent_node_config.png](media/agent_node_config.png)
 
-### Tooling
+### Tools
 
-Agent Nodes can be configured with tools, allowing the model to call external APIs or execute functions. Click Advanced Settings to see the options. Multiple tools can be configured, such as both MCP and Function tools, or multiple MCP tools.
-![agent_tooling_config.png](media/agent_toolig_config.png)
+Under **Tooling** you can add several tool sources at once:
 
-AgentDev supports two types of tools:
-
-#### 1. Function Tooling (Local Functions)
-
-Call Python functions in the repository (under `workspace/functions/function_calling/`):
+**1. Local Python functions (function)**: functions in `workspace/functions/function_calling/`. An entry like `file:All` loads every function in `file.py`; other entries load a single function.
 
 ![agent_tooling_function_config.png](media/agent_tooling_function_config.png)
 
-`uv_related:All` in the figure means importing all functions from `workspace/functions/function_calling/uv_related.py`. Others import specific functions.
+| Module | Main functions | Purpose |
+|--------|----------------|---------|
+| `file.py` | `save_file`, `read_file_segment`, `list_directory`, `search_in_files`... | Read/write project files |
+| `code_executor.py` | `execute_code` | Run code |
+| `shell.py` | `run_shell_command` | Run a command in the project folder (`npm test`, `npm run build`, `pytest`…) |
+| `uv_related.py` | `install_python_packages`, `init_python_env`, `uv_run` | Python environment management |
+| `web.py` | `web_search`, `read_webpage_content` | Web search and page reading |
+| `deep_research.py` | `search_save_result`, `report_*` functions | Research and report writing |
+| `user.py` | `call_user` | Ask the user |
+| `utils.py` | `get_current_time`, `wait` | Utilities |
 
-To add a custom function, create a Python file under `workspace/functions/function_calling/` and use type annotations for parameters:
+To add your own function: create a Python file in `workspace/functions/function_calling/`, annotate the parameters, write a docstring (the model reads it), then restart the backend.
 
 ```python
 from typing import Annotated
@@ -294,406 +306,152 @@ from agentdev.utils.function_catalog import ParamMeta
 def my_tool(
     param1: Annotated[str, ParamMeta(description="Parameter description")],
     *,
-    _context: dict | None = None,  # Optional, for accessing context. The system injects this automatically and does not expose it to the model. See workspace/functions/function_calling/file.py for usage.
+    _context: dict | None = None,  # optional, injected by the system, hidden from the model
 ) -> str:
-    """Function description (will be shown to LLM)"""
-    # The return value can be any type; the system will convert it to a string for the model.
-    # If the return value is MessageBlock or List[MessageBlock], multimodal information can be passed to the model (see load_file in workspace/functions/function_calling/file.py)
+    """Function description (shown to the model)"""
     return "result"
 ```
 
-After adding, restart the backend server to use the function in Agent Nodes.
+**2. MCP servers**: `mcp_remote` connects to an MCP server over HTTP; `mcp_local` starts a local MCP server over stdio (e.g. `uvx ...`).
 
-#### Built-in Tools Quick Reference
-
-The system includes several built-in tools that can be used directly in Agent Nodes:
-
-| Module | Key Functions | Description | Example |
-|--------|--------------|-------------|---------|
-| **file.py** | `save_file`, `load_file`, `list_directory`, `search_in_files`, etc. | File operations | [AgentDev_v1](http://localhost:5173/workflows/AgentDev_v1) |
-| **uv_related.py** | `install_python_packages`, `init_python_env`, `uv_run` | Python environment management | [AgentDev_v1](http://localhost:5173/workflows/AgentDev_v1) |
-| **deep_research.py** | `search_save_result`, `report_*` series | Deep research & report generation | [deep_research_v1](http://localhost:5173/workflows/deep_research_v1) |
-| **web.py** | `web_search`, `read_webpage_content` | Web search & content retrieval | [deep_research_v1](http://localhost:5173/workflows/deep_research_v1) |
-| **video.py** | `render_manim`, `concat_videos` | Manim video rendering | [teach_video](http://localhost:5173/workflows/teach_video) |
-| **code_executor.py** | `execute_code` | Code execution | - |
-| **user.py** | `call_user` | User interaction | - |
-
-> For complete tool documentation, see `docs/user_guide/en/modules/tooling/function_catalog.md`
-
-#### 2. MCP Tooling (External Services)
-
-Connect to external services that comply with the Model Context Protocol:
-
-**Remote mode** (connect to a deployed HTTP service):
 ![agent_tooling_mcp_remote.png](media/agent_tooling_mcp_remote.png)
-The Authorization header in the image is optional and can be filled as needed.
 
-**Local mode** (start a local process):
-![agent_tooling_mcp_local.png](media/agent_tooling_mcp_local.png)
+### Memory
 
-### Memory Module
+1. Open the menu → **Manage Memories** and add a memory store:
 
-The Memory module allows Agents to retrieve and store information, supporting read/write control.
+| Type | Behaviour | Use for |
+|------|-----------|---------|
+| `simple` | Stores earlier results, keyword retrieval (no API key needed); a local embedding model is optional | Conversation memory |
+| `file` | Indexes local files/folders, read-only | Knowledge base |
+| `blackboard` | Shared board many nodes read and write, for the current run only | Sharing information between nodes |
 
-#### Configuration Steps
+2. In the agent node, open **Memories**, pick the store, set read/write permissions and the retrieve stage.
 
-1. Declare a Memory Store at the Graph level:
+Example: `workspace/workflows/demo_simple_memory.yaml`.
 
-![memory_graph.png](media/memory_graph.png)
+<a id="human-node"></a>
+## Human node
 
-Hover over the three bars in the lower right corner of the Workflow page, click Manage Memories, and add a new Memory Store. Here we add a SimpleMemory Store named `Paper Gen Memory` for storing conversation memory.
-
-![memory_global_simple.png](media/memory_global_simple.png)
-
-SimpleMemory requires Embedding configuration. Click Embedding Configuration, select an Embedding Provider (currently only openai is supported, users can extend it), and specify a model (e.g., `text-embedding-3-small`).
-
-![memory_global_embedding.png](media/memory_global_embedding.png)
-
-There are three built-in Memory types:
-
-| Type        | Features                        | Use Case         | Needs Embedding | Example Config                        |
-|-------------|---------------------------------|------------------|----------------|---------------------------------------|
-| `simple`    | Vector search + semantic rerank | Conversation mem | Yes            | workspace/workflows/demo_simple_memory.yaml |
-| `file`      | File/directory vector index, RO | Knowledge base   | Yes            | workspace/workflows/demo_file_memory.yaml   |
-| `blackboard`| Simple log, time/length cutoff  | Broadcast board  | No             | workspace/workflows/subgraphs/reflexion_loop.yaml |
-
-2. Reference in Agent Nodes:
-Click Memory Attachments, select the Memory Store, and configure read/write permissions and retrieval stages.
-
-![memory_node.png](media/memory_node_select.png)
-
-Top K controls the number of results per retrieval; Read/Write controls whether the node can read/write the Memory; Retrieve Stage controls at which execution stages to retrieve (can select multiple, others are for Thinking stage, currently unused; here we only select Gen Stage).
-
-![memory_node.png](media/memory_node.png)
-
----
-
-## Human Node
-
-Human Nodes introduce human interaction into the workflow. When executed, the workflow pauses and waits for user input.
+Pauses the workflow and waits for your input: review, feedback, a decision or extra information. Its task description is the question shown to you.
 
 ![human.png](media/human.png)
 
-**Typical uses:**
-- Content review and confirmation
-- Collecting suggestions
-- Key decision points
-- Data supplementation
+> With a team-lead workflow you rarely need this node: the lead asks you itself when needed.
+
+<a id="python-node"></a>
+## Python node
+
+Runs Python code on the machine. The node takes the ```` ```python ... ``` ```` block from its input (or the whole input if there is none), runs it in the session's `code_workspace/` folder and passes stdout on. You can set environment variables, startup arguments and a timeout.
+
+For safety, Python execution is disabled by default. If you trust the workflow, set `MAC_ALLOW_UNSAFE_CODE_EXECUTION=1` in `.env` and restart the backend (code runs directly, without a sandbox). The same switch enables `run_shell_command`; it only runs inside the project folder and blocks dangerous commands such as wiping a drive, `git push` or `npm publish`. Images and PDFs you attach in the chat reach the agents (Claude opens them with its Read tool, Codex receives images directly); small text files are put into the prompt.
+
+<a id="passthrough-node"></a>
+## Passthrough node
+
+Does nothing but forward messages. By default only the last message is forwarded (change it with **Only Last Message**). Common uses: keep the original task inside a loop (together with **Keep Message Input** on the edge) or filter out extra loop output.
+
+<a id="literal-node"></a>
+## Literal node
+
+Outputs a fixed text and ignores its input; the message role can be `user` or `assistant`. Use it to inject fixed instructions or to test downstream nodes.
+
+<a id="loop-counter-node"></a>
+## Loop counter node
+
+Limits how many times a loop runs. Each trigger adds 1; until the maximum is reached the node outputs nothing, then it emits its release message to leave the loop. Connect it both to a node inside the loop and to a node outside. The **Loop timer** node works the same way, based on time.
+
+Example: `workspace/workflows/demo_loop_counter.yaml`.
+
+<a id="subgraph-node"></a>
+## Subgraph node
+
+Embeds another workflow so it can be reused. The source type is `file` (a YAML path relative to `workspace/workflows/`) or `config` (defined inline). A subgraph inherits its parent's variables; its end nodes decide what it returns.
+
+Examples: `workspace/workflows/react.yaml`, `workspace/workflows/deep_research_v1.yaml`.
 
 ---
 
-## Python Node
+<a id="edge-configuration"></a>
+# Reference: edge configuration
 
-Python Nodes execute Python scripts. Scripts run in the `code_workspace/` directory. Generally used to execute code generated by Agents; to run custom code, add a Literal node to output code and connect it to a Python node.
+| Field | Default | Meaning |
+|-------|---------|---------|
+| **Condition** | always true | The edge is active only when the condition is true |
+| **Trigger** | on | Off: the edge only passes data and does not make the target run |
+| **Pass Data to Target** | on | Off: only triggers, passes no data |
+| **Keep Message Input** | off | The message is not removed when the target trims its context |
+| **Clear Context** | off | Clears the target's non-kept context before passing new data |
+| **Clear Kept Context** | off | Also clears kept messages |
+| **Payload Processor** | - | Transforms the content before passing it (regex, custom function) |
+| **Dynamic Expansion** | - | See [dynamic execution mode](#dynamic-execution-mode) |
 
-![python.png](media/python.png)
+<a id="edge-condition"></a>
+## Edge condition
 
-**Execution mechanism:**
-- The node automatically extracts ```python ...``` content from input; if extraction fails, the entire input is treated as the script.
-- Script stdout is passed as a Message to downstream nodes.
-- You can specify environment variables, startup parameters, and timeout. Python Path usually does not need to be changed unless a specific Python version or venv is required.
-- All Python nodes share the `code_workspace/` directory, and user-uploaded files are saved in subdirectories for script access.
+- **Keyword** (`keyword`): contains keywords, exclude keywords, regular expressions. Exclusions take priority.
+- **Function** (`function`): functions in `workspace/functions/edge/`, e.g. `true` (always), `code_pass`, `code_fail`, `always_false`.
 
----
-
-## Passthrough Node
-
-Passthrough Nodes do nothing but pass messages downstream. **By default, only the last message is passed**; you can change the config (`Only Last Message`) to pass all messages.
-
-![passthrough.png](media/passthrough.png)
-
-**Key uses:**
-
-1. **Retain initial context as entry node**: Use with `Keep Message Input` on edges to ensure the original task is always preserved (e.g., `workspace/workflows/AgentDev_v1.yaml`)
-2. **Filter redundant outputs in loops**: Pass only the final result to control loop output and avoid context bloat
-3. **Simplify graph structure**: As a logical placeholder for organization and readability (e.g., `workspace/workflows/AgentDev_v1.yaml`)
-
----
-
-## Literal Node
-
-Literal Nodes output fixed text, ignoring all input. You can set the Message Role as `user` or `assistant`.
-
-![literal.png](media/literal.png)
-
-**Typical uses:**
-- Inject fixed instructions or context (e.g., `workspace/workflows/AgentDev_v1.yaml`)
-- Test downstream nodes (e.g., `workspace/workflows/demo_dynamic.yaml`)
-- Fixed responses in conditional branches
-
----
-
-## Loop Counter Node
-
-Loop Counter Nodes limit the number of loop executions. It counts triggers and only outputs when the limit is reached, terminating the loop.
-
-![loop_counter.png](media/loop_counter.png)
-
-**How it works:**
-1. Each trigger increments the counter by 1
-2. Counter < `max_iterations`: **No output**, edge not triggered
-3. Counter = `max_iterations`: Output is produced, edge is triggered
-
-> **Important**: Since no output is produced before the limit, the Loop Counter's edge must connect both to nodes inside the loop (to keep the loop going, but has no effect) and outside (to exit when the limit is reached).
-
-See: `workspace/workflows/AgentDev_v1.yaml`
-
----
-
-## Subgraph Node
-
-Subgraph Nodes allow embedding another workflow graph into the current workflow for reuse and modular design. Subgraphs can come from external YAML files or be defined inline.
-
-### Key Configurations
-
-| Field                  | Type   | Description                                              |
-|------------------------|--------|---------------------------------------------------------|
-| `Subgraph Source Type` | string | Source type: `file` (external) or `config` (inline)     |
-| `Config`               | object | Depends on `Subgraph Source Type` (see below)           |
-
-**file type config:**
-
-| Field                | Type   | Required | Description                                 |
-|----------------------|--------|----------|---------------------------------------------|
-| `Subgraph File Path` | string | Yes      | Subgraph file path (relative to `workspace/workflows/` or absolute) |
-
-**config type config** (inline definition):
-
-Config items are the same as a normal graph.
-
-### Typical Uses
-
-- **Workflow reuse**: Multiple workflows share the same sub-process (e.g., "article polishing" module)
-- **Modular design**: Break complex flows into manageable units
-- **Team collaboration**: Different teams maintain different subgraph modules
-
-> **Note**:
-> - Subgraphs inherit the parent graph's `vars` variable definitions
-> - Subgraphs execute as independent units with their own node namespace
-> - `start` and `end` nodes determine data flow in/out:
->   - `start`: Only needed if the subgraph is a loop.
->   - `end`: List of exit nodes. The system checks these in order and returns the first with output as the subgraph result. If none, or not set, nodes with no successors are used as exits.
-
-See: `workspace/workflows/MACNet_optimize_sub.yaml`, `workspace/workflows/MACNet_Node_sub.yaml`, `workspace/workflows/MACNet_v1.yaml`.
-
----
-
-# Edge Configuration
-
-Edges connect nodes, controlling flow and data. Each node can have multiple outputs, all of which are processed by all edges.
-
-## Key Configurations
-
-In edge config, click Advanced Settings to expand options:
-
-| Field                   | Default   | Description                                                    |
-|-------------------------|-----------|----------------------------------------------------------------|
-| `Edge Condition`        | -         | Whether the edge is active; default is always on               |
-| `Can Trigger Successor` | `true`    | Whether to trigger the target node. If `false`, does not trigger|
-| `Pass Data to Target`   | `true`    | Whether to pass data to the target node. If `false`, no data   |
-| `Keep Message Input`    | `false`   | Whether to mark messages as **kept** (not auto-cleared)        |
-| `Clear Context`         | `false`   | Whether to clear all non-kept history in the target node       |
-| `Clear Kept Context`    | `false`   | Whether to clear all kept history in the target node           |
-| `Payload Processor`     | -         | Processor for message content                                  |
-| `Dynamic Expansion`     | -         | Dynamic execution config, see [Dynamic Execution Mode](#dynamic-execution-mode) |
-
-## Edge Condition
-
-The condition determines whether the edge is on. If true, the edge is on (data can flow, can trigger); otherwise, it is off (no effect on downstream nodes).
-
-### Keyword Conditions (Common)
 ![edge_condition_keyword.png](media/edge_condition_keyword.png)
 
-### Function Conditions
-Some built-in functions: `true` (default, always on), `code_pass` (code succeeded), `code_fail` (code failed), `always_false` (always off, for testing)
+<a id="payload-processor"></a>
+## Payload processor
 
-You can add custom functions in `workspace/functions/edge` and restart the backend to use them.
+- `regex_extract`: extract with a Python regex (pattern, capture group, output template using `{match}`, no-match behaviour: `pass` / `default` / `drop` / `empty`).
+- `function`: call a function in `workspace/functions/edge_processor/`, e.g. `uppercase_payload`, `code_save_and_run`.
 
-![edge_condition_function.png](media/edge_condition_function.png)
-
-## Payload Processor
-
-A Payload Processor transforms or processes message content before passing through the edge. Useful for extracting info, format conversion, or custom logic.
-
-### Built-in Processor Types
-
-#### 1. regex_extract
-
-Use Python regex to extract content from messages:
-
-| Config Item         | Description                  |
-|---------------------|-----------------------------|
-| `Regex Pattern`     | Regex pattern (required)     |
-| `Capture Group`     | Capture group name or index  |
-| `Case Sensitive`    | Case sensitive (default true)|
-| `Multiline Flag`    | Enable re.MULTILINE (false)  |
-| `Dotall Flag`       | Enable re.DOTALL (false)     |
-| `Return Multiple Matches` | Return all matches (default first only) |
-| `Output Template`   | Output template, use `{match}`|
-| `No Match Behavior` | `pass`, `default`, `drop`    |
-| `Default Value`     | Used if `No Match Behavior=default` |
-
-**Example**: Extract code (see `workspace/workflows/demo_edge_transform.yaml`)
-
-![edge_transform_regex.png](media/edge_transform_regex.png)
-
-#### 2. function
-
-Call Python functions in `workspace/functions/edge_processor/` for custom processing:
-
-| Config Item | Description |
-|-------------|-------------|
-| `name`      | Function name (required) |
-
-**Built-in functions:**
-- `uppercase_payload`: Convert message to uppercase
-- `code_save_and_run`: Save code to workspace and run `main.py` (see `workspace/workflows/MACNet_optimize_sub.yaml`)
-
-### Custom Processor Functions
-
-Create a Python file in `workspace/functions/edge_processor/` and define a function:
-
-```python
-from typing import Dict, Any
-
-def my_processor(data: str, _context: Dict[str, Any]) -> str:
-    """Function description (shown in config UI)"""
-    # data is the message text
-    # _context contains execution context
-    return processed_data
-```
-
-Restart the backend to use the new function.
+Restart the backend after adding a new condition or processor function.
 
 ---
 
-# Graph Execution Logic
+<a id="graph-execution-logic"></a>
+# Reference: execution logic
 
-## DAG Execution
+<a id="dag-execution"></a>
+## Workflows without loops
 
-For acyclic workflow graphs, the engine uses standard topological sorting:
+Nodes are ordered by their dependencies (topological sort). Nodes with nothing left to wait for run first; nodes on the same layer run in parallel.
 
-1. Build predecessor/successor relationships
-2. Calculate in-degree for each node
-3. Nodes with in-degree 0 are executed first
-4. Nodes in the same layer can execute in parallel
+<a id="loop-graph-execution"></a>
+## Workflows with loops
 
-## Loop Graph Execution
+AgentDev uses Tarjan's algorithm to find loops, wraps each loop into a "super node" and runs the result like a loop-free workflow. Inside each loop:
 
-For graphs with loops, the engine uses **Tarjan's strongly connected components algorithm** for loop detection and recursive execution for nested loops.
-
-### Loop Detection and Super Node Construction
-
-The system applies Tarjan's algorithm to the entire graph, identifying all strongly connected components (SCCs) in a single pass (O(|N|+|E|)).
-
-- **SCC**: Maximal set of nodes where every pair is mutually reachable
-- **Loop**: SCCs with more than one node; single-node SCCs without self-loops are normal nodes
-
-After detection, each multi-node loop is abstracted as a **Super Node**, building a super node dependency graph. Since loops are encapsulated, the super node graph is always a DAG, allowing topological sorting.
-
-### Recursive Loop Execution
-
-For loop super nodes, the engine uses the following recursive strategy:
-
-#### Step 1: Identify Initial Node
-
-Analyze loop boundaries to identify the **uniquely triggered** entry node as the Initial Node:
-- Must be triggered by an external predecessor via a satisfied edge
-- If no node is triggered, skip loop execution
-- If multiple nodes are triggered, report config error
-
-#### Step 2: Build Scoped Subgraph
-
-Within the loop, build a subgraph **logically removing all incoming edges to the initial node**. This breaks the outer loop boundary for nested detection.
-
-#### Step 3: Nested Loop Detection
-
-Apply Tarjan's algorithm to the subgraph to detect nested loops. Since the initial node's incoming edges are removed, only true inner loops are detected.
-
-#### Step 4: Inner Topological Sort
-
-- If nested loops are found: Abstract each as a super node, build the dependency graph, and sort
-- If not: Topologically sort the subgraph directly
-
-#### Step 5: Layered Execution
-
-Execute each layer in order:
-- **Normal nodes**: Check trigger state and execute; initial node is forced to execute in the first round
-- **Inner loop super nodes**: **Recursively apply above steps**
-
-#### Step 6: Exit Condition Check
-
-After each round, check exit conditions:
-- **Exit edge triggered**: If any node triggers an edge to outside the loop, exit
-- **Max iterations**: If `max_iterations` (default 100) is reached, force exit
-- **Initial node not retriggered**: If not retriggered by inner predecessors, loop ends naturally
-
-If none are met, repeat from Step 2.
-
-> **Recursive capability**: This forms a complete recursive structure, allowing the system to handle arbitrarily deep nested loops.
-
-### Execution Flowchart
+1. Find the single entry node triggered from outside (more than one is a configuration error).
+2. Temporarily drop the edges into the entry node to find nested loops, then run layer by layer, recursively.
+3. Exit when an edge leaving the loop is triggered, when the maximum number of rounds is reached (100 by default), or when the entry node is not triggered again.
 
 ![execution_flow.png](media/execution_flow.png)
 
----
-
-# Workspace Structure
-
-AgentDev uses a layered workspace structure to manage files:
-
-## Directory Structure
-
-| Path                                             | Purpose                        |
-|--------------------------------------------------|--------------------------------|
-| `storage/warehouse/`                                     | Root directory for all sessions|
-| `storage/warehouse/<session>/`                   | Runtime data for a session     |
-| `storage/warehouse/<session>/code_workspace/`            | Python node code execution dir |
-| `storage/warehouse/<session>/code_workspace/attachments/`| User-uploaded files            |
-| `storage/warehouse/<session>/execution_logs.json`        | Execution logs (after run)     |
-| `storage/warehouse/<session>/node_outputs.yaml`          | Node output records (after run)|
-| `storage/warehouse/<session>/token_usage_<session>.json` | Token usage stats (after run)  |
-| `storage/warehouse/<session>/workflow_summary.yaml`      | Workflow summary (after run)   |
+> Team-lead workflows need no loops: the lead sends failed work back for fixes itself, up to **Max fix/review rounds** times.
 
 ---
 
-# Dynamic Execution Mode
+<a id="dynamic-execution-mode"></a>
+# Reference: dynamic execution mode
 
-Dynamic execution mode allows defining parallel processing at the edge level, supporting **Map** (fan-out) and **Tree** (reduction) modes.
+Configured on an edge (**Dynamic Expansion**) to split data into parts and run the target node in parallel:
 
-See `workspace/workflows/demo_dynamic.yaml`, `workspace/workflows/MACNet_Node_sub.yaml` for examples.
+| Mode | How it runs | Output |
+|------|-------------|--------|
+| **Map** | Split, run in parallel | A list of results |
+| **Tree** | Split, run in parallel, then merge over several rounds | One result |
 
-## Mode Comparison
+**Split strategy**: `message` (one part per message, default), `regex` (one part per regex match), `json_path` (one part per JSON array item). Messages arriving over normal (non-dynamic) edges are copied to every parallel run.
 
-| Mode   | Description         | Output             | Use Case           |
-|--------|---------------------|--------------------|--------------------|
-| **Map**  | Fan-out, parallel   | `List[Message]`    | Batch, parallel    |
-| **Tree** | Reduction, merge    | Single `Message`   | Summarization      |
-
-## Example Config
-
-Dynamic config is defined on **edges**, indicating that messages passed through this edge need dynamic processing:
-
-### Map Mode
 ![dynamic_map.png](media/dynamic_map.png)
 
-### Tree Mode
-For summarization:
-![dynamic_tree.png](media/dynamic_tree.png)
-![dynamic_tree_split.png](media/dynamic_tree_split.png)
-`(?s).{1,2000}(?:\s|$)` splits input into segments of 2000 characters.
-See `workspace/workflows/demo_dynamic_tree.yaml`.
+---
 
-## Split Strategies
+<a id="workspace-structure"></a>
+# Reference: folder structure
 
-| Type        | Description                                 |
-|-------------|---------------------------------------------|
-| `message`   | Each message as a unit (default)            |
-| `regex`     | Split text using regex                      |
-| `json_path` | Extract array elements from JSON output     |
-
-## Mixing Static and Dynamic Edges
-
-When a target node has both dynamic and static incoming edges:
-- **Dynamic edge messages**: Split and executed multiple times
-- **Static edge messages**: **Copied** to each dynamic instance
+| Path | Contents |
+|------|----------|
+| `workspace/workflows/` | Workflow YAML files |
+| `workspace/skills/` | The shared skill library |
+| `workspace/functions/` | Tool functions, edge condition and processor functions |
+| `storage/warehouse/<session>/` | Data for one session |
+| `storage/warehouse/<session>/code_workspace/` | Working folder for code and uploaded files (`attachments/`) |
+| `storage/warehouse/<session>/execution_logs.json` | Execution log |
+| `storage/warehouse/<session>/node_outputs.yaml` | Output of each node |
