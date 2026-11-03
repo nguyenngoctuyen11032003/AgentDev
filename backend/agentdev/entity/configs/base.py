@@ -89,6 +89,8 @@ class ConfigFieldSpec:
     description: str | None = None
     child: type["BaseConfig"] | None = None
     advance: bool = False
+    # Kept for YAML compatibility but not shown in the editor (e.g. raw API-key credentials)
+    hidden: bool = False
     # ui: Mapping[str, Any] | None = None
 
     def with_name(self, name: str) -> "ConfigFieldSpec":
@@ -105,6 +107,8 @@ class ConfigFieldSpec:
             "required": self.required,
             "advance": self.advance,
         }
+        if self.hidden:
+            data["hidden"] = True
         if self.default is not None:
             data["default"] = self.default
         if self.enum is not None:

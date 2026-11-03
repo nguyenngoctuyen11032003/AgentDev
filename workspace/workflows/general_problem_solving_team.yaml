@@ -17,7 +17,6 @@ graph:
           结构清晰：重点前置、分点、易懂
           不添加新信息，不篡改内容
           输出：给用户的最终回答。
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -50,7 +49,6 @@ graph:
           设计步骤、流程、工具调用
           保证代码可运行、思路清晰
           只输出技术方案 + 可执行内容，不闲聊。
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -81,7 +79,6 @@ graph:
           给出建议、策划、思路、表达优化
           兼顾实用性与可读性
           输出：清晰、可选择、可直接使用的方案。
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -106,7 +103,6 @@ graph:
           找出漏洞、矛盾、不合理之处
           给出结论、原因、优先级
           不做创意，不写代码，不搜新信息，只做理性分析。
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking:
@@ -131,7 +127,6 @@ graph:
           只保留与任务相关的关键信息
           不编造、不扩展、不推理
           输出：结构化要点，来源可靠，简洁客观。
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -163,7 +158,6 @@ graph:
           给每个部门的任务必须符合他们的职能，不同部门之间的任务不可以重叠
           如果你认为该问题用不到5个部门，则可以明确指出不需要它们工作
           禁止回答问题，只输出拆解结果。
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function

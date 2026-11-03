@@ -18,8 +18,10 @@ export const getSchemaFields = (modal) => {
   return modal?.schema?.fields || []
 }
 
+// Fields flagged `hidden` in the schema (raw API-key credentials) are kept in the YAML
+// when present but never shown: agents sign in through account connections instead.
 export const getDisplayFields = (modal) => {
-  return getSchemaFields(modal)
+  return getSchemaFields(modal).filter(field => !field?.hidden)
 }
 
 export const determineRouteControllerField = (modal, field) => {

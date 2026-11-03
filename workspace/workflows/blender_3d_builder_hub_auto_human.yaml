@@ -60,9 +60,6 @@ graph:
           *   You should first do your best to provide a complete design spec.
           *   Afterward, you can call the `call_user` tool to communicate with the user, clarify requirements, or obtain more details until the user is satisfied.
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         tooling:
           - type: function
             config:
@@ -113,9 +110,6 @@ graph:
           2. Setup Lighting: Based on PM's 'Main Light' & 'Ambient Light'.
           3. Setup Camera: Based on PM's 'Camera Angle'.
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
 
     - id: Orchestrator
       type: agent
@@ -177,9 +171,6 @@ graph:
           Instruction: <Specific natural language instruction for the Worker, including necessary parameters>
           ROUTE: <COMMAND>
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         tooling:
           - type: function
             config:
@@ -219,9 +210,6 @@ graph:
           # Report
           "Geometry built. Created [X] objects. Ready for review."
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         tooling:
           - type: mcp_local
             config:
@@ -256,9 +244,6 @@ graph:
           # Report
           "Geometry built. Created [X] objects. Ready for review."
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         tooling:
           - type: mcp_local
             config:
@@ -294,9 +279,6 @@ graph:
 
           Otherwise report: "Materials and Lighting applied. Ready for review."
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         tooling:
           - type: mcp_local
             config:
@@ -327,9 +309,6 @@ graph:
           Decision: <APPROVE | REJECT | FATAL_GEO_ERROR>
           Critique: <Specific revision suggestions>
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         tooling:
           - type: mcp_local
             config:

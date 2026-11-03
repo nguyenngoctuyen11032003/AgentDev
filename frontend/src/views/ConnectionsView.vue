@@ -55,43 +55,64 @@
 
       <ul v-else class="connection-list">
         <li v-for="conn in connections" :key="conn.id" class="connection-card">
-          <ProviderLogo :vendor="conn.vendor" :label="vendorLabel(conn.vendor)" :size="44" />
+          <button
+            type="button"
+            class="card-open"
+            :aria-label="$t('connections.open_details', { name: conn.label })"
+            @click="openDetail(conn)"
+          >
+            <ProviderLogo :vendor="conn.vendor" :label="vendorLabel(conn.vendor)" :size="44" />
 
-          <div class="connection-main">
-            <div class="connection-top">
-              <span class="connection-label">{{ conn.label }}</span>
-              <span class="status-pill" :class="`is-${statusOf(conn.id)}`">
-                <span class="status-dot" aria-hidden="true"></span>
-                {{ $t(`connections.status_${statusOf(conn.id)}`) }}
+            <span class="connection-main">
+              <span class="connection-top">
+                <span class="connection-label">{{ conn.label }}</span>
+                <span class="status-pill" :class="`is-${statusOf(conn.id)}`">
+                  <span class="status-dot" aria-hidden="true"></span>
+                  {{ $t(`connections.status_${statusOf(conn.id)}`) }}
+                </span>
+                <span v-if="accounts[conn.id]?.plan" class="plan-badge">{{ accounts[conn.id].plan }}</span>
+                <span v-if="conn.id === defaultId" class="default-badge" :title="$t('connections.default_hint')">
+                  {{ $t('connections.default_badge') }}
+                </span>
               </span>
-            </div>
-            <div class="connection-meta">
-              <span>{{ vendorLabel(conn.vendor) }}</span>
-              <span class="sep" aria-hidden="true">·</span>
-              <span>{{ authLabel(conn.authType) }}</span>
-              <template v-if="conn.secretHint">
-                <span class="sep" aria-hidden="true">·</span>
-                <code>{{ conn.secretHint }}</code>
-              </template>
-            </div>
 
-            <div v-if="modelsOf(conn).length" class="model-chips">
-              <span v-for="model in modelsOf(conn).slice(0, 4)" :key="model" class="chip">{{ model }}</span>
-              <span v-if="modelsOf(conn).length > 4" class="chip chip-more">+{{ modelsOf(conn).length - 4 }}</span>
-            </div>
-            <p v-if="results[conn.id] && !results[conn.id].ok" class="connection-error">{{ results[conn.id].error }}</p>
-          </div>
+              <span class="connection-meta">
+                <span>{{ vendorLabel(conn.vendor) }}</span>
+                <span class="sep" aria-hidden="true">·</span>
+                <span>{{ accounts[conn.id]?.authMethod || authLabel(conn.authType) }}</span>
+                <template v-if="accountName(accounts[conn.id])">
+                  <span class="sep" aria-hidden="true">·</span>
+                  <span class="account-name">
+                    {{ accountName(accounts[conn.id]) }}
+                    <span v-if="accounts[conn.id].displayName && accounts[conn.id].email" class="account-email">({{ accounts[conn.id].email }})</span>
+                  </span>
+                </template>
+              </span>
+
+              <span v-if="modelsOf(conn).length" class="model-chips">
+                <span
+                  v-for="model in primaryModels(conn).slice(0, 4)"
+                  :key="model.id"
+                  class="chip"
+                  :class="{ 'is-premium': isPremiumModel(model.id) }"
+                >{{ model.id }}</span>
+                <span v-if="modelsOf(conn).length > Math.min(4, primaryModels(conn).length)" class="chip chip-more">
+                  +{{ modelsOf(conn).length - Math.min(4, primaryModels(conn).length) }}
+                </span>
+              </span>
+              <span v-if="errorOf(conn.id)" class="connection-error">{{ errorOf(conn.id) }}</span>
+            </span>
+          </button>
 
           <div class="connection-actions">
-            <button type="button" class="chip-btn" :title="$t('connections.used_in')" @click="copyId(conn.id)">
-              <code>{{ conn.id }}</code>
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>
+            <button v-if="conn.id !== defaultId" type="button" class="btn" @click="makeDefault(conn)">
+              {{ $t('connections.make_default') }}
             </button>
             <button type="button" class="btn" :disabled="busyId === conn.id" @click="runTest(conn)">
               {{ busyId === conn.id ? $t('connections.testing') : $t('connections.test') }}
             </button>
-            <button type="button" class="btn btn-danger" :aria-label="`${$t('connections.remove')}: ${conn.label}`" @click="remove(conn)">
-              {{ $t('connections.remove') }}
+            <button type="button" class="btn btn-danger" :aria-label="`${$t('connections.logout')}: ${conn.label}`" @click="logout(conn)">
+              {{ $t('connections.logout') }}
             </button>
           </div>
         </li>
@@ -107,18 +128,43 @@
       @close="dialogOpen = false"
       @created="refresh"
     />
+
+    <ConnectionDetail
+      :open="!!detailConn"
+      :connection="detailConn"
+      :account="detailConn ? accounts[detailConn.id] : null"
+      :models="detailConn ? modelsOf(detailConn) : []"
+      :vendor-label="detailConn ? vendorLabel(detailConn.vendor) : ''"
+      :status="detailConn ? statusOf(detailConn.id) : 'unchecked'"
+      :loading="detailConn ? !!accountLoading[detailConn.id] : false"
+      :busy="detailConn ? busyId === detailConn.id : false"
+      @close="detailId = ''"
+      @test="runTest"
+      @logout="logout"
+      @copy-id="copyId"
+    />
   </div>
 </template>
 
 <script setup>
 defineOptions({ name: 'ConnectionsView' })
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import ConnectDialog from '@/components/connections/ConnectDialog.vue'
+import ConnectionDetail from '@/components/connections/ConnectionDetail.vue'
 import ProviderLogo from '@/components/connections/ProviderLogo.vue'
-import { deleteConnection, fetchConnectionVendors, fetchConnections, testConnection } from '@/api/client'
+import {
+  deleteConnection,
+  fetchConnectionAccount,
+  fetchConnectionVendors,
+  fetchConnections,
+  setDefaultConnection,
+  testConnection
+} from '@/api/client'
+import { accountName, isPremiumModel, normalizeModels } from '@/utils/accountFormat'
 import { invalidateConnectionModels } from '@/utils/connectionModels'
+import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast'
 
 const { t } = useI18n()
@@ -126,34 +172,76 @@ const route = useRoute()
 
 const vendors = ref([])
 const connections = ref([])
+const defaultId = ref(null) // connection every agent node without its own one runs on
 const loading = ref(true)
 const busyId = ref('')
 const results = reactive({})
+const accounts = reactive({})
+const accountLoading = reactive({})
 const activeVendor = ref(null)
 const dialogOpen = ref(false)
+const detailId = ref('')
+
+const detailConn = computed(() => connections.value.find((conn) => conn.id === detailId.value) || null)
 
 const vendorLabel = (id) => vendors.value.find((vendor) => vendor.id === id)?.label || id
 const authLabel = (id) => t(`connections.auth_${id}`)
 const countFor = (vendorId) => connections.value.filter((conn) => conn.vendor === vendorId).length
 
+// A test result wins; otherwise the account lookup tells whether the sign-in is live.
 const statusOf = (id) => {
   const result = results[id]
-  if (!result) return 'unchecked'
-  return result.ok ? 'ok' : 'error'
+  if (result) return result.ok ? 'ok' : 'error'
+  if (accountLoading[id]) return 'checking'
+  const loggedIn = accounts[id]?.loggedIn
+  if (loggedIn === true) return 'ok'
+  if (loggedIn === false) return 'error'
+  return 'unchecked'
+}
+
+const errorOf = (id) => {
+  if (results[id] && !results[id].ok) return results[id].error
+  if (!results[id] && accounts[id]?.loggedIn === false) return accounts[id].detail
+  return ''
 }
 
 const modelsOf = (conn) =>
-  results[conn.id]?.models || vendors.value.find((vendor) => vendor.id === conn.vendor)?.models || []
+  normalizeModels(
+    accounts[conn.id]?.models ||
+      results[conn.id]?.models ||
+      vendors.value.find((vendor) => vendor.id === conn.vendor)?.models
+  )
+
+const primaryModels = (conn) => modelsOf(conn).filter((model) => model.primary)
 
 function openDialog(vendor) {
   activeVendor.value = vendor
   dialogOpen.value = true
 }
 
+function openDetail(conn) {
+  detailId.value = conn.id
+}
+
+async function loadAccount(id) {
+  accountLoading[id] = true
+  try {
+    accounts[id] = await fetchConnectionAccount(id)
+  } catch {
+    // Account details are optional; the card still works without them.
+  } finally {
+    accountLoading[id] = false
+  }
+}
+
 async function refresh() {
   const data = await fetchConnections()
   connections.value = data.connections
+  defaultId.value = data.defaultConnection || null
   invalidateConnectionModels()
+  for (const conn of data.connections) {
+    if (!accounts[conn.id] && !accountLoading[conn.id]) loadAccount(conn.id)
+  }
 }
 
 async function runTest(conn) {
@@ -161,6 +249,7 @@ async function runTest(conn) {
   try {
     const result = await testConnection(conn.id)
     results[conn.id] = result
+    if (result.account) accounts[conn.id] = result.account
     if (result.ok) {
       toast.success(t('connections.test_ok', { count: result.models.length }))
     } else {
@@ -173,13 +262,31 @@ async function runTest(conn) {
   }
 }
 
-async function remove(conn) {
-  if (!window.confirm(t('connections.confirm_remove', { name: conn.label }))) return
+// Removes the connection; for the last CLI connection of a vendor the server also signs the CLI out.
+async function logout(conn) {
+  const ok = await confirmDialog({
+    title: t('connections.logout_title', { name: conn.label }),
+    message: t('connections.confirm_logout_detail'),
+    confirmText: t('connections.logout'),
+    tone: 'danger'
+  })
+  if (!ok) return
   try {
     await deleteConnection(conn.id)
     delete results[conn.id]
+    delete accounts[conn.id]
+    if (detailId.value === conn.id) detailId.value = ''
     await refresh()
-    toast.success(t('connections.removed'))
+    toast.success(t('connections.logged_out'))
+  } catch (error) {
+    toast.error(error.message)
+  }
+}
+
+async function makeDefault(conn) {
+  try {
+    defaultId.value = (await setDefaultConnection(conn.id)).defaultConnection
+    toast.success(t('connections.default_set', { name: conn.label }))
   } catch (error) {
     toast.error(error.message)
   }
@@ -381,15 +488,108 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 16px 18px;
+  padding: 0 18px 0 0;
   border-radius: 16px;
   border: 1px solid var(--line-4);
   background: var(--surface-1);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.connection-card:hover {
+  border-color: color-mix(in srgb, var(--accent-sky) 45%, var(--line-4));
+  background: color-mix(in srgb, var(--accent-sky) 3%, var(--surface-1));
+}
+
+.card-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px 0 16px 18px;
+  border: 0;
+  border-radius: 16px 0 0 16px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .connection-main {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
+}
+
+.plan-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--accent-indigo);
+  background: color-mix(in srgb, var(--accent-indigo) 14%, transparent);
+}
+
+.default-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--accent-emerald, #059669);
+  background: color-mix(in srgb, var(--accent-emerald, #059669) 14%, transparent);
+}
+
+.account-name {
+  color: var(--text-1);
+  font-weight: 550;
+}
+
+.account-email {
+  margin-left: 2px;
+  color: var(--text-muted-4);
+  font-weight: 400;
+}
+
+.usage-mini {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin-top: 10px;
+}
+
+.usage-mini-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted-4);
+}
+
+.mini-bar {
+  width: 88px;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-3);
+}
+
+.mini-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-sky);
+}
+
+.mini-fill.is-warn { background: #f59e0b; }
+.mini-fill.is-danger { background: var(--danger); }
+
+.usage-mini-value {
+  min-width: 3ch;
+  font-weight: 650;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
 }
 
 .connection-top {
@@ -437,12 +637,22 @@ onMounted(async () => {
   color: var(--text-muted-4);
 }
 
+.chip.is-premium {
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+}
+
+:root[data-theme='dark'] .chip.is-premium {
+  color: #fbbf24;
+}
+
 .chip-more {
   background: transparent;
   border: 1px dashed var(--line-4);
 }
 
 .connection-error {
+  display: block;
   margin: 8px 0 0;
   font-size: 12.5px;
   color: var(--danger);
@@ -491,27 +701,6 @@ onMounted(async () => {
   flex: none;
   align-items: center;
   gap: 8px;
-}
-
-.chip-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px dashed var(--line-4);
-  background: transparent;
-  color: var(--text-muted-4);
-  cursor: pointer;
-}
-
-.chip-btn code {
-  font-size: 11.5px;
-}
-
-.chip-btn:hover {
-  border-color: var(--accent-sky);
-  color: var(--text-1);
 }
 
 .btn {
@@ -618,11 +807,19 @@ onMounted(async () => {
 
   .connection-card {
     flex-wrap: wrap;
+    padding: 0;
+  }
+
+  .card-open {
+    flex-basis: 100%;
+    padding: 16px 16px 4px;
+    border-radius: 16px 16px 0 0;
   }
 
   .connection-actions {
     width: 100%;
     flex-wrap: wrap;
+    padding: 0 16px 14px;
   }
 }
 </style>

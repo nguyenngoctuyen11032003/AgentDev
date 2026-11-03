@@ -22,7 +22,6 @@ graph:
           ## Required Elements
           ## Optional Creative Hooks (2)
           ## One-Sentence Writing Task Summary
-        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.6
         tooling: []
@@ -46,7 +45,6 @@ graph:
           - 4–6 short paragraphs (fast rhythm, concise)
           - At least 3 highly shareable punchlines (in **bold**)
           - 2 interaction prompts at the end (e.g., comment topic / poll / share CTA)
-        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.7
         tooling: []
@@ -70,7 +68,6 @@ graph:
           - 4 traditional/Chinese-style
           - Each greeting must be no more than 18 words
           - Avoid repetitive expressions
-        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.85
         tooling: []
@@ -92,7 +89,6 @@ graph:
           Requirements:
           - Include one memorable element (twist / detail / punchline)
           - End with reunion, blessing, or a sense of new beginning
-        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.85
         tooling: []
@@ -118,7 +114,6 @@ graph:
             - Suggested aspect ratio
             - Main title / subtitle layout suggestions
           Output in Markdown.
-        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.6
         tooling: []
@@ -145,7 +140,6 @@ graph:
           # Visual/Layout Suggestions (5)
           # Comment Section Topics (3)
           Ensure unified tone and make it directly publishable.
-        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.5
         tooling: []
@@ -181,7 +175,6 @@ graph:
           - Address each revision point explicitly
           - Ensure consistent tone and publish-ready quality
           - If structure is missing or inconsistent, fix and complete it
-        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.45
         tooling: []
@@ -202,8 +195,6 @@ graph:
           If the poster involves text, ensure text accuracy. If text accuracy cannot be guaranteed, avoid including text.
           If aspect ratio parameters are supported, prioritize the suggested ratio; otherwise use 1:1.
           Output the result directly in the system-returned format.
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling: []
         thinking: null

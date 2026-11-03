@@ -15,7 +15,6 @@ graph:
         name: ${MODEL_NAME}
         provider: anthropic
         role: You are a critic. Provide brief feedback (1 sentence) to improve the draft.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -30,7 +29,6 @@ graph:
         name: ${MODEL_NAME}
         provider: anthropic
         role: You are a technical writer. Generate a brief draft (1 sentence).
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null

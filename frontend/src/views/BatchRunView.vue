@@ -238,7 +238,7 @@
               <code>vars</code> - {{ $t('batch_run.manual_vars') }}
               <div class="manual-example">
                 <pre>{{
-JSON.stringify({"BASE_URL": "openai.com","API_KEY": "123"}, null, 2)
+JSON.stringify({"LANGUAGE": "vi", "MAX_ITERATIONS": "3"}, null, 2)
 }}</pre>
               </div>
             </div>

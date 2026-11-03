@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
 from agentdev.connections.catalog import AUTH_API_KEY
-from agentdev.connections.resolver import expand_secret
 from agentdev.connections import store as _store_module
 from agentdev.paths import WORKFLOWS_DIR
 from agentdev.utils.exceptions import ValidationError
@@ -53,10 +52,12 @@ def check_workflow_connections(document: Mapping) -> List[Dict[str, str]]:
         conn = store.get(conn_id)
         if conn is None:
             problem, msg = "missing", f"Connection '{conn_id}' does not exist."
-        elif conn.auth_type not in (AUTH_API_KEY, "cli", "oauth"):
+        elif conn.auth_type == AUTH_API_KEY:
+            problem, msg = "unsupported_auth", (
+                f"Connection '{conn_id}' uses an API key, which is no longer supported: sign in with an account."
+            )
+        elif conn.auth_type not in ("cli", "oauth"):
             problem, msg = "unsupported_auth", f"Connection '{conn_id}' uses an unsupported auth type."
-        elif conn.auth_type == AUTH_API_KEY and not expand_secret(conn.secret):
-            problem, msg = "no_credential", f"Connection '{conn_id}' has no usable credential."
         else:
             return
         problems.append({"nodeId": node_id, "connection": conn_id, "problem": problem, "message": msg})

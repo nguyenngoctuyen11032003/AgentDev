@@ -16,6 +16,7 @@ DETECT_TIMEOUT = 10
 VENDOR_CLI = {"anthropic": "claude", "openai": "codex"}
 _STATUS_ARGS = {"anthropic": ["auth", "status"], "openai": ["login", "status"]}
 _LOGIN_HINT = {"anthropic": "claude auth login", "openai": "codex login"}
+_LOGOUT_ARGS = {"anthropic": ["auth", "logout"], "openai": ["logout"]}
 _API_KEY_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY")
 
 
@@ -100,14 +101,24 @@ def _run(path: str, args: List[str], timeout: float = DETECT_TIMEOUT) -> Tuple[i
 
 def _account_from_status(text: str) -> Optional[str]:
     """Pull the signed-in email out of `claude auth status` JSON (None if not present)."""
+    email = _profile_from_status(text).get("email")
+    return email if isinstance(email, str) and 3 <= len(email) <= 254 else None
+
+
+# Non-secret fields of `claude auth status` JSON that describe the signed-in account.
+_PROFILE_FIELDS = ("email", "authMethod", "apiProvider", "orgId", "orgName", "subscriptionType")
+
+
+def _profile_from_status(text: str) -> Dict[str, str]:
     import json
 
     try:
         data = json.loads(text)
     except ValueError:
-        return None
-    email = data.get("email") if isinstance(data, dict) else None
-    return email if isinstance(email, str) and 3 <= len(email) <= 254 else None
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: data[k][:200] for k in _PROFILE_FIELDS if isinstance(data.get(k), str) and data[k]}
 
 
 def _first_line(text: str, limit: int = 120) -> str:
@@ -115,6 +126,19 @@ def _first_line(text: str, limit: int = 120) -> str:
         if line.strip():
             return line.strip()[:limit]
     return ""
+
+
+def logout_cli(vendor: str) -> bool:
+    """Sign the vendor CLI out (`claude auth logout` / `codex logout`). Never raises."""
+    binary = VENDOR_CLI.get(vendor)
+    path = find_cli(binary) if binary else None
+    if not path:
+        return False
+    try:
+        code, _out, _err = _run(path, _LOGOUT_ARGS[vendor])
+    except Exception:  # noqa: BLE001
+        return False
+    return code == 0
 
 
 def detect_cli(vendor: str) -> Dict[str, Any]:
@@ -150,6 +174,8 @@ def detect_cli(vendor: str) -> Dict[str, Any]:
                 result["logged_in"] = True
                 result["detail"] = "Logged in"
                 result["account"] = _account_from_status(out)
+                result["profile"] = _profile_from_status(out) if vendor == "anthropic" else {}
+                result["status_text"] = _first_line(out or err)
             else:
                 result["logged_in"] = False
                 result["detail"] = f"Not logged in; run `{_LOGIN_HINT[vendor]}`"

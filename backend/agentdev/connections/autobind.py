@@ -1,89 +1,118 @@
-"""Let legacy agent nodes use saved connections without editing their YAML.
+"""Run agent nodes that name no connection on one of the signed-in accounts.
 
-Older workflows hard-code ``api_key: ${ANTHROPIC_API_KEY}`` in every node. When that
-variable is not set anywhere (environment or workflow ``vars``), the node is bound to a
-saved connection for the same provider instead of failing with "Unresolved placeholder".
-Nodes that already work (variable present) or that name a ``connection`` are untouched.
+Older workflows describe each agent with ``provider: anthropic`` (plus an ``api_key`` that is
+no longer used). At run time every such node is bound to a saved account connection: the same
+vendor when one is signed in (anthropic -> Claude, openai -> Codex, gemini -> Google), otherwise
+any account that can run the node, with the model switched to that account's default.
+Leftover ``api_key`` / ``base_url`` keys are dropped so no credential is ever read from YAML.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, List, Mapping, MutableMapping, Optional
 
-from agentdev.connections.catalog import AUTH_CLI, VENDORS, get_vendor
+from agentdev.connections.catalog import AUTH_CLI, AUTH_OAUTH, get_vendor
 from agentdev.connections.store import Connection, get_store
 from agentdev.entity.configs import ConfigError
 
+logger = logging.getLogger(__name__)
+
+# Provider names found in YAML -> the vendor whose account should run the node
+_VENDOR_OF = {
+    "anthropic": "anthropic",
+    "claude_cli": "anthropic",
+    "openai": "openai",
+    "codex_cli": "openai",
+    "gemini": "gemini",
+}
+_ACCOUNT_AUTH = (AUTH_CLI, AUTH_OAUTH)
+_LEGACY_KEYS = ("api_key", "base_url")
 _PLACEHOLDER = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
-def _unresolved_name(value: Any, env: Mapping[str, Any], vars_: Mapping[str, Any]) -> Optional[str]:
-    if not isinstance(value, str):
+def _agent_config(node: Mapping[str, Any]) -> Optional[MutableMapping[str, Any]]:
+    """The ``config`` of a graph node of type ``agent`` (nested subgraphs are walked too)."""
+    if node.get("type") != "agent":
         return None
-    match = _PLACEHOLDER.match(value.strip())
-    if not match:
-        return None
-    name = match.group(1)
-    return None if (name in env or name in vars_) else name
+    config = node.get("config")
+    return config if isinstance(config, MutableMapping) and isinstance(config.get("name"), str) else None
 
 
-def _is_agent_config(node: Mapping[str, Any]) -> bool:
-    return (
-        isinstance(node.get("provider"), str)
-        and node["provider"] in VENDORS
-        and isinstance(node.get("name"), str)
-        and "api_key" in node
-        and not node.get("connection")
-    )
+def _serves(conn: Connection, needs_tools: bool) -> bool:
+    if conn.auth_type not in _ACCOUNT_AUTH:
+        return False
+    if not needs_tools or conn.auth_type != AUTH_CLI:
+        return True
+    vendor = get_vendor(conn.vendor)
+    return bool(vendor and vendor.cli_tools)
 
 
-def _pick(candidates: List[Connection], needs_tools: bool) -> Optional[Connection]:
-    # Not every CLI can drive tools (Claude can, Codex cannot): such nodes need an API key / OAuth connection.
-    def serves(conn: Connection) -> bool:
-        if not needs_tools or conn.auth_type != AUTH_CLI:
-            return True
-        vendor = get_vendor(conn.vendor)
-        return bool(vendor and vendor.cli_tools)
-
-    usable = [c for c in candidates if serves(c)]
-    return usable[0] if usable else None
+def _pick(connections: List[Connection], vendor_id: str, needs_tools: bool) -> Optional[Connection]:
+    usable = [c for c in connections if _serves(c, needs_tools)]
+    same = [c for c in usable if c.vendor == vendor_id]
+    return (same or usable or [None])[0]
 
 
 def bind_default_connections(data: MutableMapping[str, Any], env_lookup: Mapping[str, Any]) -> None:
-    vars_ = data.get("vars") or {}
-    connections = get_store().list()
+    """Fill in ``connection`` for agent configs that have none, and a model name when the
+    YAML's ``${MODEL_NAME}``-style placeholder is set nowhere (env or workflow vars)."""
+    vars_ = data.get("vars") if isinstance(data.get("vars"), Mapping) else {}
+    store = get_store()
+    connections = store.list()
+    # The default connection (Claude unless changed on the Connections page) runs every node.
+    default = store.default_connection()
+
+    def fill_unset_model(node: MutableMapping[str, Any], path: str) -> None:
+        match = _PLACEHOLDER.match(str(node.get("name") or "").strip())
+        if not match or match.group(1) in env_lookup or match.group(1) in vars_:
+            return
+        conn = next((c for c in connections if c.id == node.get("connection")), None)
+        vendor = get_vendor(conn.vendor) if conn else None
+        model = (_default_model(conn) if conn else None) or (vendor.models[0] if vendor and vendor.models else None)
+        if model:
+            logger.info("%s: %s is not set; using the account's default model %s", path, match.group(0), model)
+            node["name"] = model
 
     def handle(node: MutableMapping[str, Any], path: str) -> None:
-        missing = _unresolved_name(node.get("api_key"), env_lookup, vars_)
-        if missing is None:
+        for key in _LEGACY_KEYS:
+            node.pop(key, None)
+        if node.get("connection"):
+            fill_unset_model(node, path)
             return
-        provider = node["provider"]
-        vendor = get_vendor(provider)
-        label = vendor.label if vendor else provider
-        candidates = [c for c in connections if c.vendor == provider]
+        provider = node.get("provider") or ""
+        vendor_id = _VENDOR_OF.get(provider, provider)
         needs_tools = bool(node.get("tooling"))
-        chosen = _pick(candidates, needs_tools)
-        if chosen is not None:
-            node["connection"] = chosen.id
-            node.pop("api_key", None)
-            node.pop("base_url", None)
-            return
-        if candidates and needs_tools:
+        if default is not None and _serves(default, needs_tools):
+            chosen = default
+        else:
+            chosen = _pick(connections, vendor_id, needs_tools)
+        if chosen is None:
+            vendor = get_vendor(vendor_id)
+            label = vendor.label if vendor else (provider or "a model provider")
             raise ConfigError(
-                f"This agent uses tools, which are not available with account (CLI) sign-in. "
-                f"Connect {label} with an API key on the Connections page, or set {missing}.",
+                f"No signed-in account can run this agent: sign in to {label} on the Connections page "
+                "and pick the connection on the node.",
                 path,
             )
-        raise ConfigError(
-            f"No credential for {label}: add a connection on the Connections page, or set {missing}.",
-            path,
-        )
+        node["connection"] = chosen.id
+        if chosen.vendor != vendor_id:
+            # The model name belongs to another vendor: use this account's default model instead.
+            vendor = get_vendor(chosen.vendor)
+            if vendor and vendor.models:
+                logger.warning(
+                    "%s: no %s account signed in; running on %s with model %s",
+                    path, vendor_id, chosen.id, vendor.models[0],
+                )
+                node["name"] = _default_model(chosen) or vendor.models[0]
+        fill_unset_model(node, path)
 
     def walk(value: Any, path: str) -> None:
         if isinstance(value, MutableMapping):
-            if _is_agent_config(value):
-                handle(value, path)
+            config = _agent_config(value)
+            if config is not None:
+                handle(config, f"{path}.config")
             for key, child in list(value.items()):
                 walk(child, f"{path}.{key}")
         elif isinstance(value, list):
@@ -91,3 +120,15 @@ def bind_default_connections(data: MutableMapping[str, Any], env_lookup: Mapping
                 walk(child, f"{path}[{index}]")
 
     walk(data.get("graph"), "root.graph")
+
+
+def _default_model(conn: Connection) -> Optional[str]:
+    """First model the account itself lists (falls back to the static catalog upstream)."""
+    try:
+        from agentdev.connections.account_info import account_info
+
+        models = account_info(conn).get("models") or []
+    except Exception:  # noqa: BLE001 - best effort; the catalog default is fine
+        return None
+    primary = [m for m in models if m.get("primary")] or models
+    return primary[0]["id"] if primary else None

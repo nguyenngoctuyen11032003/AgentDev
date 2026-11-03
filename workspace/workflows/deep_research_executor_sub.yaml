@@ -47,7 +47,6 @@ graph:
             *   **Atomicity:** Your responsibility is strictly limited to your assigned URL.
             *   **Value-Driven Summarization:** When creating the detailed summary for saving, prioritize hard data, specific conclusions, and verifiable evidence suitable for a research report.
             *   **Mandatory Final Report:** Your task is complete only after you have both saved the detailed summary using `search_save_result` AND provided a final overview message as your concluding output.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -103,7 +102,6 @@ graph:
           *   **Phase-Specific Tools:** In Phase 1, your primary tool is `web_search`. In Phase 2, your primary tools are `search_load_all` and `search_load_by_url`.
           *   **Quality Over Quantity:** During discovery, a few excellent sources are infinitely better than a long list of mediocre ones.
           *   **Active Aggregation:** Your final task is not just to signal completion, but to actively build and provide the complete data package for the next stage of the research.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function

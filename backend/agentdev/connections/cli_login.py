@@ -28,12 +28,19 @@ START_WAIT = 15.0  # seconds to wait for the CLI to print its URL
 CODE_WAIT = 30.0  # seconds to wait for the CLI to accept a pasted code
 MAX_LINES = 60
 MAX_LINE_LEN = 300
+MAX_URL_LEN = 4096
 
-# mode "paste": user copies a code from the browser back here (Claude).
-# mode "device": user types a code shown here into the browser; the CLI polls (Codex).
+# mode "paste": browser sign-in; the CLI finishes by itself once the browser is signed in, and a
+#   code shown in the browser can be pasted back as a fallback (Claude).
+# mode "browser": browser sign-in with a local callback; the CLI exits when done (Codex / ChatGPT).
+# mode "device": user types a code shown here into the browser; the CLI polls (Codex device code).
 LOGIN_SPECS: Dict[str, Dict[str, Any]] = {
     "anthropic": {"args": ["auth", "login"], "mode": "paste"},
-    "openai": {"args": ["login", "--device-auth"], "mode": "device"},
+    "openai": {"args": ["login"], "mode": "browser"},
+}
+# Alternative sign-in methods per vendor, selected by name from the UI.
+LOGIN_VARIANTS: Dict[tuple, Dict[str, Any]] = {
+    ("openai", "device"): {"args": ["login", "--device-auth"], "mode": "device"},
 }
 
 _URL_RE = re.compile(r"https://[^\s\"'<>]+")
@@ -66,13 +73,16 @@ class _Session:
         return time.monotonic() - self.started > SESSION_TTL
 
     def add_line(self, raw: str) -> None:
-        line = _ANSI_RE.sub("", raw).strip()[:MAX_LINE_LEN]
-        if not line:
+        full = _ANSI_RE.sub("", raw).strip()
+        if not full:
             return
+        line = full[:MAX_LINE_LEN]
         with self.lock:
             self.lines.append(line)
             if self.url is None:
-                match = _URL_RE.search(line)
+                # Search the untruncated line: OAuth URLs are ~500 chars and cutting them drops
+                # the trailing `state` parameter ("Missing state parameter").
+                match = _URL_RE.search(full[:MAX_URL_LEN])
                 if match:
                     self.url = match.group(0)
             if self.device_code is None and self.mode == "device":
@@ -105,8 +115,8 @@ class CliLoginManager:
         if session.proc.poll() is None:
             kill_process_tree(session.proc)
 
-    def start(self, vendor: str) -> Dict[str, Any]:
-        spec = LOGIN_SPECS.get(vendor)
+    def start(self, vendor: str, method: Optional[str] = None) -> Dict[str, Any]:
+        spec = LOGIN_VARIANTS.get((vendor, method or "")) or LOGIN_SPECS.get(vendor)
         binary = VENDOR_CLI.get(vendor)
         if spec is None or binary is None:
             raise CliLoginError("CLI sign-in is not available for this provider")

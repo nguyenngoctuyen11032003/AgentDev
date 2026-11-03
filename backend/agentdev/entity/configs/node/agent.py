@@ -322,11 +322,12 @@ class AgentRetryConfig(BaseConfig):
 @dataclass
 class AgentConfig(BaseConfig):
     provider: str
-    base_url: str
     name: str
     role: str | None = None
-    api_key: str | None = None
     connection: str | None = None
+    # Filled from the account connection at run time only (Google sign-in passes its OAuth token here)
+    base_url: str = ""
+    api_key: str | None = None
     params: Dict[str, Any] = field(default_factory=dict)
     retry: AgentRetryConfig | None = None
     input_mode: AgentInputMode = AgentInputMode.MESSAGES
@@ -344,12 +345,15 @@ class AgentConfig(BaseConfig):
         mapping = require_mapping(data, path)
         connection = optional_str(mapping, "connection", path)
         connection = connection.strip() if connection and connection.strip() else None
-        if connection:
-            # The connection decides the vendor; provider is optional and filled in at runtime.
-            provider = optional_str(mapping, "provider", path) or ""
-        else:
-            provider = require_str(mapping, "provider", path)
-        base_url = optional_str(mapping, "base_url", path)
+        # The account connection decides the vendor; ``provider`` is only a vendor hint kept by
+        # older workflows so connections.autobind can pick a matching account at run time.
+        provider = optional_str(mapping, "provider", path) or ""
+        if not connection and not provider:
+            raise ConfigError(
+                "pick an account connection (Connections page) for this agent",
+                extend_path(path, "connection"),
+            )
+        # api_key / base_url in older YAML are ignored: credentials come from the account.
         name_value = mapping.get("name")
         if isinstance(name_value, str) and name_value.strip():
             model_name = name_value.strip()
@@ -357,7 +361,6 @@ class AgentConfig(BaseConfig):
             raise ConfigError("model.name must be a non-empty string", extend_path(path, "name"))
 
         role = optional_str(mapping, "role", path)
-        api_key = optional_str(mapping, "api_key", path)
         params = optional_dict(mapping, "params", path) or {}
         raw_input_mode = optional_str(mapping, "input_mode", path)
         input_mode = AgentInputMode.MESSAGES
@@ -404,10 +407,8 @@ class AgentConfig(BaseConfig):
 
         return cls(
             provider=provider,
-            base_url=base_url,
             name=model_name,
             role=role,
-            api_key=api_key,
             connection=connection,
             params=params,
             tooling=tooling_cfg,
@@ -438,8 +439,8 @@ class AgentConfig(BaseConfig):
             name="connection",
             display_name="Connection",
             type_hint="str",
-            required=False,
-            description="Saved connection (Connections page) that supplies the vendor and credential. When set, provider/base_url/api_key are ignored.",
+            required=True,
+            description="Account connection (Connections page) that supplies the vendor and sign-in.",
         ),
         "provider": ConfigFieldSpec(
             name="provider",
@@ -447,25 +448,7 @@ class AgentConfig(BaseConfig):
             type_hint="str",
             required=False,
             description="Name of a registered provider (openai, gemini, anthropic, etc.) that selects the underlying client adapter.",
-            default="openai",
-        ),
-        "base_url": ConfigFieldSpec(
-            name="base_url",
-            display_name="Base URL",
-            type_hint="str",
-            required=False,
-            description="Override the provider's default endpoint; leave empty to use the built-in base URL.",
-            advance=True,
-            default="${BASE_URL}",
-        ),
-        "api_key": ConfigFieldSpec(
-            name="api_key",
-            display_name="API Key",
-            type_hint="str",
-            required=False,
-            description="Credential consumed by the provider client; reference an env var such as ${API_KEY} that matches the selected provider.",
-            advance=True,
-            default="${API_KEY}",
+            hidden=True,  # sign-in connections choose the vendor
         ),
         "params": ConfigFieldSpec(
             name="params",
@@ -550,17 +533,20 @@ class AgentConfig(BaseConfig):
     def _apply_connection_enum(connection_spec: ConfigFieldSpec) -> ConfigFieldSpec:
         from agentdev.connections import get_store
 
-        connections = get_store().list()
+        store = get_store()
+        connections = store.list()
         if not connections:
             return connection_spec
         options = [
             EnumOption(value=conn.id, label=conn.label, description=conn.vendor)
             for conn in connections
         ]
+        default = store.default_connection()
         return replace(
             connection_spec,
             enum=[conn.id for conn in connections],
             enum_options=options,
+            default=default.id if default else connection_spec.default,
         )
 
     @staticmethod

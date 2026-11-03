@@ -22,7 +22,6 @@ graph:
     description: Actor (πθ) generates a strategy draft based on blackboard experience and short-term context.
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-haiku-5-5
       input_mode: messages
       role: |
@@ -45,7 +44,6 @@ graph:
     description: Evaluator (Me) provides scores and improvement directions for the Actor's draft.
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-haiku-5-5
       input_mode: messages
       role: |
@@ -65,7 +63,6 @@ graph:
     description: Self-Reflection (Msr) converts Evaluator results into reusable experience.
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-haiku-5-5
       input_mode: messages
       role: |
@@ -88,7 +85,6 @@ graph:
     description: Converge the final answer, absorbing the latest Draft and Evaluator tips.
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-sonnet-5-5
       input_mode: messages
       role: |

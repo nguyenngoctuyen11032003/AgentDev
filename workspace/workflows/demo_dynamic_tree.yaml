@@ -201,7 +201,6 @@ graph:
         name: claude-sonnet-5-5
         provider: anthropic
         role: Please summarize the content of the novel.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null

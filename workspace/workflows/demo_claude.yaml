@@ -11,7 +11,6 @@ graph:
       type: agent
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         name: claude-opus-5-5
         role: 'You are a weather inquiry assistant, responsible for calling tools to get the real-time temperature of a specified city.
 
@@ -34,7 +33,6 @@ graph:
       type: agent
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         name: claude-opus-5-5
         role: 'You are a lifestyle assistant. The user will provide the current temperature of a city.
 

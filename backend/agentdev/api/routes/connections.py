@@ -1,22 +1,16 @@
 """Provider connection management endpoints."""
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from agentdev.connections import ConnectionResolutionError, get_store, resolve_connection
-from agentdev.connections.catalog import AUTH_API_KEY, get_vendor, list_vendors
-from agentdev.connections.cli_auth import detect_cli
+from agentdev.connections.account_info import account_info
+from agentdev.connections.catalog import AUTH_CLI, get_vendor, list_vendors
+from agentdev.connections.cli_auth import detect_cli, logout_cli
 from agentdev.connections.cli_login import CliLoginError, get_login_manager
-from agentdev.connections.resolver import _ENV_REF
-from agentdev.connections.security import (
-    UnsafeConnectionInput,
-    check_env_ref_destination,
-    is_allowed_env_name,
-    require_local_origin,
-    validate_base_url,
-)
+from agentdev.connections.security import require_local_origin
 from agentdev.connections.store import ConnectionInputError
 
 def _block_cross_origin_writes(request: Request) -> None:
@@ -32,9 +26,7 @@ router = APIRouter(
 class ConnectionCreate(BaseModel):
     vendor: str
     label: str = Field(..., min_length=1, max_length=80)
-    auth_type: str = AUTH_API_KEY
-    api_key: str = Field("", description="API key or a ${ENV_VAR} reference (not used for CLI sign-in)")
-    base_url: str = ""
+    auth_type: str = AUTH_CLI  # account sign-in only: "cli" (Claude / Codex); Google uses the OAuth flow
 
 
 @router.get("/vendors")
@@ -53,6 +45,7 @@ def cli_status(vendor: str):
 
 class CliLoginStart(BaseModel):
     vendor: str
+    method: Optional[str] = Field(default=None, max_length=32)
 
 
 class CliLoginCode(BaseModel):
@@ -63,7 +56,7 @@ class CliLoginCode(BaseModel):
 def cli_login_start(body: CliLoginStart):
     """Spawn the vendor CLI's sign-in and return the link the user must open."""
     try:
-        return get_login_manager().start(body.vendor)
+        return get_login_manager().start(body.vendor, body.method)
     except CliLoginError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -92,7 +85,26 @@ def cli_login_cancel(session_id: str):
 
 @router.get("")
 def list_connections():
-    return {"connections": [conn.to_public() for conn in get_store().list()]}
+    store = get_store()
+    default = store.default_connection()
+    return {
+        "connections": [conn.to_public() for conn in store.list()],
+        "defaultConnection": default.id if default else None,
+    }
+
+
+class DefaultConnection(BaseModel):
+    connection_id: str = Field(..., min_length=1, max_length=120)
+
+
+@router.put("/default")
+def set_default_connection(body: DefaultConnection):
+    """Pick the connection every agent node without its own connection runs on."""
+    try:
+        conn = get_store().set_default(body.connection_id)
+    except ConnectionInputError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"defaultConnection": conn.id}
 
 
 @router.post("", status_code=201)
@@ -115,25 +127,7 @@ def create_connection(body: ConnectionCreate):
         if status.get("logged_in") is not True:
             raise HTTPException(status_code=422, detail="Not signed in: sign in to your account first")
     try:
-        base_url = validate_base_url(body.base_url)
-        env_match = _ENV_REF.match(body.api_key.strip())
-        if env_match:
-            if not is_allowed_env_name(env_match.group(1)):
-                raise UnsafeConnectionInput(
-                    f"Environment variable '{env_match.group(1)}' cannot be used as a credential "
-                    "(allowed: names ending in _API_KEY, _AUTH_TOKEN or _ACCESS_TOKEN)"
-                )
-            check_env_ref_destination(base_url, vendor.default_base_url)
-    except UnsafeConnectionInput as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    try:
-        conn = get_store().create(
-            vendor=vendor.id,
-            label=body.label,
-            secret=body.api_key,
-            base_url=base_url,
-            auth_type=body.auth_type,
-        )
+        conn = get_store().create(vendor=vendor.id, label=body.label, auth_type=body.auth_type)
     except ConnectionInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return conn.to_public()
@@ -141,9 +135,38 @@ def create_connection(body: ConnectionCreate):
 
 @router.delete("/{connection_id}")
 def delete_connection(connection_id: str):
-    if not get_store().delete(connection_id):
+    store = get_store()
+    conn = store.get(connection_id)
+    if conn is None or not store.delete(connection_id):
         raise HTTPException(status_code=404, detail="Connection not found")
-    return {"deleted": connection_id}
+    cli_logged_out = False
+    if conn.auth_type == "cli":
+        # Signing out also signs the CLI out, so reconnecting asks for the account again.
+        # Other CLI connections of the same vendor share that login, so keep it while any remain.
+        still_used = any(c.auth_type == "cli" and c.vendor == conn.vendor for c in store.list())
+        if not still_used:
+            cli_logged_out = logout_cli(conn.vendor)
+    return {"deleted": connection_id, "cliLoggedOut": cli_logged_out}
+
+
+@router.get("/{connection_id}/account")
+def connection_account(connection_id: str):
+    """Who is signed in behind this connection: identity, plan, models and usage limits."""
+    conn = get_store().get(connection_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    return account_info(conn)
+
+
+@router.get("/{connection_id}/models")
+def connection_models_route(connection_id: str):
+    """Models the account behind this connection can use (for the model pickers)."""
+    from agentdev.connections.model_catalog import connection_models
+
+    conn = get_store().get(connection_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    return connection_models(conn)
 
 
 @router.post("/{connection_id}/test")
@@ -155,46 +178,16 @@ def test_connection(connection_id: str):
     vendor = get_vendor(conn.vendor)
     fallback: List[str] = list(vendor.models) if vendor else []
     if conn.auth_type == "cli":
-        status = detect_cli(conn.vendor)
-        ok = bool(status.get("installed")) and status.get("logged_in") is not False
-        return {"ok": ok, "error": None if ok else status.get("detail", ""), "models": fallback, "cli": status}
+        account = account_info(conn)
+        ok = account.get("loggedIn") is True
+        models = [m["id"] for m in account.get("models") or []] or fallback
+        return {"ok": ok, "error": None if ok else account.get("detail", ""), "models": models, "account": account}
+    # Google sign-in: resolving refreshes the token, then Gemini lists the account's models.
     try:
-        creds = resolve_connection(connection_id)
+        resolve_connection(connection_id)
     except ConnectionResolutionError as exc:
         return {"ok": False, "error": str(exc), "models": fallback}
-    if conn.auth_type == "oauth":
-        # Token was just validated/refreshed by the resolver; model listing needs an API key.
-        return {"ok": True, "models": fallback}
+    from agentdev.connections.model_catalog import connection_models
 
-    base_url = creds.base_url or (vendor.default_base_url if vendor else "")
-    try:
-        models = _list_remote_models(conn.vendor, creds.api_key, base_url)
-    except Exception as exc:  # noqa: BLE001 - surfaced to the user as a test failure
-        # Never echo the SDK message: it can contain response bodies or parts of the key.
-        status = getattr(exc, "status_code", None)
-        detail = f"{type(exc).__name__}" + (f" (HTTP {status})" if status else "")
-        return {"ok": False, "error": detail, "models": fallback}
-    return {"ok": True, "models": models or fallback}
-
-
-def _list_remote_models(vendor: str, api_key: str, base_url: str) -> List[str]:
-    if vendor == "anthropic":
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=api_key, base_url=base_url or None, timeout=15)
-        return [m.id for m in client.models.list(limit=100)]
-    if vendor == "openai":
-        from openai import OpenAI
-
-        client = OpenAI(api_key=api_key, base_url=base_url or None, timeout=15)
-        return sorted(m.id for m in client.models.list())
-    if vendor == "gemini":
-        from google import genai
-
-        client = genai.Client(api_key=api_key)
-        names = []
-        for model in client.models.list():
-            name = getattr(model, "name", "") or ""
-            names.append(name.split("/", 1)[-1])
-        return names
-    raise ValueError(f"Unsupported vendor '{vendor}'")
+    result = connection_models(conn)
+    return {"ok": result["ok"], "error": result["error"], "models": [m["id"] for m in result["models"]] or fallback}

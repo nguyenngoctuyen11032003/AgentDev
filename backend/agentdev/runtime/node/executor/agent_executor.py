@@ -64,11 +64,16 @@ class AgentNodeExecutor(NodeExecutor):
         
         try:
             self._current_node_id = node.id
-            if agent_config.connection:
-                creds = resolve_connection(agent_config.connection)
-                agent_config.provider = creds.provider or creds.vendor
-                agent_config.api_key = creds.api_key
-                agent_config.base_url = creds.base_url or ""
+            # Every agent runs on a signed-in account (see connections.autobind for older YAML).
+            if not agent_config.connection:
+                raise ValueError(
+                    f"Agent node '{node.id}' has no account connection. "
+                    "Sign in on the Connections page and pick the connection on this node."
+                )
+            creds = resolve_connection(agent_config.connection)
+            agent_config.provider = creds.provider or creds.vendor
+            agent_config.api_key = creds.token
+            agent_config.base_url = creds.base_url or ""
             provider_class = ProviderRegistry.get_provider(agent_config.provider)
             if not provider_class:
                 raise ValueError(f"Provider '{agent_config.provider}' not found")

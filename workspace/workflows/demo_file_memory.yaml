@@ -16,11 +16,6 @@ graph:
           - .md
           recursive: false
           encoding: utf-8
-        embedding:
-          provider: openai
-          model: text-embedding-3-small
-          base_url: ${BASE_URL}
-          api_key: ${API_KEY}
   start:
     - Assistant
   nodes:
@@ -28,7 +23,6 @@ graph:
     type: agent
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-sonnet-5-5
       role: 'You are an intelligent assistant, skilled at answering user questions based on documents and codebases.
 

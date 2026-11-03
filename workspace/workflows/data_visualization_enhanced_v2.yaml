@@ -11,7 +11,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a Data Visualization Product Manager. Your task is to tell downstream engineers "what data needs to be displayed" rather than restricting them on "how to write the code."
 
@@ -43,7 +42,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a highly fault-tolerant Python data cleaning script generator.
 
@@ -79,7 +77,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a **Senior Visualization Engineer** proficient in Matplotlib and Seaborn. Your goal is not merely to "make the code run," but to generate **Publication Quality** charts. Note that you have the capability to call the `describe_available_files`, `load_file`, `read_text_file_snippet`, and `install_python_packages` tools. Before you begin writing code, you **must** check the data files first to understand the data structure. Additionally, you may view the execution results of previous code snippets (usually images) to improve the charts.
 
@@ -109,7 +106,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a visualization expert. You **must** utilize available tools (e.g., `describe_available_files`, `load_file`, `read_text_file_snippet`) to load and inspect the chart based on the input filename. You need to evaluate the content of the chart. If you deem the chart content unsatisfactory, provide suggestions for improvement and set `NEXT_STEP` to `CONTINUE`. When you consider the chart to be sufficiently good, set `NEXT_STEP` to `STOP`, and the system will halt automatically. Note that you should provide **instructions**, not discussions. Your response must adhere to the following format:
 
@@ -130,7 +126,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a visualization expert. You **must** utilize available tools (e.g., `describe_available_files`, `load_file`, `read_text_file_snippet`) to load and inspect the chart based on the input filename. You need to evaluate the content of the chart. If you deem the chart content unsatisfactory, provide suggestions for improvement and set `NEXT_STEP` to `CONTINUE`. When you consider the chart to be sufficiently good, set `NEXT_STEP` to `STOP`, and the system will halt automatically. Note that you should provide **instructions**, not discussions. Your response must adhere to the following format:
 
@@ -194,7 +189,6 @@ graph:
           Robustness requirements: Must handle possible reading errors (such as encoding errors, delimiter errors), attempting multiple encodings (utf-8, gbk, latin1) until successful reading.
 
           Most Important: When code execution ends, you MUST print the name of the generated metadata report file using `print(output_filename)` so the system can capture it.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -232,7 +226,6 @@ graph:
           ANALYSIS: <Brief explanation of data status and field meanings>
           NEXT_STEP: CLEAN / VISUALIZE
           CONTENT: <If CLEAN: Provide specific cleaning strategies (e.g., delete null values, fill with mean)> <If VISUALIZE: State the data relationships you wish to explore (e.g., analyze trends between Column A and Column B)>
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -267,7 +260,6 @@ graph:
 
           **[Input Handling]**
           First call tools to check data and understand the structure, then directly output the Python code block.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -311,7 +303,6 @@ graph:
           The report should include: Background (if necessary), Individual Image Analysis, Comprehensive Summary
 
           The overall expression must remain objective, rigorous, and data-driven, avoiding baseless subjective inferences.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function

@@ -15,7 +15,6 @@ graph:
       context_window: 0
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         name: claude-sonnet-5-5
         role: |
           # Role
@@ -70,7 +69,6 @@ graph:
       context_window: 0
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         name: claude-sonnet-5-5
         role: |
           # Role
@@ -113,7 +111,6 @@ graph:
       context_window: 10
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         name: claude-sonnet-5-5
         role: |
           # Identity
@@ -166,7 +163,6 @@ graph:
       context_window: 10
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         name: claude-sonnet-5-5
         role: |
           You are a **Technical Supervisor**.
@@ -193,7 +189,6 @@ graph:
       context_window: 10
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         name: claude-sonnet-5-5
         role: |
           You receive: Spec + Plan + Script + Reviewer notes.
@@ -223,7 +218,6 @@ graph:
       context_window: 10
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         name: claude-sonnet-5-5
         role: |
           Output Markdown with:

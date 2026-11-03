@@ -40,7 +40,6 @@ graph:
         role: >-
           You need to plan according to user requests. Use your imagination and
           do not ask the user any questions.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: null
         thinking: null
@@ -85,7 +84,6 @@ graph:
         role: >-
           Please aggregate the input content into a final result. Note that you
           must not omit anything! If there is only one input, output it as is.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: null
         thinking: null

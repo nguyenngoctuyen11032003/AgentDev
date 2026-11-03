@@ -28,9 +28,6 @@ graph:
           CODE_STATUS: <PASS|FAILED>
           ERROR: <Code execution error. If code passed, leave this field blank>
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
           - type: mcp_local
@@ -70,9 +67,6 @@ graph:
           - Do NOT write Blender Python (bpy) code.
           - Provide data in a format easily readable by the Engineer (e.g., JSON-like or bullet points).
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
         thinking:
@@ -103,9 +97,6 @@ graph:
           - Do NOT write Python code.
           - Focus on the *visual composition* and *hierarchy* of objects.
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
         thinking:
@@ -164,9 +155,6 @@ graph:
 
           **Output:** Return ONLY the Python code block.
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
         thinking:
@@ -238,9 +226,6 @@ graph:
           DECISION: <REJECT|ACCEPT>
           DESCRIPTION: <Defect description. If you accept the result, leave this blank>
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
           - type: mcp_local

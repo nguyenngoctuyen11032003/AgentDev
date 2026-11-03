@@ -60,7 +60,6 @@ graph:
           [Your suggestion]
           **QA agent**
           [Your suggestion]
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -128,7 +127,6 @@ graph:
           4. Animation & Juice: Add smooth movements, size pulsing, rotation.
           5. Visual Feedback: Flash effects on collisions, spawn animations.
           6. UI Polish: Centered text, drop shadows, background gradients.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -211,7 +209,6 @@ graph:
 
           # Constraints
           -All game files should be in one folder, with a size not exceeding 20KB
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: []
         thinking: null
@@ -288,7 +285,6 @@ graph:
           - DO NOT paste the code in your chat message text (to save tokens and avoid duplication)
           - The code should ONLY appear inside the tool call's 'content' argument, NOT in your message
           - DO NOT add explanations after calling save_file
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -452,7 +448,6 @@ graph:
           - DO NOT paste the code in your chat message text (to save tokens and avoid duplication)
           - The code should ONLY appear inside the tool call's 'content' argument, NOT in your message
           - DO NOT add explanations after calling save_file
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -533,7 +528,6 @@ graph:
           - [Actionable fix 2]
 
           IMPORTANT: Your last line must contain either "APPROVE" or "NEEDS_REFINEMENT" as a routing keyword.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -593,7 +587,6 @@ graph:
           - Do NOT rewrite the game
           - Preserve all existing functionality
           - Do NOT simplify or optimize unrelated code
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -638,7 +631,6 @@ graph:
           - NO summaries or explanations
           - Output MUST be the complete, unmodified game.py content
           - If file is incomplete, read more until you have it all
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -716,7 +708,6 @@ graph:
           - DO NOT paste the code in your chat message text (to save tokens and avoid duplication)
           - The code should ONLY appear inside the tool call's 'content' argument, NOT in your message
           - Only output a brief fix description in your message, NO code blocks
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function

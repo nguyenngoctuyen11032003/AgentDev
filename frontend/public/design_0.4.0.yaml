@@ -8,36 +8,46 @@ graph:
   is_majority_voting: <bool> | false
   nodes:
   - id: <string> | required
-    type: <string> | [model, agent, human, subgraph, python, passthrough, literal]
+    type: <string> | [agent, human, subgraph, python, passthrough, literal, loop_counter,
+      loop_timer]
     description: <string> | None
+    mascot: <int> | [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     context_window: <int> | 0
+    log_output: <bool> | true
     config:
-      <variant[config]=model>:
+      <variant[config]=agent>:
         name: <string> | required
         role: <text> | None
-        provider: <string> | [openai, gemini]
-        base_url: <string> | "${BASE_URL}"
-        api_key: <string> | "${API_KEY}"
+        connection: <string> | [openai-t-i-kho-n, anthropic-claude-t-i-kho-n]
+        provider: <string> | [claude_cli, codex_cli, gemini]
         params:
           <key>: <value> | required
         tooling:
-          type: <string> | [function, mcp_remote, mcp_local]
+        - type: <string> | [function, mcp_remote, mcp_local]
+          prefix: <string> | None
           config:
             <variant[config]=function>:
               tools:
-              - name: <string> | [call_user, describe_available_files, execute_code,
-                  get_city_num, get_weather, get_webpage_content, install_python_packages,
-                  iter_workspace_entries, load_file, load_image, read_text_file_snippet,
-                  save_file, web_search]
-                description: <string> | None
-                parameters: <object> | None
-                auto_fill: <bool> | true
+              - name: <string> | [code_executor:All, deep_research:All, file:All,
+                  user:All, utils:All, uv_related:All, video:All, weather:All, web:All,
+                  execute_code, report_continue_chapter, report_create_chapter, report_del_chapter,
+                  report_export_pdf, report_outline, report_read, report_read_chapter,
+                  report_reorder_chapters, report_rewrite_chapter, search_high_light_key,
+                  search_load_all, search_load_by_url, search_save_result, apply_text_edits,
+                  copy_path, create_folder, delete_path, describe_available_files,
+                  list_directory, load_file, move_path, read_file_segment, read_text_file_snippet,
+                  rename_path, save_file, search_in_files, call_user, get_current_time,
+                  wait, init_python_env, install_python_packages, uv_run, concat_videos,
+                  render_manim, get_city_num, get_weather, read_webpage_content, web_search]
               timeout: <float> | None
             <variant[config]=mcp_remote>:
               server: <string> | required
               headers:
                 <key>: <value> | required
               timeout: <float> | None
+              cache_ttl: <float> | None
+              tool_sources:
+              - <string> | None
             <variant[config]=mcp_local>:
               command: <string> | required
               args:
@@ -48,6 +58,7 @@ graph:
               inherit_env: <bool> | true
               startup_timeout: <float> | 10.0
               wait_for_log: <string> | None
+              cache_ttl: <float> | None
         thinking:
           type: <string> | [reflection]
           config:
@@ -61,6 +72,10 @@ graph:
           similarity_threshold: <float> | -1.0
           read: <bool> | true
           write: <bool> | true
+        skills:
+          enabled: <bool> | false
+          allow:
+          - name: <string> | [greeting-demo, python-scratchpad, rest-api-caller]
         retry:
           enabled: <bool> | true
           max_attempts: <int> | 5
@@ -74,8 +89,6 @@ graph:
           - <string> | None
           retry_on_error_substrings:
           - <string> | None
-      <variant[config]=agent>:
-        url: <string> | required
       <variant[config]=human>:
         description: <text> | None
       <variant[config]=subgraph>:
@@ -110,6 +123,8 @@ graph:
                     case_sensitive: <bool> | true
               carry_data: <bool> | true
               keep_message: <bool> | false
+              clear_context: <bool> | false
+              clear_kept_context: <bool> | false
               process:
                 type: <string> | [regex_extract, function]
                 config:
@@ -120,14 +135,32 @@ graph:
                     multiline: <bool> | false
                     dotall: <bool> | false
                     multiple: <bool> | false
-                    mode: <enum> | [replace_content, metadata, data_block]
-                    metadata_key: <string> | None
-                    data_key: <string> | None
                     template: <string> | None
                     on_no_match: <enum> | [pass, default, drop]
                     default_value: <string> | None
                   <variant[config]=function>:
-                    name: <string> | [uppercase_payload]
+                    name: <string> | [code_save_and_run, uppercase_payload]
+              dynamic:
+                type: <string> | [map, tree]
+                split:
+                  type: <string> | [message, regex, json_path]
+                  config:
+                    <variant[config]=message>: {}
+                    <variant[config]=regex>:
+                      pattern: <string> | required
+                      group: <string> | None
+                      case_sensitive: <bool> | true
+                      multiline: <bool> | false
+                      dotall: <bool> | false
+                      on_no_match: <enum> | [pass, empty]
+                    <variant[config]=json_path>:
+                      json_path: <string> | required
+                config:
+                  <variant[config]=map>:
+                    max_parallel: <int> | 10
+                  <variant[config]=tree>:
+                    group_size: <int> | 3
+                    max_parallel: <int> | 10
             memory:
             - name: <string> | required
               type: <string> | [simple, file, blackboard]
@@ -135,10 +168,8 @@ graph:
                 <variant[config]=simple>:
                   memory_path: <string> | None
                   embedding:
-                    provider: <string> | "openai"
-                    model: <string> | "text-embedding-3-small"
-                    api_key: <string> | "${API_KEY}"
-                    base_url: <string> | "${BASE_URL}"
+                    provider: <string> | [local]
+                    model: <string> | None
                     params:
                       <key>: <value> | required
                 <variant[config]=file>:
@@ -150,10 +181,8 @@ graph:
                     recursive: <bool> | true
                     encoding: <string> | "utf-8"
                   embedding:
-                    provider: <string> | "openai"
-                    model: <string> | "text-embedding-3-small"
-                    api_key: <string> | "${API_KEY}"
-                    base_url: <string> | "${BASE_URL}"
+                    provider: <string> | [local]
+                    model: <string> | None
                     params:
                       <key>: <value> | required
                 <variant[config]=blackboard>:
@@ -168,17 +197,28 @@ graph:
           <variant[config]=file>:
             path: <string> | required
       <variant[config]=python>:
-        interpreter: <string>
+        interpreter: <string> | "D:\Code\Tuyen\AgentDev\backend\.venv\Scripts\python.exe"
         args:
         - <string> | None
         env:
           <key>: <value> | required
         timeout_seconds: <int> | 60
         encoding: <string> | "utf-8"
-      <variant[config]=passthrough>: {}
+      <variant[config]=passthrough>:
+        only_last_message: <bool> | true
       <variant[config]=literal>:
-        content: <string> | required
+        content: <text> | required
         role: <string> | [user, assistant]
+      <variant[config]=loop_counter>:
+        max_iterations: <int> | 10
+        reset_on_emit: <bool> | true
+        message: <text> | None
+      <variant[config]=loop_timer>:
+        max_duration: <float> | 60.0
+        duration_unit: <string> | [seconds, minutes, hours]
+        reset_on_emit: <bool> | true
+        message: <text> | None
+        passthrough: <bool> | false
   edges:
   - from: <string> | required
     to: <string> | required
@@ -199,6 +239,8 @@ graph:
           case_sensitive: <bool> | true
     carry_data: <bool> | true
     keep_message: <bool> | false
+    clear_context: <bool> | false
+    clear_kept_context: <bool> | false
     process:
       type: <string> | [regex_extract, function]
       config:
@@ -209,14 +251,32 @@ graph:
           multiline: <bool> | false
           dotall: <bool> | false
           multiple: <bool> | false
-          mode: <enum> | [replace_content, metadata, data_block]
-          metadata_key: <string> | None
-          data_key: <string> | None
           template: <string> | None
           on_no_match: <enum> | [pass, default, drop]
           default_value: <string> | None
         <variant[config]=function>:
-          name: <string> | [uppercase_payload]
+          name: <string> | [code_save_and_run, uppercase_payload]
+    dynamic:
+      type: <string> | [map, tree]
+      split:
+        type: <string> | [message, regex, json_path]
+        config:
+          <variant[config]=message>: {}
+          <variant[config]=regex>:
+            pattern: <string> | required
+            group: <string> | None
+            case_sensitive: <bool> | true
+            multiline: <bool> | false
+            dotall: <bool> | false
+            on_no_match: <enum> | [pass, empty]
+          <variant[config]=json_path>:
+            json_path: <string> | required
+      config:
+        <variant[config]=map>:
+          max_parallel: <int> | 10
+        <variant[config]=tree>:
+          group_size: <int> | 3
+          max_parallel: <int> | 10
   memory:
   - name: <string> | required
     type: <string> | [simple, file, blackboard]
@@ -224,10 +284,8 @@ graph:
       <variant[config]=simple>:
         memory_path: <string> | None
         embedding:
-          provider: <string> | "openai"
-          model: <string> | "text-embedding-3-small"
-          api_key: <string> | "${API_KEY}"
-          base_url: <string> | "${BASE_URL}"
+          provider: <string> | [local]
+          model: <string> | None
           params:
             <key>: <value> | required
       <variant[config]=file>:
@@ -239,10 +297,8 @@ graph:
           recursive: <bool> | true
           encoding: <string> | "utf-8"
         embedding:
-          provider: <string> | "openai"
-          model: <string> | "text-embedding-3-small"
-          api_key: <string> | "${API_KEY}"
-          base_url: <string> | "${BASE_URL}"
+          provider: <string> | [local]
+          model: <string> | None
           params:
             <key>: <value> | required
       <variant[config]=blackboard>:

@@ -8,55 +8,6 @@ graph:
   start:
     - Product Manager
   nodes:
-    - id: Product Manager
-      type: agent
-      description: Defines the raw requirements and object manifest.
-      context_window: 0
-      config:
-        name: ${MODEL_NAME}
-        role: |
-          # Role
-          You are a professional **3D Technical Product Manager**.
-          Your goal is to translate vague one-sentence user requirements into a detailed **"3D Scene Design Spec"** capable of being executed by a Python script.
-
-          # Context
-          Your downstream partner is a **Procedural Architect** who generates scenes by writing Blender Python code.
-          This means your requirements must be **quantifiable**, **specific**, and **geometrically logical**.
-
-          # Tasks
-          1.  **Requirement Analysis & Completion**: Users usually only say "make a forest cabin". You need to supplement: How big is the forest? What kind of trees? Is the cabin log or masonry? Is it day or night?
-          2.  **Parametric Definition**: All objects must have estimated **Dimensions** and **Placement Logic**.
-          3.  **Visual Style Definition**: Determine the material style (Low Poly / Realistic / Cartoon) and lighting atmosphere.
-
-          # Output Format (Strictly Follow)
-          You must output in the following Markdown format; do not include pleasantries:
-
-          ## 1. Scene Overview
-          *   **Theme**: [e.g., Cyberpunk Street / Peaceful Forest]
-          *   **Style**: [e.g., Low Poly / Voxel / Realistic]
-          *   **Scale**: [e.g., A 50m x 50m plot]
-          *   **Mood**: [e.g., Gloomy, Sunny, Mysterious]
-
-          ## 2. Object List (Core Section)
-          Please list all key objects that need to be built in the scene. For each object, provide:
-          *   **Name**: [Object Name, e.g., Log_Cabin]
-          *   **Quantity**: [Quantity, e.g., 1 or "Scattered 50+"]
-          *   **Dimensions**: [Estimated L x W x H, e.g., 5m x 4m x 3m]
-          *   **Shape/Geometry**: [Basic geometric composition suggestions, e.g., "Walls made of cylinders and a pyramidal roof"]
-          *   **Material Look**: [Material description, e.g., "Aged dark wood grain with noise texture"]
-          *   **Location**: [Placement logic, e.g., "Located at the center of the scene" or "Randomly scattered on the ground"]
-
-          ## 3. Lighting & Camera
-          *   **Main Light**: [e.g., Warm sunlight, high intensity, shining from the top right]
-          *   **Ambient Light**: [e.g., Cool blue ambient light, used to fill shadows]
-          *   **Camera Angle**: [e.g., Isometric View or Human Eye View]
-
-          # Constraints
-          *   **DO NOT** ask the user for more info. You must improvise using your best judgment.
-          *   **DO NOT** describe impossible shapes (like "a hyper-realistic face"). Keep it structurally logical for code generation.
-          *   Ensure the **Dimensions** are consistent (e.g., a door must fit a human, a tree must be taller than a house).
-        provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
     - id: Planner
       type: agent
       description: Splits the spec into Geometry tasks and Decoration tasks.
@@ -103,7 +54,6 @@ graph:
           2. Setup Lighting: Based on PM's 'Main Light' & 'Ambient Light'.
           3. Setup Camera: Based on PM's 'Camera Angle'.
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
     - id: Orchestrator
       type: agent
       description: The central brain managing state and routing.
@@ -160,7 +110,6 @@ graph:
           Instruction: <Specific natural language instructions for the Worker, including necessary parameters>
           ROUTE: <COMMAND>
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
     - id: Decorator_Architect
       type: agent
       description: Applies materials and lighting.
@@ -190,7 +139,6 @@ graph:
 
           Otherwise report: "Materials and Lighting applied. Ready for review."
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         tooling:
           - type: mcp_local
             config:
@@ -220,7 +168,6 @@ graph:
           Decision: <APPROVE | REJECT | FATAL_GEO_ERROR>
           Critique: <Specific revision suggestions>
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         tooling:
           - type: mcp_local
             config:
@@ -257,8 +204,6 @@ graph:
 
           # Report
           "Geometry built. Created [X] objects. Ready for review."
-        # base_url: ${BASE_URL}
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: mcp_local
@@ -298,8 +243,6 @@ graph:
           Analysis: <Analysis based on the screenshot>
           Decision: <APPROVE | REJECT>
           Critique: <If REJECT, please provide specific coordinates or object names to guide the Architect in fixing it>
-        # base_url: ${BASE_URL}
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: mcp_local
@@ -318,6 +261,63 @@ graph:
         retry: null
       description: Checks geometry scale and physics.
       context_window: 5
+    - id: Product Manager
+      type: agent
+      config:
+        name: ${MODEL_NAME}
+        connection: anthropic-claude-t-i-kho-n
+        role: |
+          # Role
+          You are a professional **3D Technical Product Manager**.
+          Your goal is to translate vague one-sentence user requirements into a detailed **"3D Scene Design Spec"** capable of being executed by a Python script.
+
+          # Context
+          Your downstream partner is a **Procedural Architect** who generates scenes by writing Blender Python code.
+          This means your requirements must be **quantifiable**, **specific**, and **geometrically logical**.
+
+          # Tasks
+          1.  **Requirement Analysis & Completion**: Users usually only say "make a forest cabin". You need to supplement: How big is the forest? What kind of trees? Is the cabin log or masonry? Is it day or night?
+          2.  **Parametric Definition**: All objects must have estimated **Dimensions** and **Placement Logic**.
+          3.  **Visual Style Definition**: Determine the material style (Low Poly / Realistic / Cartoon) and lighting atmosphere.
+
+          # Output Format (Strictly Follow)
+          You must output in the following Markdown format; do not include pleasantries:
+
+          ## 1. Scene Overview
+          *   **Theme**: [e.g., Cyberpunk Street / Peaceful Forest]
+          *   **Style**: [e.g., Low Poly / Voxel / Realistic]
+          *   **Scale**: [e.g., A 50m x 50m plot]
+          *   **Mood**: [e.g., Gloomy, Sunny, Mysterious]
+
+          ## 2. Object List (Core Section)
+          Please list all key objects that need to be built in the scene. For each object, provide:
+          *   **Name**: [Object Name, e.g., Log_Cabin]
+          *   **Quantity**: [Quantity, e.g., 1 or "Scattered 50+"]
+          *   **Dimensions**: [Estimated L x W x H, e.g., 5m x 4m x 3m]
+          *   **Shape/Geometry**: [Basic geometric composition suggestions, e.g., "Walls made of cylinders and a pyramidal roof"]
+          *   **Material Look**: [Material description, e.g., "Aged dark wood grain with noise texture"]
+          *   **Location**: [Placement logic, e.g., "Located at the center of the scene" or "Randomly scattered on the ground"]
+
+          ## 3. Lighting & Camera
+          *   **Main Light**: [e.g., Warm sunlight, high intensity, shining from the top right]
+          *   **Ambient Light**: [e.g., Cool blue ambient light, used to fill shadows]
+          *   **Camera Angle**: [e.g., Isometric View or Human Eye View]
+
+          # Constraints
+          *   **DO NOT** ask the user for more info. You must improvise using your best judgment.
+          *   **DO NOT** describe impossible shapes (like "a hyper-realistic face"). Keep it structurally logical for code generation.
+          *   Ensure the **Dimensions** are consistent (e.g., a door must fit a human, a tree must be taller than a house).
+        params: {}
+        tooling: []
+        thinking: null
+        memories: []
+        skills: null
+        retry: null
+        provider: anthropic
+      description: Defines the raw requirements and object manifest.
+      mascot: 13
+      context_window: 0
+      log_output: true
   edges:
     - from: Product Manager
       to: Planner

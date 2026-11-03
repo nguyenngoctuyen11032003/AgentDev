@@ -9,20 +9,19 @@
         :aria-labelledby="titleId"
         @keydown.esc.stop="requestClose"
       >
+        <button type="button" class="icon-btn close-btn" :aria-label="$t('connections.close')" @click="requestClose">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+
         <header class="dialog-head">
-          <ProviderLogo :vendor="vendor.id" :label="vendor.label" :size="48" />
-          <div class="dialog-heading">
-            <h2 :id="titleId">{{ $t('connections.dialog_title', { provider: vendor.label }) }}</h2>
-            <p>{{ $t('connections.dialog_subtitle') }}</p>
-          </div>
-          <button type="button" class="icon-btn" :aria-label="$t('connections.close')" @click="requestClose">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
-          </button>
+          <ProviderLogo :vendor="vendor.id" :label="vendor.label" :size="56" />
+          <h2 :id="titleId">{{ $t('connections.login_heading', { provider: vendor.label }) }}</h2>
+          <p>{{ $t('connections.dialog_subtitle') }}</p>
         </header>
 
         <div class="dialog-body">
-          <!-- Step 1: how to sign in -->
-          <div class="method-grid" role="radiogroup" :aria-label="$t('connections.auth_method')">
+          <!-- Sign-in method: stacked options, like the login picker in the VS Code extensions -->
+          <div v-if="!login.session" class="method-list" role="radiogroup" :aria-label="$t('connections.auth_method')">
             <button
               v-for="option in methods"
               :key="option.key"
@@ -34,13 +33,13 @@
               @click="selectMethod(option.key)"
             >
               <span class="method-icon" aria-hidden="true">
-                <svg v-if="option.key === 'key'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4" /><path d="M10.8 12.2 20 3m-4 4 3 3m-6-1 2 2" /></svg>
-                <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" /></svg>
+                <svg v-if="option.key === 'device'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
+                <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" /></svg>
               </span>
               <span class="method-text">
                 <span class="method-title">
-                  {{ option.key === 'key' ? $t('connections.method_key_title') : $t('connections.method_account_title') }}
-                  <em v-if="option.key !== 'key'" class="pill pill-accent">{{ $t('connections.recommended') }}</em>
+                  {{ methodTitle(option) }}
+                  <em v-if="option.key === 'cli' || option.key === 'oauth'" class="pill pill-accent">{{ $t('connections.recommended') }}</em>
                 </span>
                 <span class="method-desc">{{ methodDescription(option) }}</span>
               </span>
@@ -48,18 +47,13 @@
             </button>
           </div>
 
-          <label class="field">
-            <span class="field-label">{{ $t('connections.label_optional') }}</span>
-            <input v-model="form.label" class="input" maxlength="80" :placeholder="defaultLabel" />
-          </label>
-
-          <!-- Step 2: details for the chosen method -->
+          <!-- Details for the chosen method -->
           <div class="detail">
             <!-- Account sign-in through a local CLI -->
             <template v-if="authType === 'cli'">
-              <p v-if="!cliStatus" class="note">{{ $t('connections.checking') }}</p>
+              <p v-if="!cliStatus" class="note"><span class="spinner" aria-hidden="true"></span>{{ $t('connections.checking') }}</p>
               <template v-else>
-                <div class="status-row" :class="cliReady ? 'is-ok' : 'is-warn'">
+                <div v-if="!login.session" class="status-row" :class="cliReady ? 'is-ok' : 'is-warn'">
                   <span class="status-dot" aria-hidden="true"></span>
                   <span>{{ cliStateText }}</span>
                 </div>
@@ -67,7 +61,7 @@
                 <p v-else-if="!login.session" class="note">
                   {{ cliReady ? $t('connections.cli_use_current_hint') : $t('connections.cli_login_needed_hint') }}
                 </p>
-                <p v-if="cliStatus.installed && !login.session" class="note">
+                <p v-if="cliStatus.installed && !login.session" class="note note-dim">
                   {{ vendor.cliTools ? $t('connections.cli_hint_tools') : $t('connections.cli_hint') }}
                 </p>
 
@@ -76,43 +70,52 @@
                     <button type="button" class="link-btn" :disabled="login.busy" @click="startLogin">
                       {{ login.busy ? $t('connections.login_starting') : $t('connections.login_switch') }}
                     </button>
-                    <p class="note">{{ $t('connections.login_switch_warning') }}</p>
+                    <p class="note note-dim">{{ $t('connections.login_switch_warning') }}</p>
                   </template>
 
-                  <template v-else>
+                  <template v-else-if="login.session">
+                    <p class="note browser-note">{{ $t('connections.login_browser_opened') }}</p>
                     <ol class="steps">
-                      <li class="step is-active">
+                      <li class="step">
                         <span class="step-num">1</span>
                         <div>
-                          <p>{{ $t('connections.login_step_open') }}</p>
+                          <p class="step-title">{{ $t('connections.step_signin') }}</p>
+                          <p class="step-text">{{ $t('connections.login_step_open') }}</p>
                           <div class="step-actions">
                             <a :href="login.session.url" target="_blank" rel="noopener noreferrer" class="btn btn-small">{{ $t('connections.login_open_link') }}</a>
                             <button type="button" class="btn btn-ghost btn-small" @click="copyLoginUrl">{{ $t('connections.login_copy_link') }}</button>
                           </div>
                         </div>
                       </li>
-                      <li class="step is-active">
+                      <li class="step">
                         <span class="step-num">2</span>
                         <div v-if="login.session.mode === 'paste'">
-                          <p>{{ $t('connections.login_step_copy_code') }}</p>
+                          <p class="step-title">{{ $t('connections.step_code') }}</p>
+                          <p class="step-text">{{ $t('connections.login_step_copy_code') }}</p>
                           <div class="code-row">
                             <input
                               v-model="login.code"
-                              class="input"
+                              class="input code-input"
                               autocomplete="off"
                               spellcheck="false"
                               :placeholder="$t('connections.login_code_placeholder')"
                               @keydown.enter.prevent="submitLoginCode"
                             />
-                            <button type="button" class="btn btn-primary" :disabled="login.busy || !login.code.trim()" @click="submitLoginCode">
-                              {{ login.busy ? $t('connections.login_verifying') : $t('connections.login_confirm') }}
-                            </button>
+                            <button type="button" class="btn" @click="pasteLoginCode">{{ $t('connections.login_paste') }}</button>
                           </div>
+                          <button type="button" class="btn btn-primary btn-block" :disabled="login.busy || !login.code.trim()" @click="submitLoginCode">
+                            {{ login.busy ? $t('connections.login_verifying') : $t('connections.login_confirm') }}
+                          </button>
+                          <p class="note waiting"><span class="spinner" aria-hidden="true"></span>{{ $t('connections.login_waiting_browser') }}</p>
+                        </div>
+                        <div v-else-if="login.session.mode === 'device'">
+                          <p class="step-title">{{ $t('connections.login_step_device') }}</p>
+                          <code class="device-code">{{ login.session.deviceCode }}</code>
+                          <p class="note waiting"><span class="spinner" aria-hidden="true"></span>{{ $t('connections.login_waiting_device') }}</p>
                         </div>
                         <div v-else>
-                          <p>{{ $t('connections.login_step_device') }}</p>
-                          <code class="device-code">{{ login.session.deviceCode }}</code>
-                          <p class="note">{{ $t('connections.login_waiting_device') }}</p>
+                          <p class="step-title">{{ $t('connections.step_finish') }}</p>
+                          <p class="note waiting"><span class="spinner" aria-hidden="true"></span>{{ $t('connections.login_waiting_browser') }}</p>
                         </div>
                       </li>
                     </ol>
@@ -132,49 +135,29 @@
               <p class="note">{{ $t('connections.oauth_hint') }}</p>
             </template>
 
-            <!-- API key -->
-            <template v-else>
-              <label class="field">
-                <span class="field-label">{{ $t('connections.api_key') }}</span>
-                <span class="input-wrap">
-                  <input
-                    ref="keyInput"
-                    v-model="form.apiKey"
-                    class="input"
-                    :type="showKey ? 'text' : 'password'"
-                    autocomplete="off"
-                    spellcheck="false"
-                    :placeholder="vendor.envKeyHint ? `\${${vendor.envKeyHint}}` : ''"
-                  />
-                  <button type="button" class="input-toggle" @click="showKey = !showKey">
-                    {{ showKey ? $t('connections.hide_key') : $t('connections.show_key') }}
-                  </button>
-                </span>
-                <span class="field-hint">{{ $t('connections.api_key_hint', { example: '${ENV_KEY}' }) }}</span>
-              </label>
-
-              <details class="advanced">
-                <summary>{{ $t('connections.advanced') }}</summary>
-                <label class="field">
-                  <span class="field-label">{{ $t('connections.base_url') }}</span>
-                  <input v-model="form.baseUrl" class="input" :placeholder="vendor.defaultBaseUrl" spellcheck="false" />
-                </label>
-              </details>
-            </template>
+            <details v-if="!login.session" class="advanced">
+              <summary>{{ $t('connections.label_optional') }}</summary>
+              <input v-model="form.label" class="input" maxlength="80" :placeholder="defaultLabel" />
+            </details>
           </div>
         </div>
 
         <footer class="dialog-foot">
+          <button
+            v-if="!login.session"
+            type="button"
+            class="btn btn-primary btn-cta"
+            :disabled="!canSubmit || saving || login.busy"
+            @click="submit"
+          >
+            <span v-if="saving || login.busy" class="spinner" aria-hidden="true"></span>
+            {{ login.busy ? $t('connections.login_starting') : submitLabel }}
+          </button>
+          <button type="button" class="btn btn-ghost btn-cta-sub" @click="requestClose">{{ $t('connections.cancel') }}</button>
           <p class="privacy">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
             {{ $t('connections.privacy') }}
           </p>
-          <div class="foot-actions">
-            <button type="button" class="btn btn-ghost" @click="requestClose">{{ $t('connections.cancel') }}</button>
-            <button type="button" class="btn btn-primary" :disabled="!canSubmit || saving || login.busy" @click="submit">
-              {{ submitLabel }}
-            </button>
-          </div>
         </footer>
       </section>
     </div>
@@ -208,38 +191,40 @@ const emit = defineEmits(['close', 'created'])
 const { t } = useI18n()
 const titleId = `connect-title-${Math.random().toString(36).slice(2, 8)}`
 const dialogEl = ref(null)
-const keyInput = ref(null)
 
-const form = reactive({ label: '', apiKey: '', baseUrl: '' })
-const showKey = ref(false)
+const form = reactive({ label: '' })
 const saving = ref(false)
-const method = ref('key')
+const method = ref('cli')
 const cliStatus = ref(null)
 const oauthConfigured = ref(null)
 
 // "Account" covers whichever sign-in the vendor offers (CLI or Google OAuth).
+// OpenAI mirrors the Codex extension: ChatGPT sign-in, device code.
+// API keys are not offered: connections always use an account sign-in.
 const methods = computed(() => {
   const list = []
   const auth = props.vendor.authMethods || []
-  if (auth.includes('cli')) list.push({ key: 'cli' })
-  else if (auth.includes('oauth')) list.push({ key: 'oauth' })
-  if (auth.includes('api_key')) list.push({ key: 'key' })
+  const isOpenAI = props.vendor.id === 'openai'
+  if (auth.includes('cli')) list.push({ key: 'cli', auth: 'cli', login: isOpenAI ? 'browser' : null })
+  else if (auth.includes('oauth')) list.push({ key: 'oauth', auth: 'oauth', login: null })
+  if (isOpenAI && auth.includes('cli')) list.push({ key: 'device', auth: 'cli', login: 'device' })
   return list
 })
 
-const authType = computed(() => (method.value === 'key' ? 'api_key' : method.value))
+const currentMethod = computed(() => methods.value.find((m) => m.key === method.value))
+const authType = computed(() => currentMethod.value?.auth || 'cli')
+const loginMethod = computed(() => currentMethod.value?.login || null)
 const cliBinary = computed(() => (props.vendor.id === 'anthropic' ? 'claude' : 'codex'))
 const cliReady = computed(() => !!cliStatus.value?.installed && cliStatus.value.logged_in !== false)
 
 const defaultLabel = computed(() =>
   t('connections.default_name', {
     provider: props.vendor.label,
-    method: authType.value === 'api_key' ? t('connections.auth_api_key') : t('connections.method_account_short')
+    method: t('connections.method_account_short')
   })
 )
 
 const canSubmit = computed(() => {
-  if (authType.value === 'api_key') return !!form.apiKey.trim()
   if (authType.value === 'cli') return !!cliStatus.value?.installed && !login.session
   return oauthConfigured.value !== false
 })
@@ -257,12 +242,25 @@ const cliStateText = computed(() => {
 const submitLabel = computed(() => {
   if (saving.value) return t('connections.adding')
   if (authType.value === 'oauth') return t('connections.sign_in_google')
-  if (authType.value === 'cli' && !cliReady.value) return t('connections.login_and_connect')
+  if (authType.value === 'cli' && !cliReady.value) {
+    if (props.vendor.id === 'openai') {
+      return loginMethod.value === 'device' ? t('connections.use_device_code') : t('connections.sign_in_chatgpt')
+    }
+    return `${t('connections.continue_account')} ${props.vendor.id === 'anthropic' ? 'Claude' : props.vendor.label}`
+  }
   return t('connections.add')
 })
 
+function methodTitle(option) {
+  if (props.vendor.id === 'openai') {
+    return option.key === 'device' ? t('connections.use_device_code') : t('connections.sign_in_chatgpt')
+  }
+  return t('connections.method_account_title')
+}
+
 function methodDescription(option) {
-  if (option.key === 'key') return t('connections.method_key_desc')
+  if (props.vendor.id === 'openai' && option.key === 'cli') return t('connections.method_chatgpt_desc')
+  if (option.key === 'device') return t('connections.method_device_desc')
   return option.key === 'oauth' ? t('connections.method_oauth_desc') : t('connections.method_cli_desc')
 }
 
@@ -286,36 +284,59 @@ async function refreshCliStatus() {
   }
 }
 
+let finishing = false
+
 async function finishLogin(result) {
-  const succeeded = result.status === 'succeeded'
-  resetLogin()
-  if (!succeeded) {
-    // Sign-in failed: nothing is created, the user can simply try again.
-    login.error = result.message || t('connections.sign_in_failed')
-    return
+  // The poll and a pasted code can both report the end; only the first one counts.
+  if (finishing) return
+  finishing = true
+  try {
+    const succeeded = result.status === 'succeeded'
+    resetLogin()
+    if (!succeeded) {
+      // Sign-in failed: nothing is created, the user can simply try again.
+      login.error = result.message || t('connections.sign_in_failed')
+      return
+    }
+    toast.success(t('connections.login_success'))
+    await refreshCliStatus()
+    await saveConnection()
+  } finally {
+    finishing = false
   }
-  toast.success(t('connections.login_success'))
-  await refreshCliStatus()
-  await saveConnection()
 }
 
 async function startLogin() {
   login.error = ''
   login.busy = true
   try {
-    login.session = await startCliLogin(props.vendor.id)
+    const session = await startCliLogin(props.vendor.id, loginMethod.value)
+    login.session = session
     login.busy = false
-    if (login.session.mode === 'device') {
-      loginTimer = setInterval(async () => {
-        try {
-          const state = await pollCliLogin(login.session.sessionId)
-          if (state.status !== 'waiting') finishLogin(state)
-        } catch (error) {
+    // Like the VS Code extensions: open the sign-in page straight away (the link stays as a fallback).
+    window.open(session.url, '_blank', 'noopener,noreferrer')
+    if (session.mode === 'paste') {
+      await nextTick()
+      dialogEl.value?.querySelector('input.code-input')?.focus()
+    }
+    // Every mode is polled: the CLI exits once the browser sign-in completes, which finishes the connection.
+    // (A pasted code is submitted separately, so the poll pauses while that request is running.)
+    let polling = false
+    loginTimer = setInterval(async () => {
+      if (polling || login.busy || login.session?.sessionId !== session.sessionId) return
+      polling = true
+      try {
+        const state = await pollCliLogin(session.sessionId)
+        if (login.session?.sessionId === session.sessionId && state.status !== 'waiting') finishLogin(state)
+      } catch (error) {
+        if (login.session?.sessionId === session.sessionId && !login.busy) {
           resetLogin()
           login.error = error.message
         }
-      }, 2000)
-    }
+      } finally {
+        polling = false
+      }
+    }, 2000)
   } catch (error) {
     login.error = error.message
     login.busy = false
@@ -342,6 +363,14 @@ async function cancelLogin() {
     } catch {
       // The attempt expires on its own.
     }
+  }
+}
+
+async function pasteLoginCode() {
+  try {
+    login.code = (await navigator.clipboard.readText()).trim()
+  } catch {
+    dialogEl.value?.querySelector('input.code-input')?.focus()
   }
 }
 
@@ -433,14 +462,7 @@ async function saveConnection() {
     if (authType.value === 'oauth') {
       await signInWithGoogle(label)
     } else {
-      const isKey = authType.value === 'api_key'
-      await createConnection({
-        vendor: props.vendor.id,
-        label,
-        apiKey: isKey ? form.apiKey : '',
-        baseUrl: isKey ? form.baseUrl : '',
-        authType: authType.value
-      })
+      await createConnection({ vendor: props.vendor.id, label, authType: authType.value })
     }
     toast.success(t('connections.added'))
     emit('created')
@@ -474,13 +496,12 @@ watch(
       if (login.session) cancelLogin()
       return
     }
-    Object.assign(form, { label: '', apiKey: '', baseUrl: '' })
-    showKey.value = false
+    form.label = ''
     login.error = ''
-    method.value = methods.value[0]?.key || 'key'
+    method.value = methods.value[0]?.key || 'cli'
     await prepareMethod()
     await nextTick()
-    ;(keyInput.value || dialogEl.value?.querySelector('button.method-card'))?.focus()
+    dialogEl.value?.querySelector('button.method-card')?.focus()
   },
   { immediate: true }
 )
@@ -502,21 +523,22 @@ onBeforeUnmount(() => {
   padding: 24px 16px;
   overflow-y: auto;
   background: rgb(8 8 10 / 0.66);
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(4px);
   animation: fade 0.16s ease-out;
 }
 
 .dialog {
+  position: relative;
   box-sizing: border-box;
-  width: min(560px, 100%);
+  width: min(440px, 100%);
   max-height: calc(100dvh - 48px);
   display: flex;
   flex-direction: column;
-  border-radius: 20px;
+  border-radius: 12px;
   border: 1px solid var(--line-4);
   background: var(--surface-1);
   color: var(--text-1);
-  box-shadow: 0 32px 80px -24px rgb(0 0 0 / 0.7);
+  box-shadow: 0 24px 64px -20px rgb(0 0 0 / 0.7);
   animation: rise 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -525,7 +547,11 @@ onBeforeUnmount(() => {
 }
 
 @keyframes rise {
-  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -535,27 +561,25 @@ onBeforeUnmount(() => {
   }
 }
 
+/* ---- header: centered brand, like the extension sign-in screens ---- */
 .dialog-head {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 20px 22px 16px;
+  gap: 6px;
+  padding: 32px 28px 18px;
+  text-align: center;
 }
 
-.dialog-heading {
-  flex: 1;
-  min-width: 0;
+.dialog-head h2 {
+  margin: 12px 0 0;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
-.dialog-heading h2 {
+.dialog-head p {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.dialog-heading p {
-  margin: 2px 0 0;
   font-size: 13px;
   color: var(--text-muted-4);
 }
@@ -563,13 +587,19 @@ onBeforeUnmount(() => {
 .icon-btn {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-muted-4);
   cursor: pointer;
+}
+
+.close-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
 }
 
 .icon-btn:hover {
@@ -580,23 +610,24 @@ onBeforeUnmount(() => {
 .dialog-body {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 4px 22px 20px;
+  gap: 16px;
+  padding: 0 28px 8px;
   overflow-y: auto;
 }
 
-/* ---- method picker ---- */
-.method-grid {
-  display: grid;
-  gap: 10px;
+/* ---- method list ---- */
+.method-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .method-card {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  border-radius: 14px;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 8px;
   border: 1px solid var(--line-4);
   background: var(--surface-2);
   color: inherit;
@@ -607,22 +638,26 @@ onBeforeUnmount(() => {
 }
 
 .method-card:hover {
-  border-color: var(--accent-sky);
+  border-color: color-mix(in srgb, var(--accent-sky) 60%, var(--line-4));
 }
 
 .method-card.is-selected {
-  border-color: var(--accent-indigo);
-  background: color-mix(in srgb, var(--accent-indigo) 9%, var(--surface-2));
+  border-color: var(--accent-sky);
+  background: color-mix(in srgb, var(--accent-sky) 8%, var(--surface-2));
 }
 
 .method-icon {
   display: grid;
   flex: none;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   background: var(--surface-3);
+  color: var(--text-muted-4);
+}
+
+.method-card.is-selected .method-icon {
   color: var(--accent-sky);
 }
 
@@ -639,35 +674,36 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
 }
 
 .method-desc {
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--text-muted-4);
 }
 
 .method-radio {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  border: 2px solid var(--line-4);
+  border: 1.5px solid var(--line-4);
 }
 
 .method-card.is-selected .method-radio {
-  border-color: var(--accent-indigo);
-  background: radial-gradient(circle, var(--accent-indigo) 0 4px, transparent 5px);
+  border-color: var(--accent-sky);
+  background: radial-gradient(circle, var(--accent-sky) 0 4px, transparent 5px);
 }
 
 .pill {
-  padding: 1px 8px;
+  padding: 0 7px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-style: normal;
   font-weight: 600;
+  line-height: 17px;
 }
 
 .pill-accent {
@@ -679,30 +715,53 @@ onBeforeUnmount(() => {
 .detail {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.55;
   color: var(--text-muted-4);
+}
+
+.note-dim {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.browser-note {
+  justify-content: center;
+  text-align: center;
+}
+
+.spinner {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  animation: spin 0.7s linear infinite;
 }
 
 .status-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
   font-weight: 600;
   background: var(--surface-2);
 }
 
 .status-dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--text-muted-6);
 }
@@ -713,7 +772,7 @@ onBeforeUnmount(() => {
 
 .status-row.is-ok .status-dot {
   background: var(--accent-mint);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-mint) 18%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-mint) 18%, transparent);
 }
 
 .status-row.is-warn {
@@ -727,19 +786,22 @@ onBeforeUnmount(() => {
 .login-box {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 12px;
+}
+
+.login-box > .link-btn {
+  align-self: center;
 }
 
 .steps {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  width: 100%;
+  gap: 18px;
   margin: 0;
   padding: 16px;
   list-style: none;
-  border-radius: 14px;
+  border-radius: 8px;
   background: var(--surface-2);
   border: 1px solid var(--line-4);
 }
@@ -749,28 +811,38 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.step p {
-  margin: 0 0 8px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
 .step > div {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.step-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted-4);
 }
 
 .step-num {
   display: grid;
   flex: none;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
-  background: color-mix(in srgb, var(--accent-indigo) 22%, transparent);
-  color: var(--accent-indigo);
+  background: color-mix(in srgb, var(--accent-sky) 20%, transparent);
+  color: var(--accent-sky);
 }
 
 .step-actions,
@@ -779,20 +851,30 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.code-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
 .device-code {
-  display: inline-block;
-  padding: 6px 12px;
-  border-radius: 8px;
-  font-size: 18px;
-  letter-spacing: 0.12em;
+  align-self: flex-start;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   background: var(--surface-3);
+}
+
+.waiting {
+  margin-top: 2px;
 }
 
 .alert {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
   color: var(--danger-soft);
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
@@ -807,25 +889,25 @@ onBeforeUnmount(() => {
 }
 
 .field-label {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
 .field-hint {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted-4);
 }
 
 .input {
   box-sizing: border-box;
   width: 100%;
-  padding: 11px 13px;
-  border-radius: 10px;
+  padding: 9px 12px;
+  border-radius: 6px;
   border: 1px solid var(--line-4);
   background: var(--surface-2);
   color: var(--text-1);
   font: inherit;
-  font-size: 14px;
+  font-size: 13.5px;
 }
 
 .input::placeholder {
@@ -833,44 +915,25 @@ onBeforeUnmount(() => {
 }
 
 .input:focus-visible {
-  outline: 2px solid var(--accent-sky);
-  outline-offset: 1px;
-}
-
-.input-wrap {
-  position: relative;
-  display: block;
-}
-
-.input-wrap .input {
-  padding-right: 74px;
-}
-
-.input-toggle {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted-4);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.input-toggle:hover {
-  color: var(--text-1);
+  outline: 1px solid var(--accent-sky);
+  outline-offset: 0;
+  border-color: var(--accent-sky);
 }
 
 .advanced summary {
   width: fit-content;
-  margin-bottom: 10px;
-  font-size: 13px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
   color: var(--text-muted-4);
   cursor: pointer;
+}
+
+.advanced summary:hover {
+  color: var(--text-1);
+}
+
+.advanced:not([open]) summary {
+  margin-bottom: 0;
 }
 
 /* ---- buttons ---- */
@@ -878,26 +941,22 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 9px 16px;
-  border-radius: 10px;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 6px;
   border: 1px solid var(--line-4);
   background: var(--surface-3);
   color: var(--text-1);
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  transition: border-color 0.15s, background 0.15s, filter 0.15s;
 }
 
 .btn:hover:not(:disabled) {
   border-color: var(--accent-sky);
-}
-
-.btn:active:not(:disabled) {
-  transform: translateY(1px);
 }
 
 .btn:disabled {
@@ -906,7 +965,7 @@ onBeforeUnmount(() => {
 }
 
 .btn-small {
-  padding: 6px 12px;
+  padding: 5px 11px;
   font-size: 12.5px;
 }
 
@@ -916,14 +975,24 @@ onBeforeUnmount(() => {
   color: var(--text-muted-4);
 }
 
+.btn-ghost:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--text-1);
+}
+
 .btn-primary {
   border-color: transparent;
-  background: linear-gradient(135deg, var(--accent-indigo), var(--accent-sky));
+  background: var(--accent-sky);
   color: #101418;
 }
 
 .btn-primary:hover:not(:disabled) {
-  filter: brightness(1.06);
+  border-color: transparent;
+  filter: brightness(1.08);
+}
+
+.btn-block {
+  width: 100%;
 }
 
 .link-btn {
@@ -937,39 +1006,47 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.link-btn:hover {
+  color: var(--text-1);
+}
+
+/* ---- footer: one full-width call to action ---- */
 .dialog-foot {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 16px 28px 20px;
+}
+
+.btn-cta {
+  padding: 11px 16px;
+  font-size: 14px;
+}
+
+.btn-cta-sub {
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+
+.privacy {
+  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 22px;
-  border-top: 1px solid var(--line-4);
+  justify-content: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--text-muted-6);
 }
 
 .privacy svg {
   flex: none;
 }
 
-.privacy {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  max-width: 28ch;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text-muted-4);
-}
-
-.foot-actions {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-
 :focus-visible {
-  outline: 2px solid var(--accent-sky);
+  outline: 1px solid var(--accent-sky);
   outline-offset: 2px;
 }
 </style>

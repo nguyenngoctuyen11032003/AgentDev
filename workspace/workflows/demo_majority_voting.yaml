@@ -16,7 +16,6 @@ graph:
       provider: anthropic
       name: claude-sonnet-5-5
       role: You are a helpful assistant. Respond with 'Option A'
-      api_key: ${ANTHROPIC_API_KEY}
       params:
         temperature: 0.1
         max_tokens: 16
@@ -26,7 +25,6 @@ graph:
       provider: anthropic
       name: claude-sonnet-5-5
       role: You are a helpful assistant. Respond with 'Option A'
-      api_key: ${ANTHROPIC_API_KEY}
       params:
         temperature: 0.1
         max_tokens: 16
@@ -36,7 +34,6 @@ graph:
       provider: anthropic
       name: claude-sonnet-5-5
       role: You are a helpful assistant. Respond with 'Option B'
-      api_key: ${ANTHROPIC_API_KEY}
       params:
         temperature: 0.1
         max_tokens: 16

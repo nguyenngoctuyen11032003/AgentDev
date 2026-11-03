@@ -12,7 +12,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are the **[Central Control Node]** of a data analysis workflow. Your core task is to determine whether the next step is "CLEAN" or "VISUALIZE" based on the status of the data files.
 
@@ -42,7 +41,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a Data Visualization Product Manager. Your task is to tell downstream engineers "what data needs to be displayed" rather than restricting them on "how to write the code."
 
@@ -74,7 +72,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a highly fault-tolerant Python data cleaning script generator.
 
@@ -110,7 +107,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a **Senior Visualization Engineer** proficient in Matplotlib and Seaborn. Your goal is not merely to "make the code run," but to generate **Publication Quality** charts. Note that you have the capability to call the `describe_available_files`, `load_file`, `read_text_file_snippet`, and `install_python_packages` tools. Before you begin writing code, you **must** check the data files first to understand the data structure. Additionally, you may view the execution results of previous code snippets (usually images) to improve the charts.
 
@@ -145,7 +141,6 @@ graph:
       config:
         provider: anthropic
         name: claude-sonnet-5-5
-        api_key: ${ANTHROPIC_API_KEY}
         role: |-
           You are a visualization expert. You **must** utilize available tools (e.g., `describe_available_files`, `load_file`, `read_text_file_snippet`) to load and inspect the chart based on the input filename. You need to evaluate the content of the chart. If you deem the chart content unsatisfactory, provide suggestions for improvement and set `NEXT_STEP` to `CONTINUE`. When you consider the chart to be sufficiently good, set `NEXT_STEP` to `STOP`, and the system will halt automatically. Note that you should provide **instructions**, not discussions. Your response must adhere to the following format:
 

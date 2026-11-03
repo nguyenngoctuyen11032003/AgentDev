@@ -28,9 +28,6 @@ graph:
           CODE_STATUS: <PASS|FAILED>
           ERROR: <Code execution error. If code passed, leave this field blank>
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
           - type: mcp_local
@@ -102,9 +99,6 @@ graph:
           DECISION: <REJECT|ACCEPT>
           DESCRIPTION: <Detailed instructions for the Engineer on what looks wrong. Example: "The gold layer is too thin, please make it thicker." NOT code.>
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
           - type: mcp_local
@@ -154,9 +148,6 @@ graph:
           - Do NOT write Python code.
           - Focus on the *visual composition* and *hierarchy* of objects.
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
         thinking:
@@ -190,9 +181,6 @@ graph:
           - Do NOT write Blender Python (bpy) code.
           - Provide data in a format easily readable by the Engineer (e.g., JSON-like or bullet points).
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
         thinking:
@@ -245,9 +233,6 @@ graph:
 
           **Output:** Return ONLY the Python code block.
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
         thinking:
@@ -278,8 +263,6 @@ graph:
           clear separation of parts and logical lighting with clear white 
           background.
         provider: gemini
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         tooling:
         thinking:
