@@ -4,7 +4,6 @@
       <!-- Queue -->
       <aside class="queue">
         <header class="queue-head">
-          <span class="eyebrow">{{ $t('launch.review.eyebrow') }}</span>
           <h2>{{ $t('launch.review.title') }}</h2>
           <p>{{ $t('launch.review.subtitle') }}</p>
         </header>
@@ -17,9 +16,9 @@
             <li v-for="item in awaitingPlans" :key="item.session_id">
               <button type="button" class="plan-item" @click="$emit('open-session', item)">
                 <span class="qi-top">
-                  <span class="verdict-dot is-waiting" aria-hidden="true"></span>
+                  <StatusPill compact tone="waiting" :label="$t('launch.review.verdict_pending')" />
                   <span class="qi-title" :title="item.title">{{ item.title || item.yaml_file }}</span>
-                  <span class="plan-open">{{ $t('launch.plan.open') }} →</span>
+                  <span class="plan-open">{{ $t('launch.plan.open') }}<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></span>
                 </span>
                 <span class="qi-meta">
                   <span>{{ metaOf(item) }}</span>
@@ -59,23 +58,24 @@
               @click="select(item.session_id)"
             >
               <span class="qi-top">
-                <span class="verdict-dot" :class="`is-${verdictTone(item)}`" aria-hidden="true"></span>
                 <span class="qi-title" :title="item.title">{{ item.title || item.yaml_file }}</span>
                 <span v-if="roundOf(item.session_id) > 1" class="round">{{ $t('launch.review.round', { n: roundOf(item.session_id) }) }}</span>
               </span>
-              <span class="qi-meta">
-                <span>{{ metaOf(item) }}</span>
+              <span class="qi-status">
+                <StatusPill compact :tone="verdictTone(item)" :label="verdictLabel(item)" />
                 <time>{{ ago(item.updated_at) }}</time>
               </span>
+              <span class="qi-meta" :title="metaOf(item)">{{ metaOf(item) }}</span>
               <span v-if="item.review?.rating" class="stars-mini" :aria-label="$t('launch.review.rated', { n: item.review.rating })">
-                <span v-for="n in 5" :key="n" :class="{ on: n <= item.review.rating }">★</span>
+                <span v-for="n in 5" :key="n" class="star" :class="{ on: n <= item.review.rating }" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" /></svg></span>
               </span>
             </button>
           </li>
         </ul>
         <div v-else class="queue-empty">
-          <span aria-hidden="true">✓</span>
+          <span aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg></span>
           <p>{{ emptyText }}</p>
+          <button v-if="activeTab !== 'all' && tabs[3].count" type="button" class="btn btn-ghost" @click="activeTab = 'all'">{{ $t('launch.review.view_all') }}</button>
         </div>
       </aside>
 
@@ -88,10 +88,10 @@
 
         <template v-else>
           <header class="detail-head">
-            <button type="button" class="link back" @click="showDetail = false">← {{ $t('launch.review.back') }}</button>
+            <button type="button" class="link back" @click="showDetail = false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>{{ $t('launch.review.back') }}</button>
             <div class="dh-main">
               <div class="dh-tags">
-                <span class="pill" :class="`is-${verdictTone(selected)}`"><span class="dot" aria-hidden="true"></span>{{ verdictLabel(selected) }}</span>
+                <StatusPill :tone="verdictTone(selected)" :label="verdictLabel(selected)" />
                 <span v-if="roundOf(selected.session_id) > 1" class="round">{{ $t('launch.review.round', { n: roundOf(selected.session_id) }) }}</span>
               </div>
               <h3 :title="selected.title">{{ selected.title || selected.yaml_file }}</h3>
@@ -104,8 +104,16 @@
             </button>
           </header>
 
-          <div v-if="loading" class="loading"><span class="spinner" aria-hidden="true"></span>{{ $t('launch.review.loading') }}</div>
-          <p v-else-if="loadError" class="load-error">{{ loadError }}</p>
+          <div v-if="loading" class="loading" role="status">
+            <span class="sr-only">{{ $t('launch.review.loading') }}</span>
+            <BaseSkeleton width="40%" height="14px" />
+            <BaseSkeleton width="100%" height="64px" radius="12px" />
+            <BaseSkeleton width="100%" height="120px" radius="12px" />
+          </div>
+          <div v-else-if="loadError" class="load-error" role="alert">
+            <span>{{ loadError }}</span>
+            <button type="button" class="btn btn-ghost" @click="load(selectedId)">{{ $t('common.retry') }}</button>
+          </div>
 
           <div v-else-if="digest" class="detail-grid">
             <div class="content">
@@ -123,7 +131,7 @@
                 <h4>{{ $t('launch.review.request') }}</h4>
                 <p class="pre">{{ originalTask(digest.task?.text) || '—' }}</p>
                 <div v-if="digest.task?.attachments?.length" class="chips">
-                  <span v-for="(name, i) in digest.task.attachments" :key="`${i}-${name}`" class="chip">📎 {{ name }}</span>
+                  <span v-for="(name, i) in digest.task.attachments" :key="`${i}-${name}`" class="chip"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 7" /></svg> {{ name }}</span>
                 </div>
                 <details v-if="digest.other_requests?.length" class="replies">
                   <summary>{{ $t('launch.review.other_requests', { n: digest.other_requests.length }) }}</summary>
@@ -142,7 +150,7 @@
               <section class="panel is-result">
                 <h4>
                   {{ $t('launch.review.delivered') }}
-                  <span class="pill" :class="`is-${digest.outcome || 'idle'}`"><span class="dot" aria-hidden="true"></span>{{ outcomeLabel }}</span>
+                  <StatusPill :tone="digest.outcome || 'idle'" :label="outcomeLabel" />
                 </h4>
                 <div v-if="resultSummary" class="md" v-html="render(resultSummary)"></div>
                 <p v-else class="muted">{{ $t('launch.review.no_summary') }}</p>
@@ -182,14 +190,14 @@
             <aside class="verdict card">
               <template v-if="existing && !editing">
                 <div class="verdict-done" :class="`is-${existing.verdict}`">
-                  <span class="vd-icon" aria-hidden="true">{{ existing.verdict === 'approved' ? '✓' : '↻' }}</span>
+                  <span class="vd-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path v-if="existing.verdict === 'approved'" d="M5 12.5l4.5 4.5L19 7" /><template v-else><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" /><path d="M3 21v-5h5" /></template></svg></span>
                   <div>
                     <strong>{{ existing.verdict === 'approved' ? $t('launch.review.approved_title') : $t('launch.review.rework_title') }}</strong>
                     <span>{{ formatDate(existing.reviewed_at) }}</span>
                   </div>
                 </div>
                 <p v-if="existing.rating" class="stars-line">
-                  <span v-for="n in 5" :key="n" :class="{ on: n <= existing.rating }">★</span>
+                  <span v-for="n in 5" :key="n" class="star" :class="{ on: n <= existing.rating }" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" /></svg></span>
                   <span class="muted">{{ ratingLabel(existing.rating) }}</span>
                 </p>
                 <p v-if="existing.tags?.length" class="tags-line">
@@ -213,11 +221,12 @@
                     type="button"
                     role="radio"
                     :aria-checked="form.rating === n"
+                    :aria-label="ratingLabel(n)"
                     :class="{ on: n <= (hoverRating || form.rating) }"
                     @mouseenter="hoverRating = n"
                     @mouseleave="hoverRating = 0"
                     @click="form.rating = n"
-                  >★</button>
+                  ><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" /></svg></button>
                   <span class="rating-label">{{ ratingLabel(hoverRating || form.rating) }}</span>
                 </div>
 
@@ -250,7 +259,7 @@
 
                 <div class="actions">
                   <button type="button" class="btn btn-approve" :disabled="saving || busy" @click="approve">
-                    ✓ {{ $t('launch.review.approve') }}
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>{{ $t('launch.review.approve') }}
                   </button>
                   <button
                     type="button"
@@ -259,7 +268,7 @@
                     :title="canRework ? '' : $t('launch.review.rework_needs')"
                     @click="rework"
                   >
-                    ↻ {{ busy ? $t('launch.review.starting') : $t('launch.review.rework') }}
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" /><path d="M3 21v-5h5" /></svg>{{ busy ? $t('launch.review.starting') : $t('launch.review.rework') }}
                   </button>
                 </div>
                 <p v-if="!canRework" class="muted small">{{ $t('launch.review.rework_needs') }}</p>
@@ -280,6 +289,8 @@ import MarkdownIt from 'markdown-it'
 import { fetchSessionDigest, saveSessionReview } from '@/api/client.js'
 import { formatSpan } from '@/utils/runTracker.js'
 import { toast } from '@/utils/toast.js'
+import BaseSkeleton from '@/components/ui/BaseSkeleton.vue'
+import StatusPill from './StatusPill.vue'
 
 const props = defineProps({
   sessions: { type: Array, default: () => [] },
@@ -484,7 +495,7 @@ const detailMeta = computed(() => {
   if (!item) return []
   const parts = []
   const project = item.projects?.[0]?.name?.replace(/\/$/, '')
-  if (project) parts.push({ text: `📁 ${project}` })
+  if (project) parts.push({ text: project })
   parts.push({ text: item.yaml_file.replace(/\.ya?ml$/i, '') })
   // The time the team worked (its runs added up), like the dashboard's run time card, not
   // first-to-last message; older backends only give that span
@@ -671,18 +682,17 @@ const ago = (seconds) => {
 
 <style scoped>
 .review {
-  --ok: #22c55e;
-  --wait: #f59e0b;
-  --rework: #f97316;
+  --ok: var(--success);
+  --wait: var(--warn);
+  --rework: color-mix(in srgb, var(--warn) 60%, var(--danger));
   --err: var(--danger);
-  --muted: var(--text-muted-4);
-  --line: rgb(var(--ink) / 0.09);
+  --muted: var(--fg-muted);
+  --line: var(--border);
   height: 100%;
   box-sizing: border-box;
-  /* Bottom room for the floating view switcher, so it never covers the last lines */
-  padding: 14px 16px 64px calc(var(--inset-left, 0px) + 34px);
-  color: var(--text-1);
-  font-family: 'Inter', system-ui, sans-serif;
+  padding: 14px 16px 16px calc(var(--inset-left, 0px) + 34px);
+  color: var(--fg);
+  font-family: inherit;
   transition: padding-left 0.25s ease;
   /* Sized by the room left next to the chat panel, not by the window */
   container-type: inline-size;
@@ -703,28 +713,13 @@ const ago = (seconds) => {
 .detail {
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: var(--surface-1);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 8px 24px -18px rgb(0 0 0 / 0.35);
+  background: var(--surface);
 }
 
 .muted { color: var(--muted); }
 .small { font-size: 12px; margin: 0; }
 
-/* ---------- pills & tones ---------- */
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: 99px;
-  font-size: 11.5px;
-  font-weight: 650;
-  white-space: nowrap;
-  color: var(--tone, var(--muted));
-  background: color-mix(in srgb, var(--tone, var(--muted)) 14%, transparent);
-}
-
-.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+/* ---------- tones (status pills live in StatusPill) ---------- */
 .is-waiting { --tone: var(--wait); }
 .is-rework { --tone: var(--rework); }
 .is-completed,
@@ -733,12 +728,18 @@ const ago = (seconds) => {
 .is-cancelled,
 .is-idle { --tone: var(--muted); }
 
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+button:focus-visible,
+summary:focus-visible,
+.check input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
 .round {
   padding: 1px 7px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  color: var(--rework);
+  color: var(--fg);
   background: color-mix(in srgb, var(--rework) 13%, transparent);
   white-space: nowrap;
 }
@@ -753,16 +754,8 @@ const ago = (seconds) => {
 
 .queue-head { padding: 16px 16px 10px; }
 
-.eyebrow {
-  font-size: var(--fs-xs);
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.queue-head h2 { margin: 2px 0 4px; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
-.queue-head p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.queue-head h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
+.queue-head p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
 
 .tabs {
   display: grid;
@@ -777,12 +770,13 @@ const ago = (seconds) => {
   justify-content: space-between;
   gap: 6px;
   padding: 7px 10px;
-  border-radius: 9px;
+  min-height: 40px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
@@ -800,7 +794,7 @@ const ago = (seconds) => {
 }
 
 .tab.active {
-  color: var(--text-1);
+  color: var(--fg);
   border-color: color-mix(in srgb, var(--tone, var(--accent-sky)) 55%, transparent);
   background: color-mix(in srgb, var(--tone, var(--accent-sky)) 9%, transparent);
 }
@@ -819,7 +813,7 @@ const ago = (seconds) => {
   align-items: center;
   justify-content: space-between;
   margin: 0 2px 6px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 650;
 }
 
@@ -834,7 +828,7 @@ const ago = (seconds) => {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--text-1);
+  color: var(--fg);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -842,7 +836,8 @@ const ago = (seconds) => {
 
 .plan-item:hover { background: color-mix(in srgb, var(--wait) 12%, transparent); }
 
-.plan-open { flex: none; font-size: 11.5px; font-weight: 600; color: var(--wait); }
+.plan-open { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--wait); }
+:root[data-theme='light'] .plan-open { color: color-mix(in srgb, var(--wait) 80%, #000); }
 
 .search:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
@@ -852,8 +847,8 @@ const ago = (seconds) => {
   gap: 8px;
   margin: 0 12px 8px;
   padding: 0 10px;
-  height: 34px;
-  border-radius: 9px;
+  height: 40px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--line);
   color: var(--muted);
 }
@@ -863,12 +858,12 @@ const ago = (seconds) => {
   min-width: 0;
   border: 0;
   background: transparent;
-  color: var(--text-1);
+  color: var(--fg);
   font: inherit;
   font-size: 13px;
 }
 
-.search:focus-within { border-color: var(--accent-sky); }
+.search:focus-within { border-color: var(--accent); }
 
 .queue-list {
   flex: 1;
@@ -883,14 +878,15 @@ const ago = (seconds) => {
 .queue-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  min-height: 56px;
   width: 100%;
   margin-bottom: 4px;
   padding: 10px 10px;
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
-  color: var(--text-1);
+  color: var(--fg);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -900,21 +896,14 @@ const ago = (seconds) => {
 .queue-item:hover { background: rgb(var(--ink) / 0.04); }
 
 .queue-item.active {
-  border-color: color-mix(in srgb, var(--accent-sky) 45%, transparent);
-  background: color-mix(in srgb, var(--accent-sky) 9%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .qi-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 
-.verdict-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--tone, var(--muted));
-}
-
-.verdict-dot.is-waiting { box-shadow: 0 0 0 3px color-mix(in srgb, var(--wait) 22%, transparent); }
+.qi-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: var(--fs-xs); color: var(--muted); }
+.qi-status time { flex: none; font-variant-numeric: tabular-nums; }
 
 .qi-title {
   flex: 1;
@@ -926,20 +915,12 @@ const ago = (seconds) => {
   font-weight: 620;
 }
 
-.qi-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding-left: 16px;
-  font-size: 11.5px;
-  color: var(--muted);
-}
+.qi-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--muted); }
 
-.qi-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qi-meta time { flex: none; }
-
-.stars-mini { padding-left: 16px; font-size: var(--fs-xs); letter-spacing: 1px; color: rgb(var(--ink) / 0.18); }
-.stars-mini .on { color: #f5b301; }
+.stars-mini { display: inline-flex; gap: 1px; padding-left: 0; color: rgb(var(--ink) / 0.2); }
+.stars-mini .on { color: var(--warn); }
+.star { display: inline-flex; }
+.stars-mini svg { width: 12px; height: 12px; }
 
 .queue-empty {
   flex: 1;
@@ -996,8 +977,7 @@ const ago = (seconds) => {
   gap: 10px 16px;
   padding: 16px 20px 14px;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
-  backdrop-filter: blur(8px);
+  background: var(--surface);
 }
 
 /* The title block takes the row; the button drops below it rather than over the badge */
@@ -1016,37 +996,26 @@ const ago = (seconds) => {
   color: var(--muted);
 }
 
-.loading,
+.loading { display: flex; flex-direction: column; gap: 12px; margin: 20px; }
+
 .load-error {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 20px;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 20px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--err);
 }
-
-.load-error { color: var(--err); margin: 8px 0 0; }
-
-.spinner {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
-  border-top-color: currentColor;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+.panel .load-error { margin: 8px 0 0; }
 
 .detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 330px;
   align-items: start;
   gap: 16px;
-  padding: 16px 20px 20px;
+  /* room under the verdict card so the stars and actions never sit on the edge */
+  padding: 16px 20px 32px;
 }
 
 .content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -1080,11 +1049,12 @@ const ago = (seconds) => {
 }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.chip { padding: 2px 8px; border-radius: 6px; font-size: 11.5px; background: rgb(var(--ink) / 0.06); }
+.chip { padding: 2px 8px; border-radius: 6px; font-size: var(--fs-xs); background: rgb(var(--ink) / 0.07); }
+.chip svg { vertical-align: -1px; }
 
-.replies { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.replies { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .replies summary { cursor: pointer; }
-.replies ol { margin: 8px 0 0; padding-left: 20px; color: var(--text-1); }
+.replies ol { margin: 8px 0 0; padding-left: 20px; color: var(--fg); }
 .replies li { margin-bottom: 4px; white-space: pre-wrap; }
 
 .lineage {
@@ -1092,7 +1062,7 @@ const ago = (seconds) => {
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--rework) 40%, transparent);
   background: color-mix(in srgb, var(--rework) 7%, transparent);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .lineage strong { color: var(--rework); }
@@ -1116,35 +1086,36 @@ const ago = (seconds) => {
 .md :deep(th),
 .md :deep(td) { padding: 4px 8px; border: 1px solid var(--line); }
 
-.files { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
+.files { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
 .files li { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .files code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 
 .change {
   flex: none;
-  width: 44px;
+  width: 56px;
   padding: 1px 0;
   border-radius: 5px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-align: center;
-  color: var(--tone);
+  color: var(--fg);
   background: color-mix(in srgb, var(--tone) 14%, transparent);
 }
 
 .change.is-created { --tone: var(--ok); }
-.change.is-updated { --tone: var(--accent-sky); }
+.change.is-updated { --tone: var(--accent); }
 .change.is-deleted { --tone: var(--err); }
 
 .handovers { display: flex; flex-direction: column; gap: 6px; }
 
 .handover {
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--line);
-  background: var(--surface-1);
+  background: var(--surface);
 }
 
 .handover summary {
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1168,8 +1139,8 @@ const ago = (seconds) => {
   border-radius: 7px;
   font-size: var(--fs-xs);
   font-weight: 700;
-  color: var(--accent-sky);
-  background: color-mix(in srgb, var(--accent-sky) 13%, transparent);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .ho-name { flex: 1; min-width: 0; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1188,27 +1159,31 @@ const ago = (seconds) => {
 
 .rating { display: flex; align-items: center; gap: 2px; }
 
+.rating { flex-wrap: wrap; padding-bottom: 2px; }
+
 .rating button {
-  padding: 0 2px;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   border: 0;
+  border-radius: var(--radius-md);
   background: transparent;
-  font-size: 26px;
-  line-height: 1;
-  color: rgb(var(--ink) / 0.15);
+  color: rgb(var(--ink) / 0.24);
   cursor: pointer;
-  transition: transform 0.12s, color 0.12s;
+  transition: transform 0.15s var(--ease-out), color 0.15s var(--ease-out);
 }
 
-.rating button.on { color: #f5b301; }
+.rating button svg { width: 26px; height: 26px; }
+.rating button.on { color: var(--warn); }
 .rating button:hover { transform: scale(1.12); }
-.rating-label { margin-left: 8px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.rating-label { margin-left: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
 
 .group-label {
   margin: 4px 0 0;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--muted);
 }
 
@@ -1216,25 +1191,26 @@ const ago = (seconds) => {
 .tags-line { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 
 .tag {
-  padding: 4px 10px;
+  min-height: 32px;
+  padding: 4px 12px;
   border-radius: 99px;
   border: 1px solid var(--line);
   background: transparent;
-  color: var(--text-1);
+  color: var(--fg);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
 
-span.tag { cursor: default; }
+span.tag { cursor: default; min-height: 0; padding: 2px 10px; }
 .tag.is-good { --tone: var(--ok); }
 .tag.is-issue { --tone: var(--rework); }
 .tag.on,
 span.tag {
-  color: var(--tone);
+  color: var(--fg);
   border-color: color-mix(in srgb, var(--tone) 55%, transparent);
-  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
 }
 
 .tag:not(.on):hover { border-color: color-mix(in srgb, var(--tone) 45%, transparent); }
@@ -1248,16 +1224,16 @@ span.tag {
   border-radius: 10px;
   border: 1px solid var(--line);
   background: rgb(var(--ink) / 0.02);
-  color: var(--text-1);
+  color: var(--fg);
   font: inherit;
   font-size: 13px;
   line-height: 1.5;
 }
 
-.feedback:focus { border-color: var(--accent-sky); }
+.feedback:focus { border-color: var(--accent); }
 .feedback:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
-.check { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; cursor: pointer; }
+.check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; cursor: pointer; }
 .check input { margin: 2px 0 0; accent-color: var(--rework); }
 
 .prompt-preview { font-size: 12px; color: var(--muted); }
@@ -1270,48 +1246,65 @@ span.tag {
   overflow: auto;
   border-radius: 8px;
   background: rgb(var(--ink) / 0.05);
-  color: var(--text-1);
-  font-size: 11.5px;
+  color: var(--fg);
+  font-size: 12px;
   white-space: pre-wrap;
 }
 
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 2px; }
 
 .btn {
-  padding: 9px 12px;
-  border-radius: 10px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--line);
   background: transparent;
-  color: var(--text-1);
+  color: var(--fg);
   font: inherit;
   font-size: 13px;
   font-weight: 650;
   cursor: pointer;
-  transition: filter 0.15s, border-color 0.15s, opacity 0.15s;
+  transition: filter 0.15s var(--ease-out), border-color 0.15s var(--ease-out), opacity 0.15s var(--ease-out);
 }
+
+.actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.actions .btn svg { flex: none; }
 
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-ghost { flex: none; }
-.btn-ghost:hover { border-color: var(--accent-sky); }
-.btn-approve { border-color: transparent; color: #fff; background: var(--ok); }
-.btn-rework { border-color: transparent; color: #fff; background: var(--rework); }
+.btn-ghost:hover { border-color: var(--accent); }
+.btn-approve { border-color: transparent; color: var(--on-success); background: var(--ok); }
+.btn-rework { border-color: transparent; color: var(--on-warn); background: var(--rework); }
 .btn-approve:hover:not(:disabled),
 .btn-rework:hover:not(:disabled) { filter: brightness(1.08); }
-.btn-soft { color: var(--rework); border-color: color-mix(in srgb, var(--rework) 45%, transparent); background: color-mix(in srgb, var(--rework) 8%, transparent); }
+.btn-soft { color: var(--fg); border-color: color-mix(in srgb, var(--rework) 45%, transparent); background: color-mix(in srgb, var(--rework) 8%, transparent); }
 
 .link {
   align-self: flex-start;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--accent-sky);
+  color: var(--accent);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  min-height: 32px;
 }
 
 .link:hover { text-decoration: underline; }
+
+/* Back to the list (narrow layout): a real 40px target, not a text link */
+.link.back {
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  margin-left: -8px;
+  padding: 0 12px 0 6px;
+  border-radius: var(--radius-md);
+  color: var(--fg);
+}
+.link.back:hover { text-decoration: none; background: rgb(var(--ink) / 0.06); }
 
 .verdict-done {
   display: flex;
@@ -1323,9 +1316,10 @@ span.tag {
 }
 
 .verdict-done.is-approved { --tone: var(--ok); }
+.verdict-done.is-approved .vd-icon { color: var(--on-success); }
 .verdict-done.is-rework { --tone: var(--rework); }
 .verdict-done div { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); }
-.verdict-done strong { font-size: 14px; color: var(--tone); }
+.verdict-done strong { font-size: 14px; color: var(--fg); }
 
 .vd-icon {
   display: grid;
@@ -1336,17 +1330,22 @@ span.tag {
   border-radius: 50%;
   font-size: 17px;
   font-weight: 700;
-  color: #fff;
+  color: var(--on-warn);
   background: var(--tone);
 }
 
-.stars-line { display: flex; align-items: center; gap: 2px; margin: 0; font-size: 18px; color: rgb(var(--ink) / 0.15); }
-.stars-line .on { color: #f5b301; }
-.stars-line .muted { margin-left: 8px; font-size: 12.5px; }
+.stars-line { display: flex; align-items: center; gap: 2px; margin: 0; color: rgb(var(--ink) / 0.18); }
+.stars-line svg { width: 18px; height: 18px; }
+.stars-line .on { color: var(--warn); }
+.stars-line .muted { margin-left: 8px; font-size: 13px; }
 .feedback-quote { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgb(var(--ink) / 0.03); font-size: 13px; line-height: 1.5; font-style: italic; }
 
 @media (prefers-reduced-motion: reduce) {
-  .spinner { animation: none; }
+  .tab,
+  .queue-item,
+  .rating button,
+  .tag,
+  .btn { transition: none; }
 }
 
 @media (max-width: 1100px) {
@@ -1365,10 +1364,11 @@ span.tag {
   .review-body { grid-template-columns: minmax(0, 1fr); }
   .review-body.show-detail .queue,
   .review-body:not(.show-detail) .detail { display: none; }
-  .back { display: inline; flex-basis: 100%; }
+  .back { display: inline-flex; flex-basis: auto; }
+  .detail-head .back + .dh-main { flex-basis: 100%; }
 }
 
 @media (max-width: 640px) {
-  .review { padding: 10px; }
+  .review { padding: 48px 10px 16px; }
 }
 </style>

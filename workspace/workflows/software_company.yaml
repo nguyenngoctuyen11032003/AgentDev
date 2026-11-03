@@ -57,6 +57,7 @@ graph:
             - name: idea-refine
             - name: spec-driven-development
             - name: doubt-driven-development
+            - name: brainstorming
         team:
           enabled: true
           plan_approval: true
@@ -84,6 +85,7 @@ graph:
           tool_loop_limit: 80
 
     # ------------------------------------------------------------------ staff (no edges: called by the CTO)
+      mascot: 13
     - id: Project Manager
       type: agent
       description: Yêu cầu, user story, tiêu chí nghiệm thu, chia việc và tiến độ

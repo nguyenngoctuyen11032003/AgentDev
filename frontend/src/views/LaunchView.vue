@@ -1,71 +1,172 @@
 <template>
   <div class="launch-view">
-    <div class="launch-bg"></div>
     <div class="header">
+      <!-- The app's own nav is hidden on this page (it opens in a tab of its own): the logo is the way back -->
+      <router-link to="/" target="_blank" rel="noopener" class="brand-link" :aria-label="$t('launch.shell.home')" :title="$t('launch.shell.home')">
+        <img src="/media/logo.svg?v=2" alt="" width="24" height="24" />
+      </router-link>
       <h1>{{ $t('launch.title') }}</h1>
-      <button class="settings-button" @click="showSettingsModal = true" :title="$t('launch.settings')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <!-- Persistent view switcher: the same in every mode and at every width -->
+      <div class="view-tabs" role="tablist" :aria-label="$t('launch.view')" @keydown="onViewTabKey">
+        <button
+          v-for="option in viewOptions"
+          :id="`view-tab-${option.mode}`"
+          :key="option.mode"
+          type="button"
+          role="tab"
+          class="view-tab"
+          :class="{ active: viewMode === option.mode }"
+          :aria-selected="viewMode === option.mode"
+          :tabindex="viewMode === option.mode ? 0 : -1"
+          @click="selectView(option.mode)"
+        >
+          {{ $t(option.label) }}
+          <span v-if="option.mode === 'review' && reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
+        </button>
+      </div>
+      <div class="header-actions">
+        <router-link to="/workflows" target="_blank" rel="noopener" class="header-btn header-link" :title="$t('launch.shell.workflows_hint')" :aria-label="$t('launch.shell.workflows_hint')">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="6" rx="1.5"></rect><rect x="14" y="15" width="7" height="6" rx="1.5"></rect><path d="M6.5 9v3.5a2 2 0 0 0 2 2h9V15"></path></svg>
+          <span class="header-btn-label">{{ $t('launch.shell.workflows') }}</span>
+        </router-link>
+        <button
+          type="button"
+          class="header-btn"
+          :class="{ active: isControlsVisible, 'needs-workflow': !selectedFile && !loading }"
+          :aria-expanded="isControlsVisible"
+          :aria-label="$t('launch.panel.toggle')"
+          :title="$t('launch.panel.toggle')"
+          @click="toggleControls"
+        >
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><line x1="15" y1="4" x2="15" y2="20"></line></svg>
+          <span class="header-btn-label">{{ $t('launch.panel.toggle') }}</span>
+        </button>
+      <button class="header-btn settings-button" type="button" @click="showSettingsModal = true" :title="$t('launch.settings')" :aria-label="$t('launch.settings')">
+        <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
+        <span class="header-btn-label settings-label">{{ $t('launch.settings') }}</span>
       </button>
+      </div>
     </div>
     <div class="content">
       <!-- Session history: switch between runs and pick up where you left off -->
-      <SessionSidebar
-        :sessions="sessions"
-        :active-id="activeSessionId"
-        :draft="draftWorkflow"
-        :draft-project="currentProjectName"
-        :project-workflows="projectWorkflows"
-        :collapsed="!isSessionSidebarOpen"
-        :loading="!sessionsLoaded"
-        @select="openSession"
-        @new="startNewSession"
-        @add-project="handleAddProject"
-        @delete-group="handleDeleteGroup"
-        @rename="handleRenameSession"
-        @delete="handleDeleteSession"
-        @toggle="isSessionSidebarOpen = !isSessionSidebarOpen"
-      />
+      <!-- Wide: a column. Narrow (< 900px): a drawer that slides over the chat -->
+      <div
+        ref="sessionsDrawerRef"
+        class="sessions-drawer"
+        :class="{ 'is-drawer': isNarrow, 'is-open': isSessionsDrawerOpen }"
+        :inert="isNarrow && !isSessionsDrawerOpen ? true : undefined"
+      >
+        <!-- Wide, collapsed: a slim rail keeps the three things people reach for -->
+        <nav v-if="!isNarrow && !isSessionSidebarOpen" class="sessions-rail" :aria-label="$t('launch.sessions.title')">
+          <button
+            type="button"
+            class="rail-btn"
+            :title="$t('launch.shell.sessions_expand')"
+            :aria-label="$t('launch.shell.sessions_expand')"
+            aria-expanded="false"
+            @click="toggleSessionsPanel"
+          >
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><line x1="9" y1="4" x2="9" y2="20"></line><path d="m13 10 2 2-2 2"></path></svg>
+            <span v-if="hasLiveSession" class="rail-dot" :title="$t('launch.shell.sessions_live')"></span>
+          </button>
+          <button type="button" class="rail-btn" :title="newSessionLabel" :aria-label="newSessionLabel" @click="startNewSession()">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+          </button>
+          <button type="button" class="rail-btn" :title="$t('launch.shell.sessions_search')" :aria-label="$t('launch.shell.sessions_search')" @click="openSessionSearch">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+          </button>
+        </nav>
+        <SessionSidebar
+          v-show="isNarrow || isSessionSidebarOpen"
+          :sessions="sessions"
+          :active-id="activeSessionId"
+          :draft="draftWorkflow"
+          :draft-project="currentProjectName"
+          :project-workflows="projectWorkflows"
+          :collapsed="false"
+          :loading="!sessionsLoaded"
+          @select="onSidebarSelect"
+          @new="onSidebarNew"
+          @add-project="handleAddProject"
+          @delete-group="handleDeleteGroup"
+          @rename="handleRenameSession"
+          @delete="handleDeleteSession"
+          @toggle="toggleSessionsPanel"
+        />
+      </div>
+      <div v-if="isNarrow && isSessionsDrawerOpen" class="sheet-backdrop" @click="isSessionsDrawerOpen = false"></div>
 
       <!-- Left panel -->
-      <div class="left-panel">
-        <!-- Chat Panel: fullscreen in chat mode, overlay in graph -->
+      <div ref="leftPanelRef" class="left-panel" :style="chatWidthStyle">
+        <!-- Outside the chat view, a collapsed chat leaves a slim rail: nothing floats over the work -->
+        <div v-if="viewMode !== 'chat' && !isChatPanelOpen" class="chat-rail">
+          <button
+            type="button"
+            class="rail-btn"
+            :title="$t('launch.shell.chat_expand')"
+            :aria-label="$t('launch.shell.chat_expand')"
+            aria-expanded="false"
+            @click="isChatPanelOpen = true"
+          >
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            <span v-if="pendingQuestion || hasUnseenMessages" class="rail-dot" :class="{ 'is-waiting': pendingQuestion }" :title="pendingQuestion ? $t('launch.shell.lead_waiting') : $t('launch.jump_to_latest')"></span>
+          </button>
+        </div>
+        <!-- Chat Panel: fullscreen in chat mode, a resizable column over the canvas elsewhere -->
         <div
           class="chat-panel"
           :class="{
             'chat-panel-fullscreen': viewMode === 'chat',
-            'chat-panel-collapsed': viewMode !== 'chat' && !isChatPanelOpen
+            'chat-panel-collapsed': viewMode !== 'chat' && !isChatPanelOpen,
+            'is-resizing': isResizingChat
           }"
-          v-show="viewMode === 'chat' || true"
         >
-          <button v-show="viewMode !== 'chat'" class="chat-panel-toggle" type="button" @click="isChatPanelOpen = !isChatPanelOpen" :aria-expanded="isChatPanelOpen" :aria-label="isChatPanelOpen ? $t('launch.collapse_chat') : $t('launch.expand_chat')" :title="isChatPanelOpen ? $t('launch.collapse_chat') : $t('launch.expand_chat')">
-            <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ 'chevron-collapsed': !isChatPanelOpen }">
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </button>
+          <div
+            v-if="viewMode !== 'chat' && isChatPanelOpen && !isNarrow"
+            class="chat-resizer"
+            role="separator"
+            tabindex="0"
+            aria-orientation="vertical"
+            :aria-label="$t('launch.shell.chat_resize')"
+            :title="$t('launch.shell.chat_resize')"
+            :aria-valuenow="chatWidth"
+            :aria-valuemin="CHAT_MIN_W"
+            :aria-valuemax="CHAT_MAX_W"
+            @pointerdown="startChatResize"
+            @keydown="onChatResizeKey"
+            @dblclick="setChatWidth(CHAT_DEFAULT_W)"
+          ></div>
           <!-- Kept laid out while collapsed (hidden via CSS) so the panel can slide on the
                compositor and reopening a long chat never re-lays out every message -->
           <div class="chat-panel-content" :inert="viewMode !== 'chat' && !isChatPanelOpen ? true : undefined">
             <div class="chat-header">
               <div class="chat-header-main">
-                <span class="chat-header-title" :title="currentSessionTitle">{{ currentSessionTitle }}</span>
+                <div class="chat-header-row">
+                  <span class="chat-header-title" :title="currentSessionTitle">{{ currentSessionTitle }}</span>
+                  <!-- The one place the run state lives: visible in every view -->
+                  <span v-if="selectedFile" class="chat-header-status" role="status">
+                    <StatusPill compact :tone="statusPillTone" :label="isStopping ? $t('launch.stopping') : statusLabel" />
+                  </span>
+                </div>
                 <span v-if="selectedFile" class="chat-header-sub">
                   <span v-if="currentProjectName" class="chat-header-project" :title="$t('launch.sessions.project_label', { name: currentProjectName })">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>{{ currentProjectName }}
+                    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+                    <span class="chat-header-project-name">{{ currentProjectName }}</span>
                   </span>
-                  {{ selectedFile.replace(/\.ya?ml$/i, '') }} · {{ isStopping ? $t('launch.stopping') : statusLabel }}
+                  <span class="chat-header-workflow">{{ workflowTitle }}</span>
                 </span>
               </div>
               <div class="chat-header-actions">
                 <button
                   type="button"
                   class="chat-header-btn"
-                  :class="{ active: isSessionSidebarOpen }"
+                  :class="{ active: isNarrow ? isSessionsDrawerOpen : isSessionSidebarOpen }"
                   :title="$t('launch.sessions.history')"
                   :aria-label="$t('launch.sessions.history')"
-                  @click="isSessionSidebarOpen = !isSessionSidebarOpen"
+                  @click="toggleSessionsPanel"
                 >
                   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l3 3"></path></svg>
                 </button>
@@ -76,7 +177,19 @@
                   :aria-label="newSessionLabel"
                   @click="startNewSession()"
                 >
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-4.2-7.6"></path><path d="M12 8v8M8 12h8"></path></svg>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-4.2-7.6"></path><path d="M12 8v8M8 12h8"></path></svg>
+                </button>
+                <!-- Outside the chat view: fold the chat away to a rail (the work gets the room) -->
+                <button
+                  v-if="viewMode !== 'chat'"
+                  type="button"
+                  class="chat-header-btn"
+                  :title="$t('launch.shell.chat_collapse')"
+                  :aria-label="$t('launch.shell.chat_collapse')"
+                  :aria-expanded="isChatPanelOpen"
+                  @click="isChatPanelOpen = false"
+                >
+                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><line x1="9" y1="4" x2="9" y2="20"></line><path d="m16 10-2 2 2 2"></path></svg>
                 </button>
               </div>
             </div>
@@ -91,11 +204,37 @@
               </div>
               <div class="chat-messages" ref="chatMessagesRef" @click="handleChatClick">
                 <!-- Empty session: say who answers and what to do, like a new Claude / Codex chat -->
-                <div v-if="!chatMessages.length && selectedFile && !isReconnecting" class="chat-empty">
-                  <div class="chat-empty-title">{{ leadName ? $t('launch.empty_chat.title_lead', { lead: leadName }) : $t('launch.empty_chat.title') }}</div>
-                  <div class="chat-empty-hint">{{ currentProjectName ? $t('launch.empty_chat.hint_project', { project: currentProjectName }) : $t('launch.empty_chat.hint') }}</div>
-                  <div class="chat-empty-keys">{{ $t('launch.empty_chat.keys') }}</div>
-                  <ChatSuggestions :disabled="!isConnectionReady || isStopping" @pick="pickSuggestion" />
+                <div v-if="!chatMessages.length && !isReconnecting && (selectedFile || !loading)" class="chat-empty">
+                  <span class="chat-empty-avatar" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"></path></svg>
+                  </span>
+                  <template v-if="selectedFile">
+                    <h2 class="chat-empty-title">{{ leadName ? $t('launch.empty_chat.greeting_lead', { lead: leadName }) : $t('launch.empty_chat.title') }}</h2>
+                    <p class="chat-empty-hint">{{ currentProjectName ? $t('launch.empty_chat.hint_project', { project: currentProjectName }) : $t('launch.empty_chat.hint_team') }}</p>
+                    <div class="chat-empty-suggest" role="list" :aria-label="$t('launch.chat_ui.suggestions_label')">
+                      <button
+                        v-for="key in EMPTY_SUGGESTION_KEYS"
+                        :key="key"
+                        type="button"
+                        role="listitem"
+                        class="chat-empty-chip"
+                        :disabled="!isConnectionReady || isStopping"
+                        @click="pickSuggestion($t(key, { workflow: workflowTitle }))"
+                      >{{ $t(key, { workflow: workflowTitle }) }}</button>
+                    </div>
+                    <p class="chat-empty-note">{{ $t('launch.empty_chat.plan_note') }}</p>
+                  </template>
+                  <template v-else>
+                    <h2 class="chat-empty-title">{{ $t('launch.empty_chat.pick_title') }}</h2>
+                    <p class="chat-empty-hint">{{ $t('launch.empty_chat.pick_hint') }}</p>
+                    <button type="button" class="btn primary chat-empty-pick" @click="focusWorkflowPicker">{{ $t('launch.composer.pick_workflow_action') }}</button>
+                  </template>
+                </div>
+                <div v-if="isReconnecting && !chatMessages.length" class="chat-skeleton" role="status" :aria-label="$t('launch.loading')">
+                  <BaseSkeleton width="40%" height="14px" />
+                  <BaseSkeleton height="14px" />
+                  <BaseSkeleton width="85%" height="14px" />
+                  <BaseSkeleton width="55%" height="14px" />
                 </div>
                 <!-- Notifications and dialogues in order -->
                 <div
@@ -252,12 +391,22 @@
                     </div>
                   </div>
 
-                  <CollapsibleMessage
-                    v-else-if="message.text"
-                    :html-content="message.htmlContent || renderMarkdown(message.text)"
-                    :raw-content="message.text"
-                    :default-expanded="true"
-                  />
+                  <template v-else-if="message.text">
+                    <CollapsibleMessage
+                      v-if="!userAttachments(message) || userAttachments(message).body"
+                      :html-content="userAttachments(message) ? renderMarkdown(userAttachments(message).body) : (message.htmlContent || renderMarkdown(message.text))"
+                      :raw-content="userAttachments(message) ? userAttachments(message).body : message.text"
+                      :default-expanded="true"
+                    />
+                    <!-- "Tệp đính kèm: a, b/" in a user message: one chip per file or folder -->
+                    <ul v-if="userAttachments(message)" class="msg-attachments" :aria-label="$t('launch.attachments_label')">
+                      <li v-for="name in userAttachments(message).names" :key="name" class="msg-attachment">
+                        <svg v-if="name.endsWith('/')" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+                        <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><polyline points="14 3 14 8 19 8"></polyline></svg>
+                        <span class="msg-attachment-name">{{ name }}</span>
+                      </li>
+                    </ul>
+                  </template>
 
                   <!-- Files the turn produced (the agent's and its team's), each shown once -->
                   <div v-if="message.files && message.files.length" class="turn-files">
@@ -430,6 +579,14 @@
                   ×
                 </button>
               </div>
+              <!-- Why the box cannot send yet (the old Run button's disabled reasons live here now) -->
+              <p v-if="composerHint" class="composer-hint" role="status">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12.5"></line><circle cx="12" cy="16" r="0.6" fill="currentColor"></circle></svg>
+                <span>{{ composerHint }}</span>
+                <button v-if="!selectedFile && !loading && chatMessages.length" type="button" class="composer-hint-action" @click="focusWorkflowPicker">
+                  {{ $t('launch.composer.pick_workflow_action') }}
+                </button>
+              </p>
               <div
                 :class="['input-shell', 'composer', { glow: shouldGlow, 'drag-active': isDragActive }]"
                 @dragenter="handleDragEnter"
@@ -535,7 +692,7 @@
                     :title="buttonLabel"
                     :aria-label="buttonLabel"
                     :disabled="isStopping || (!isStopMode && (loading || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady)))"
-                    @click="isStopMode ? cancelWorkflow() : handleButtonClick()"
+                    @click="isStopMode ? cancelWorkflow() : handlePanelRunClick()"
                   >
                     <svg v-if="isStopMode" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                       <rect x="4" y="4" width="16" height="16" rx="3"></rect>
@@ -587,11 +744,37 @@
               />
             </template>
             <Background pattern-color="var(--canvas-dot)"/>
-            <Controls position="bottom-left"/>
           </VueFlow>
+          <!-- Its own bar above the canvas: the zoom controls never sit on a node -->
+          <div class="graph-bar">
+            <h2 class="graph-bar-title">{{ workflowTitle || $t('launch.graph') }}</h2>
+            <div class="graph-tools" role="toolbar" :aria-label="$t('launch.graph')">
+              <button type="button" class="graph-tool" :title="$t('launch.shell.zoom_out')" :aria-label="$t('launch.shell.zoom_out')" @click="zoomOut?.()">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <span class="graph-zoom">{{ Math.round((viewport?.zoom || 1) * 100) }}%</span>
+              <button type="button" class="graph-tool" :title="$t('launch.shell.zoom_in')" :aria-label="$t('launch.shell.zoom_in')" @click="zoomIn?.()">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <button type="button" class="graph-tool" :title="$t('launch.shell.zoom_fit')" :aria-label="$t('launch.shell.zoom_fit')" @click="fitView()">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"></path></svg>
+              </button>
+              <button
+                type="button"
+                class="graph-tool"
+                :aria-pressed="!isGraphInteractive"
+                :title="isGraphInteractive ? $t('launch.shell.graph_lock') : $t('launch.shell.graph_unlock')"
+                :aria-label="isGraphInteractive ? $t('launch.shell.graph_lock') : $t('launch.shell.graph_unlock')"
+                @click="toggleGraphInteractive"
+              >
+                <svg v-if="isGraphInteractive" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 7.8-1.2"></path></svg>
+                <svg v-else aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div v-show="viewMode === 'office'" class="graph-panel office-panel" :style="{ '--office-inset-left': isChatPanelOpen ? 'min(380px, 50%)' : '0px' }">
+        <div v-show="viewMode === 'office'" class="graph-panel office-panel" :style="officeInsetStyle">
           <OfficeView
             ref="officeRef"
             :graph="officeGraph"
@@ -643,132 +826,108 @@
           />
         </div>
 
-        <!-- The views stay one click away while the control panel is folded away -->
-        <div v-show="viewMode !== 'chat' && !isRightPanelOpen" class="view-toggle view-dock" role="toolbar" :aria-label="$t('launch.view')">
-          <button
-            v-for="option in viewOptions"
-            :key="option.mode"
-            type="button"
-            class="toggle-button"
-            :class="{ active: viewMode === option.mode }"
-            @click="selectView(option.mode)"
-          >
-            {{ $t(option.label) }}
-            <span v-if="option.mode === 'review' && reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
-          </button>
-        </div>
-
-        <!-- Right panel floating toggle (bottom-right of canvas) -->
-        <button v-show="viewMode !== 'chat'" class="right-panel-fab" @click="isRightPanelOpen = !isRightPanelOpen" :title="isRightPanelOpen ? $t('launch.collapse_panel') : $t('launch.expand_panel')">
-          <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="5" cy="6" r="2.5"></circle>
-            <circle cx="19" cy="6" r="2.5"></circle>
-            <circle cx="12" cy="18" r="2.5"></circle>
-            <line x1="5" y1="8.5" x2="12" y2="15.5"></line>
-            <line x1="19" y1="8.5" x2="12" y2="15.5"></line>
-          </svg>
-        </button>
       </div>
 
-      <!-- Right panel -->
+      <div v-if="isNarrow && isControlSheetOpen" class="sheet-backdrop" @click="isControlSheetOpen = false"></div>
+
+      <!-- Control panel. Chat view: a column (can be folded away from the header). Other views:
+           a drawer on the right, opened from the header. Narrow: a bottom sheet. -->
       <div
         class="right-panel"
         :class="{
-          'right-panel-overlay': viewMode !== 'chat',
-          'right-panel-collapsed': viewMode !== 'chat' && !isRightPanelOpen
+          'right-panel-overlay': !isNarrow && viewMode !== 'chat',
+          'right-panel-collapsed': !isNarrow && viewMode !== 'chat' && !isRightPanelOpen,
+          'right-panel-hidden': !isNarrow && viewMode === 'chat' && !isStatusColumnOpen,
+          'is-sheet': isNarrow,
+          'is-open': isControlSheetOpen
         }"
+        :inert="(isNarrow && !isControlSheetOpen) || (!isNarrow && !isControlsVisible) ? true : undefined"
       >
-
-        <div v-show="viewMode === 'chat' || isRightPanelOpen" class="control-section">
-          <label class="section-label">{{ $t('launch.workflow_selection') }}</label>
-      <div
-        class="select-wrapper custom-file-selector"
-        ref="fileSelectorWrapperRef"
-      >
-        <input
-          ref="fileSelectorInputRef"
-          v-model="fileSearchQuery"
-          type="text"
-          class="file-selector-input"
-          :placeholder="loading ? $t('launch.loading') : $t('launch.select_yaml')"
-          :disabled="loading || isWorkflowRunning"
-          @focus="handleFileInputFocus"
-          @input="handleFileInputChange"
-          @keydown.enter.prevent="handleFileInputEnter"
-          @blur="handleFileInputBlur"
-        />
-        <div class="select-arrow">▼</div>
-        <Transition name="file-dropdown">
-          <ul
-            v-if="isFileDropdownOpen"
-            class="file-dropdown"
-          >
-            <li
-              v-for="workflow in filteredWorkflowFiles"
-              :key="workflow.name"
-              class="file-option"
-              @mousedown.prevent="selectWorkflow(workflow.name)"
-            >
-              <span class="file-name">{{ workflow.name }}</span>
-              <span
-                v-if="workflow.description"
-                class="file-desc"
-              >
-                {{ localizedWorkflowDescription(workflow.name, workflow.description) }}
-              </span>
-            </li>
-            <li
-              v-if="!filteredWorkflowFiles.length"
-              class="file-empty"
-            >
-              {{ $t('launch.no_results') }}
-            </li>
-          </ul>
-        </Transition>
-      </div>
-          <p v-if="workflowHint" class="workflow-hint">{{ workflowHint }}</p>
-
-          <label class="section-label">{{ $t('launch.status') }}</label>
-          <div class="status-display" :class="{ 'status-active': status === 'Running...', 'status-awaiting-plan': isAwaitingPlan && !isStopping }">
-            {{ isStopping ? $t('launch.stopping') : statusLabel }}
-          </div>
-
-          <label class="section-label">{{ $t('launch.view') }}</label>
-          <div class="view-toggle">
-            <button
-              v-for="option in viewOptions"
-              :key="option.mode"
-              type="button"
-              class="toggle-button"
-              :class="{ active: viewMode === option.mode }"
-              @click="selectView(option.mode)"
-            >
-              {{ $t(option.label) }}
-              <span v-if="option.mode === 'review' && reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
+        <div v-show="isNarrow || isControlsVisible" class="control-section" role="region" :aria-label="$t('launch.panel.toggle')">
+          <div v-if="isNarrow || viewMode !== 'chat'" class="sheet-head">
+            <span v-if="isNarrow" class="sheet-grip" aria-hidden="true"></span>
+            <h2 class="sheet-title">{{ $t('launch.panel.toggle') }}</h2>
+            <button type="button" class="chat-header-btn" :aria-label="$t('launch.panel.close')" :title="$t('launch.panel.close')" @click="closeControls">
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
             </button>
           </div>
 
-          <!-- Button area -->
+          <section class="panel-block">
+            <label class="panel-heading" for="launch-workflow-select">{{ $t('launch.workflow_selection') }}</label>
+            <div ref="workflowPickerRef" class="workflow-picker" :class="{ 'needs-workflow': !selectedFile && !loading, nudge: pickerNudge }">
+              <BaseSkeleton v-if="loading && !workflowFiles.length" height="40px" radius="10px" />
+              <BaseSelect
+                v-else
+                id="launch-workflow-select"
+                :model-value="selectedFile"
+                :disabled="loading || isWorkflowRunning"
+                @update:model-value="selectWorkflow"
+              >
+                <option value="" disabled>{{ loading ? $t('launch.loading') : $t('launch.select_yaml') }}</option>
+                <option v-for="workflow in workflowFiles" :key="workflow.name" :value="workflow.name">{{ workflow.name.replace(/\.ya?ml$/i, '') }}</option>
+              </BaseSelect>
+            </div>
+            <template v-if="selectedDescription">
+              <p id="launch-workflow-desc" ref="descriptionRef" class="panel-note" :class="{ 'is-clamped': !isDescriptionOpen }">{{ selectedDescription }}</p>
+              <button
+                v-if="isDescriptionLong"
+                type="button"
+                class="panel-link"
+                aria-controls="launch-workflow-desc"
+                :aria-expanded="isDescriptionOpen"
+                @click="isDescriptionOpen = !isDescriptionOpen"
+              >{{ isDescriptionOpen ? $t('components.collapsible_message.show_less') : $t('components.collapsible_message.show_more') }}</button>
+            </template>
+            <p v-if="workflowHint" class="workflow-hint">{{ workflowHint }}</p>
+          </section>
+
+          <!-- Details of this run; its state itself is the chip in the chat header -->
+          <section v-if="runFacts.length" class="panel-block">
+            <h3 class="panel-heading">{{ $t('launch.panel.run') }}</h3>
+            <dl class="status-facts">
+              <div v-for="fact in runFacts" :key="fact.key" class="status-fact">
+                <dt>{{ fact.label }}</dt>
+                <dd :class="{ 'is-num': fact.numeric }">
+                  <LiveDuration v-if="fact.key === 'elapsed'" :started-at="runTracker.state.startedAt" :ended-at="runTracker.state.endedAt || 0" />
+                  <template v-else>{{ fact.value }}</template>
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section v-if="selectedFile" class="panel-block">
+            <div class="panel-heading-row">
+              <h3 class="panel-heading">{{ $t('launch.panel.team') }}</h3>
+              <button v-if="teamSize" type="button" class="panel-link" @click="selectView('office')">{{ $t('launch.panel.team_all', { n: teamSize }) }}</button>
+            </div>
+            <ul v-if="teamMembers.length" class="team-list">
+              <li v-for="member in teamMembers" :key="member.id" class="team-row">
+                <span class="team-avatar" aria-hidden="true">
+                  <img v-if="member.sprite" :src="member.sprite" alt="" />
+                </span>
+                <span class="team-name" :title="member.id">{{ member.id }}</span>
+                <StatusPill compact :tone="member.status" :label="$t(`launch.panel.step_${member.status}`)" />
+              </li>
+            </ul>
+            <p v-else class="panel-note">{{ $t('launch.panel.team_empty') }}</p>
+          </section>
+
+          <section v-if="selectedFile" class="panel-block">
+            <h3 class="panel-heading">{{ $t('launch.panel.activity') }}</h3>
+            <ol v-if="recentEvents.length" class="activity-feed">
+              <li v-for="event in recentEvents" :key="event.id" class="activity-feed-item">
+                <span class="activity-feed-text">{{ event.text }}</span>
+                <time class="activity-feed-time">{{ formatTime(event.at) }}</time>
+              </li>
+            </ol>
+            <p v-else class="panel-note">{{ $t('launch.panel.activity_empty') }}</p>
+          </section>
+
+          <!-- Starting, continuing and stopping a run all live in the composer; only the log export stays here -->
           <div class="button-section">
             <button
-              class="launch-button"
-              :class="{ glow: shouldGlow, 'is-sending': isWorkflowRunning }"
-              @click="handlePanelRunClick"
-              :disabled="loading || isStopping || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady)">
-              <!-- The composer's own button is the stop button; this one only ever sends -->
-              {{ panelRunLabel }}
-            </button>
-
-            <button
-              class="cancel-button"
-              :disabled="!isRunActive || isStopping"
-              @click="cancelWorkflow"
-            >
-              {{ $t('common.cancel') }}
-            </button>
-
-            <button
-              class="download-button"
+              type="button"
+              class="btn secondary sm"
               :disabled="!isRunFinished"
               @click="downloadLogs"
             >
@@ -826,7 +985,8 @@ import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
 import KanbanView from '@/components/launch/KanbanView.vue'
 import DashboardView from '@/components/launch/DashboardView.vue'
 import ReviewView from '@/components/launch/ReviewView.vue'
-import { createRunTracker } from '@/utils/runTracker.js'
+import { createRunTracker, usageTotals, formatCost, stepStatus } from '@/utils/runTracker.js'
+import StatusPill from '@/components/launch/StatusPill.vue'
 import { localizeErrorText } from '@/utils/errorTranslate.js'
 import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast.js'
@@ -835,7 +995,8 @@ import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import { onWorkflowChanged, workflowKey } from '@/utils/workflowSync.js'
 import OfficeView from '@/components/office/OfficeView.vue'
 import SessionSidebar from '@/components/launch/SessionSidebar.vue'
-import ChatSuggestions from '@/components/launch/chat/ChatSuggestions.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
+import BaseSkeleton from '@/components/ui/BaseSkeleton.vue'
 import { computeTeamLinks, layoutOrgTree } from '@/utils/teamLinks.js'
 import yaml from 'js-yaml'
 import MarkdownIt from 'markdown-it'
@@ -938,11 +1099,9 @@ const formatTime = (timestamp) => {
   const dateLocale = TIME_LOCALE_MAP[i18nLocale.value] || 'en-GB'
   return getTimeFormatter(dateLocale).format(new Date(timestamp)) // HH:mm:ss
 }
-import { VueFlow, useVueFlow, MarkerType } from '@vue-flow/core'
+import { VueFlow, useVueFlow, MarkerType, getRectOfNodes } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
 import '@vue-flow/core/dist/style.css'
-import '@vue-flow/controls/dist/style.css'
 import '@/assets/styles/vueflow.css'
 import WorkflowNode from '@/components/workflow/WorkflowNode.vue'
 import WorkflowEdge from '@/components/workflow/WorkflowEdge.vue'
@@ -1058,7 +1217,34 @@ const localizeInputHeaders = (text) => {
     return t('launch.input_from_header', { source: sourceLabel, role: roleLabel })
   })
 }
-const { fromObject, fitView, onPaneReady, onNodesInitialized, setNodes, setEdges, edges } = useVueFlow()
+const {
+  fromObject, fitView: fitFlow, onPaneReady, onNodesInitialized, setNodes, setEdges, edges, getNodes, dimensions, setViewport,
+  viewport, zoomIn, zoomOut, nodesDraggable, nodesConnectable, elementsSelectable
+} = useVueFlow()
+// Lock: the same switch the stock controls had (drag, connect and select off together)
+const isGraphInteractive = computed(() => Boolean(nodesDraggable.value || nodesConnectable.value || elementsSelectable.value))
+const toggleGraphInteractive = () => {
+  const next = !isGraphInteractive.value
+  nodesDraggable.value = next
+  nodesConnectable.value = next
+  elementsSelectable.value = next
+}
+// Fit the workflow on screen, but never so small the node names stop being readable
+// (names are 15px: 0.75 keeps them >= 11px). A graph too big for that is shown from its
+// left edge (the start and the lead), centred vertically; pan or zoom out for the rest.
+const GRAPH_MIN_ZOOM = 0.75
+const fitView = async (options = {}) => {
+  if (!fitFlow) return
+  await fitFlow({ ...options, padding: 0.12, maxZoom: 1.1 })
+  const nodes = getNodes.value || []
+  const { width, height } = dimensions.value || {}
+  if (!nodes.length || !width || !height) return
+  const rect = getRectOfNodes(nodes)
+  const fitZoom = Math.min(width / (rect.width * 1.24), height / (rect.height * 1.24))
+  if (!(fitZoom < GRAPH_MIN_ZOOM)) return
+  const zoom = GRAPH_MIN_ZOOM
+  setViewport({ x: 32 - rect.x * zoom, y: (height - rect.height * zoom) / 2 - rect.y * zoom, zoom })
+}
 
 const getTranslatedStatus = (statusText) => {
   if (!statusText) return ''
@@ -1093,11 +1279,6 @@ const taskPrompt = ref('')
 // File selector state
 const workflowFiles = ref([])
 const selectedFile = ref('')
-const fileSearchQuery = ref('')
-const isFileSearchDirty = ref(false)
-const isFileDropdownOpen = ref(false)
-const fileSelectorWrapperRef = ref(null)
-const fileSelectorInputRef = ref(null)
 
 // Status state
 const status = ref('Waiting for workflow selection...')
@@ -1778,45 +1959,49 @@ const visitedViews = reactive({ board: false, dashboard: false, review: false })
 watch(viewMode, (mode) => {
   if (mode in visitedViews) visitedViews[mode] = true
 }, { immediate: true })
-// Outside the chat the control panel floats over the view: after picking a view, get it
-// out of the way (the button at the bottom right brings it back). The view buttons stay on
-// screen meanwhile, in a small bar at the bottom right (see .view-dock).
+// Outside the chat the control panel is a drawer over the view: after picking a view, get it
+// out of the way (the "Bảng điều khiển" button in the header brings it back).
 watch(viewMode, (mode) => {
   if (mode !== 'chat') isRightPanelOpen.value = false
 })
+// Most used first: talk to the lead, then watch the team, then the work around it
 const viewOptions = [
   { mode: 'chat', label: 'launch.chat' },
-  { mode: 'graph', label: 'launch.graph' },
   { mode: 'office', label: 'launch.office.view' },
   { mode: 'board', label: 'launch.board.view' },
+  { mode: 'review', label: 'launch.review.view' },
   { mode: 'dashboard', label: 'launch.dashboard.view' },
-  { mode: 'review', label: 'launch.review.view' }
+  { mode: 'graph', label: 'launch.graph' }
 ]
 const selectView = (mode) => {
+  isControlSheetOpen.value = false
+  isSessionsDrawerOpen.value = false
+  // Narrow screens: the chat would cover the view it was just switched to; it stays one tap away
+  if (isNarrow.value && mode !== 'chat' && viewMode.value === 'chat') isChatPanelOpen.value = false
+  if (mode === 'chat') isChatPanelOpen.value = true
   if (mode === 'graph') switchToGraph()
   else viewMode.value = mode
 }
-// Content stays clear of the chat panel that floats over the canvas
-const insetStyle = computed(() => ({ '--inset-left': isChatPanelOpen.value ? 'min(380px, 50%)' : '0px' }))
-// The person who answers in the chat of a team workflow: the top lead (a lead nobody
-// delegates to). Empty for workflows without a team.
-const leadName = computed(() => {
-  const graph = workflowYaml.value?.graph
-  const links = computeTeamLinks(graph?.nodes, graph?.edges)
-  const members = new Set(links.map((link) => link.to))
-  return links.find((link) => !members.has(link.from))?.from || ''
+// Keep the active tab in view when the strip scrolls (narrow screens)
+watch(viewMode, (mode) => {
+  nextTick(() => document.getElementById(`view-tab-${mode}`)?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' }))
 })
-// The graph canvas resizes with the chat panel: re-fit once its slide has finished
-watch(isChatPanelOpen, () => {
-  if (viewMode.value !== 'graph') return
-  setTimeout(() => fitView?.({ padding: 0.1 }), 280)
-})
+// Tab list keyboard support: arrows / Home / End move the focus, Enter or Space opens the view
+const onViewTabKey = (event) => {
+  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
+  if (!keys.includes(event.key)) return
+  const modes = viewOptions.map((option) => option.mode)
+  const current = modes.indexOf(document.activeElement?.id?.replace('view-tab-', ''))
+  let next = current < 0 ? modes.indexOf(viewMode.value) : current
+  if (event.key === 'ArrowRight') next = (next + 1) % modes.length
+  else if (event.key === 'ArrowLeft') next = (next - 1 + modes.length) % modes.length
+  else if (event.key === 'Home') next = 0
+  else next = modes.length - 1
+  event.preventDefault()
+  document.getElementById(`view-tab-${modes[next]}`)?.focus()
+}
 
-// ---------------------------------------------------------------- session history
-// Every launched run is saved by the backend; the sidebar lists them so the user can
-// switch between runs and reopen one later (after a reload or a server restart).
-const SIDEBAR_OPEN_KEY = 'agentdev.sessions.sidebarOpen'
-const LAST_SESSION_KEY = 'agentdev.launch.lastSession'
+// Per-browser layout memory (localStorage may be unavailable: private mode, blocked storage)
 const readStorage = (key) => {
   try {
     return localStorage.getItem(key)
@@ -1833,10 +2018,342 @@ const writeStorage = (key, value) => {
   }
 }
 
+// ---------------------------------------------------------------- layout: wide vs narrow
+// Below 900px the status panel becomes a bottom sheet and the session list a drawer
+const NARROW_QUERY = '(max-width: 899.98px)'
+const narrowMql = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(NARROW_QUERY) : null
+const isNarrow = ref(Boolean(narrowMql?.matches))
+const isControlSheetOpen = ref(false)
+const isSessionsDrawerOpen = ref(false)
+const onNarrowChange = (event) => {
+  isNarrow.value = event.matches
+  isControlSheetOpen.value = false
+  isSessionsDrawerOpen.value = false
+}
+narrowMql?.addEventListener?.('change', onNarrowChange)
+onUnmounted(() => narrowMql?.removeEventListener?.('change', onNarrowChange))
+
+// Chat view (wide): the control panel is a column the person can fold away (remembered)
+const STATUS_COLUMN_KEY = 'agentdev.launch.statusColumnOpen'
+const isStatusColumnOpen = ref(readStorage(STATUS_COLUMN_KEY) !== '0')
+watch(isStatusColumnOpen, (open) => writeStorage(STATUS_COLUMN_KEY, open ? '1' : '0'))
+const isControlsVisible = computed(() => {
+  if (isNarrow.value) return isControlSheetOpen.value
+  return viewMode.value === 'chat' ? isStatusColumnOpen.value : isRightPanelOpen.value
+})
+const setControlsOpen = (open) => {
+  if (isNarrow.value) {
+    if (open) isSessionsDrawerOpen.value = false
+    isControlSheetOpen.value = open
+  } else if (viewMode.value === 'chat') {
+    isStatusColumnOpen.value = open
+  } else {
+    isRightPanelOpen.value = open
+  }
+}
+const toggleControls = () => setControlsOpen(!isControlsVisible.value)
+const closeControls = () => setControlsOpen(false)
+// Show the panel (workflow picker) wherever it lives in the current layout
+const revealControls = () => setControlsOpen(true)
+const toggleSessionsPanel = () => {
+  if (isNarrow.value) {
+    isControlSheetOpen.value = false
+    isSessionsDrawerOpen.value = !isSessionsDrawerOpen.value
+  } else {
+    isSessionSidebarOpen.value = !isSessionSidebarOpen.value
+  }
+}
+const onSidebarSelect = (...args) => {
+  isSessionsDrawerOpen.value = false
+  return openSession(...args)
+}
+const onSidebarNew = (...args) => {
+  isSessionsDrawerOpen.value = false
+  return startNewSession(...args)
+}
+// Esc closes whichever sheet is open
+const onSheetEscape = (event) => {
+  if (event.key !== 'Escape' || event.defaultPrevented || showSettingsModal.value) return
+  if (isControlSheetOpen.value) isControlSheetOpen.value = false
+  else if (isSessionsDrawerOpen.value) isSessionsDrawerOpen.value = false
+  else if (!isNarrow.value && viewMode.value !== 'chat' && isRightPanelOpen.value) isRightPanelOpen.value = false
+}
+document.addEventListener('keydown', onSheetEscape)
+onUnmounted(() => document.removeEventListener('keydown', onSheetEscape))
+
+// ---------------------------------------------------------------- status panel
+const workflowPickerRef = ref(null)
+const pickerNudge = ref(false)
+let pickerNudgeTimer = null
+// Bring the workflow picker into view and focus it (also from the composer's hint)
+const focusWorkflowPicker = () => {
+  revealControls()
+  pickerNudge.value = true
+  clearTimeout(pickerNudgeTimer)
+  pickerNudgeTimer = setTimeout(() => { pickerNudge.value = false }, 1800)
+  nextTick(() => workflowPickerRef.value?.querySelector('select')?.focus())
+}
+onUnmounted(() => clearTimeout(pickerNudgeTimer))
+
+const selectedDescription = computed(() => {
+  const workflow = workflowFiles.value.find((item) => item.name === selectedFile.value)
+  return workflow?.description ? localizedWorkflowDescription(workflow.name, workflow.description) : ''
+})
+// One of running | warn | success | danger | muted, drives the chip's colour and icon
+const statusTone = computed(() => {
+  if (isStopping.value) return 'warn'
+  if (isAwaitingPlan.value) return 'warn'
+  const value = status.value
+  if (value === 'Running...' || value === 'Launching...') return 'running'
+  if (value === 'Waiting for input...') return 'warn'
+  if (value === 'Completed') return 'success'
+  if (value === 'Error' || value === 'Failed') return 'danger'
+  return 'muted'
+})
+const activeNodeNames = computed(() => (isRunActive.value ? activeNodes.value.join(', ') : ''))
+const usageSummary = computed(() => {
+  const usage = usageTotals(runTracker.state.tokenUsage)
+  if (!usage.tokens) return ''
+  const tokens = t('launch.panel.tokens', { n: usage.tokens.toLocaleString() })
+  return usage.cost === null ? tokens : `${tokens} · ${formatCost(usage.cost)}`
+})
+
+// Starter prompts of an empty chat ({workflow} is the selected workflow's name)
+const EMPTY_SUGGESTION_KEYS = [
+  'launch.empty_chat.suggestions.intro',
+  'launch.empty_chat.suggestions.plan',
+  'launch.empty_chat.suggestions.review',
+  'launch.empty_chat.suggestions.tests'
+]
+
+// Why the composer cannot send yet; the old Run button's disabled reasons live here now
+const composerHint = computed(() => {
+  if (!selectedFile.value) return loading.value ? '' : t('launch.composer.pick_workflow')
+  if (!isWorkflowRunning.value && !isRunFinished.value && !isConnectionReady.value && !isReconnecting.value) {
+    return t('launch.composer.connecting')
+  }
+  return ''
+})
+
+// "Tệp đính kèm: a, b/" at the end of a user message -> { body, names }, cached per message text
+const ATTACHMENT_LINE = /^(?:Tệp đính kèm|Attachments|附件)\s*[:：]\s*(\S.*)$/u
+const attachmentCache = new WeakMap()
+const userAttachments = (message) => {
+  if (!message?.isRight || typeof message.text !== 'string') return null
+  const cached = attachmentCache.get(message)
+  if (cached && cached.text === message.text) return cached.value
+  let value = null
+  try {
+    const cut = message.text.lastIndexOf('\n\n')
+    const tail = (cut >= 0 ? message.text.slice(cut + 2) : message.text).trim()
+    const match = tail.includes('\n') ? null : tail.match(ATTACHMENT_LINE)
+    if (match) {
+      const names = match[1].split(',').map((name) => name.trim()).filter(Boolean)
+      if (names.length) value = { body: cut >= 0 ? message.text.slice(0, cut).trim() : '', names }
+    }
+  } catch {
+    value = null
+  }
+  attachmentCache.set(message, { text: message.text, value })
+  return value
+}
+// ---------------------------------------------------------------- chat column (outside the chat view)
+// Resizable by drag or arrow keys (double-click resets), remembered per browser.
+const CHAT_MIN_W = 320
+const CHAT_MAX_W = 560
+const CHAT_DEFAULT_W = 380
+const CHAT_RAIL_W = 48
+const CHAT_WIDTH_KEY = 'agentdev.launch.chatWidth'
+const clampChatWidth = (value) => Math.round(Math.min(CHAT_MAX_W, Math.max(CHAT_MIN_W, Number(value) || CHAT_DEFAULT_W)))
+const chatWidth = ref(clampChatWidth(readStorage(CHAT_WIDTH_KEY)))
+const setChatWidth = (value) => { chatWidth.value = clampChatWidth(value) }
+const leftPanelRef = ref(null)
+const isResizingChat = ref(false)
+let chatResizeRaf = 0
+let chatResizeCleanup = null
+const startChatResize = (event) => {
+  if (event.button !== 0) return
+  event.preventDefault()
+  const left = leftPanelRef.value?.getBoundingClientRect().left || 0
+  isResizingChat.value = true
+  const onMove = (moveEvent) => {
+    cancelAnimationFrame(chatResizeRaf)
+    chatResizeRaf = requestAnimationFrame(() => setChatWidth(moveEvent.clientX - left))
+  }
+  const onUp = () => chatResizeCleanup?.()
+  chatResizeCleanup = () => {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onUp)
+    cancelAnimationFrame(chatResizeRaf)
+    isResizingChat.value = false
+    writeStorage(CHAT_WIDTH_KEY, String(chatWidth.value))
+    chatResizeCleanup = null
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  window.addEventListener('pointercancel', onUp)
+}
+const onChatResizeKey = (event) => {
+  const step = event.shiftKey ? 64 : 16
+  const next = {
+    ArrowLeft: chatWidth.value - step,
+    ArrowRight: chatWidth.value + step,
+    Home: CHAT_MIN_W,
+    End: CHAT_MAX_W
+  }[event.key]
+  if (next === undefined) return
+  event.preventDefault()
+  setChatWidth(next)
+  writeStorage(CHAT_WIDTH_KEY, String(chatWidth.value))
+}
+onUnmounted(() => chatResizeCleanup?.())
+// The chat column never takes more than half the work area
+const chatColumnCss = computed(() => `min(${chatWidth.value}px, 50%)`)
+const chatWidthStyle = computed(() => ({ '--chat-w': chatColumnCss.value }))
+// The width the chat covers on the left of a view: its column, or the rail when folded
+const chatCoverCss = computed(() => {
+  if (viewMode.value === 'chat') return '0px'
+  return isChatPanelOpen.value ? chatColumnCss.value : `${CHAT_RAIL_W}px`
+})
+// Views pad their content by --inset-left + 34px (room for an old edge toggle): subtract it
+// so content starts one gutter (16px) right of the chat column or rail
+const insetStyle = computed(() => ({
+  '--inset-left': `calc(${chatCoverCss.value} - 18px)`,
+  '--graph-inset': chatCoverCss.value
+}))
+const officeInsetStyle = computed(() => ({ '--office-inset-left': chatCoverCss.value }))
+
+// ---------------------------------------------------------------- control panel content
+// A long workflow description folds to three lines
+const isDescriptionOpen = ref(false)
+const isDescriptionLong = ref(false)
+const descriptionRef = ref(null)
+// The toggle shows only when three lines really cut the text (measured, so the panel's
+// width - column, drawer or sheet - decides)
+const measureDescription = () => {
+  const el = descriptionRef.value
+  if (!el || isDescriptionOpen.value) return
+  isDescriptionLong.value = el.scrollHeight > el.clientHeight + 1
+}
+let descriptionObserver = null
+watch(descriptionRef, (el, previous) => {
+  if (previous) descriptionObserver?.unobserve(previous)
+  if (!el || typeof ResizeObserver === 'undefined') return
+  if (!descriptionObserver) descriptionObserver = new ResizeObserver(() => measureDescription())
+  descriptionObserver.observe(el)
+})
+watch(selectedFile, () => { isDescriptionOpen.value = false })
+watch([selectedDescription, isControlsVisible], () => nextTick(measureDescription))
+onUnmounted(() => descriptionObserver?.disconnect())
+// StatusPill tone for the run state (same chip vocabulary as the session list)
+const statusPillTone = computed(() => ({
+  running: 'working',
+  warn: 'waiting',
+  success: 'done',
+  danger: 'error'
+}[statusTone.value] || 'idle'))
+const runFacts = computed(() => {
+  const facts = []
+  if (activeNodeNames.value) facts.push({ key: 'working', label: t('launch.panel.working'), value: activeNodeNames.value })
+  if (runTracker.state.startedAt) facts.push({ key: 'elapsed', label: t('launch.panel.elapsed'), numeric: true })
+  if (usageSummary.value) facts.push({ key: 'usage', label: t('launch.panel.usage'), value: usageSummary.value, numeric: true })
+  return facts
+})
+// The team of this run: who has picked up work, live state first, then most recent
+const TEAM_LIMIT = 6
+const TEAM_ORDER = { working: 0, waiting: 1, error: 2, done: 3, cancelled: 4, todo: 5 }
+const teamMembers = computed(() =>
+  Object.entries(runTracker.state.nodes)
+    .filter(([, node]) => node.runs.length || node.waiting)
+    .map(([id, node]) => ({ id, status: stepStatus(node), lastAt: node.lastAt || 0, sprite: nodeSpriteMap.value.get(id) || '' }))
+    .sort((a, b) => (TEAM_ORDER[a.status] ?? 9) - (TEAM_ORDER[b.status] ?? 9) || b.lastAt - a.lastAt)
+    .slice(0, TEAM_LIMIT)
+)
+const teamSize = computed(() => {
+  const nodes = officeGraph.value?.nodes
+  if (!Array.isArray(nodes)) return 0
+  const agents = nodes.filter((node) => node?.type === 'agent').length
+  return agents || nodes.length
+})
+// Last few things that happened, newest first, in plain words
+const RECENT_LIMIT = 5
+const eventSentence = (event) => {
+  const name = event.nodeId || ''
+  switch (event.kind) {
+    case 'task': return t('launch.dashboard.ev_task', { text: event.text || '' })
+    case 'start': return t('launch.dashboard.ev_start', { name })
+    case 'end': return t('launch.dashboard.ev_end', { name })
+    case 'tool': return t('launch.dashboard.ev_tool', { name, tool: event.text || '' })
+    case 'handoff': return t('launch.dashboard.ev_handoff', { name, target: event.target || '' })
+    case 'waiting': return name ? t('launch.dashboard.ev_waiting', { name }) : t('launch.dashboard.ev_waiting_any')
+    case 'input': return t('launch.dashboard.ev_input', { text: event.text || '' })
+    case 'completed': return t('launch.dashboard.ev_completed')
+    case 'cancelled': return t('launch.dashboard.ev_cancelled')
+    case 'error': return t('launch.dashboard.ev_error')
+    default: return event.kind
+  }
+}
+const recentEvents = computed(() =>
+  runTracker.state.events.slice(-RECENT_LIMIT).reverse().map((event) => ({ id: event.id, at: event.at, text: eventSentence(event) }))
+)
+// The person who answers in the chat of a team workflow: the top lead (a lead nobody
+// delegates to). Empty for workflows without a team.
+const leadName = computed(() => {
+  const graph = workflowYaml.value?.graph
+  const links = computeTeamLinks(graph?.nodes, graph?.edges)
+  const members = new Set(links.map((link) => link.to))
+  return links.find((link) => !members.has(link.from))?.from || ''
+})
+// The graph canvas resizes with the chat panel: re-fit once its slide has finished
+let graphRefitTimer = null
+watch([isChatPanelOpen, isResizingChat], () => {
+  if (viewMode.value !== 'graph' || isResizingChat.value) return
+  clearTimeout(graphRefitTimer)
+  graphRefitTimer = setTimeout(() => fitView?.({ padding: 0.1 }), 280)
+})
+onUnmounted(() => clearTimeout(graphRefitTimer))
+
+// ---------------------------------------------------------------- session history
+// Every launched run is saved by the backend; the sidebar lists them so the user can
+// switch between runs and reopen one later (after a reload or a server restart).
+const SIDEBAR_OPEN_KEY = 'agentdev.sessions.sidebarOpen'
+const LAST_SESSION_KEY = 'agentdev.launch.lastSession'
+
 const sessions = ref([])
 const sessionsLoaded = ref(false)
-const isSessionSidebarOpen = ref(readStorage(SIDEBAR_OPEN_KEY) !== '0')
-watch(isSessionSidebarOpen, (open) => writeStorage(SIDEBAR_OPEN_KEY, open ? '1' : '0'))
+// Open or folded to a rail, remembered per view: the chat keeps its list by default, the
+// work views (office, board, ...) start folded so the work gets the width. An explicit
+// choice in a view sticks for that view.
+const SESSIONS_BY_VIEW_KEY = 'agentdev.launch.sessionsByView'
+const sessionsByView = reactive((() => {
+  try {
+    const saved = JSON.parse(readStorage(SESSIONS_BY_VIEW_KEY) || '{}')
+    return saved && typeof saved === 'object' ? saved : {}
+  } catch {
+    return {}
+  }
+})())
+const isSessionSidebarOpen = computed({
+  get: () => {
+    const saved = sessionsByView[viewMode.value]
+    if (typeof saved === 'boolean') return saved
+    return viewMode.value === 'chat' ? readStorage(SIDEBAR_OPEN_KEY) !== '0' : false
+  },
+  set: (open) => {
+    sessionsByView[viewMode.value] = Boolean(open)
+    writeStorage(SESSIONS_BY_VIEW_KEY, JSON.stringify(sessionsByView))
+    if (viewMode.value === 'chat') writeStorage(SIDEBAR_OPEN_KEY, open ? '1' : '0')
+  }
+})
+const hasLiveSession = computed(() => sessions.value.some((item) => ['running', 'cancelling', 'waiting_for_input'].includes(item.status)))
+const sessionsDrawerRef = ref(null)
+// Rail search: open the list and put the cursor in its search box
+const openSessionSearch = async () => {
+  isSessionSidebarOpen.value = true
+  await nextTick()
+  sessionsDrawerRef.value?.querySelector('.session-sidebar input[type="text"]')?.focus()
+}
 
 // The URL carries the open session (?session=...), so it is the single source of truth
 const activeSessionId = computed(() => {
@@ -2039,20 +2556,6 @@ let launchRejectedCount = 0
 // This session was opened in another tab: the banner offers to take it back here
 const replacedSessionId = ref('')
 
-const filteredWorkflowFiles = computed(() => {
-  // If the file search box is untouched, return all workflows
-  if (!isFileSearchDirty.value) {
-    return workflowFiles.value
-  }
-  const query = fileSearchQuery.value.trim().toLowerCase()
-  if (!query) {
-    return workflowFiles.value
-  }
-  return workflowFiles.value.filter((workflow) =>
-    workflow.name?.toLowerCase().includes(query)
-  )
-})
-
 const hasComposerContent = computed(() =>
   Boolean(taskPrompt.value.trim()) || uploadedAttachments.value.length > 0
 )
@@ -2164,12 +2667,6 @@ watch(pendingQuestion, (question, previous) => {
   if (question?.text !== previous?.text) isQuestionExpanded.value = false
 })
 
-// Right-panel run button: same as the composer's send, but spelled out
-const panelRunLabel = computed(() => {
-  if (isWorkflowRunning.value) return t('launch.send')
-  if (isRunFinished.value) return hasComposerContent.value ? t('launch.send') : t('launch.run_new_turn')
-  return buttonLabel.value
-})
 // With an empty composer after a finished run this button starts a whole new session: an easy
 // click to make by mistake, so it asks first
 const handlePanelRunClick = async () => {
@@ -2315,8 +2812,6 @@ const normalizeWorkflowName = (value) => {
 // Only shows the workflow; opening a session or draft is always an explicit step
 const setWorkflowSelection = (fileName) => {
   selectedFile.value = fileName || ''
-  fileSearchQuery.value = fileName || ''
-  isFileSearchDirty.value = false
 }
 
 // Load workflow list
@@ -2335,65 +2830,16 @@ const loadWorkflows = async () => {
   }
 }
 
-const openFileDropdown = () => {
-  if (loading.value || isWorkflowRunning.value) {
-    return
-  }
-  isFileDropdownOpen.value = true
-}
-
-const handleFileInputFocus = () => {
-  isFileSearchDirty.value = false
-  openFileDropdown()
-  if (fileSearchQuery.value?.trim()) {
-    nextTick(() => fileSelectorInputRef.value?.select())
-  }
-}
-
-const handleFileInputChange = () => {
-  if (loading.value || isWorkflowRunning.value) {
-    return
-  }
-  isFileSearchDirty.value = true
-  openFileDropdown()
-}
-
-const closeFileDropdown = () => {
-  isFileDropdownOpen.value = false
-}
-
 const selectWorkflow = (fileName) => {
   if (!fileName) {
     return
   }
-  closeFileDropdown()
-  // Avoid focusing on element after selection
-  fileSelectorInputRef.value?.blur()
-  if (fileName === selectedFile.value) {
-    resetFileSearchQuery()
-    return
-  }
-  changeWorkflow(fileName)
-}
-
-const handleFileInputEnter = () => {
-  const [firstMatch] = filteredWorkflowFiles.value
-  if (firstMatch) {
-    selectWorkflow(firstMatch.name)
-  }
-}
-
-const resetFileSearchQuery = () => {
-  fileSearchQuery.value = selectedFile.value || ''
-  isFileSearchDirty.value = false
-}
-
-const handleFileInputBlur = () => {
-  setTimeout(() => {
-    if (!isFileDropdownOpen.value) {
-      resetFileSearchQuery()
-    }
-  }, 120)
+  if (fileName !== selectedFile.value) changeWorkflow(fileName)
+  // A native <select> keeps what was clicked even when the change was refused: show the truth
+  nextTick(() => {
+    const select = workflowPickerRef.value?.querySelector('select')
+    if (select) select.value = selectedFile.value || ''
+  })
 }
 
 const autoResizeTaskInput = () => {
@@ -2416,14 +2862,6 @@ const pickAttachmentFolder = () => {
 const handleClickOutside = (event) => {
   if (showAttachMenu.value && attachMenuRef.value && !attachMenuRef.value.contains(event.target)) {
     showAttachMenu.value = false
-  }
-  if (
-    isFileDropdownOpen.value &&
-    fileSelectorWrapperRef.value &&
-    !fileSelectorWrapperRef.value.contains(event.target)
-  ) {
-    closeFileDropdown()
-    resetFileSearchQuery()
   }
 }
 
@@ -3188,7 +3626,6 @@ const establishWebSocketConnection = (options = {}) => {
       isReconnecting.value = false
       resetConnectionState({ closeSocket: true, keepSession: Boolean(lostSession) })
       replacedSessionId.value = lostSession || ''
-      toast.info(t('launch.replaced_by_other_tab'))
       return
     }
     // Keep the chat on screen while the server is away (e.g. it restarted); the replay
@@ -3347,7 +3784,7 @@ const startNewSession = async (target = null) => {
   if (!file) {
     isRightPanelOpen.value = true
     toast.info(t('launch.sessions.pick_workflow'))
-    nextTick(() => fileSelectorInputRef.value?.focus())
+    nextTick(() => focusWorkflowPicker())
     return
   }
   // Already in a fresh session of that project and workflow: no second empty one
@@ -3471,7 +3908,7 @@ const handleAddProject = () => {
   if (!selectedFile.value) {
     isRightPanelOpen.value = true
     toast.info(t('launch.sessions.add_project_pick_workflow'))
-    nextTick(() => fileSelectorInputRef.value?.focus())
+    nextTick(() => focusWorkflowPicker())
     return
   }
   if (isUploadingAttachment.value) {
@@ -4438,7 +4875,6 @@ const processMessage = async (msg) => {
     // Set selectedFile BEFORE clearing isReconnecting so the watch skips
     if (data.yaml_file) {
       selectedFile.value = data.yaml_file
-      fileSearchQuery.value = data.yaml_file
       // Load YAML data and sprites (but don't clear chat)
       try {
         const yamlContentString = await fetchWorkflowYAML(data.yaml_file)
@@ -5153,216 +5589,99 @@ watch(
 </script>
 
 <style scoped>
-.launch-view {
-  width: 100%;
-  height: 100vh;
+
+/* ---- Rails: a folded sessions list / chat keeps a slim strip of icon buttons ---- */
+.sessions-rail,
+.chat-rail {
   display: flex;
   flex-direction: column;
-  background-color: var(--bg-base);
-  color: var(--text-1);
-  font-family: 'Inter', sans-serif;
-  position: relative;
-  overflow: hidden;
-}
-
-.launch-bg {
-  position: fixed;
-  top: -150px;
-  left: 0;
-  right: 0;
-  height: 500px;
-  /* Pre-softened radial glows instead of filter: blur(120px) on a large layer,
-     which is very expensive to rasterise and composite. */
-  background:
-    radial-gradient(ellipse 40% 70% at 18% 45%, var(--accent-mint), transparent 72%),
-    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent-sky), transparent 72%),
-    radial-gradient(ellipse 40% 70% at 82% 45%, var(--accent-indigo), transparent 72%);
-  opacity: 0.15;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.header {
-  display: flex;
   align-items: center;
-  padding: 0 20px;
-  height: 40px;
-  background-color: rgb(var(--ink) / 0.05);
-  border-bottom: 1px solid rgb(var(--ink) / 0.1);
-  flex-shrink: 0;
-  position: relative;
-  z-index: 2;
+  gap: var(--space-1);
+  width: 48px;
+  padding: var(--space-1) 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
-
-.header h1 {
-  margin: 0;
-  color: var(--text-1);
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.back-button {
-  padding: 8px;
-  margin-right: 16px;
-  background: transparent;
-  color: rgb(var(--ink) / 0.6);
-  cursor: pointer;
-  transition: color 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-}
-
-.back-button:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.back-button:hover {
-  color: var(--text-1);
-}
-
-.content {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-  padding: 20px;
-  gap: 20px;
-  position: relative;
-  z-index: 1;
-}
-
-/* Left Panel */
-.left-panel {
-  flex: 3;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0; /* Prevents overflow */
-  position: relative;
-}
-
-/* Persistent Chat Panel */
-.chat-panel {
+.sessions-rail { flex: none; }
+.chat-rail {
   position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
-  width: 380px;
-  max-width: 50%;
-  z-index: 10;
-  display: flex;
-  flex-direction: row;
-  pointer-events: none;
-  /* Slide with transform only: no layout or text re-wrapping while it moves */
-  transition: transform 0.3s cubic-bezier(0.22, 0.8, 0.24, 1);
+  z-index: 9;
+  animation: fade-in 0.18s var(--ease-out);
 }
-
-/* Full-screen chat mode */
-.chat-panel-fullscreen {
+.rail-btn {
   position: relative;
-  width: 100%;
-  max-width: 100%;
-  flex: 1;
-  flex-direction: column;
-  pointer-events: auto;
-  z-index: auto;
-  min-height: 0;
-}
-
-.chat-panel-fullscreen .chat-panel-content {
-  background: rgb(var(--ink) / 0.03);
-  border: 1px solid rgb(var(--ink) / 0.1);
-}
-
-.chat-panel-collapsed {
-  transform: translateX(-100%);
-}
-
-/* Hide the slid-out content once the slide has finished (and show it at once on open) */
-.chat-panel-collapsed .chat-panel-content {
-  visibility: hidden;
-  transition: visibility 0s linear 0.3s;
-}
-
-.chat-panel-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-  min-height: 0;
-  pointer-events: auto;
-  background: rgb(var(--panel-26) / 0.97);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  overflow: hidden;
-  padding: 0;
-}
-
-.chat-panel-toggle {
-  position: absolute;
-  top: 12px;
-  right: -28px;
-  width: 28px;
-  height: 28px;
-  border-radius: 0 8px 8px 0;
-  border: 1px solid rgb(var(--ink) / 0.15);
-  border-left: none;
-  background: rgb(var(--panel-26) / 0.97);
-  color: rgb(var(--ink) / 0.7);
-  cursor: pointer;
-  display: flex;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  pointer-events: auto;
-  transition: background-color 0.2s ease, color 0.2s ease;
   padding: 0;
-  z-index: 11;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
 }
+.rail-btn:hover { background: var(--surface-raised); color: var(--fg); }
+.rail-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.rail-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.rail-dot.is-waiting { background: var(--warn); }
 
-.chat-panel-toggle::before {
+/* Drag handle on the chat column's right edge (wide screens, outside the chat view) */
+.chat-resizer {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  right: -7px;
+  width: 14px;
+  z-index: 12;
+  cursor: col-resize;
+  pointer-events: auto;
+  touch-action: none;
+  border-radius: 7px;
+}
+.chat-resizer::after {
   content: '';
   position: absolute;
-  inset: -6px;
+  top: 50%;
+  left: 5px;
+  width: 4px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  opacity: 0;
+  transition: opacity 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
 }
+.chat-resizer:hover::after,
+.chat-resizer:focus-visible::after,
+.is-resizing .chat-resizer::after { opacity: 1; }
+.chat-resizer:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.is-resizing .chat-resizer::after { background: var(--accent); }
+.chat-panel.is-resizing { transition: none; user-select: none; }
 
-.chat-panel-toggle:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
-@media (pointer: coarse) {
-  .chat-panel-toggle { width: 44px; height: 44px; right: -44px; }
-}
-
-.chat-panel-toggle:hover {
-  background: rgb(var(--ink) / 0.1);
-  color: var(--text-1);
-}
-
-.chat-panel-toggle svg {
-  transition: transform 0.3s ease;
-}
-
-.chat-panel-toggle .chevron-collapsed {
-  transform: rotate(180deg);
-}
-
-.chat-panel-collapsed .chat-panel-toggle {
-  right: -28px;
-  left: auto;
-}
-
-/* Chat header: session title + history / new-session actions */
+/* Chat header: session title + run state, then project and workflow; actions on the right */
 .chat-header {
   flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 12px 12px 10px 16px;
-  border-bottom: 1px solid rgb(var(--ink) / 0.08);
+  border-bottom: 1px solid var(--border);
 }
 
 .chat-header-main {
@@ -5370,38 +5689,58 @@ watch(
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
+.chat-header-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.chat-header-status { flex: none; display: inline-flex; max-width: 70%; }
 
 .chat-header-title {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-1);
+  color: var(--fg);
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 650;
 }
 
 .chat-header-sub {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
   font-size: var(--fs-xs);
-  color: rgb(var(--ink) / 0.5);
+  color: var(--fg-muted);
 }
 
+/* The project is context, not a warning: a neutral chip */
 .chat-header-project {
+  flex: 0 0 auto;
+  max-width: 65%;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-right: 4px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: rgb(245 185 74 / 0.14);
-  color: #e0a43a;
-  font-weight: 600;
-  vertical-align: 1px;
+  min-width: 0;
+  min-height: 20px;
+  padding: 0 7px 0 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--fg);
+  font-weight: 550;
 }
+.chat-header-project svg { flex: none; color: var(--fg-muted); }
+.chat-header-project-name,
+.chat-header-workflow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-header-workflow { flex: 0 1 auto; }
+/* The state outranks the title when room runs out: the title truncates first */
+.chat-panel:not(.chat-panel-fullscreen) .chat-header-actions { gap: 0; }
+.chat-panel:not(.chat-panel-fullscreen) .chat-header { padding-right: 4px; }
 
 .workflow-hint {
   margin: -2px 0 2px;
@@ -5417,8 +5756,8 @@ watch(
 }
 
 .chat-header-btn {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5477,30 +5816,6 @@ watch(
 }
 
 /* Empty session */
-.chat-empty {
-  margin: auto;
-  max-width: 460px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 24px 8px;
-}
-.chat-empty-title {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-strong);
-}
-.chat-empty-hint {
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--text-muted-7);
-}
-.chat-empty-keys {
-  font-size: 12px;
-  color: var(--text-muted-7);
-  opacity: 0.75;
-}
 
 /* Markdown extras rendered by renderMarkdown: code blocks with a copy button, scrolling tables */
 .chat-messages :deep(.md-code) {
@@ -6317,11 +6632,8 @@ watch(
   background-color: rgb(var(--ink) / 0.05);
 }
 
-.input-shell.glow {
-  border-color: var(--accent-mint);
-  box-shadow: 0 0 15px rgb(var(--accent-sky-rgb) / 0.3);
-  animation: borderPulse 4s ease-in-out infinite alternate;
-}
+/* "Your turn" is carried by the send button; the box itself only lights up on focus */
+.composer-send.glow:not(:disabled) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
 
 .input-shell.drag-active {
   border-color: rgb(var(--accent-sky-rgb) / 0.9);
@@ -6451,27 +6763,6 @@ watch(
 .composer-icon-btn:hover:not(:disabled),
 .composer-icon-btn.active { background: rgb(var(--ink) / 0.1); color: var(--text-1); }
 
-.composer-send {
-  border: none;
-  background: #ff6b6b;
-  color: #fff;
-}
-
-.composer-send:hover:not(:disabled) { background: #ff5252; }
-
-/* Stop state (Visual Studio style): rounded square inside the red button */
-.composer-send.is-stop {
-  border-radius: 10px;
-  box-shadow: 0 0 0 2px rgb(255 107 107 / 0.35);
-  animation: composer-stop-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes composer-stop-pulse {
-  0%, 100% { box-shadow: 0 0 0 2px rgb(255 107 107 / 0.35); }
-  50% { box-shadow: 0 0 0 5px rgb(255 107 107 / 0.15); }
-}
-
-.composer-icon-btn:disabled,
 .composer-send:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .attach-menu {
@@ -6535,12 +6826,6 @@ watch(
   letter-spacing: 0.6px;
   text-transform: uppercase;
   color: rgb(var(--accent-sky-rgb) / 0.95);
-}
-
-@keyframes borderPulse {
-  0% { border-color: var(--accent-mint); box-shadow: 0 0 0px rgb(var(--accent-mint-rgb) / 0.15); }
-  50% { border-color: var(--accent-sky); box-shadow: 0 0 8px rgb(var(--accent-sky-rgb) / 0.35); }
-   100% { border-color: var(--accent-indigo); box-shadow: 0 0 0px rgb(var(--accent-indigo-rgb) / 0.2); }
 }
 
 .task-input {
@@ -6676,249 +6961,6 @@ watch(
   padding: 0 4px;
 }
 
-/* Right Panel */
-.right-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 250px;
-}
-
-/* Right Panel — overlay mode (graph view) */
-.right-panel-overlay {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 300px;
-  max-width: 40%;
-  z-index: 10;
-  flex: none;
-  min-width: 0;
-  pointer-events: none;
-  transition: width 0.3s ease;
-}
-
-.right-panel-overlay .control-section {
-  pointer-events: auto;
-}
-
-.right-panel-collapsed {
-  width: 0;
-}
-
-.right-panel-fab {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  border: 1px solid rgb(var(--periwinkle-2) / 0.3);
-  background: rgb(var(--panel-26) / 0.97);
-  box-shadow: 0 3px 12px rgb(var(--shade) / 0.4), 0 0 0 1px rgb(var(--periwinkle-2) / 0.08);
-  color: rgb(var(--periwinkle) / 0.85);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-  padding: 0;
-  z-index: 11;
-}
-
-/* View buttons while the control panel is folded away: left of the panel toggle */
-.view-toggle.view-dock {
-  position: absolute;
-  bottom: 24px;
-  right: 88px;
-  z-index: 11;
-  max-width: calc(100% - 112px);
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  background: rgb(var(--panel-26) / 0.97);
-  border: 1px solid rgb(var(--periwinkle-2) / 0.3);
-  box-shadow: 0 3px 12px rgb(var(--shade) / 0.4);
-}
-
-.view-toggle.view-dock .toggle-button {
-  flex: none;
-  padding: 6px 10px;
-}
-
-.right-panel-fab:hover {
-  background: rgb(var(--panel-40c) / 0.95);
-  color: var(--accent-indigo-2);
-  border-color: rgb(var(--periwinkle-2) / 0.5);
-  box-shadow: 0 4px 16px rgb(var(--shade) / 0.5), 0 0 12px rgb(var(--periwinkle-2) / 0.15);
-  transform: translateY(-2px);
-}
-
-
-.control-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  /* Near-opaque instead of backdrop-filter: this panel can float over the animated
-     office map / graph, where a blur would be recomputed every frame. Over the flat
-     page background it looks the same as the former translucent fill. */
-  background-color: rgb(32 32 34 / 0.94);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  padding: 20px;
-}
-
-.section-label {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: rgb(var(--ink) / 0.4);
-  font-weight: 600;
-  margin-top: 4px;
-}
-
-/* Custom Select */
-.select-wrapper {
-  position: relative;
-}
-
-.custom-file-selector {
-  position: relative;
-}
-
-.file-selector,
-.file-selector-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  padding-right: 30px;
-  background-color: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 8px;
-  color: var(--text-1);
-  font-size: 14px;
-  appearance: none;
-  color: var(--text-1);
-}
-
-.file-selector-input {
-  cursor: text;
-}
-
-.file-selector:hover:not(:disabled),
-.file-selector-input:hover:not(:disabled),
-.file-selector-input:focus {
-  background-color: rgb(var(--ink) / 0.08);
-  border-color: rgb(var(--ink) / 0.2);
-}
-
-.file-selector:disabled,
-.file-selector-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.select-arrow {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: rgb(var(--ink) / 0.3);
-  pointer-events: none;
-  font-size: var(--fs-xs);
-}
-
-.file-dropdown {
-  position: absolute;
-  top: calc(100%);
-  left: 0;
-  right: 0;
-  margin-top: 1px;
-  background-color: var(--surface-3);
-  border: 1px solid rgb(var(--ink) / 0.12);
-  border-radius: 8px;
-  box-shadow: 0 20px 40px rgb(var(--shade) / 0.45);
-  max-height: 260px;
-  overflow-y: auto;
-  z-index: 5;
-  padding: 6px 0;
-}
-
-.file-dropdown::-webkit-scrollbar {
-  display: none;
-}
-
-.file-option {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 14px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.file-option:hover {
-  background: rgb(var(--ink) / 0.06);
-}
-
-.file-name {
-  color: var(--text-1);
-  font-size: 12px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-desc {
-  color: rgb(var(--ink) / 0.5);
-  font-size: var(--fs-xs);
-}
-
-.file-empty {
-  padding: 12px 14px;
-  color: rgb(var(--ink) / 0.4);
-  font-size: 13px;
-  text-align: center;
-}
-
-.file-dropdown-enter-active,
-.file-dropdown-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-.file-dropdown-enter-from,
-.file-dropdown-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-
-/* Status Display */
-.status-display {
-  padding: 10px;
-  background: rgb(var(--shade) / 0.2);
-  border-radius: 8px;
-  color: rgb(var(--ink) / 0.6);
-  font-size: 13px;
-  text-align: center;
-  transition: color 0.3s ease, background-color 0.3s ease;
-}
-
-.status-active {
-  color: var(--accent-indigo);
-  background: rgb(var(--accent-indigo-rgb) / 0.1);
-}
-
-.status-awaiting-plan {
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
-  font-weight: 600;
-}
-
 /* Plan waiting for approval */
 .plan-card {
   display: flex;
@@ -6990,67 +7032,6 @@ watch(
 
 /* View Toggle */
 /* The session moved to another tab */
-.replaced-banner {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  margin: 8px 12px 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgb(var(--periwinkle-2) / 0.35);
-  background: rgb(var(--periwinkle-2) / 0.12);
-  color: var(--text-1);
-  font-size: 13px;
-}
-
-.replaced-banner-text {
-  flex: 1;
-  min-width: 160px;
-}
-
-.replaced-banner-button {
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent-indigo-2);
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.replaced-banner-button:hover {
-  filter: brightness(1.1);
-}
-
-.view-toggle {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
-  gap: 2px;
-  background: rgb(var(--shade) / 0.2);
-  padding: 4px;
-  border-radius: 8px;
-}
-
-.toggle-button {
-  flex: 1;
-  padding: 6px;
-  white-space: nowrap;
-  border: none;
-  background: transparent;
-  color: rgb(var(--ink) / 0.5);
-  cursor: pointer;
-  border-radius: 6px;
-  font-size: 13px;
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.toggle-button.active {
-  background: rgb(var(--ink) / 0.1);
-  color: var(--text-1);
-  font-weight: 500;
-}
-
 /* Work waiting for your review */
 .toggle-badge {
   display: inline-grid;
@@ -7104,114 +7085,12 @@ watch(
   box-shadow: 0 0 6px var(--accent-sky);
 }
 
-/* Button Section */
-.button-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.cancel-button {
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--bg-base);
-  background: linear-gradient(
-    135deg,
-    #e07152,
-    #dc5d4c,
-    #bd4a4a
-  );
-  background-size: 200% 100%;
-  animation: gradientShift 6s ease-in-out infinite;
-  transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, color 0.3s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.cancel-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
-}
-
-.cancel-button:disabled {
-  background: var(--line-2);
-  color: rgb(var(--ink) / 0.3);
-  cursor: not-allowed;
-}
-
-.launch-button {
-  padding: 14px;
-  border: none;
-  border-radius: 12px;
-  cursor: pointer;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--bg-base);
-  background: linear-gradient(
-        135deg,
-    var(--accent-mint),
-    var(--accent-sky),
-    var(--accent-indigo)
-  );
-  background-size: 200% 100%;
-  animation: gradientShift 6s ease-in-out infinite;
-  transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, color 0.3s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.launch-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
-}
-
-.launch-button:disabled {
-  background: var(--line-2);
-  color: rgb(var(--ink) / 0.3);
-  cursor: not-allowed;
-}
-
-.launch-button.glow {
-  animation: glowPulse 3s ease-in-out infinite, gradientShift 6s ease-in-out infinite;
-}
-
 /* Markdown Styles moved to CollapsibleMessage.vue */
-
-@keyframes gradientShift {
-  0%, 100% { background-position: 0% 0%; }
-  50% { background-position: 100% 0%; }
-}
 
 @keyframes glowPulse {
   0% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0.4); }
   50% { box-shadow: 0 0 0 5px rgb(var(--accent-sky-rgb) / 0); }
   100% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0); }
-}
-
-.download-button {
-  padding: 12px;
-  background: rgb(var(--ink) / 0.03);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  color: var(--text-1);
-  cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
-}
-
-.download-button:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.08);
-  border-color: rgb(var(--ink) / 0.2);
-  transform: translateY(-1px);
-}
-
-.download-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* Graph Panel */
@@ -7233,15 +7112,65 @@ watch(
 .graph-flow-panel {
   position: relative;
 }
+.graph-flow-panel { --graph-bar-h: 52px; }
 .graph-flow-panel .vueflow-graph {
+  position: absolute;
+  top: var(--graph-bar-h);
+  right: 0;
+  bottom: 0;
+  left: var(--graph-inset, 0px);
+  width: auto;
+  height: auto;
+}
+/* Title + zoom tools in a bar of their own above the canvas */
+.graph-bar {
   position: absolute;
   top: 0;
   right: 0;
-  bottom: 0;
-  left: var(--inset-left, 0px);
-  width: auto;
-  height: auto;
-  transition: left 0.25s ease;
+  left: var(--graph-inset, 0px);
+  height: var(--graph-bar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.graph-bar-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.graph-tools { flex: none; display: flex; align-items: center; gap: 2px; }
+.graph-tool {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+.graph-tool:hover { background: var(--surface-raised); color: var(--fg); }
+.graph-tool[aria-pressed="true"] { background: var(--surface-raised); color: var(--fg); }
+.graph-tool:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.graph-zoom {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .image-modal {
@@ -7302,186 +7231,763 @@ watch(
   opacity: 0;
 }
 
+/* ===========================================================================
+ * Shell: header with the persistent view tabs, then sessions | chat+views | status
+ * Semantic tokens only, so dark and light themes both resolve from main.css.
+ * ========================================================================= */
+.launch-view {
+  --header-h: 48px;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg);
+  color: var(--fg);
+  position: relative;
+  overflow: hidden;
+  /* Browser-drawn parts follow the theme too */
+  caret-color: var(--accent);
+  scrollbar-color: color-mix(in srgb, var(--fg-muted) 45%, transparent) transparent;
+  scrollbar-width: thin;
+}
+.launch-view ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; }
+.launch-view :deep(::selection) { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
 .header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
+  gap: var(--space-3);
+  height: var(--header-h);
+  padding: 0 var(--space-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
 
-.settings-button {
-  background: transparent;
-  border: none;
-  color: var(--accent-indigo);
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 4px;
-  display: flex;
+.header h1 {
+  margin: 0;
+  padding-right: var(--space-2);
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.brand-link {
+  flex: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s;
+  width: 36px;
+  height: 36px;
+  margin-left: calc(var(--space-2) * -1);
+  border-radius: var(--radius-md);
+  transition: background-color 0.15s var(--ease-out);
+}
+.brand-link:hover { background: var(--surface-raised); }
+.brand-link img { display: block; width: 24px; height: 24px; }
+
+.header-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+  margin-left: var(--space-1);
+  border-left: 1px solid var(--border);
+}
+.header-btn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+.header-btn svg { flex: none; }
+.header-btn:hover { background: var(--surface-raised); color: var(--fg); }
+.header-btn.active { background: var(--surface-raised); color: var(--fg); }
+.header-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* No workflow yet: the panel holding the picker asks for attention */
+.header-btn.needs-workflow { color: var(--fg); box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+.view-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.view-tabs::-webkit-scrollbar { display: none; }
+
+.view-tab {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+.view-tab::after {
+  content: '';
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform 0.18s var(--ease-out);
+}
+.view-tab:hover { background: var(--surface-raised); color: var(--fg); }
+.view-tab.active { color: var(--fg); font-weight: 600; }
+.view-tab.active::after { transform: scaleX(1); }
+.view-tab:focus-visible,
+.chat-header-btn:focus-visible,
+.composer-send:focus-visible,
+.composer-icon-btn:focus-visible,
+.chat-empty-chip:focus-visible,
+.composer-hint-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
-.settings-button:hover {
-  background-color: rgb(var(--accent-indigo-rgb) / 0.1);
+/* Labels give way to icons as the header narrows (aria-label/title always name them) */
+@media (max-width: 1279.98px) {
+  .header-link .header-btn-label { display: none; }
+}
+@media (max-width: 1099.98px) {
+  .header-btn-label:not(.settings-label) { display: none; }
+}
+@media (max-width: 899.98px) {
+  .settings-label { display: none; }
+  .header-btn { width: 40px; height: 40px; padding: 0; justify-content: center; }
+}
+@media (max-width: 639.98px) {
+  .header-link { display: none; }
 }
 
-/* ---------------------------------------------------------------------------
- * Responsive layout. Desktop (> 1100px) is unchanged; narrower screens give the
- * chat the room the two fixed side columns used to take.
- * ------------------------------------------------------------------------- */
-@media (max-width: 1100px) {
-  .content {
-    padding: 14px;
-    gap: 14px;
-  }
-
-  .content > .session-sidebar:not(.collapsed) {
-    flex-basis: 220px;
-    width: 220px;
-  }
-
-  .right-panel {
-    min-width: 220px;
-  }
+.content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: var(--space-4);
+  gap: var(--space-4);
+  position: relative;
+  z-index: 1;
+  min-height: 0;
 }
 
-/* Phones: one column (sessions, chat, controls) that scrolls, instead of three side by side */
-@media (max-width: 640px) {
-  .content {
-    flex-direction: column;
-    overflow-x: hidden;
-    overflow-y: auto;
-    padding: 10px;
-    gap: 10px;
-  }
+/* The session list is its own wrapper only so it can become a drawer on narrow screens */
+.sessions-drawer:not(.is-drawer) { display: contents; }
 
-  .content > .session-sidebar,
-  .content > .session-sidebar.collapsed {
-    flex: none;
+.left-panel {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  position: relative;
+}
+
+/* ---- Chat panel: full width in the chat, a solid card over the canvas elsewhere ---- */
+.chat-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--chat-w, 380px);
+  z-index: 10;
+  display: flex;
+  flex-direction: row;
+  pointer-events: none;
+  /* Slides on the compositor only: no layout or text re-wrapping while it moves */
+  transition: transform 0.2s var(--ease-out);
+}
+.chat-panel-fullscreen {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  flex: 1;
+  flex-direction: column;
+  pointer-events: auto;
+  z-index: auto;
+  min-height: 0;
+}
+.chat-panel-collapsed { transform: translateX(calc(-100% - 24px)); }
+.chat-panel-collapsed .chat-panel-content {
+  visibility: hidden;
+  transition: visibility 0s linear 0.2s;
+}
+.chat-panel-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: auto;
+  /* Opaque: scene labels and graph nodes never ghost through the messages */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  padding: 0;
+}
+.chat-panel:not(.chat-panel-fullscreen) .chat-panel-content {
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.45);
+  animation: panel-in-left 0.2s var(--ease-out);
+}
+.chat-panel-fullscreen .chat-panel-content { animation: view-in 0.18s var(--ease-out); }
+
+/* ---- Views fade in as they are shown ---- */
+.graph-panel { animation: view-in 0.18s var(--ease-out); }
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes panel-in-left {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes panel-in-right {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes nudge {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 35%, transparent); }
+}
+
+.chat-message-item { animation: msg-in 0.18s var(--ease-out) both; }
+
+/* Chat header: helper text stays >= 12px */
+.chat-header { min-height: 60px; padding: 8px 8px 8px 16px; }
+.chat-header-actions { gap: 2px; }
+.chat-header-btn { position: relative; color: var(--fg-muted); }
+.chat-header-btn:hover,
+.chat-header-btn.active { background: var(--surface-raised); color: var(--fg); }
+
+/* Reading measure: prose of a turn stops at ~70 characters; code and tables may run wider */
+.chat-messages :deep(.dialogue:not(.dialogue-right) .markdown-body) > :not(.md-code):not(.md-table):not(pre):not(table) {
+  max-width: 70ch;
+}
+.activity,
+.plan-card { max-width: 76ch; }
+
+/* ---- "Open in another tab": the single notice for it, inside the chat, under the header ---- */
+.replaced-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  flex: none;
+  margin: var(--space-2) var(--space-3) 0;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.45;
+  animation: msg-in 0.18s var(--ease-out);
+}
+.replaced-banner-text { flex: 1; min-width: 160px; }
+.replaced-banner-button {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.replaced-banner-button:hover { filter: brightness(1.08); }
+
+/* ---- Empty new session: greeting, starter prompts, plan note ---- */
+.chat-empty {
+  margin: auto;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-2);
+  text-align: center;
+}
+.chat-empty-avatar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-2);
+  border-radius: 50%;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.chat-empty-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--fg);
+  text-wrap: balance;
+}
+.chat-empty-hint {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+.chat-empty-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.chat-empty-chip {
+  max-width: 100%;
+  min-height: 36px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+}
+.chat-empty-chip:hover:not(:disabled) { background: var(--surface-raised); border-color: var(--accent); }
+.chat-empty-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+.chat-empty-note {
+  margin: var(--space-3) 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+.chat-empty-pick { margin-top: var(--space-3); }
+
+.chat-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* Attachment line of a user message: one chip per file or folder */
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.dialogue-right .msg-attachments { justify-content: flex-end; }
+.msg-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.msg-attachment svg { flex: none; color: var(--fg-muted); }
+.msg-attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+
+/* ---- Composer ---- */
+.composer-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+.composer-hint svg { flex: none; }
+.composer-hint-action {
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.input-shell { background-color: var(--surface); border-color: var(--border-strong); }
+.input-shell:focus-within {
+  border-color: var(--accent);
+  background-color: var(--surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.composer-icon-btn { border-color: var(--border-strong); color: var(--fg-muted); }
+.composer-icon-btn:hover:not(:disabled),
+.composer-icon-btn.active { background: var(--surface-raised); color: var(--fg); }
+.composer-send {
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.composer-send:hover:not(:disabled) { filter: brightness(1.08); }
+.composer-send:active:not(:disabled) { transform: scale(0.96); }
+/* While a run is active the same button is Stop: neutral, never alarm-red */
+.composer-send.is-stop {
+  border-radius: 10px;
+  background: var(--fg);
+  color: var(--bg);
+  animation: composer-stop-pulse 1.6s var(--ease-out) infinite;
+}
+@keyframes composer-stop-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent); }
+}
+.composer-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.task-input::placeholder { color: var(--fg-muted); }
+.jump-latest { background: var(--surface-raised); border-color: var(--border-strong); color: var(--fg); font-size: 13px; }
+
+/* ---- Status panel (wide: a column; outside the chat: a floating card) ---- */
+.right-panel {
+  flex: 0 0 clamp(260px, 22vw, 320px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.right-panel-hidden { display: none; }
+/* Outside the chat view: a drawer on the right, opened from the header */
+.right-panel-overlay {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  bottom: var(--space-4);
+  width: 320px;
+  max-width: 40%;
+  z-index: 10;
+  flex: none;
+  pointer-events: none;
+  transition: transform 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
+}
+.right-panel-overlay .control-section {
+  flex: 1 1 auto;
+  pointer-events: auto;
+  animation: panel-in-right 0.2s var(--ease-out);
+  box-shadow: 0 16px 40px -12px rgb(0 0 0 / 0.5);
+}
+.right-panel-collapsed { transform: translateX(16px); opacity: 0; }
+.right-panel-collapsed .control-section { visibility: hidden; }
+
+.control-section {
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+/* Sections: spacing and a hairline, never cards inside the card */
+.panel-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4) 0;
+}
+.panel-block + .panel-block { border-top: 1px solid var(--border); }
+.control-section > .button-section { padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.panel-heading-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.panel-link {
+  align-self: flex-start;
+  min-height: 28px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.panel-heading-row .panel-link { margin: 0 -6px 0 0; }
+.panel-link:hover { background: var(--surface-raised); text-decoration: underline; text-underline-offset: 3px; }
+.panel-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.panel-note.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* Team of this run */
+.team-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.team-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  min-width: 0;
+}
+.team-avatar {
+  flex: none;
+  display: grid;
+  place-items: end center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.team-avatar img { width: 22px; height: 22px; object-fit: contain; object-position: 50% 100%; image-rendering: pixelated; }
+.team-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--fg);
+}
+
+/* Recent activity: newest first, time aligned on the right */
+.activity-feed { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.activity-feed-item { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; font-size: 13px; line-height: 1.4; }
+.activity-feed-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.activity-feed-time { flex: none; font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.panel-heading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg);
+}
+.panel-note,
+.workflow-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-muted); }
+.workflow-picker { border-radius: var(--radius-md); }
+.workflow-picker.needs-workflow :deep(.select) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.workflow-picker.nudge { animation: nudge 0.9s var(--ease-out) 2; }
+
+.status-facts { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
+.status-fact { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.status-fact dt { flex: none; font-size: 12px; color: var(--fg-muted); }
+.status-fact dd { margin: 0; min-width: 0; font-size: 13px; color: var(--fg); text-align: right; overflow-wrap: anywhere; }
+.status-fact dd.is-num { font-variant-numeric: tabular-nums; }
+.button-section { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  position: relative;
+  margin-right: calc(var(--space-2) * -1);
+  padding-top: var(--space-1);
+}
+.sheet-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
+.sheet-backdrop {
+  position: fixed;
+  inset: var(--header-h) 0 0 0;
+  z-index: var(--z-backdrop);
+  background: rgb(0 0 0 / 0.5);
+  animation: fade-in 0.15s var(--ease-out);
+}
+
+/* Canvases keep a solid surface; nothing ghosts behind them */
+.graph-panel { background-color: var(--surface); border-color: var(--border); }
+.image-modal { background: rgb(0 0 0 / 0.7); }
+
+/* ===========================================================================
+ * Narrow (< 900px): status panel = bottom sheet, sessions = left drawer,
+ * composer pinned to the bottom of the dynamic viewport.
+ * ========================================================================= */
+@media (max-width: 899.98px) {
+  .content { padding: var(--space-2); gap: 0; flex-direction: column; }
+  .left-panel { flex: 1 1 auto; min-height: 0; }
+  .chat-panel-content { border-radius: var(--radius-md); }
+  .chat-panel-fullscreen .chat-panel-content { border-left: none; border-right: none; border-radius: 0; }
+  .chat-panel:not(.chat-panel-fullscreen) { width: calc(100% - 48px); max-width: calc(100% - 48px); }
+  .input-area { padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--surface); }
+  .chat-messages { padding: var(--space-4) var(--space-3) 52px; }
+  .view-tab { height: 40px; }
+  .chat-header-btn { width: 40px; height: 40px; }
+  .composer-icon-btn,
+  .composer-send { width: 40px; height: 40px; }
+  .attach-menu-item { min-height: 44px; }
+
+  .sessions-drawer.is-drawer {
+    position: fixed;
+    top: var(--header-h);
+    bottom: 0;
+    left: 0;
+    width: min(340px, 88vw);
+    z-index: var(--z-modal);
+    display: flex;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.2s var(--ease-out), visibility 0s linear 0.2s;
+  }
+  .sessions-drawer.is-drawer.is-open { transform: none; visibility: visible; transition: transform 0.2s var(--ease-out); }
+  .sessions-drawer.is-drawer > .session-sidebar,
+  .sessions-drawer.is-drawer > .session-sidebar:not(.collapsed) {
+    flex: 1 1 auto;
     width: 100%;
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    background: var(--surface);
+    border-left: none;
   }
 
-  .content > .session-sidebar:not(.collapsed) {
-    max-height: 34vh;
-  }
-
-  .content > .session-sidebar.collapsed {
-    height: 44px;
-  }
-
-  .left-panel {
+  .right-panel.is-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: auto;
+    max-width: none;
     flex: none;
-    height: 72vh;
-    min-height: min(420px, 70dvh);
+    z-index: var(--z-modal);
+    transform: translateY(100%);
+    visibility: hidden;
+    opacity: 1;
+    pointer-events: auto;
+    transition: transform 0.2s var(--ease-out), visibility 0s linear 0.2s;
   }
+  .right-panel.is-sheet.is-open { transform: none; visibility: visible; transition: transform 0.2s var(--ease-out); }
+  .right-panel.is-sheet .control-section {
+    max-height: 80dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-bottom: none;
+    padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -12px 32px -12px rgb(0 0 0 / 0.5);
+    animation: none;
+  }
+  .sheet-head { padding-top: var(--space-2); }
+  .sheet-grip {
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    margin-left: -18px;
+    border-radius: 2px;
+    background: var(--border-strong);
+  }
+  .sheet-backdrop { inset: 0; }
+}
 
-  .right-panel:not(.right-panel-overlay) {
-    flex: none;
-    width: 100%;
-    min-width: 0;
-  }
+@media (max-width: 639.98px) {
+  .header { padding: 0 var(--space-2) 0 var(--space-3); gap: var(--space-2); }
+  /* The tabs need the width more than the title does */
+  .header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 
-  .right-panel-overlay {
-    max-width: 86%;
-  }
-
-  .chat-panel:not(.chat-panel-fullscreen) {
-    max-width: 86%;
-  }
+/* Wide but not huge: sessions column a little slimmer */
+@media (min-width: 900px) and (max-width: 1100px) {
+  .content { padding: var(--space-3); gap: var(--space-3); }
+  .sessions-drawer:not(.is-drawer) > .session-sidebar:not(.collapsed) { flex-basis: 220px; width: 220px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .launch-button,
-  .cancel-button,
-  .launch-button.glow,
-  .input-shell.glow,
-  .activity-spinner,
-  .activity-running .activity-label,
-  .notification-content {
-    animation: none;
+  .launch-view *,
+  .launch-view *::before,
+  .launch-view *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
   }
-
-  .chat-panel,
-  .right-panel-overlay,
-  .chat-panel-toggle svg,
-  .message-bubble,
-  .input-shell,
-  .status-display,
-  .launch-button,
-  .cancel-button,
-  .download-button,
-  .right-panel-fab,
-  .file-dropdown-enter-active,
-  .file-dropdown-leave-active,
-  .image-modal-enter-active,
-  .image-modal-leave-active {
-    transition-duration: 0.01ms;
-  }
-}
-
-/* ---------- Light theme: white glass cards instead of dark tinted panels ---------- */
-:root[data-theme="light"] .header {
-  background-color: rgb(255 255 255 / 0.72);
-  border-bottom-color: rgb(var(--ink) / 0.08);
-}
-:root[data-theme="light"] .chat-panel-content,
-:root[data-theme="light"] .chat-panel-fullscreen .chat-panel-content,
-:root[data-theme="light"] .graph-panel {
-  background: rgb(255 255 255 / 0.82);
-  border-color: rgb(var(--ink) / 0.08);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 30px -14px rgb(15 23 42 / 0.14);
-}
-:root[data-theme="light"] .control-section {
-  background: rgb(255 255 255 / 0.95);
-  border-color: rgb(var(--ink) / 0.08);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 30px -14px rgb(15 23 42 / 0.14);
-}
-:root[data-theme="light"] .input-shell {
-  background-color: rgb(255 255 255 / 0.95);
-  border-color: rgb(var(--ink) / 0.1);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
-}
-:root[data-theme="light"] .input-shell:focus-within {
-  background-color: #fff;
-  border-color: rgb(var(--accent-sky-rgb) / 0.55);
-  box-shadow: 0 0 0 3px rgb(var(--accent-sky-rgb) / 0.12);
-}
-:root[data-theme="light"] .file-selector-input {
-  background-color: #fff;
-  border-color: rgb(var(--ink) / 0.12);
-}
-:root[data-theme="light"] .file-selector-input:hover:not(:disabled),
-:root[data-theme="light"] .file-selector-input:focus {
-  background-color: #fff;
-  border-color: rgb(var(--accent-sky-rgb) / 0.55);
 }
 
 /* ---------- Light theme: legibility (low-alpha ink text is too faint on white) ---------- */
-:root[data-theme="light"] .back-button,
-:root[data-theme="light"] .chat-panel-toggle {
-  color: var(--text-soft-1);
-}
-:root[data-theme="light"] .chat-panel-toggle {
-  border-color: rgb(var(--ink) / 0.16);
-}
 :root[data-theme="light"] .user-name,
 :root[data-theme="light"] .message-timestamp,
 :root[data-theme="light"] .chat-notification .message-timestamp,
 :root[data-theme="light"] .attachment-meta,
-:root[data-theme="light"] .file-desc,
-:root[data-theme="light"] .file-empty,
 :root[data-theme="light"] .no-active-nodes,
 :root[data-theme="light"] .artifact-status {
-  color: var(--text-muted-1);
-}
-:root[data-theme="light"] .section-label {
-  color: var(--text-soft-1);
-}
-:root[data-theme="light"] .task-input::placeholder {
-  color: var(--text-muted-1);
-}
-:root[data-theme="light"] .select-arrow {
   color: var(--text-muted-1);
 }
 :root[data-theme="light"] .notification-text,
@@ -7502,8 +8008,6 @@ watch(
 :root[data-theme="light"] .chat-notification-error .notification-text {
   color: #991b1b;
 }
-
-/* Chat turns on white */
 :root[data-theme="light"] .user-name,
 :root[data-theme="light"] .message-bubble {
   color: var(--text-1);
@@ -7516,8 +8020,6 @@ watch(
 :root[data-theme="light"] .activity-step {
   color: var(--text-muted-1);
 }
-
-/* Input controls */
 :root[data-theme="light"] .attachment-button,
 :root[data-theme="light"] .artifact-download-button {
   background: #fff;
@@ -7541,38 +8043,12 @@ watch(
 :root[data-theme="light"] .drag-overlay {
   background: rgb(255 255 255 / 0.85);
 }
-:root[data-theme="light"] .attachment-modal,
-:root[data-theme="light"] .file-dropdown {
+:root[data-theme="light"] .attachment-modal {
   border-color: rgb(var(--ink) / 0.14);
   box-shadow: 0 12px 32px -8px rgb(15 23 42 / 0.18);
 }
 :root[data-theme="light"] .attachment-item {
   background: var(--surface-4);
-}
-:root[data-theme="light"] .file-option:hover {
-  background: var(--surface-4);
-}
-
-/* Right panel: status, toggle, active nodes */
-:root[data-theme="light"] .status-display,
-:root[data-theme="light"] .view-toggle,
-:root[data-theme="light"] .active-nodes-display {
-  background: var(--surface-4);
-}
-:root[data-theme="light"] .status-display {
-  color: var(--text-soft-1);
-}
-:root[data-theme="light"] .status-active {
-  color: var(--accent-indigo-2);
-  background: rgb(var(--accent-indigo-rgb) / 0.1);
-}
-:root[data-theme="light"] .toggle-button {
-  color: var(--text-soft-1);
-}
-:root[data-theme="light"] .toggle-button.active {
-  background: #fff;
-  color: var(--text-1);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.1);
 }
 :root[data-theme="light"] .active-node-item {
   background: #fff;
@@ -7582,36 +8058,10 @@ watch(
 :root[data-theme="light"] .node-dot {
   box-shadow: none;
 }
-:root[data-theme="light"] .right-panel-fab {
-  color: var(--accent-indigo-2);
-}
-
-/* Primary buttons: white text needs a darker gradient than the pastel-tuned one */
-:root[data-theme="light"] .launch-button {
-  color: #fff;
-  background: linear-gradient(135deg, #0f766e, #0369a1, #4338ca);
-  background-size: 200% 100%;
-}
-:root[data-theme="light"] .cancel-button {
-  color: #fff;
-  background: linear-gradient(135deg, #c2410c, #b91c1c, #991b1b);
-  background-size: 200% 100%;
-}
-:root[data-theme="light"] .launch-button:disabled,
-:root[data-theme="light"] .cancel-button:disabled {
-  background: var(--surface-5);
-  color: var(--text-muted-1);
-}
-:root[data-theme="light"] .download-button {
-  background: #fff;
-  border-color: rgb(var(--ink) / 0.16);
-}
-:root[data-theme="light"] .download-button:hover:not(:disabled) {
-  background: var(--surface-4);
-  border-color: rgb(var(--ink) / 0.28);
-}
-:root[data-theme="light"] .settings-button {
-  color: var(--accent-indigo-2);
+:root[data-theme="light"] .chat-panel:not(.chat-panel-fullscreen) .chat-panel-content,
+:root[data-theme="light"] .right-panel-overlay .control-section,
+:root[data-theme="light"] .chat-rail {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 12px 30px -12px rgb(15 23 42 / 0.22);
 }
 :root[data-theme="light"] .image-modal {
   background: rgb(15 23 42 / 0.55);

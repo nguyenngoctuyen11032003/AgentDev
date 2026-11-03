@@ -1,17 +1,16 @@
 <template>
-  <div class="chat-suggestions" role="list" :aria-label="$t('launch.chat_ui.suggestions_label')">
-    <button
-      v-for="key in SUGGESTION_KEYS"
-      :key="key"
-      type="button"
-      role="listitem"
-      class="chat-suggestion"
-      :disabled="disabled"
-      @click="$emit('pick', $t(key))"
-    >
-      {{ $t(key) }}
-    </button>
-  </div>
+  <ul class="chat-suggestions" :aria-label="$t('launch.chat_ui.suggestions_label')">
+    <li v-for="key in SUGGESTION_KEYS" :key="key" class="chat-suggestion-item">
+      <button
+        type="button"
+        class="chat-suggestion"
+        :disabled="disabled"
+        @click="$emit('pick', $t(key))"
+      >
+        {{ $t(key) }}
+      </button>
+    </li>
+  </ul>
 </template>
 
 <script setup>
@@ -34,34 +33,42 @@ const SUGGESTION_KEYS = [
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--space-2);
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
 }
+.chat-suggestion-item { max-width: 100%; display: flex; }
 .chat-suggestion {
   max-width: 100%;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 1px solid rgb(var(--ink) / 0.14);
-  background: rgb(var(--ink) / 0.04);
-  color: var(--text-1);
+  min-height: 40px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--fg);
   font: inherit;
   font-size: 13px;
   line-height: 1.4;
   text-align: left;
+  overflow-wrap: anywhere;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
 }
 .chat-suggestion:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.08);
-  border-color: rgb(var(--ink) / 0.24);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
 }
 .chat-suggestion:focus-visible {
-  outline: 2px solid var(--accent-blue-1);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 .chat-suggestion:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+@media (pointer: coarse) {
+  .chat-suggestion { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .chat-suggestion {

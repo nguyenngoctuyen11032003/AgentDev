@@ -8,9 +8,9 @@
             <path d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </span>
-        <input 
-          type="text" 
-          v-model="searchQuery" 
+        <input
+          type="text"
+          v-model="searchQuery"
           :placeholder="$t('workflow_list.search_placeholder')"
           :aria-label="$t('workflow_list.search_placeholder')"
           class="search-input"
@@ -23,12 +23,18 @@
       </button>
     </div>
 
-    <!-- Loading State -->
-    <div v-if="loading" class="loading">
-      <div class="spinner"></div>
-      <p>{{ $t('workflow_list.loading') }}</p>
+    <!-- Loading State: skeleton cards keep the list's rhythm while it loads -->
+    <div v-if="loading" class="file-list" role="status" aria-live="polite">
+      <span class="sr-only">{{ $t('workflow_list.loading') }}</span>
+      <div class="file-list-inner" aria-hidden="true">
+        <div v-for="n in 4" :key="n" class="file-item skeleton-card">
+          <span class="skeleton" style="width: 55%; height: 16px"></span>
+          <span class="skeleton" style="width: 100%; height: 12px"></span>
+          <span class="skeleton" style="width: 70%; height: 12px"></span>
+        </div>
+      </div>
     </div>
-    
+
     <!-- Error State -->
     <div v-else-if="error" class="error-message">
       <div class="error-icon" aria-hidden="true">
@@ -37,61 +43,81 @@
       <p>{{ error }}</p>
       <button type="button" class="btn secondary retry-button" @click="loadWorkflows()">{{ $t('common.retry') }}</button>
     </div>
-    
+
     <!-- File List -->
     <div v-else class="file-list">
-      <!-- Animation for search filter -->
       <transition-group
         name="file-fade"
         tag="div"
         class="file-list-inner"
       >
-        <div 
-          v-for="file in filteredFiles" 
+        <div
+          v-for="file in filteredFiles"
           :key="file.name"
-          :class="['file-item', { active: isSelected(file) }]"
+          :class="['file-item', { active: isSelected(file), 'menu-open': menuFor === file.name }]"
+          :data-file="file.name"
         >
-          <div class="file-info">
+          <div class="file-head">
             <a
               class="file-link"
               :href="`/workflows/${normalizeName(file.name)}`"
               :aria-current="isSelected(file) ? 'page' : undefined"
+              :title="displayName(file.name)"
               @click.prevent="goToWorkflowView(file.name)"
             >
-              <span class="file-name" :title="displayName(file.name)">{{ displayName(file.name) }}</span>
+              <span class="file-name">{{ humanName(file.name) }}</span>
             </a>
-            <div class="file-description">{{ localizedWorkflowDescription(file.name, file.description) }}</div>
+            <div class="file-menu-wrap">
+              <button
+                type="button"
+                class="btn ghost icon-only file-menu-btn"
+                aria-haspopup="menu"
+                :aria-expanded="menuFor === file.name"
+                :aria-label="$t('workflow_list.more_actions', { name: humanName(file.name) })"
+                :title="$t('workflow_list.more_actions', { name: humanName(file.name) })"
+                :disabled="deleting === file.name"
+                @click.stop="toggleMenu(file.name)"
+                @keydown.down.prevent="openMenuFor(file.name, 'first')"
+                @keydown.up.prevent="openMenuFor(file.name, 'last')"
+              >
+                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+              </button>
+              <div
+                v-if="menuFor === file.name"
+                class="file-menu"
+                role="menu"
+                :aria-label="humanName(file.name)"
+                @keydown="onMenuKeydown"
+              >
+                <button type="button" role="menuitem" tabindex="-1" class="file-menu-item" :title="$t('workflow_list.try_in_lab_hint')" @click="runMenuAction(() => goToLab(file.name))">
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2.2h12.4a1.5 1.5 0 0 0 1.3-2.2L14 9V3" /></svg>
+                  {{ $t('workflow_list.try_in_lab') }}
+                </button>
+                <button type="button" role="menuitem" tabindex="-1" class="file-menu-item danger" :aria-label="$t('workflow_list.delete_aria', { name: displayName(file.name) })" @click="runMenuAction(() => confirmDelete(file), false)">
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" /></svg>
+                  {{ $t('workflow_list.delete') }}
+                </button>
+              </div>
+            </div>
           </div>
-          <button
-            type="button"
-            class="btn secondary sm lab-btn"
-            :title="$t('workflow_list.try_in_lab_hint')"
-            :aria-label="`${$t('workflow_list.try_in_lab')}: ${displayName(file.name)}`"
-            @click.stop="goToLab(file.name)"
-          >{{ $t('workflow_list.try_in_lab') }}</button>
-          <button
-            type="button"
-            class="btn ghost sm icon-only delete-btn"
-            :title="$t('workflow_list.delete')"
-            :aria-label="$t('workflow_list.delete_aria', { name: displayName(file.name) })"
-            :disabled="deleting === file.name"
-            @click.stop="confirmDelete(file)"
-          >
-            <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />
-            </svg>
-          </button>
-          <div class="file-arrow">→</div>
+          <p class="file-description" :title="fullDescription(file)">{{ fullDescription(file) }}</p>
+          <span v-if="humanName(file.name) !== displayName(file.name)" class="file-id">{{ displayName(file.name) }}</span>
         </div>
       </transition-group>
-      
+
       <!-- Empty State -->
       <div v-if="filteredFiles.length === 0" class="empty-state">
-        <p>{{ searchQuery.trim() && yamlFiles.length ? $t('workflow_list.no_search_results') : $t('workflow_list.no_files') }}</p>
-        <button v-if="!yamlFiles.length" type="button" class="btn primary create-btn empty-cta" @click="openFormGenerator">
-          <span>{{ $t('workflow_list.create') }}</span>
-          <span class="plus-icon" aria-hidden="true">+</span>
-        </button>
+        <template v-if="searchQuery.trim() && yamlFiles.length">
+          <p>{{ $t('workflow_list.no_search_results') }}</p>
+          <button type="button" class="btn secondary" @click="clearSearch">{{ $t('workflow_list.clear_search') }}</button>
+        </template>
+        <template v-else>
+          <p>{{ $t('workflow_list.no_files') }}</p>
+          <button type="button" class="btn primary create-btn empty-cta" @click="openFormGenerator">
+            <span>{{ $t('workflow_list.create') }}</span>
+            <span class="plus-icon" aria-hidden="true">+</span>
+          </button>
+        </template>
       </div>
     </div>
 
@@ -124,7 +150,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fetchWorkflowsWithDesc, deleteWorkflow } from '@/api/client.js'
@@ -147,7 +173,7 @@ const props = defineProps({
     default: true
   }
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'loaded'])
 const yamlFiles = ref([])
 const loading = ref(false)
 const error = ref(null)
@@ -196,6 +222,7 @@ const loadWorkflows = async ({ silent = false } = {}) => {
   if (result.success) {
     yamlFiles.value = result.workflows
     error.value = null
+    emit('loaded', result.workflows.map((f) => f.name))
   } else if (!silent) {
     error.value = result.error
   }
@@ -231,6 +258,76 @@ defineExpose({
 
 // Files are listed by their workflow name; the .yaml extension is implementation detail
 const displayName = (fileName) => String(fileName || '').replace(/\.ya?ml$/i, '')
+
+// "demo_loop_counter.yaml" -> "Demo loop counter"; the raw id stays visible as a muted line
+const humanName = (fileName) => {
+  const text = displayName(fileName).replace(/_+/g, ' ').replace(/\s+/g, ' ').trim()
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : ''
+}
+const fullDescription = (file) => localizedWorkflowDescription(file.name, file.description)
+
+const clearSearch = () => {
+  searchQuery.value = ''
+}
+
+// ---- Per-card overflow menu (Try in Lab / Delete) ----
+const menuFor = ref('')
+const triggerOf = (name) => {
+  const card = [...document.querySelectorAll('.workflow-list .file-item')].find((el) => el.dataset.file === name)
+  return card?.querySelector('.file-menu-btn') || null
+}
+const menuItems = () => [...document.querySelectorAll('.workflow-list .file-menu [role="menuitem"]')]
+const closeMenu = (returnFocus = true) => {
+  const name = menuFor.value
+  if (!name) return
+  menuFor.value = ''
+  if (returnFocus) nextTick(() => triggerOf(name)?.focus())
+}
+const openMenuFor = async (name, focus = 'first') => {
+  menuFor.value = name
+  await nextTick()
+  const items = menuItems()
+  const target = focus === 'last' ? items[items.length - 1] : items[0]
+  target?.focus()
+}
+const toggleMenu = (name) => {
+  if (menuFor.value === name) closeMenu()
+  else openMenuFor(name, 'first')
+}
+const runMenuAction = (fn, returnFocus = true) => {
+  closeMenu(returnFocus)
+  fn()
+}
+const onMenuKeydown = (event) => {
+  const items = menuItems()
+  const index = items.indexOf(document.activeElement)
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    closeMenu()
+  } else if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    items[(index + 1) % items.length]?.focus()
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    items[(index - 1 + items.length) % items.length]?.focus()
+  } else if (event.key === 'Home') {
+    event.preventDefault()
+    items[0]?.focus()
+  } else if (event.key === 'End') {
+    event.preventDefault()
+    items[items.length - 1]?.focus()
+  } else if (event.key === 'Tab') {
+    closeMenu(false)
+  }
+}
+const onDocPointerDown = (event) => {
+  if (!menuFor.value) return
+  if (event.target.closest?.('.file-menu-wrap')) return
+  closeMenu(false)
+}
+onMounted(() => document.addEventListener('pointerdown', onDocPointerDown))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDown))
 
 // Sorted once per data/locale change; filtering below only runs on the sorted list
 const sortedFiles = computed(() => {
@@ -363,9 +460,8 @@ const handleFormGeneratorSubmit = async (payload) => {
   width: 100%;
   height: 100%;
   background-color: var(--bg);
-  padding: 10px;
+  padding: var(--space-3);
   box-sizing: border-box;
-  font-family: 'Inter', sans-serif;
   color: var(--fg);
   position: relative;
   overflow-y: auto;
@@ -376,29 +472,18 @@ const handleFormGeneratorSubmit = async (payload) => {
   display: none;
 }
 
-.workflow-list::before {
-  content: '';
-  position: fixed;
-  top: -150px;
-  left: 0;
-  right: 0;
-  height: 500px;
-  /* Pre-softened radial glows instead of filter: blur(120px) on a full-width
-     fixed layer, which is very expensive to rasterise and composite. */
-  background:
-    radial-gradient(ellipse 40% 70% at 18% 45%, var(--success), transparent 72%),
-    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent), transparent 72%),
-    radial-gradient(ellipse 40% 70% at 82% 45%, var(--info), transparent 72%);
-  opacity: 0.15;
-  z-index: 0;
-  pointer-events: none;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .header-container,
 .file-list,
-.loading,
-.error-message,
-.empty-state {
+.error-message {
   position: relative;
   z-index: 1;
 }
@@ -407,8 +492,8 @@ const handleFormGeneratorSubmit = async (payload) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
   width: 100%;
 }
 
@@ -419,13 +504,13 @@ const handleFormGeneratorSubmit = async (payload) => {
   background-color: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 0 var(--space-3);
   /* Takes the room left by the create button: the placeholder is always readable */
   flex: 1;
   min-width: 0;
   min-height: var(--control-h);
   box-sizing: border-box;
-  transition: border-color 0.2s ease;
+  transition: border-color 0.2s var(--ease-out);
 }
 
 .search-container:hover {
@@ -440,9 +525,9 @@ const handleFormGeneratorSubmit = async (payload) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 12px;
+  margin-right: var(--space-3);
   color: var(--fg-muted);
-  transition: color 0.3s ease;
+  transition: color 0.2s var(--ease-out);
 }
 
 .search-container:focus-within .search-icon {
@@ -457,20 +542,20 @@ const handleFormGeneratorSubmit = async (payload) => {
   font-weight: 500;
   width: 100%;
   outline: none;
-  font-family: 'Inter', sans-serif;
+  font-family: inherit;
 }
 
 .search-input::placeholder {
   color: var(--fg-subtle);
 }
 
-/* Primary action: shared .btn.primary; only the icon gap is local */
 .create-btn {
-  gap: 10px;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .empty-cta {
-  margin-top: 18px;
+  margin-top: var(--space-2);
 }
 
 .plus-icon {
@@ -491,26 +576,24 @@ const handleFormGeneratorSubmit = async (payload) => {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 /* Filter animation */
 .file-fade-enter-active,
 .file-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
 }
 
 .file-fade-move {
-  transition: transform 0.2s ease;
+  transition: transform 0.2s var(--ease-out);
 }
 
-/* Enter: fade in from bottom */
 .file-fade-enter-from {
   opacity: 0;
   transform: translateY(6px);
 }
 
-/* Leave: fade out to top */
 .file-fade-leave-to {
   opacity: 0;
   transform: translateY(-6px);
@@ -521,74 +604,60 @@ const handleFormGeneratorSubmit = async (payload) => {
   width: 100%;
 }
 
+/* Card: a vertical stack. Name + overflow menu, then a clamped description, then the id. */
 .file-item {
   display: flex;
-  align-items: center;
-  padding: 10px 12px;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
   background-color: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: transform 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: transform 0.2s var(--ease-out), background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
   position: relative;
-  /* overflow: hidden; */
   z-index: 1;
-  /* No per-card backdrop-filter: the card sits on a flat surface, and a blur
-     layer per card makes scrolling long lists expensive for no visible gain */
+}
+
+.file-item.menu-open {
+  z-index: 5; /* the open menu must overlay the cards below it */
 }
 
 .file-item:hover,
 .file-item:has(.file-link:focus-visible) {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   border-color: var(--border-strong);
+  background-color: var(--surface-raised);
 }
 
 .file-item.active {
-  border-color: var(--info);
-  box-shadow: 0 0 0 1px var(--info);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
-.file-item.active .file-arrow {
-  color: var(--info);
+.skeleton-card {
+  gap: var(--space-2);
+  cursor: default;
+  padding: var(--space-4);
 }
 
-.file-item::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  z-index: -1;
-  border-radius: 18px;
-  padding: 2px;
-  background: linear-gradient(
-    90deg,
-    var(--success),
-    var(--accent),
-    var(--info)
-  );
-  -webkit-mask: 
-     linear-gradient(var(--fg) 0 0) content-box, 
-     linear-gradient(var(--fg) 0 0);
-  mask: 
-     linear-gradient(var(--fg) 0 0) content-box, 
-     linear-gradient(var(--fg) 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  background-size: 400% 100%;
-  filter: blur(4px);
+.skeleton-card:hover {
+  transform: none;
+  background-color: var(--surface);
+  border-color: var(--border);
 }
 
-/* Hover only fades the (static) glow border in. Animating background-position
-   under a blur and mask repainted the card every frame while hovered. */
-.file-item:hover::before,
-.file-item:has(.file-link:focus-visible)::before {
-  opacity: 1;
+.file-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-/* The title link stretches over the whole row; the action buttons sit above it */
+/* The title link stretches over the whole card; the menu button sits above it */
 .file-link {
   display: block;
+  flex: 1;
   min-width: 0;
   color: inherit;
   text-decoration: none;
@@ -599,65 +668,12 @@ const handleFormGeneratorSubmit = async (payload) => {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
 }
 
-/* Removed the left border glow ::before pseudo-element */
-
-.file-item .lab-btn {
-  flex-shrink: 0;
-  position: relative;
-  z-index: 2;
-  margin: 0 8px 0 10px;
-  padding: 5px 12px;
-  font-size: 12px;
-  opacity: 0.75;
-  transition: opacity 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
-}
-
-.file-item:hover .lab-btn,
-.file-item .lab-btn:focus-visible {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .file-item .lab-btn,
-  .file-item .delete-btn {
-    opacity: 1;
-  }
-}
-
-.file-item .lab-btn:hover {
-  border-color: var(--info);
-}
-
-.file-item .delete-btn {
-  flex-shrink: 0;
-  position: relative;
-  z-index: 2;
-  margin-right: 2px;
-  opacity: 0.7;
-  transition: opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease;
-}
-
-.file-item:hover .delete-btn,
-.file-item .delete-btn:focus-visible {
-  opacity: 1;
-}
-
-.file-item .delete-btn:hover {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-}
-
-.file-item .delete-btn:disabled {
-  cursor: wait;
-  opacity: 0.4;
-}
-
-.file-info {
-  flex: 1;
-  min-width: 0;
+.file-link:focus-visible::after {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .file-name {
@@ -665,81 +681,146 @@ const handleFormGeneratorSubmit = async (payload) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--fg);
-  margin-bottom: 4px;
 }
 
 .file-description {
+  margin: 0;
   color: var(--fg-muted);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
-.file-arrow {
+.file-id {
+  margin-top: var(--space-1);
   color: var(--fg-subtle);
-  font-size: 20px;
-  font-weight: 300;
-  transition: transform 0.3s ease, color 0.3s ease;
-  margin-left: 16px;
-  pointer-events: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.file-item:hover .file-arrow {
-  color: var(--info);
-  transform: translateX(4px);
+/* Overflow menu */
+.file-menu-wrap {
+  position: relative;
+  z-index: 3;
+  flex-shrink: 0;
+  margin: calc(var(--space-2) * -1) 0;
 }
 
-/* Loading & Error States */
-.loading, .error-message {
+.file-menu-btn {
+  opacity: 0.7;
+  transition: opacity 0.2s var(--ease-out), background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
+}
+
+.file-item:hover .file-menu-btn,
+.file-item:focus-within .file-menu-btn,
+.file-item.menu-open .file-menu-btn {
+  opacity: 1;
+}
+
+.file-menu-btn[aria-expanded='true'] {
+  background: var(--surface-raised);
+  color: var(--fg);
+}
+
+@media (hover: none) {
+  .file-menu-btn {
+    opacity: 1;
+  }
+}
+
+.file-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+}
+
+.file-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.file-menu-item:hover,
+.file-menu-item:focus-visible {
+  background: var(--border);
+  outline: none;
+}
+
+.file-menu-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+
+.file-menu-item.danger {
+  color: var(--danger);
+}
+
+.file-menu-item.danger:hover,
+.file-menu-item.danger:focus-visible {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* Error state */
+.error-message {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 80px 20px;
+  padding: var(--space-8) var(--space-5);
   color: var(--fg-muted);
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 20px;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+  text-align: center;
 }
 
 .error-icon {
   display: grid;
   place-items: center;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
   color: var(--warn);
 }
 
 .retry-button {
-  margin-top: 16px;
-}
-
-:root[data-theme="light"] .workflow-list::before {
-  opacity: 0.08;
+  margin-top: var(--space-4);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .file-item:hover,
-  .file-item:has(.file-link:focus-visible),
-  .spinner {
-    animation-duration: 3s;
+  .file-item:has(.file-link:focus-visible) {
+    transform: none;
   }
   .file-fade-enter-active,
   .file-fade-leave-active,
   .file-fade-move,
-  .file-item {
+  .file-item,
+  .file-menu-btn {
     transition-duration: 0.01s;
   }
 }
