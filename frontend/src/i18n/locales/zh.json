@@ -1837,7 +1837,7 @@
     "store_configuration": "存储配置",
     "node_id": "节点名称",
     "node_type": "节点类型",
-    "node_description": "职责描述",
+    "node_description": "职责描述（负责人据此分派任务）",
     "context_window_size": "记住的消息数",
     "log_output": "记录输出",
     "node_configuration": "节点配置",
@@ -2013,6 +2013,7 @@
     "job_lost": "已无法跟踪此次运行（服务器可能已重启），请重新运行。"
   },
   "schema_desc_text": {
+    "h11aw3kw": "该智能体的职责：工作范围、工作规则以及怎样算好的结果。智能体在每个任务中都会遵循它。团队负责人读取第一行来决定把任务分派给谁，因此第一行要简短并写明专长。",
     "hmmeuca": "具体模型名称，例如 gpt-4o",
     "h1105x1n": "这个智能体是谁、做什么、遵循哪些规则。像写岗位职责一样填写。",
     "h16e0vh": "已注册服务商的名称（openai、gemini、anthropic 等），用于选择底层客户端适配器。",

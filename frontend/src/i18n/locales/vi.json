@@ -1545,7 +1545,7 @@
     "store_configuration": "Cấu hình kho",
     "node_id": "Tên nút",
     "node_type": "Loại nút",
-    "node_description": "Mô tả nhiệm vụ",
+    "node_description": "Mô tả nhiệm vụ (lead dùng để giao việc)",
     "context_window_size": "Số tin nhắn được nhớ",
     "log_output": "Ghi nhật ký đầu ra",
     "node_configuration": "Cấu hình nút",
@@ -1592,6 +1592,7 @@
     "max_agent_turns": "Số lượt tối đa của agent"
   },
   "schema_desc_text": {
+    "h11aw3kw": "Nhiệm vụ của agent này: phạm vi, quy tắc làm việc và thế nào là kết quả tốt. Agent làm theo mô tả này ở mọi việc. Trưởng nhóm (lead) đọc dòng đầu tiên để quyết định giao việc cho ai, nên hãy viết dòng đầu ngắn gọn và nêu rõ chuyên môn.",
     "hmmeuca": "Tên model cụ thể, chọn từ danh sách model của tài khoản đã kết nối (ví dụ gpt-4o).",
     "h1105x1n": "Agent này là ai, làm việc gì và theo những quy tắc nào. Viết như một bản mô tả công việc.",
     "h16e0vh": "Tên nhà cung cấp đã đăng ký (claude_cli, codex_cli, gemini...), quyết định cách hệ thống gọi model.",

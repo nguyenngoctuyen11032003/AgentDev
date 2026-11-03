@@ -1832,7 +1832,7 @@
     "store_configuration": "Store Configuration",
     "node_id": "Node name",
     "node_type": "Node Type",
-    "node_description": "What this node does",
+    "node_description": "Task description (the lead uses it to delegate)",
     "context_window_size": "Messages remembered",
     "log_output": "Log Output",
     "node_configuration": "Node Configuration",
@@ -2013,6 +2013,7 @@
     "job_lost": "Lost track of this run (the server may have restarted). Please run it again."
   },
   "schema_desc_text": {
+    "h11aw3kw": "This agent's job: its scope, working rules and what a good result looks like. The agent follows it on every task. The team lead reads the first line to decide whom to delegate to, so keep that line short and name the specialty.",
     "hmmeuca": "Specific model name e.g. gpt-4o",
     "h1105x1n": "Who this agent is, what it does and which rules it follows. Write it like a job description.",
     "h16e0vh": "Name of a registered provider (openai, gemini, anthropic, etc.) that selects the underlying client adapter.",
