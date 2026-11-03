@@ -59,11 +59,30 @@ class EdgeLink:
         self.config = dict(self.config or {})
 
 
+MASCOT_COUNT = 13  # characters shipped in frontend/public/sprites
+
+
+def _parse_mascot(value: Any, path: str) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ConfigError(f"mascot must be a number from 1 to {MASCOT_COUNT}", path)
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise ConfigError(f"mascot must be a number from 1 to {MASCOT_COUNT}", path) from exc
+    if not 1 <= number <= MASCOT_COUNT:
+        raise ConfigError(f"mascot must be a number from 1 to {MASCOT_COUNT}", path)
+    return number
+
+
 @dataclass
 class Node(BaseConfig):
     id: str
     type: str
     description: str | None = None
+    # Mascot character (1-MASCOT_COUNT) drawn for this node in the editor, launch and office views
+    mascot: int | None = None
     # keep_context: bool = False
     log_output: bool = True
     context_window: int = 0
@@ -101,6 +120,14 @@ class Node(BaseConfig):
             required=False,
             advance=True,
             description="Short summary shown in consoles/logs to explain this node's role or prompt context.",
+        ),
+        "mascot": ConfigFieldSpec(
+            name="mascot",
+            display_name="Mascot",
+            type_hint="int",
+            required=False,
+            enum=list(range(1, MASCOT_COUNT + 1)),
+            description="Character shown for this node in the editor, launch and office views. Leave empty to auto-assign a stable one.",
         ),
         # "keep_context": ConfigFieldSpec(
         #     name="keep_context",
@@ -179,6 +206,7 @@ class Node(BaseConfig):
             ) from exc
 
         description = optional_str(mapping, "description", path)
+        mascot = _parse_mascot(mapping.get("mascot"), extend_path(path, "mascot"))
         # keep_context = bool(mapping.get("keep_context", False))
         log_output = bool(mapping.get("log_output", True))
         context_window = int(mapping.get("context_window", 0))
@@ -217,6 +245,7 @@ class Node(BaseConfig):
             id=node_id,
             type=node_type,
             description=description,
+            mascot=mascot,
             log_output=log_output,
             input=input_messages,
             output=formatted_output,

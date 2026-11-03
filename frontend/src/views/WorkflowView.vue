@@ -347,6 +347,7 @@ import { helpContent } from '@/utils/helpContent.js'
 import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import { toast } from '@/utils/toast.js'
+import { confirmDialog } from '@/utils/confirm.js'
 
 const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
 
@@ -456,22 +457,26 @@ const isCreatingConnection = ref(false)
 const START_NODE_ID = '__start'
 
 // Map node IDs to mascot sprites shown above each node card.
-// Bindings stay stable while editing: only newly seen node ids get a character
-// and removed ids are dropped. The fetcher is reset only when a different workflow is loaded.
+// Characters come from each node's `mascot` in the YAML (auto-assigned, stable ones
+// otherwise), so the editor, launch and office views always show the same mascot.
 const nodeSpriteMap = ref(new Map())
 
 const syncNodeSprites = () => {
+  spriteFetcher.bindNodes(yamlContent.value?.graph?.nodes || [])
   const nextMap = new Map()
   for (const node of nodes.value || []) {
     if (!node?.id || node.id === START_NODE_ID) continue
-    nextMap.set(node.id, nodeSpriteMap.value.get(node.id) || spriteFetcher.fetchSprite(node.id, 'D', 1))
+    nextMap.set(node.id, spriteFetcher.fetchSprite(node.id, 'D', 1))
   }
   nodeSpriteMap.value = nextMap
 }
 
-// Rebuild whenever the set of node ids changes (add / remove / load / switch)
+// Rebuild whenever node ids or chosen mascots change (add / remove / load / edit)
 watch(
-  () => (nodes.value || []).map(node => node?.id).join('\n'),
+  () => [
+    (nodes.value || []).map(node => node?.id).join('\n'),
+    (yamlContent.value?.graph?.nodes || []).map(node => `${node?.id}:${node?.mascot ?? ''}`).join('\n')
+  ].join('|'),
   () => syncNodeSprites()
 )
 
@@ -754,7 +759,12 @@ const deleteEdgeByEndpoints = async (fromId, toId) => {
 const onDeleteNodeFromContext = async () => {
   const nodeId = contextNodeId.value
   contextNodeId.value = null
-  const confirmed = window.confirm(t('workflow_view.confirm_delete_node'))
+  const confirmed = await confirmDialog({
+    title: t('workflow_view.confirm_delete_node'),
+    message: t('workflow_view.confirm_delete_node_detail'),
+    confirmText: t('confirm.delete'),
+    tone: 'danger'
+  })
   if (!confirmed) {
     return
   }
@@ -767,7 +777,12 @@ const onDeleteNodeFromContext = async () => {
 const onDeleteEdgeFromContext = async () => {
   const info = contextEdgeInfo.value
   contextEdgeInfo.value = null
-  const confirmed = window.confirm(t('workflow_view.confirm_delete_edge'))
+  const confirmed = await confirmDialog({
+    title: t('workflow_view.confirm_delete_edge'),
+    message: t('workflow_view.confirm_delete_edge_detail'),
+    confirmText: t('confirm.delete'),
+    tone: 'danger'
+  })
   if (!confirmed) {
     return
   }
@@ -780,12 +795,6 @@ const onDeleteEdgeFromContext = async () => {
 const initializeWorkflow = async (name) => {
   if (!name) {
     return
-  }
-  // Reshuffle characters only when switching to a different workflow, so node ids
-  // keep their mascots while editing (and match LaunchView within the session)
-  if (currentWorkflowName.value && currentWorkflowName.value !== name) {
-    spriteFetcher.reset()
-    nodeSpriteMap.value = new Map()
   }
   currentWorkflowName.value = name
   console.log('Workflow initialized: ', currentWorkflowName.value)

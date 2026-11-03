@@ -227,8 +227,30 @@
     </template>
 
     <template v-else>
+      <!-- Node mascot: pick a character from the sprite gallery -->
+      <div v-if="isMascotField" class="form-group">
+        <label :id="`${modalId}-${field.name}-label`">
+          {{ fieldLabel }}
+          <RichTooltip
+            v-if="field.description"
+            :content="{ description: fieldDescription }"
+            placement="top"
+          >
+            <span class="help-icon" tabindex="0">?</span>
+          </RichTooltip>
+        </label>
+        <MascotPicker
+          :model-value="formData[field.name]"
+          :node-id="formData.id || ''"
+          :fallback="mascotFallback"
+          :label="fieldLabel"
+          :disabled="isReadOnly"
+          @update:model-value="onInput"
+        />
+      </div>
+
       <!-- Choice dropdown fields-->
-      <div v-if="field.enum && !isList" class="form-group">
+      <div v-else-if="field.enum && !isList" class="form-group">
         <label :for="`${modalId}-${field.name}`">
           {{ fieldLabel }}
           <span v-if="field.required" class="required-asterisk">*</span>
@@ -362,19 +384,47 @@
             <span class="help-icon" tabindex="0">?</span>
           </RichTooltip>
         </label>
-        <input
+        <!-- Model name: pick from what the connected account offers -->
+        <select
+          v-if="useModelSelect"
           :id="`${modalId}-${field.name}`"
+          class="form-select"
           :value="formData[field.name]"
-          @input="onInput($event.target.value)"
-          type="text"
-          class="form-input"
-          :readonly="isReadOnly"
-          :class="{'input-readonly': isReadOnly}"
-          :list="modelSuggestions.length ? `${modalId}-${field.name}-models` : undefined"
-        />
-        <datalist v-if="modelSuggestions.length" :id="`${modalId}-${field.name}-models`">
-          <option v-for="model in modelSuggestions" :key="model" :value="model" />
-        </datalist>
+          :disabled="isReadOnly"
+          @change="onModelSelect($event.target.value)"
+        >
+          <optgroup v-if="otherModels.length && mainModels.length" :label="$t('connections.model_group_main')">
+            <option v-for="model in mainModels" :key="model.id" :value="model.id">{{ modelLabel(model) }}</option>
+          </optgroup>
+          <template v-else>
+            <option v-for="model in mainModels" :key="model.id" :value="model.id">{{ modelLabel(model) }}</option>
+          </template>
+          <optgroup v-if="otherModels.length && mainModels.length" :label="$t('connections.model_group_other')">
+            <option v-for="model in otherModels" :key="model.id" :value="model.id">{{ modelLabel(model) }}</option>
+          </optgroup>
+          <template v-else>
+            <option v-for="model in otherModels" :key="model.id" :value="model.id">{{ modelLabel(model) }}</option>
+          </template>
+          <option v-if="!isReadOnly" :value="CUSTOM_MODEL">{{ $t('connections.model_custom') }}</option>
+        </select>
+        <template v-else>
+          <input
+            :id="`${modalId}-${field.name}`"
+            :value="formData[field.name]"
+            @input="onInput($event.target.value)"
+            type="text"
+            class="form-input"
+            :readonly="isReadOnly"
+            :class="{'input-readonly': isReadOnly}"
+          />
+          <button
+            v-if="modelOptions.length && !isReadOnly"
+            type="button"
+            class="model-pick-link"
+            @click="backToModelList"
+          >{{ $t('connections.model_pick_list') }}</button>
+        </template>
+        <p v-if="modelOptions.length && modelSource" class="model-hint">{{ $t(`connections.model_hint_${modelSource}`) }}</p>
       </div>
 
       <!-- Multiline text fields -->
@@ -565,7 +615,9 @@
 import { computed, ref, reactive, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import RichTooltip from '@/components/common/RichTooltip.vue'
+import MascotPicker from './MascotPicker.vue'
 import { modelsForConnection } from '@/utils/connectionModels.js'
+import { parseMascot, spriteFetcher } from '@/utils/spriteFetcher.js'
 import { getFieldLabel, getFieldDescription, getEnumOptionLabel, getEnumOptionDescription } from '@/utils/formUtils.js'
 
 const { t } = useI18n()
@@ -628,15 +680,74 @@ const props = defineProps({
 
 const isReadOnly = computed(() => props.isReadOnly)
 
-// Agent node: offer the selected connection's models as suggestions for the model name.
-const modelSuggestions = ref([])
+// Node mascot: show the character the node has now; an empty value is filled with it
+// (or an unused one for a new node) so saving the node locks its mascot in the YAML.
+const isMascotField = computed(() => props.field.name === 'mascot' && 'type' in (props.formData || {}))
+const mascotFallback = computed(() =>
+  spriteFetcher.getCharacter(props.formData?.id) || spriteFetcher.suggestCharacter(props.formData?.id)
+)
+if (isMascotField.value && !props.isReadOnly && !parseMascot(props.formData?.mascot)) {
+  // eslint-disable-next-line vue/no-mutating-props
+  props.formData.mascot = mascotFallback.value
+}
+
+// Agent node: the model name is a picker over the models the selected connection's account can use.
+const CUSTOM_MODEL = '__custom__'
+const modelOptions = ref([])
+const modelSource = ref('')
+const customModel = ref(false)
+let modelsLoadedOnce = false
+
+const mainModels = computed(() => {
+  const main = modelOptions.value.filter((m) => m.primary)
+  return main.length ? main : modelOptions.value
+})
+const otherModels = computed(() => (mainModels.value === modelOptions.value ? [] : modelOptions.value.filter((m) => !m.primary)))
+const useModelSelect = computed(() => modelOptions.value.length > 0 && !customModel.value)
+
+const modelLabel = (model) => (model.name && model.name !== model.id ? `${model.name} (${model.id})` : model.id)
+
 watch(
   () => (props.field.name === 'name' ? props.formData?.connection : null),
   async (connectionId) => {
-    modelSuggestions.value = connectionId ? await modelsForConnection(connectionId) : []
+    if (!connectionId) {
+      modelOptions.value = []
+      modelSource.value = ''
+      customModel.value = false
+      return
+    }
+    const result = await modelsForConnection(connectionId)
+    if (props.formData?.connection !== connectionId) return // switched again while loading
+    modelOptions.value = result.models
+    modelSource.value = result.models.length ? result.source : ''
+    const current = props.formData?.[props.field.name]
+    const known = result.models.some((m) => m.id === current)
+    if (!props.isReadOnly && result.models.length && (!current || (modelsLoadedOnce && !known))) {
+      // Empty, or left over from another provider: start from the account's top model.
+      onInput(result.models[0].id)
+      customModel.value = false
+    } else {
+      // A saved model outside the list (older workflow, preview model) stays as typed text.
+      customModel.value = !!current && !known
+    }
+    modelsLoadedOnce = true
   },
   { immediate: true }
 )
+
+function onModelSelect(value) {
+  if (value === CUSTOM_MODEL) {
+    customModel.value = true
+    return
+  }
+  onInput(value)
+}
+
+function backToModelList() {
+  customModel.value = false
+  const current = props.formData?.[props.field.name]
+  if (!modelOptions.value.some((m) => m.id === current)) onInput(modelOptions.value[0].id)
+}
 
 const emit = defineEmits([
   'update:form-data',
@@ -1608,5 +1719,26 @@ input:checked + .switch-slider:before {
   :global(.custom-select-option) {
     transition: none;
   }
+}
+
+.model-pick-link {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted-4);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.model-pick-link:hover {
+  color: var(--text-1);
+}
+
+.model-hint {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted-4);
 }
 </style>

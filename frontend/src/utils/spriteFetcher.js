@@ -21,6 +21,60 @@ export function buildSpritePath(character, stance = 'D', frame = 1) {
   return `/sprites/${character}-${stance}-${frame}.png`
 }
 
+const CHARACTER_COUNT = 13
+
+/** Valid character id from a YAML `mascot` value, or null. */
+export function parseMascot(value) {
+  const number = Number(value)
+  return Number.isInteger(number) && number >= 1 && number <= CHARACTER_COUNT ? number : null
+}
+
+// Stable string hash (FNV-1a) so a node id always maps to the same starting character.
+function hashString(text) {
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+// First character not in `used`, probing from the id's hash; falls back to the hash slot.
+function pickCharacter(nodeId, used) {
+  const start = hashString(String(nodeId)) % CHARACTER_COUNT
+  for (let i = 0; i < CHARACTER_COUNT; i++) {
+    const character = ((start + i) % CHARACTER_COUNT) + 1
+    if (!used.has(character)) return character
+  }
+  return start + 1
+}
+
+/**
+ * Characters for a workflow's nodes: a node's own `mascot` always wins, the rest get a
+ * deterministic character (same every load, in every view) that no other node uses yet.
+ * @param {Array<{id?: string, mascot?: number}>} nodes - YAML graph nodes, in file order.
+ * @returns {Map<string, number>} node id -> character id.
+ */
+export function resolveMascots(nodes) {
+  const result = new Map()
+  const used = new Set()
+  const list = (nodes || []).filter((node) => node?.id)
+  for (const node of list) {
+    const chosen = parseMascot(node.mascot)
+    if (chosen && !result.has(node.id)) {
+      result.set(node.id, chosen)
+      used.add(chosen)
+    }
+  }
+  for (const node of list) {
+    if (result.has(node.id)) continue
+    const character = pickCharacter(node.id, used)
+    result.set(node.id, character)
+    used.add(character)
+  }
+  return result
+}
+
 export class SpriteFetcher {
   constructor() {
     // Available character list (1-13)
@@ -54,16 +108,10 @@ export class SpriteFetcher {
       if (this.nodeCharacterMap.has(node_id)) {
         character = this.nodeCharacterMap.get(node_id)
       } else {
-        // If no character is bound, choose one at random.
-        if (this.unassignedCharacters.length === 0) {
-          // If all characters are assigned, pick one from the assigned pool.
-          character = this.availableCharacters[Math.floor(Math.random() * this.availableCharacters.length)]
-        } else {
-          // Pick randomly from the unassigned pool.
-          const randomIndex = Math.floor(Math.random() * this.unassignedCharacters.length)
-          character = this.unassignedCharacters[randomIndex]
-          this.unassignedCharacters.splice(randomIndex, 1)
-        }
+        // Nodes outside the loaded workflow (e.g. inside a subgraph) still get a stable,
+        // preferably unused character instead of a random one.
+        character = pickCharacter(node_id, new Set(this.nodeCharacterMap.values()))
+        this.unassignedCharacters = this.unassignedCharacters.filter((c) => c !== character)
 
         // Bind the character to the node and warm up its frames.
         this.nodeCharacterMap.set(node_id, character)
@@ -76,6 +124,39 @@ export class SpriteFetcher {
 
     // Build the sprite path.
     return buildSpritePath(character, stance, frame)
+  }
+
+  /**
+   * Bind every node of a workflow to its character (see `resolveMascots`), replacing
+   * earlier bindings so the editor, launch and office views all agree.
+   * @param {Array<{id?: string, mascot?: number}>} nodes - YAML graph nodes.
+   */
+  bindNodes(nodes) {
+    const resolved = resolveMascots(nodes)
+    this.nodeCharacterMap = new Map(resolved)
+    const used = new Set(resolved.values())
+    this.unassignedCharacters = this.availableCharacters.filter((c) => !used.has(c))
+    for (const character of used) this.preloadCharacter(character)
+    return resolved
+  }
+
+  /**
+   * Character to suggest for a new node: an unused one, stable for the given id.
+   * @param {string} [node_id]
+   * @returns {number}
+   */
+  suggestCharacter(node_id = '') {
+    const used = new Set(this.nodeCharacterMap.values())
+    return pickCharacter(node_id || `node-${used.size}`, used)
+  }
+
+  /** Node ids currently bound to `character`, other than `exceptId`. */
+  nodesUsing(character, exceptId = null) {
+    const ids = []
+    for (const [id, bound] of this.nodeCharacterMap) {
+      if (bound === character && id !== exceptId) ids.push(id)
+    }
+    return ids
   }
 
   /**
