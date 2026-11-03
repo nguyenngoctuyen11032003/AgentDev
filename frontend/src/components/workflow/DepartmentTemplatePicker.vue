@@ -17,7 +17,8 @@
         </button>
 
         <div class="dept-section-label">{{ $t('workflow_list.dept_section') }}</div>
-        <p v-if="!templates.length" class="dept-empty">{{ $t('workflow_list.dept_none') }}</p>
+        <p v-if="loading" class="dept-empty">{{ $t('workflow_list.loading') }}</p>
+        <p v-else-if="!templates.length" class="dept-empty">{{ $t('workflow_list.dept_none') }}</p>
         <div v-else class="dept-grid">
           <button
             v-for="tpl in templates"
@@ -48,7 +49,7 @@
 
       <div class="dept-footer">
         <button type="button" class="dept-cancel" @click="close">{{ $t('common.cancel') }}</button>
-        <button type="button" class="dept-submit" :disabled="!selected || !!nameError || busy" @click="create">
+        <button type="button" class="dept-submit" :disabled="!selected || !!nameError || busy || loading" @click="create">
           {{ $t('workflow_list.dept_create') }}
         </button>
       </div>
@@ -73,7 +74,9 @@ const DEPARTMENTS = [
 
 const props = defineProps({
   // Workflow file names that exist (e.g. "software_company.yaml")
-  existingFiles: { type: Array, default: () => [] }
+  existingFiles: { type: Array, default: () => [] },
+  // True while the workflow list is still loading: templates and taken names are not known yet.
+  loading: { type: Boolean, default: false }
 })
 const emit = defineEmits(['close', 'blank', 'created'])
 const { t } = useI18n()
@@ -116,7 +119,7 @@ const close = () => {
 }
 
 const create = async () => {
-  if (!selected.value || nameError.value || busy.value) return
+  if (!selected.value || nameError.value || busy.value || props.loading) return
   const name = stripExt(newName.value)
   busy.value = true
   try {

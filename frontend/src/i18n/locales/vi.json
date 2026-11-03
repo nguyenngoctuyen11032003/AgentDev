@@ -283,6 +283,7 @@
       "search": "Tìm phiên...",
       "empty": "Chưa có phiên nào. Chọn quy trình và khởi chạy để bắt đầu.",
       "no_results": "Không tìm thấy phiên phù hợp",
+      "loading": "Đang tải danh sách phiên...",
       "untitled": "Phiên mới",
       "draft": "Chưa khởi chạy",
       "rename": "Đổi tên",
@@ -430,7 +431,22 @@
       "web": "Đang tra cứu trên web",
       "tool": "Đang dùng {name}",
       "member_working": "{chain} đang làm",
-      "member_working_doing": "{chain} · {doing}"
+      "member_working_doing": "{chain} · {doing}",
+      "member_file": "{member} đã tạo {file}"
+    },
+    "activity_done": {
+      "thinking": "Đã suy nghĩ",
+      "ask_user": "Đã soạn câu hỏi cho bạn",
+      "delegate": "Đã giao việc cho đội",
+      "delegate_to": "Đã giao việc cho {member}",
+      "delegate_parallel": "Đã giao việc song song cho đội",
+      "read": "Đã đọc tệp",
+      "list": "Đã xem cấu trúc dự án",
+      "search": "Đã tìm trong mã nguồn",
+      "write": "Đã chỉnh sửa tệp",
+      "run": "Đã chạy lệnh",
+      "web": "Đã tra cứu trên web",
+      "tool": "Đã dùng {name}"
     },
     "workflow_completed": "Quy trình đã hoàn tất",
     "errors": {
@@ -632,6 +648,8 @@
       "show_less": "Thu gọn",
       "no_tasks_member": "Chưa có việc",
       "no_output": "Đã xong (không có nội dung bàn giao)",
+      "no_output_cancelled": "Dừng giữa chừng, chưa bàn giao gì",
+      "no_output_error": "Lỗi giữa chừng, chưa bàn giao gì",
       "go_review": "Duyệt kết quả →",
       "states": {
         "todo": "Chờ",
@@ -654,6 +672,8 @@
       "turn_filter": "Xem việc theo lượt"
     },
     "dashboard": {
+      "timeline_wall_hint": "Gồm cả lúc chờ giữa các tin nhắn của bạn; ô Thời gian chạy chỉ tính lúc đội làm việc",
+      "timeline_wall": "Từ đầu đến cuối {time}",
       "view": "Tổng quan",
       "title": "Tổng quan công việc",
       "progress_aria": "Đã hoàn thành {p}%",
@@ -730,6 +750,10 @@
       "chat_only": "Chỉ trao đổi, chưa giao việc"
     },
     "review": {
+      "back": "Danh sách",
+      "run_time_hint": "Thời gian đội làm việc, không tính lúc chờ giữa các tin nhắn của bạn",
+      "run_time": "⏱ {time} làm việc",
+      "other_requests": "Yêu cầu khác của bạn trong phiên ({n})",
       "view": "Duyệt",
       "eyebrow": "Kiểm duyệt chất lượng",
       "title": "Duyệt kết quả",
@@ -853,6 +877,18 @@
     "replaced_by_other_tab": "Phiên này đang mở ở tab khác. Bấm \"Mở ở đây\" để tiếp tục trong tab này.",
     "run_in_progress": "Lượt trước vẫn đang chạy. Hãy chờ xong hoặc bấm Dừng rồi gửi lại.",
     "jump_to_latest": "Tin nhắn mới",
+    "chat_ui": {
+      "composer_label": "Nhập tin nhắn cho trưởng nhóm",
+      "running_draft_placeholder": "Đội đang làm việc… bạn có thể soạn tin tiếp theo hoặc dừng lượt chạy",
+      "scroll_to_bottom": "Xuống tin mới nhất",
+      "retry": "Thử lại",
+      "stop": "Dừng",
+      "dismiss": "Đóng",
+      "suggestions_label": "Gợi ý câu hỏi",
+      "suggestion_intro": "Giới thiệu đội của bạn và cách các bạn làm việc",
+      "suggestion_plan": "Lên kế hoạch làm một ứng dụng ghi chú đơn giản",
+      "suggestion_review": "Rà soát mã trong dự án và đề xuất cải tiến"
+    },
     "run_new_turn": "Chạy lượt mới",
     "running_placeholder": "Đang chạy… bạn có thể dừng hoặc chờ trưởng nhóm hỏi",
     "question_card": {
@@ -2019,7 +2055,7 @@
     "test_ok": "Đã kết nối — có {count} model",
     "test_failed": "Kiểm tra kết nối thất bại",
     "models": "Model",
-    "used_in": "Chọn kết nối này ở trường \"Kết nối tài khoản\" trong biểu mẫu của nút agent.",
+    "used_in": "Chọn kết nối này ở trường \"Tài khoản AI\" trong biểu mẫu của nút agent.",
     "precheck_failed": "Một số agent dùng kết nối chưa sẵn sàng",
     "cli_hint": "Chỉ hỗ trợ văn bản: agent có dùng công cụ chưa chạy được với nhà cung cấp này.",
     "cli_ready": "CLI sẵn sàng",
@@ -2250,7 +2286,7 @@
     "remove": "Xóa",
     "prompt_label": "Yêu cầu gửi cho quy trình",
     "prompt_placeholder": "VD: Sửa lỗi nút Đăng nhập không phản hồi trên điện thoại",
-    "criteria_label": "Tiêu chí đạt (để trống = chỉ cần trả lời không lỗi)",
+    "criteria_label": "Tiêu chí đạt (để trống = AI chấm theo tiêu chí chung: trả lời đúng, đủ, đúng ngôn ngữ)",
     "criteria_placeholder": "VD: Trả lời bằng tiếng Việt; nêu nguyên nhân; có giao cho Bug Fixer và QA Tester; nêu cách kiểm tra lại",
     "add_scenario": "Thêm kịch bản",
     "add_samples": "Thêm kịch bản mẫu",
@@ -2303,6 +2339,8 @@
     "sample2_name": "Việc nhỏ cần một chuyên gia",
     "sample2_prompt": "Nhờ QA Tester liệt kê 3 test case quan trọng nhất cho form đăng nhập email + mật khẩu. Không cần kế hoạch, làm luôn.",
     "sample2_criteria": "Trả lời bằng tiếng Việt; có đúng 3 test case cụ thể (bước làm và kết quả mong đợi); không viết code.",
+    "sample2_generic_prompt": "Nhờ {member} làm một việc nhỏ đúng chuyên môn: đưa ra 3 gợi ý cụ thể cho chủ đề \"ra mắt ứng dụng ghi chú cho sinh viên\". Không cần kế hoạch, làm luôn.",
+    "sample2_generic_criteria": "Trả lời bằng tiếng Việt; có giao việc cho {member}; đúng 3 gợi ý cụ thể, đúng chuyên môn của {member}; ngắn gọn.",
     "checks": {
       "yaml": {
         "title": "Đọc tệp YAML",

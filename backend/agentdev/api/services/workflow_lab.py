@@ -138,6 +138,7 @@ def static_check(yaml_path: Path) -> Dict[str, Any]:
     leads = [a for a in agents if ((a.get("config") or {}).get("team") or {}).get("enabled")]
     reachable = set(start) | {e.get("to") for e in edges}
     team_issues: List[str] = []
+    team_members: List[str] = []  # valid members of every lead, in roster order (for Lab sample scenarios)
     for lead in leads:
         members = ((lead.get("config") or {}).get("team") or {}).get("members") or []
         if members:
@@ -147,14 +148,18 @@ def static_check(yaml_path: Path) -> Dict[str, Any]:
                     team_issues.append(f"{lead['id']} → {member}")
                 else:
                     reachable.add(member)
+                    team_members.append(member)
         else:
             staff = [a["id"] for a in agents if a["id"] != lead["id"] and a["id"] not in wired]
             reachable.update(staff)
+            team_members.extend(staff)
             if not staff:
                 team_issues.append(f"{lead['id']}: no members")
     if leads:
+        lead_ids = {lead["id"] for lead in leads}
+        members = list(dict.fromkeys(m for m in team_members if m not in lead_ids))
         _check(checks, "team", FAIL if team_issues else PASS, "; ".join(team_issues), items=team_issues,
-               leads=[lead["id"] for lead in leads])
+               leads=[lead["id"] for lead in leads], members=members)
     never_run = sorted(nid for nid in nodes if nid not in reachable)
     _check(checks, "unreachable", WARN if never_run else PASS, ", ".join(never_run), nodes=never_run)
 

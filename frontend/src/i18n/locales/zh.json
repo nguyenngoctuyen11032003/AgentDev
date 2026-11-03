@@ -243,6 +243,7 @@
       "search": "搜索会话...",
       "empty": "还没有会话。选择工作流并启动即可开始。",
       "no_results": "没有匹配的会话",
+      "loading": "正在加载会话...",
       "untitled": "新会话",
       "draft": "未启动",
       "rename": "重命名",
@@ -390,7 +391,22 @@
       "web": "正在网上查询",
       "tool": "正在使用 {name}",
       "member_working": "{chain} 正在处理",
-      "member_working_doing": "{chain} · {doing}"
+      "member_working_doing": "{chain} · {doing}",
+      "member_file": "{member} 创建了 {file}"
+    },
+    "activity_done": {
+      "thinking": "已思考",
+      "ask_user": "已为你拟好问题",
+      "delegate": "已向团队分配任务",
+      "delegate_to": "已分配任务给 {member}",
+      "delegate_parallel": "已并行向团队分配任务",
+      "read": "已读取文件",
+      "list": "已查看项目结构",
+      "search": "已搜索代码",
+      "write": "已编辑文件",
+      "run": "已运行命令",
+      "web": "已搜索网络",
+      "tool": "已使用 {name}"
     },
     "workflow_completed": "工作流已完成",
     "errors": {
@@ -592,6 +608,8 @@
       "show_less": "收起",
       "no_tasks_member": "暂无任务",
       "no_output": "已完成（无交付内容）",
+      "no_output_cancelled": "中途停止，未交付内容",
+      "no_output_error": "中途出错，未交付内容",
       "go_review": "验收结果 →",
       "states": {
         "todo": "待办",
@@ -614,6 +632,8 @@
       "turn_filter": "按轮次查看任务"
     },
     "dashboard": {
+      "timeline_wall_hint": "包含你两条消息之间的等待；运行时间卡片只计算团队工作的时间",
+      "timeline_wall": "从头到尾 {time}",
       "view": "概览",
       "title": "工作概览",
       "progress_aria": "已完成 {p}%",
@@ -690,6 +710,10 @@
       "chat_only": "仅对话，未分派任务"
     },
     "review": {
+      "back": "列表",
+      "run_time_hint": "团队工作的时间，不含你两条消息之间的等待",
+      "run_time": "⏱ 工作 {time}",
+      "other_requests": "你在此会话中的其他请求（{n}）",
       "view": "验收",
       "eyebrow": "质量验收",
       "title": "验收结果",
@@ -811,8 +835,20 @@
     "reply_placeholder": "回复 {name}...",
     "reply_placeholder_any": "输入你的回答...",
     "replaced_by_other_tab": "此会话已在另一个标签页中打开。点击\"在此打开\"以在此标签页继续。",
-    "run_in_progress": "上一轮仍在运行。请等待完成，或点击停止后重新发送。",
+    "run_in_progress": "上一轮仍在运行。请等待完成，或停止本次运行后重新发送。",
     "jump_to_latest": "新消息",
+    "chat_ui": {
+      "composer_label": "给负责人发消息",
+      "running_draft_placeholder": "团队正在工作… 你可以先写下一条消息，或停止本次运行",
+      "scroll_to_bottom": "跳到最新",
+      "retry": "重试",
+      "stop": "停止",
+      "dismiss": "关闭",
+      "suggestions_label": "建议的提问",
+      "suggestion_intro": "介绍你的团队以及工作方式",
+      "suggestion_plan": "规划一个简单的笔记应用",
+      "suggestion_review": "审查本项目的代码并提出改进建议"
+    },
     "run_new_turn": "运行新一轮",
     "running_placeholder": "运行中… 你可以停止，或等待负责人向你提问",
     "question_card": {
@@ -1578,7 +1614,7 @@
     "test_ok": "已连接 — 可用模型 {count} 个",
     "test_failed": "连接测试失败",
     "models": "模型",
-    "used_in": "在智能体节点的“Connection”字段中选择它。",
+    "used_in": "在智能体节点的“AI 账号”字段中选择它。",
     "precheck_failed": "部分智能体使用的连接尚未就绪",
     "cli_hint": "仅文本：此服务商暂不支持使用工具的智能体。",
     "cli_ready": "CLI 就绪",
@@ -1961,7 +1997,7 @@
     "remove": "删除",
     "prompt_label": "发送给工作流的请求",
     "prompt_placeholder": "例如：修复手机上“登录”按钮无响应的问题",
-    "criteria_label": "通过标准（留空 = 只要回答无错误即通过）",
+    "criteria_label": "通过标准（留空 = AI 评审按通用标准：回答正确、完整、语言一致）",
     "criteria_placeholder": "例如：用中文回答；指出原因；分派给 Bug Fixer 和 QA Tester；说明如何验证",
     "add_scenario": "添加场景",
     "add_samples": "添加示例场景",
@@ -2014,6 +2050,8 @@
     "sample2_name": "交给一位专员的小任务",
     "sample2_prompt": "请 QA Tester 为邮箱 + 密码登录表单给出最重要的 3 个测试用例。不需要计划，直接做。",
     "sample2_criteria": "用中文回答；恰好 3 个具体测试用例（步骤和预期结果）；不写代码。",
+    "sample2_generic_prompt": "请 {member} 完成一个符合其专业的小任务：为“面向学生的笔记应用上线”给出 3 条具体建议。不需要计划，直接做。",
+    "sample2_generic_criteria": "用中文回答；任务交给了 {member}；恰好 3 条具体建议，符合 {member} 的专业；简洁。",
     "checks": {
       "yaml": {
         "title": "读取 YAML",

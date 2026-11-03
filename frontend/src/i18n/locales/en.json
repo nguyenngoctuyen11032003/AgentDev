@@ -283,6 +283,7 @@
       "search": "Search sessions...",
       "empty": "No sessions yet. Pick a workflow and launch it to get started.",
       "no_results": "No matching sessions",
+      "loading": "Loading sessions...",
       "untitled": "New session",
       "draft": "Not launched",
       "rename": "Rename",
@@ -430,7 +431,22 @@
       "web": "Searching the web",
       "tool": "Using {name}",
       "member_working": "{chain} is working",
-      "member_working_doing": "{chain} · {doing}"
+      "member_working_doing": "{chain} · {doing}",
+      "member_file": "{member} created {file}"
+    },
+    "activity_done": {
+      "thinking": "Thought",
+      "ask_user": "Wrote a question for you",
+      "delegate": "Assigned work to the team",
+      "delegate_to": "Assigned work to {member}",
+      "delegate_parallel": "Assigned work to the team in parallel",
+      "read": "Read files",
+      "list": "Looked at the project structure",
+      "search": "Searched the code",
+      "write": "Edited files",
+      "run": "Ran a command",
+      "web": "Searched the web",
+      "tool": "Used {name}"
     },
     "workflow_completed": "Workflow completed",
     "errors": {
@@ -632,6 +648,8 @@
       "show_less": "Show less",
       "no_tasks_member": "No tasks yet",
       "no_output": "Done (no hand-over text)",
+      "no_output_cancelled": "Stopped before handing anything over",
+      "no_output_error": "Failed before handing anything over",
       "go_review": "Review the result →",
       "states": {
         "todo": "To do",
@@ -654,6 +672,8 @@
       "turn_filter": "Show tasks by turn"
     },
     "dashboard": {
+      "timeline_wall_hint": "Includes the waits between your messages; the run time card counts only the time the team was working",
+      "timeline_wall": "Start to finish {time}",
       "view": "Dashboard",
       "title": "Work overview",
       "progress_aria": "{p}% complete",
@@ -730,6 +750,10 @@
       "chat_only": "Conversation only, no tasks handed out"
     },
     "review": {
+      "back": "All work",
+      "run_time_hint": "Time the team was working; the waits between your messages are not counted",
+      "run_time": "⏱ {time} of work",
+      "other_requests": "Your other requests in this session ({n})",
       "view": "Review",
       "eyebrow": "Quality review",
       "title": "Review results",
@@ -853,6 +877,18 @@
     "replaced_by_other_tab": "This session is open in another tab. Open it here to continue in this tab.",
     "run_in_progress": "The previous turn is still running. Wait for it to finish, or press Stop and send again.",
     "jump_to_latest": "New messages",
+    "chat_ui": {
+      "composer_label": "Message the lead",
+      "running_draft_placeholder": "The team is working… you can draft your next message or stop the run",
+      "scroll_to_bottom": "Jump to latest",
+      "retry": "Retry",
+      "stop": "Stop",
+      "dismiss": "Dismiss",
+      "suggestions_label": "Suggested prompts",
+      "suggestion_intro": "Introduce your team and how you work",
+      "suggestion_plan": "Plan a simple note-taking app",
+      "suggestion_review": "Review the code in this project and suggest improvements"
+    },
     "run_new_turn": "Run new turn",
     "running_placeholder": "Running… you can stop it or wait for the lead to ask you",
     "question_card": {
@@ -1578,7 +1614,7 @@
     "test_ok": "Connected — {count} models available",
     "test_failed": "Connection test failed",
     "models": "Models",
-    "used_in": "Choose it in an agent node via the \"Connection\" field.",
+    "used_in": "Choose it in an agent node via the \"AI account\" field.",
     "precheck_failed": "Some agents use a connection that is not ready",
     "cli_hint": "Text only: agents that use tools are not supported for this provider.",
     "cli_ready": "CLI ready",
@@ -1961,7 +1997,7 @@
     "remove": "Remove",
     "prompt_label": "Request sent to the workflow",
     "prompt_placeholder": "e.g. Fix the Login button not responding on mobile",
-    "criteria_label": "Pass criteria (empty = any error-free answer passes)",
+    "criteria_label": "Pass criteria (empty = the AI judge uses general criteria: correct, complete, in the user's language)",
     "criteria_placeholder": "e.g. Answers in English; names the cause; delegates to Bug Fixer and QA Tester; explains how to verify",
     "add_scenario": "Add scenario",
     "add_samples": "Add sample scenarios",
@@ -2014,6 +2050,8 @@
     "sample2_name": "Small task for one specialist",
     "sample2_prompt": "Ask the QA Tester for the 3 most important test cases for an email + password login form. No plan needed, just do it.",
     "sample2_criteria": "Answers in English; exactly 3 concrete test cases (steps and expected result); no code.",
+    "sample2_generic_prompt": "Ask {member} for a small task in their specialty: 3 concrete suggestions for \"launching a note-taking app for students\". No plan needed, just do it.",
+    "sample2_generic_criteria": "Answers in English; the work is delegated to {member}; exactly 3 concrete suggestions within {member}'s specialty; concise.",
     "checks": {
       "yaml": {
         "title": "Read YAML file",

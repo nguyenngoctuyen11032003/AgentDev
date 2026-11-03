@@ -227,6 +227,11 @@ const props = defineProps({
     type: [Object, String],
     default: null
   },
+  // Node ids in their file order: an edited node is saved back at its old position
+  nodeOrder: {
+    type: Array,
+    default: null
+  },
   initialFormData: {
     type: [Object, Array],
     default: null
@@ -578,6 +583,22 @@ const mergeYamlStructures = (target, source) => {
     return result
   }
   return source
+}
+
+// The editor drops the node from the base YAML and the merge appends it again:
+// put every node back at its position from the file
+const restoreNodeOrder = (yamlObject, idChange) => {
+  const nodes = yamlObject?.graph?.nodes
+  if (!Array.isArray(props.nodeOrder) || !Array.isArray(nodes) || nodes.length < 2) {
+    return
+  }
+  const order = props.nodeOrder.map((id) => (idChange && id === idChange.oldId ? idChange.newId : id))
+  const rank = (node) => {
+    const index = order.indexOf(node?.id)
+    return index === -1 ? order.length : index
+  }
+  // Array.prototype.sort is stable: new nodes keep their relative order at the end
+  yamlObject.graph.nodes = [...nodes].sort((a, b) => rank(a) - rank(b))
 }
 
 const buildPartialYamlPayload = (modal, data) => {
@@ -1669,6 +1690,7 @@ const submitForm = async (modalId) => {
       ? mergeYamlStructures(baseYamlClone, structuredData)
       : structuredData
 
+    restoreNodeOrder(mergedYamlObject, nodeIdChangeInfo)
     const yamlString = yaml.dump(mergedYamlObject ?? null, yamlDumpOptions)
 
     // Save updated, full YAML through API

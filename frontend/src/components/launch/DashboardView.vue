@@ -99,7 +99,14 @@
       <section class="card block">
         <header class="block-head">
           <h3>{{ $t('launch.dashboard.timeline') }}</h3>
-          <span class="muted">{{ session.startedAt ? formatSpan(span) : '' }}</span>
+          <!-- Across several messages the axis also spans the waits between them: say so, so it
+               is not read as the run time card's figure -->
+          <span
+            v-if="session.startedAt && multiTurn"
+            class="muted"
+            :title="$t('launch.dashboard.timeline_wall_hint')"
+          >{{ $t('launch.dashboard.timeline_wall', { time: formatSpan(span) }) }}</span>
+          <span v-else class="muted">{{ session.startedAt ? formatSpan(span) : '' }}</span>
         </header>
         <div v-if="session.startedAt && steps.length" class="gantt">
           <div v-for="step in shownSteps" :key="step.id" class="gantt-row" :style="{ '--dept': step.color }">
@@ -493,31 +500,36 @@ const eventText = (event) => {
 // ---------------------------------------------------------------- all sessions
 const SESSION_TONE = {
   running: 'working',
+  // Stop was pressed and the run is winding down
+  cancelling: 'working',
   waiting_for_input: 'waiting',
   completed: 'completed',
   error: 'error',
   cancelled: 'cancelled',
   idle: 'idle'
 }
-const sessionTone = (status) => SESSION_TONE[status] || 'idle'
-const sessionLabel = (status) => stateLabel(sessionTone(status) === 'idle' ? 'draft' : sessionTone(status))
-
-const buckets = computed(() => {
-  const count = (statuses) => props.sessions.filter((s) => statuses.includes(s.status)).length
-  return [
-    { key: 'active', tone: 'working', label: t('launch.dashboard.bucket_active'), count: count(['running', 'waiting_for_input']) },
-    { key: 'completed', tone: 'completed', label: t('launch.dashboard.bucket_done'), count: count(['completed']) },
-    { key: 'stopped', tone: 'error', label: t('launch.dashboard.bucket_stopped'), count: count(['error', 'cancelled']) },
-    { key: 'draft', tone: 'idle', label: t('launch.dashboard.bucket_draft'), count: count(['idle']) }
-  ]
-})
-
 const BUCKET_STATUSES = {
-  active: ['running', 'waiting_for_input'],
+  active: ['running', 'waiting_for_input', 'cancelling'],
   completed: ['completed'],
   stopped: ['error', 'cancelled'],
   draft: ['idle']
 }
+const sessionTone = (status) => SESSION_TONE[status] || 'idle'
+const sessionLabel = (status) => {
+  if (status === 'cancelling') return t('launch.sessions.status.cancelling')
+  return stateLabel(sessionTone(status) === 'idle' ? 'draft' : sessionTone(status))
+}
+
+const buckets = computed(() => {
+  const count = (statuses) => props.sessions.filter((s) => statuses.includes(s.status)).length
+  return [
+    { key: 'active', tone: 'working', label: t('launch.dashboard.bucket_active'), count: count(BUCKET_STATUSES.active) },
+    { key: 'completed', tone: 'completed', label: t('launch.dashboard.bucket_done'), count: count(BUCKET_STATUSES.completed) },
+    { key: 'stopped', tone: 'error', label: t('launch.dashboard.bucket_stopped'), count: count(BUCKET_STATUSES.stopped) },
+    { key: 'draft', tone: 'idle', label: t('launch.dashboard.bucket_draft'), count: count(BUCKET_STATUSES.draft) }
+  ]
+})
+
 const recentSessions = computed(() =>
   props.sessions
     .filter((s) => !filter.value || BUCKET_STATUSES[filter.value].includes(s.status))

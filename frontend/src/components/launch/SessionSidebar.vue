@@ -87,7 +87,7 @@
                 />
                 <span v-else class="session-name" :title="item.title">{{ item.title || t('launch.sessions.untitled') }}</span>
                 <span class="session-sub">
-                  <span v-if="item.awaiting_plan" class="plan-badge" :title="t('launch.plan.status')">{{ t('launch.sessions.awaiting_plan') }}</span>
+                  <span v-if="waitsOnPlan(item)" class="plan-badge" :title="t('launch.plan.status')">{{ t('launch.sessions.awaiting_plan') }}</span>
                   <template v-if="group.isProject">{{ workflowLabel(item.yaml_file) }} · </template>{{ statusLabel(item.status) }} · {{ timeAgo(item.updated_at) }}
                 </span>
               </span>
@@ -103,7 +103,8 @@
           </div>
         </section>
 
-        <p v-if="!sessions.length && !draft" class="sidebar-empty">{{ t('launch.sessions.empty') }}</p>
+        <p v-if="!sessions.length && loading" class="sidebar-empty">{{ t('launch.sessions.loading') }}</p>
+        <p v-else-if="!sessions.length && !draft" class="sidebar-empty">{{ t('launch.sessions.empty') }}</p>
         <p v-else-if="query && !groups.length" class="sidebar-empty">{{ t('launch.sessions.no_results') }}</p>
       </div>
     </template>
@@ -188,7 +189,9 @@ const props = defineProps({
   draftProject: { type: String, default: '' },
   // Workflow each project uses for its next session: { [projectName]: yamlFile }
   projectWorkflows: { type: Object, default: () => ({}) },
-  collapsed: { type: Boolean, default: false }
+  collapsed: { type: Boolean, default: false },
+  // The list has not arrived yet: say so instead of "no sessions"
+  loading: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['select', 'new', 'add-project', 'rename', 'delete', 'delete-group', 'toggle'])
@@ -229,6 +232,9 @@ const statusLabel = (status) => {
   const key = `launch.sessions.status.${status}`
   return te(key) ? t(key) : status || ''
 }
+
+// A stopped or failed run no longer waits on its plan (older saved sessions still say so)
+const waitsOnPlan = (item) => Boolean(item.awaiting_plan) && !['cancelled', 'error'].includes(item.status)
 
 const projectName = (item) => (item.projects?.[0]?.name || '').replace(/\/+$/, '')
 

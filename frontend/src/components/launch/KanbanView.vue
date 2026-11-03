@@ -329,14 +329,20 @@ const shownTurns = computed(() => {
 watch(turns, (list) => {
   if (turnFilter.value !== 'all' && !list.some((turn) => turn.number === turnFilter.value)) turnFilter.value = 'all'
 })
-// The tracker was reset (another session, a new draft): no filter carries over
+// The tracker was reset (another session, a new draft): no filter or opened card carries
+// over. Only a reset replaces the list of turns (a new turn is pushed onto it), and a
+// reset followed by a replay can land on the same turn number, so the list is watched.
+const clearViewState = () => {
+  turnFilter.value = 'all'
+  for (const key of Object.keys(memberFilter)) delete memberFilter[key]
+  opened.clear()
+  expandedColumns.clear()
+}
+watch(() => props.tracker?.turns, clearViewState)
 watch(
   () => props.tracker?.turn || 0,
   (turn, previous) => {
-    if (turn === 0 || turn < previous) {
-      turnFilter.value = 'all'
-      for (const key of Object.keys(memberFilter)) delete memberFilter[key]
-    }
+    if (turn === 0 || turn < previous) clearViewState()
   }
 )
 const view = computed(() => combineTurns(shownTurns.value))
@@ -460,7 +466,7 @@ const columns = computed(() =>
       for (const run of runs) {
         if (!run.endedAt) continue
         const { title, body } = splitOutput(run.output)
-        done.push({ key: `${step.id}#${run.turn}.${run.index}`, step, run, status: run.status, title: title || t('launch.board.no_output'), body })
+        done.push({ key: `${step.id}#${run.turn}.${run.index}`, step, run, status: run.status, title: title || noOutputLabel(run.status), body })
       }
     }
     done.sort((a, b) => b.run.endedAt - a.run.endedAt)
@@ -468,7 +474,10 @@ const columns = computed(() =>
     const statuses = members.map((m) => statusOf(m.id))
     const doneMembers = statuses.filter((s) => s === 'done').length
     let status = statuses.reduce((best, s) => (statusRank[s] > statusRank[best] ? s : best), 'todo')
-    if (status === 'done' && doneMembers < members.length) status = 'working'
+    // In a pipeline the members not started yet are still to come. In a team the lead
+    // picks who works: members nobody asked do not keep the team "working".
+    const pending = teamMode.value ? 0 : statuses.filter((s) => s === 'todo').length
+    if (status === 'done' && pending) status = 'working'
     if (!isLive.value && status === 'working') status = view.value.outcome || 'todo'
 
     const indexes = members.map((m) => m.index)
@@ -489,6 +498,13 @@ const columns = computed(() =>
     }
   })
 )
+
+// A run cut short handed nothing over: do not call it "done"
+const noOutputLabel = (status) => {
+  if (status === 'cancelled') return t('launch.board.no_output_cancelled')
+  if (status === 'error') return t('launch.board.no_output_error')
+  return t('launch.board.no_output')
+}
 
 const visibleDone = (column) =>
   expandedColumns.has(column.key) ? column.done : column.done.slice(0, DONE_PREVIEW)

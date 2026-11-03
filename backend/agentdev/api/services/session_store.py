@@ -233,6 +233,9 @@ class WorkflowSessionStore:
         for item in merged.values():  # sessions saved before these fields existed
             item.setdefault("awaiting_plan", False)
             item.setdefault("has_work", False)
+            # Older saved meta can keep a plan flag after the run was stopped or failed
+            if item.get("status") in (SessionStatus.CANCELLED.value, SessionStatus.ERROR.value):
+                item["awaiting_plan"] = False
         return sorted(merged.values(), key=lambda item: item.get("updated_at") or 0, reverse=True)
 
     def delete_session(self, session_id: str) -> bool:
@@ -268,13 +271,28 @@ class WorkflowSessionStore:
             session.message_buffer = list(draft.message_buffer)
             session.turns = list(draft.turns)
             session.files_changed = draft.files_changed
-            if draft.turns and draft.title:
+            if draft.turns and draft.title and not self._retitle_after_small_talk(draft, session.title):
                 # A follow-up message keeps the conversation's title
                 session.title = draft.title
         self._sessions[session_id] = session
         self._persist(session)
         self.logger.info("Created session %s for workflow %s", session_id, yaml_file)
         return session
+
+    def _retitle_after_small_talk(self, draft: WorkflowSession, new_title: str) -> bool:
+        """The conversation opened with a greeting ("chào bạn"): title it by the first real request.
+
+        Only while the title still is that greeting, the user never renamed the session, and
+        the new message is itself a request (not one more greeting or a thank-you).
+        """
+        # Lazy: the runtime package is heavy and only this check needs it
+        from agentdev.runtime.node.agent.team import is_small_talk
+
+        if not is_small_talk(draft.title) or not new_title or is_small_talk(new_title):
+            return False
+        if self.history is not None and (self.history.get_meta(draft.session_id) or {}).get("title_custom"):
+            return False
+        return True
 
     def register_project(self, session_id: str, yaml_file: Optional[str], project: Dict[str, Any]) -> WorkflowSession:
         """Attach an uploaded project folder; creates a draft session so it is listed right away."""

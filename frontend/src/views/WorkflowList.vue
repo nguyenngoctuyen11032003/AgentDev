@@ -76,6 +76,7 @@
       <DepartmentTemplatePicker
         v-if="showTemplatePicker"
         :existing-files="yamlFiles.map((f) => f?.name).filter(Boolean)"
+        :loading="loading && !yamlFiles.length"
         @close="showTemplatePicker = false"
         @blank="openBlankForm"
         @created="handleTemplateCreated"

@@ -1,265 +1,274 @@
 <template>
   <div class="review">
-    <!-- Queue -->
-    <aside class="queue">
-      <header class="queue-head">
-        <span class="eyebrow">{{ $t('launch.review.eyebrow') }}</span>
-        <h2>{{ $t('launch.review.title') }}</h2>
-        <p>{{ $t('launch.review.subtitle') }}</p>
-      </header>
+    <div class="review-body" :class="{ 'show-detail': showDetail && selected }">
+      <!-- Queue -->
+      <aside class="queue">
+        <header class="queue-head">
+          <span class="eyebrow">{{ $t('launch.review.eyebrow') }}</span>
+          <h2>{{ $t('launch.review.title') }}</h2>
+          <p>{{ $t('launch.review.subtitle') }}</p>
+        </header>
 
-      <section v-if="awaitingPlans.length" class="plans" :aria-label="$t('launch.plan.section')">
-        <h3 class="plans-title">
-          {{ $t('launch.plan.section') }}<span class="tab-count">{{ awaitingPlans.length }}</span>
-        </h3>
-        <ul class="plans-list">
-          <li v-for="item in awaitingPlans" :key="item.session_id">
-            <button type="button" class="plan-item" @click="$emit('open-session', item)">
+        <section v-if="awaitingPlans.length" class="plans" :aria-label="$t('launch.plan.section')">
+          <h3 class="plans-title">
+            {{ $t('launch.plan.section') }}<span class="tab-count">{{ awaitingPlans.length }}</span>
+          </h3>
+          <ul class="plans-list">
+            <li v-for="item in awaitingPlans" :key="item.session_id">
+              <button type="button" class="plan-item" @click="$emit('open-session', item)">
+                <span class="qi-top">
+                  <span class="verdict-dot is-waiting" aria-hidden="true"></span>
+                  <span class="qi-title" :title="item.title">{{ item.title || item.yaml_file }}</span>
+                  <span class="plan-open">{{ $t('launch.plan.open') }} →</span>
+                </span>
+                <span class="qi-meta">
+                  <span>{{ metaOf(item) }}</span>
+                  <time>{{ ago(item.updated_at) }}</time>
+                </span>
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <div class="tabs" role="tablist">
+          <button
+            v-for="tab in tabs"
+            :key="tab.key"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === tab.key"
+            class="tab"
+            :class="[`is-${tab.tone}`, { active: activeTab === tab.key }]"
+            @click="activeTab = tab.key"
+          >
+            {{ tab.label }}<span class="tab-count">{{ tab.count }}</span>
+          </button>
+        </div>
+
+        <label class="search">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          <input v-model="query" type="search" :placeholder="$t('launch.review.search')" />
+        </label>
+
+        <ul v-if="queue.length" class="queue-list">
+          <li v-for="item in queue" :key="item.session_id">
+            <button
+              type="button"
+              class="queue-item"
+              :class="{ active: item.session_id === selectedId }"
+              @click="select(item.session_id)"
+            >
               <span class="qi-top">
-                <span class="verdict-dot is-waiting" aria-hidden="true"></span>
+                <span class="verdict-dot" :class="`is-${verdictTone(item)}`" aria-hidden="true"></span>
                 <span class="qi-title" :title="item.title">{{ item.title || item.yaml_file }}</span>
-                <span class="plan-open">{{ $t('launch.plan.open') }} →</span>
+                <span v-if="roundOf(item.session_id) > 1" class="round">{{ $t('launch.review.round', { n: roundOf(item.session_id) }) }}</span>
               </span>
               <span class="qi-meta">
                 <span>{{ metaOf(item) }}</span>
                 <time>{{ ago(item.updated_at) }}</time>
               </span>
+              <span v-if="item.review?.rating" class="stars-mini" :aria-label="$t('launch.review.rated', { n: item.review.rating })">
+                <span v-for="n in 5" :key="n" :class="{ on: n <= item.review.rating }">★</span>
+              </span>
             </button>
           </li>
         </ul>
-      </section>
-
-      <div class="tabs" role="tablist">
-        <button
-          v-for="tab in tabs"
-          :key="tab.key"
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === tab.key"
-          class="tab"
-          :class="[`is-${tab.tone}`, { active: activeTab === tab.key }]"
-          @click="activeTab = tab.key"
-        >
-          {{ tab.label }}<span class="tab-count">{{ tab.count }}</span>
-        </button>
-      </div>
-
-      <label class="search">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-        <input v-model="query" type="search" :placeholder="$t('launch.review.search')" />
-      </label>
-
-      <ul v-if="queue.length" class="queue-list">
-        <li v-for="item in queue" :key="item.session_id">
-          <button
-            type="button"
-            class="queue-item"
-            :class="{ active: item.session_id === selectedId }"
-            @click="select(item.session_id)"
-          >
-            <span class="qi-top">
-              <span class="verdict-dot" :class="`is-${verdictTone(item)}`" aria-hidden="true"></span>
-              <span class="qi-title" :title="item.title">{{ item.title || item.yaml_file }}</span>
-              <span v-if="roundOf(item.session_id) > 1" class="round">{{ $t('launch.review.round', { n: roundOf(item.session_id) }) }}</span>
-            </span>
-            <span class="qi-meta">
-              <span>{{ metaOf(item) }}</span>
-              <time>{{ ago(item.updated_at) }}</time>
-            </span>
-            <span v-if="item.review?.rating" class="stars-mini" :aria-label="$t('launch.review.rated', { n: item.review.rating })">
-              <span v-for="n in 5" :key="n" :class="{ on: n <= item.review.rating }">★</span>
-            </span>
-          </button>
-        </li>
-      </ul>
-      <div v-else class="queue-empty">
-        <span aria-hidden="true">✓</span>
-        <p>{{ emptyText }}</p>
-      </div>
-    </aside>
-
-    <!-- Detail -->
-    <section class="detail">
-      <div v-if="!selected" class="detail-empty">
-        <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8" /><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" /></svg>
-        <p>{{ $t('launch.review.pick') }}</p>
-      </div>
-
-      <template v-else>
-        <header class="detail-head">
-          <div class="dh-main">
-            <div class="dh-tags">
-              <span class="pill" :class="`is-${verdictTone(selected)}`"><span class="dot" aria-hidden="true"></span>{{ verdictLabel(selected) }}</span>
-              <span v-if="roundOf(selected.session_id) > 1" class="round">{{ $t('launch.review.round', { n: roundOf(selected.session_id) }) }}</span>
-            </div>
-            <h3 :title="selected.title">{{ selected.title || selected.yaml_file }}</h3>
-            <p class="dh-meta">
-              <span v-for="part in detailMeta" :key="part">{{ part }}</span>
-            </p>
-          </div>
-          <button type="button" class="btn btn-ghost" @click="$emit('open-session', selected)">
-            {{ $t('launch.review.open_session') }}
-          </button>
-        </header>
-
-        <div v-if="loading" class="loading"><span class="spinner" aria-hidden="true"></span>{{ $t('launch.review.loading') }}</div>
-        <p v-else-if="loadError" class="load-error">{{ loadError }}</p>
-
-        <div v-else-if="digest" class="detail-grid">
-          <div class="content">
-            <!-- Previous round: what you asked to change -->
-            <aside v-if="parent?.review" class="lineage">
-              <strong>{{ $t('launch.review.lineage_title', { n: roundOf(parent.session_id) }) }}</strong>
-              <p v-if="parent.review.tags?.length" class="lineage-tags">
-                <span v-for="tag in parent.review.tags" :key="tag" class="tag is-issue">{{ tagLabel(tag) }}</span>
-              </p>
-              <p v-if="parent.review.feedback" class="lineage-text">“{{ parent.review.feedback }}”</p>
-              <button type="button" class="link" @click="select(parent.session_id)">{{ $t('launch.review.see_previous') }}</button>
-            </aside>
-
-            <section class="panel">
-              <h4>{{ $t('launch.review.request') }}</h4>
-              <p class="pre">{{ originalTask(digest.task?.text) || '—' }}</p>
-              <div v-if="digest.task?.attachments?.length" class="chips">
-                <span v-for="(name, i) in digest.task.attachments" :key="`${i}-${name}`" class="chip">📎 {{ name }}</span>
-              </div>
-              <details v-if="digest.replies.length" class="replies">
-                <summary>{{ $t('launch.review.replies', { n: digest.replies.length }) }}</summary>
-                <ol>
-                  <li v-for="(reply, i) in digest.replies" :key="i">{{ reply }}</li>
-                </ol>
-              </details>
-            </section>
-
-            <section class="panel is-result">
-              <h4>
-                {{ $t('launch.review.delivered') }}
-                <span class="pill" :class="`is-${digest.outcome || 'idle'}`"><span class="dot" aria-hidden="true"></span>{{ outcomeLabel }}</span>
-              </h4>
-              <div v-if="resultSummary" class="md" v-html="render(resultSummary)"></div>
-              <p v-else class="muted">{{ $t('launch.review.no_summary') }}</p>
-              <p v-if="digest.error" class="load-error">{{ digest.error }}</p>
-            </section>
-
-            <section v-if="digest.files.length" class="panel">
-              <h4>{{ $t('launch.review.files', { n: digest.files.length }) }}</h4>
-              <ul class="files">
-                <li v-for="file in digest.files" :key="file.path">
-                  <span class="change" :class="`is-${file.change}`">{{ changeLabel(file.change) }}</span>
-                  <code :title="file.path">{{ file.path }}</code>
-                  <span v-if="file.node_id" class="muted">{{ file.node_id }}</span>
-                </li>
-              </ul>
-            </section>
-
-            <section v-if="digest.steps.length" class="panel">
-              <h4>{{ $t('launch.review.handovers', { n: digest.steps.length }) }}</h4>
-              <div class="handovers">
-                <details v-for="(step, i) in digest.steps" :key="step.node_id" class="handover" :open="i === digest.steps.length - 1">
-                  <summary>
-                    <span class="ho-index">{{ i + 1 }}</span>
-                    <span class="ho-name">{{ step.node_id }}</span>
-                    <span class="muted">
-                      {{ step.runs > 1 ? $t('launch.board.runs', { n: step.runs }) + ' · ' : '' }}{{ stepTime(step) }}
-                    </span>
-                  </summary>
-                  <div v-if="step.output" class="md" v-html="render(step.output)"></div>
-                  <p v-else class="muted">{{ $t('launch.board.no_output') }}</p>
-                </details>
-              </div>
-            </section>
-          </div>
-
-          <!-- Verdict -->
-          <aside class="verdict card">
-            <template v-if="existing && !editing">
-              <div class="verdict-done" :class="`is-${existing.verdict}`">
-                <span class="vd-icon" aria-hidden="true">{{ existing.verdict === 'approved' ? '✓' : '↻' }}</span>
-                <div>
-                  <strong>{{ existing.verdict === 'approved' ? $t('launch.review.approved_title') : $t('launch.review.rework_title') }}</strong>
-                  <span>{{ formatDate(existing.reviewed_at) }}</span>
-                </div>
-              </div>
-              <p v-if="existing.rating" class="stars-line">
-                <span v-for="n in 5" :key="n" :class="{ on: n <= existing.rating }">★</span>
-                <span class="muted">{{ ratingLabel(existing.rating) }}</span>
-              </p>
-              <p v-if="existing.tags?.length" class="tags-line">
-                <span v-for="tag in existing.tags" :key="tag" class="tag" :class="isIssue(tag) ? 'is-issue' : 'is-good'">{{ tagLabel(tag) }}</span>
-              </p>
-              <p v-if="existing.feedback" class="feedback-quote">“{{ existing.feedback }}”</p>
-              <button v-if="reworkChild" type="button" class="btn btn-soft" @click="select(reworkChild.session_id)">
-                {{ $t('launch.review.see_rework', { n: roundOf(reworkChild.session_id), status: sessionStatusLabel(reworkChild.status) }) }}
-              </button>
-              <button type="button" class="link" @click="startEditing">{{ $t('launch.review.change') }}</button>
-            </template>
-
-            <template v-else>
-              <h4>{{ $t('launch.review.your_review') }}</h4>
-              <p class="muted small">{{ $t('launch.review.your_review_hint') }}</p>
-
-              <div class="rating" role="radiogroup" :aria-label="$t('launch.review.quality')">
-                <button
-                  v-for="n in 5"
-                  :key="n"
-                  type="button"
-                  role="radio"
-                  :aria-checked="form.rating === n"
-                  :class="{ on: n <= (hoverRating || form.rating) }"
-                  @mouseenter="hoverRating = n"
-                  @mouseleave="hoverRating = 0"
-                  @click="form.rating = n"
-                >★</button>
-                <span class="rating-label">{{ ratingLabel(hoverRating || form.rating) }}</span>
-              </div>
-
-              <p class="group-label">{{ $t('launch.review.good_points') }}</p>
-              <div class="tag-pick">
-                <button v-for="tag in GOOD_TAGS" :key="tag" type="button" class="tag is-good" :class="{ on: form.tags.includes(tag) }" @click="toggleTag(tag)">{{ tagLabel(tag) }}</button>
-              </div>
-              <p class="group-label">{{ $t('launch.review.issues') }}</p>
-              <div class="tag-pick">
-                <button v-for="tag in ISSUE_TAGS" :key="tag" type="button" class="tag is-issue" :class="{ on: form.tags.includes(tag) }" @click="toggleTag(tag)">{{ tagLabel(tag) }}</button>
-              </div>
-
-              <textarea
-                v-model="form.feedback"
-                rows="5"
-                class="feedback"
-                :placeholder="$t('launch.review.feedback_placeholder')"
-              ></textarea>
-
-              <label class="check">
-                <input v-model="autoRun" type="checkbox" />
-                <span>{{ $t('launch.review.auto_run') }}</span>
-              </label>
-
-              <details v-if="canRework" class="prompt-preview">
-                <summary>{{ $t('launch.review.preview_prompt') }}</summary>
-                <pre>{{ reworkPrompt }}</pre>
-              </details>
-
-              <div class="actions">
-                <button type="button" class="btn btn-approve" :disabled="saving || busy" @click="approve">
-                  ✓ {{ $t('launch.review.approve') }}
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-rework"
-                  :disabled="saving || busy || !canRework"
-                  :title="canRework ? '' : $t('launch.review.rework_needs')"
-                  @click="rework"
-                >
-                  ↻ {{ busy ? $t('launch.review.starting') : $t('launch.review.rework') }}
-                </button>
-              </div>
-              <p v-if="!canRework" class="muted small">{{ $t('launch.review.rework_needs') }}</p>
-              <button v-if="existing" type="button" class="link" @click="editing = false">{{ $t('common.cancel') }}</button>
-            </template>
-          </aside>
+        <div v-else class="queue-empty">
+          <span aria-hidden="true">✓</span>
+          <p>{{ emptyText }}</p>
         </div>
-      </template>
-    </section>
+      </aside>
+
+      <!-- Detail -->
+      <section class="detail">
+        <div v-if="!selected" class="detail-empty">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8" /><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" /></svg>
+          <p>{{ $t('launch.review.pick') }}</p>
+        </div>
+
+        <template v-else>
+          <header class="detail-head">
+            <button type="button" class="link back" @click="showDetail = false">← {{ $t('launch.review.back') }}</button>
+            <div class="dh-main">
+              <div class="dh-tags">
+                <span class="pill" :class="`is-${verdictTone(selected)}`"><span class="dot" aria-hidden="true"></span>{{ verdictLabel(selected) }}</span>
+                <span v-if="roundOf(selected.session_id) > 1" class="round">{{ $t('launch.review.round', { n: roundOf(selected.session_id) }) }}</span>
+              </div>
+              <h3 :title="selected.title">{{ selected.title || selected.yaml_file }}</h3>
+              <p class="dh-meta">
+                <span v-for="part in detailMeta" :key="part.text" :title="part.title">{{ part.text }}</span>
+              </p>
+            </div>
+            <button type="button" class="btn btn-ghost" @click="$emit('open-session', selected)">
+              {{ $t('launch.review.open_session') }}
+            </button>
+          </header>
+
+          <div v-if="loading" class="loading"><span class="spinner" aria-hidden="true"></span>{{ $t('launch.review.loading') }}</div>
+          <p v-else-if="loadError" class="load-error">{{ loadError }}</p>
+
+          <div v-else-if="digest" class="detail-grid">
+            <div class="content">
+              <!-- Previous round: what you asked to change -->
+              <aside v-if="parent?.review" class="lineage">
+                <strong>{{ $t('launch.review.lineage_title', { n: roundOf(parent.session_id) }) }}</strong>
+                <p v-if="parent.review.tags?.length" class="lineage-tags">
+                  <span v-for="tag in parent.review.tags" :key="tag" class="tag is-issue">{{ tagLabel(tag) }}</span>
+                </p>
+                <p v-if="parent.review.feedback" class="lineage-text">“{{ parent.review.feedback }}”</p>
+                <button type="button" class="link" @click="select(parent.session_id)">{{ $t('launch.review.see_previous') }}</button>
+              </aside>
+
+              <section class="panel">
+                <h4>{{ $t('launch.review.request') }}</h4>
+                <p class="pre">{{ originalTask(digest.task?.text) || '—' }}</p>
+                <div v-if="digest.task?.attachments?.length" class="chips">
+                  <span v-for="(name, i) in digest.task.attachments" :key="`${i}-${name}`" class="chip">📎 {{ name }}</span>
+                </div>
+                <details v-if="digest.other_requests?.length" class="replies">
+                  <summary>{{ $t('launch.review.other_requests', { n: digest.other_requests.length }) }}</summary>
+                  <ol>
+                    <li v-for="(text, i) in digest.other_requests" :key="i">{{ text }}</li>
+                  </ol>
+                </details>
+                <details v-if="digest.replies.length" class="replies">
+                  <summary>{{ $t('launch.review.replies', { n: digest.replies.length }) }}</summary>
+                  <ol>
+                    <li v-for="(reply, i) in digest.replies" :key="i">{{ reply }}</li>
+                  </ol>
+                </details>
+              </section>
+
+              <section class="panel is-result">
+                <h4>
+                  {{ $t('launch.review.delivered') }}
+                  <span class="pill" :class="`is-${digest.outcome || 'idle'}`"><span class="dot" aria-hidden="true"></span>{{ outcomeLabel }}</span>
+                </h4>
+                <div v-if="resultSummary" class="md" v-html="render(resultSummary)"></div>
+                <p v-else class="muted">{{ $t('launch.review.no_summary') }}</p>
+                <p v-if="digest.error" class="load-error">{{ digest.error }}</p>
+              </section>
+
+              <section v-if="digest.files.length" class="panel">
+                <h4>{{ $t('launch.review.files', { n: digest.files.length }) }}</h4>
+                <ul class="files">
+                  <li v-for="file in digest.files" :key="file.path">
+                    <span class="change" :class="`is-${file.change}`">{{ changeLabel(file.change) }}</span>
+                    <code :title="file.path">{{ file.path }}</code>
+                    <span v-if="file.node_id" class="muted">{{ file.node_id }}</span>
+                  </li>
+                </ul>
+              </section>
+
+              <section v-if="digest.steps.length" class="panel">
+                <h4>{{ $t('launch.review.handovers', { n: digest.steps.length }) }}</h4>
+                <div class="handovers">
+                  <details v-for="(step, i) in digest.steps" :key="step.node_id" class="handover" :open="i === digest.steps.length - 1">
+                    <summary>
+                      <span class="ho-index">{{ i + 1 }}</span>
+                      <span class="ho-name">{{ step.node_id }}</span>
+                      <span class="muted">
+                        {{ step.runs > 1 ? $t('launch.board.runs', { n: step.runs }) + ' · ' : '' }}{{ stepTime(step) }}
+                      </span>
+                    </summary>
+                    <div v-if="step.output" class="md" v-html="render(step.output)"></div>
+                    <p v-else class="muted">{{ $t('launch.board.no_output') }}</p>
+                  </details>
+                </div>
+              </section>
+            </div>
+
+            <!-- Verdict -->
+            <aside class="verdict card">
+              <template v-if="existing && !editing">
+                <div class="verdict-done" :class="`is-${existing.verdict}`">
+                  <span class="vd-icon" aria-hidden="true">{{ existing.verdict === 'approved' ? '✓' : '↻' }}</span>
+                  <div>
+                    <strong>{{ existing.verdict === 'approved' ? $t('launch.review.approved_title') : $t('launch.review.rework_title') }}</strong>
+                    <span>{{ formatDate(existing.reviewed_at) }}</span>
+                  </div>
+                </div>
+                <p v-if="existing.rating" class="stars-line">
+                  <span v-for="n in 5" :key="n" :class="{ on: n <= existing.rating }">★</span>
+                  <span class="muted">{{ ratingLabel(existing.rating) }}</span>
+                </p>
+                <p v-if="existing.tags?.length" class="tags-line">
+                  <span v-for="tag in existing.tags" :key="tag" class="tag" :class="isIssue(tag) ? 'is-issue' : 'is-good'">{{ tagLabel(tag) }}</span>
+                </p>
+                <p v-if="existing.feedback" class="feedback-quote">“{{ existing.feedback }}”</p>
+                <button v-if="reworkChild" type="button" class="btn btn-soft" @click="select(reworkChild.session_id)">
+                  {{ $t('launch.review.see_rework', { n: roundOf(reworkChild.session_id), status: sessionStatusLabel(reworkChild.status) }) }}
+                </button>
+                <button type="button" class="link" @click="startEditing">{{ $t('launch.review.change') }}</button>
+              </template>
+
+              <template v-else>
+                <h4>{{ $t('launch.review.your_review') }}</h4>
+                <p class="muted small">{{ $t('launch.review.your_review_hint') }}</p>
+
+                <div class="rating" role="radiogroup" :aria-label="$t('launch.review.quality')">
+                  <button
+                    v-for="n in 5"
+                    :key="n"
+                    type="button"
+                    role="radio"
+                    :aria-checked="form.rating === n"
+                    :class="{ on: n <= (hoverRating || form.rating) }"
+                    @mouseenter="hoverRating = n"
+                    @mouseleave="hoverRating = 0"
+                    @click="form.rating = n"
+                  >★</button>
+                  <span class="rating-label">{{ ratingLabel(hoverRating || form.rating) }}</span>
+                </div>
+
+                <p class="group-label">{{ $t('launch.review.good_points') }}</p>
+                <div class="tag-pick">
+                  <button v-for="tag in GOOD_TAGS" :key="tag" type="button" class="tag is-good" :class="{ on: form.tags.includes(tag) }" @click="toggleTag(tag)">{{ tagLabel(tag) }}</button>
+                </div>
+                <p class="group-label">{{ $t('launch.review.issues') }}</p>
+                <div class="tag-pick">
+                  <button v-for="tag in ISSUE_TAGS" :key="tag" type="button" class="tag is-issue" :class="{ on: form.tags.includes(tag) }" @click="toggleTag(tag)">{{ tagLabel(tag) }}</button>
+                </div>
+
+                <textarea
+                  v-model="form.feedback"
+                  rows="5"
+                  class="feedback"
+                  :placeholder="$t('launch.review.feedback_placeholder')"
+                ></textarea>
+
+                <label class="check">
+                  <input v-model="autoRun" type="checkbox" />
+                  <span>{{ $t('launch.review.auto_run') }}</span>
+                </label>
+
+                <details v-if="canRework" class="prompt-preview">
+                  <summary>{{ $t('launch.review.preview_prompt') }}</summary>
+                  <pre>{{ reworkPrompt }}</pre>
+                </details>
+
+                <div class="actions">
+                  <button type="button" class="btn btn-approve" :disabled="saving || busy" @click="approve">
+                    ✓ {{ $t('launch.review.approve') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-rework"
+                    :disabled="saving || busy || !canRework"
+                    :title="canRework ? '' : $t('launch.review.rework_needs')"
+                    @click="rework"
+                  >
+                    ↻ {{ busy ? $t('launch.review.starting') : $t('launch.review.rework') }}
+                  </button>
+                </div>
+                <p v-if="!canRework" class="muted small">{{ $t('launch.review.rework_needs') }}</p>
+                <button v-if="existing" type="button" class="link" @click="editing = false">{{ $t('common.cancel') }}</button>
+              </template>
+            </aside>
+          </div>
+        </template>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -291,7 +300,9 @@ const ORIGINAL_END = '### END ORIGINAL TASK'
 const SUMMARY_IN_PROMPT = 1500
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
-// Wide tables in a report scroll sideways instead of squeezing a column per letter.renderer.rules.table_open = () => '<div class="md-table"><table>\n'.renderer.rules.table_close = () => '</table></div>\n'
+// Wide tables in a report scroll sideways instead of squeezing a column per letter
+md.renderer.rules.table_open = () => '<div class="md-table"><table>\n'
+md.renderer.rules.table_close = () => '</table></div>\n'
 const renderCache = new Map()
 const render = (text) => {
   if (!renderCache.has(text)) {
@@ -318,10 +329,12 @@ const workOf = (item) => {
   const known = workCache.get(item.session_id)
   return known && known.at === item.updated_at ? known.work : null // null: not known yet
 }
-// A plan waiting for your approval is not a finished result: it has its own section
+// A plan waiting for your approval is not a finished result: it has its own section.
+// A stopped or failed run no longer waits on its plan (older saved sessions still say so).
+const waitsOnPlan = (item) => Boolean(item.awaiting_plan) && !['cancelled', 'error'].includes(item.status)
 const isPending = (item) =>
-  item.status === 'completed' && verdictOf(item) === 'pending' && !item.awaiting_plan && workOf(item) !== false
-const awaitingPlans = computed(() => props.sessions.filter((s) => s.awaiting_plan))
+  item.status === 'completed' && verdictOf(item) === 'pending' && !waitsOnPlan(item) && workOf(item) !== false
+const awaitingPlans = computed(() => props.sessions.filter(waitsOnPlan))
 
 const byId = computed(() => new Map(props.sessions.map((item) => [item.session_id, item])))
 // A rework run points back to the run it redoes (review.rework_session_id on the parent)
@@ -399,12 +412,17 @@ const selected = computed(() => byId.value.get(selectedId.value) || null)
 const parent = computed(() => byId.value.get(parentOf.value.get(selectedId.value)) || null)
 const reworkChild = computed(() => byId.value.get(selected.value?.review?.rework_session_id) || null)
 
-const select = (id) => {
-  selectedId.value = id
-}
-
 // Once you pick something yourself, the focused run no longer takes over the selection
+// (until another session is opened)
 const touched = ref(false)
+// Too narrow for the list and the detail side by side: one at a time (the CSS decides when)
+const showDetail = ref(false)
+const select = (id) => {
+  touched.value = true
+  selectedId.value = id
+  showDetail.value = true
+}
+watch(() => props.focusId, () => { touched.value = false })
 
 // Open on the run you were looking at, else the first one waiting for review
 watch(
@@ -414,6 +432,7 @@ watch(
     const focus = byId.value.get(props.focusId)
     if (focus && FINISHED.includes(focus.status) && selectedId.value !== focus.session_id && !touched.value) {
       selectedId.value = focus.session_id
+      showDetail.value = true
       if (isPending(focus)) activeTab.value = 'pending'
       return
     }
@@ -421,9 +440,6 @@ watch(
   },
   { immediate: true }
 )
-watch(selectedId, (id, previous) => {
-  if (previous) touched.value = true
-})
 
 // ---------------------------------------------------------------- detail
 const digest = ref(null)
@@ -467,14 +483,17 @@ const detailMeta = computed(() => {
   if (!item) return []
   const parts = []
   const project = item.projects?.[0]?.name?.replace(/\/$/, '')
-  if (project) parts.push(`📁 ${project}`)
-  parts.push(item.yaml_file.replace(/\.ya?ml$/i, ''))
-  if (digest.value?.started_at && digest.value?.ended_at) {
-    parts.push(`⏱ ${formatSpan(digest.value.ended_at - digest.value.started_at)}`)
-  }
-  const tokens = digest.value?.token_usage?.total_tokens
-  if (Number.isFinite(tokens)) parts.push(t('launch.board.tokens', { n: tokens.toLocaleString() }))
-  parts.push(formatDate(item.updated_at))
+  if (project) parts.push({ text: `📁 ${project}` })
+  parts.push({ text: item.yaml_file.replace(/\.ya?ml$/i, '') })
+  // The time the team worked (its runs added up), like the dashboard's run time card, not
+  // first-to-last message; older backends only give that span
+  const data = digest.value
+  const span = data?.started_at && data?.ended_at ? data.ended_at - data.started_at : 0
+  const work = data?.active_ms > 0 ? data.active_ms : span
+  if (work) parts.push({ text: t('launch.review.run_time', { time: formatSpan(work) }), title: t('launch.review.run_time_hint') })
+  const tokens = data?.token_usage?.total_tokens
+  if (Number.isFinite(tokens)) parts.push({ text: t('launch.board.tokens', { n: tokens.toLocaleString() }) })
+  parts.push({ text: formatDate(item.updated_at) })
   return parts
 })
 
@@ -659,16 +678,24 @@ const ago = (seconds) => {
   --line: rgb(var(--ink) / 0.09);
   height: 100%;
   box-sizing: border-box;
-  display: grid;
-  grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
-  gap: 14px;
-  padding: 14px 16px 14px calc(var(--inset-left, 0px) + 34px);
+  /* Bottom room for the floating view switcher, so it never covers the last lines */
+  padding: 14px 16px 64px calc(var(--inset-left, 0px) + 34px);
   color: var(--text-1);
   font-family: 'Inter', system-ui, sans-serif;
   transition: padding-left 0.25s ease;
   /* Sized by the room left next to the chat panel, not by the window */
   container-type: inline-size;
 }
+
+.review-body {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
+  gap: 14px;
+}
+
+/* Only beside a narrow space: the list, then the picked work with a way back */
+.back { display: none; text-align: left; }
 
 .card,
 .queue,
@@ -961,16 +988,20 @@ const ago = (seconds) => {
   top: 0;
   z-index: 2;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px 16px;
   padding: 16px 20px 14px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface-1) 92%, transparent);
   backdrop-filter: blur(8px);
 }
 
-.dh-main { min-width: 0; }
+/* The title block takes the row; the button drops below it rather than over the badge */
+.dh-main { flex: 1 1 240px; min-width: 0; }
+.dh-main h3 { overflow-wrap: anywhere; }
+.dh-meta span { white-space: nowrap; }
 .dh-tags { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .dh-main h3 { margin: 0 0 6px; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
 
@@ -1326,8 +1357,15 @@ span.tag {
   .verdict { position: static; }
 }
 
+/* No room for the list and a readable detail side by side: show one, then the other */
+@container (max-width: 760px) {
+  .review-body { grid-template-columns: minmax(0, 1fr); }
+  .review-body.show-detail .queue,
+  .review-body:not(.show-detail) .detail { display: none; }
+  .back { display: inline; flex-basis: 100%; }
+}
+
 @media (max-width: 760px) {
-  .review { grid-template-columns: 1fr; grid-template-rows: auto 1fr; padding: 10px; }
-  .queue { max-height: 42vh; }
+  .review { padding: 10px; }
 }
 </style>

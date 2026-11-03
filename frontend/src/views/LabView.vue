@@ -566,9 +566,21 @@ function removeScenario(index) {
 }
 function addSamples() {
   const samples = [
-    { name: t('lab.sample1_name'), prompt: t('lab.sample1_prompt'), criteria: t('lab.sample1_criteria') },
-    { name: t('lab.sample2_name'), prompt: t('lab.sample2_prompt'), criteria: t('lab.sample2_criteria') }
+    { name: t('lab.sample1_name'), prompt: t('lab.sample1_prompt'), criteria: t('lab.sample1_criteria') }
   ]
+  // The "one specialist" sample must name a member this workflow really has: the QA Tester sample
+  // only fits the software team, other teams (marketing, content, video) get a generic one.
+  const members = report.value?.checks?.find((c) => c.id === 'team')?.members || []
+  if (members.includes('QA Tester')) {
+    samples.push({ name: t('lab.sample2_name'), prompt: t('lab.sample2_prompt'), criteria: t('lab.sample2_criteria') })
+  } else if (members.length) {
+    const member = members[0]
+    samples.push({
+      name: t('lab.sample2_name'),
+      prompt: t('lab.sample2_generic_prompt', { member }),
+      criteria: t('lab.sample2_generic_criteria', { member })
+    })
+  }
   if (scenarios.value.length === 1 && !scenarios.value[0].prompt.trim()) scenarios.value = []
   samples.forEach((s) => addScenario(s))
 }

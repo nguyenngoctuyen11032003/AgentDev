@@ -26,6 +26,12 @@ MAX_REPLY_CHARS = 1_000
 TEAM_DIGEST_TURNS = 2
 MAX_TEAM_CHARS_LATEST = 5_000
 MAX_TEAM_CHARS_OLDER = 2_000
+# Turns older than the last TEAM_DIGEST_TURNS are background only: their text is clipped harder so a
+# long chat does not re-send most of its history (in tokens) with every new message.
+MAX_OLD_USER_CHARS = 800
+MAX_OLD_ANSWER_CHARS = 1_200
+MAX_OLD_QUESTION_CHARS = 600
+MAX_OLD_REPLY_CHARS = 300
 
 HEADER = (
     "[Earlier in this conversation, oldest first. Context only: decisions, approvals and facts in it still "
@@ -152,8 +158,15 @@ def _render_team(entries: List[Any], budget: int) -> List[str]:
     return [_clip("\n".join(lines), budget)]
 
 
-def _render_turn(index: int, turn: Dict[str, Any], *, latest: bool = False, team_budget: int = 0) -> str:
-    user = _clip(str(turn.get("user") or ""), MAX_LATEST_USER_CHARS if latest else MAX_USER_CHARS) or "(no text)"
+def _render_turn(
+    index: int, turn: Dict[str, Any], *, latest: bool = False, team_budget: int = 0, old: bool = False
+) -> str:
+    """One turn; ``old`` (before the last TEAM_DIGEST_TURNS turns) clips its texts harder."""
+    user_limit = MAX_OLD_USER_CHARS if old else MAX_LATEST_USER_CHARS if latest else MAX_USER_CHARS
+    question_limit = MAX_OLD_QUESTION_CHARS if old else MAX_QUESTION_CHARS
+    reply_limit = MAX_OLD_REPLY_CHARS if old else MAX_REPLY_CHARS
+    answer_limit = MAX_OLD_ANSWER_CHARS if old else MAX_LATEST_ANSWER_CHARS if latest else MAX_ANSWER_CHARS
+    user = _clip(str(turn.get("user") or ""), user_limit) or "(no text)"
     attached = _render_attachments(list(turn.get("attachments") or []))
     if attached:
         user += f"\n{attached}"
@@ -161,14 +174,14 @@ def _render_turn(index: int, turn: Dict[str, Any], *, latest: bool = False, team
     for exchange in (turn.get("exchanges") or [])[-MAX_EXCHANGES:]:
         if not isinstance(exchange, dict):
             continue
-        lines.append(f"You asked: {_clip(str(exchange.get('question') or ''), MAX_QUESTION_CHARS)}")
-        lines.append(f"User replied: {_clip(str(exchange.get('answer') or ''), MAX_REPLY_CHARS)}")
+        lines.append(f"You asked: {_clip(str(exchange.get('question') or ''), question_limit)}")
+        lines.append(f"User replied: {_clip(str(exchange.get('answer') or ''), reply_limit)}")
     if team_budget > 0 and isinstance(turn.get("team"), list):
         lines.extend(_render_team(turn["team"], team_budget))
     note = STATUS_NOTES.get(str(turn.get("status") or "").strip().lower())
     if note:
         lines.append(note)
-    answer = _clip(str(turn.get("answer") or ""), MAX_LATEST_ANSWER_CHARS if latest else MAX_ANSWER_CHARS)
+    answer = _clip(str(turn.get("answer") or ""), answer_limit)
     label = "You proposed this plan for approval" if is_plan_turn(turn) else "You answered"
     lines.append(f"{label}: {answer or '(no answer was produced)'}")
     return "\n".join(lines)
@@ -193,7 +206,7 @@ def build_transcript(
         return MAX_TEAM_CHARS_OLDER if i > last - TEAM_DIGEST_TURNS else 0
 
     rendered = [
-        _render_turn(i + 1, t, latest=i == last, team_budget=team_budget(i))
+        _render_turn(i + 1, t, latest=i == last, team_budget=team_budget(i), old=i <= last - TEAM_DIGEST_TURNS)
         for i, t in enumerate(usable)
     ][first_index:]
     omitted = first_index

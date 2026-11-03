@@ -244,8 +244,8 @@
 
         <div
           class="menu-container"
-          @mouseenter="showMenu = true"
-          @mouseleave="showMenu = false"
+          @mouseenter="menuHovered = true; showMenu = true"
+          @mouseleave="menuHovered = false; showMenu = false"
         >
           <button
             type="button"
@@ -254,7 +254,7 @@
             :aria-expanded="showMenu"
             :aria-label="$t('workflow_view.more_actions')"
             :title="$t('workflow_view.more_actions')"
-            @click.stop="showMenu = !showMenu"
+            @click.stop="showMenu = menuHovered || !showMenu"
           >
             <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M3 12H21M3 6H21M3 18H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -292,6 +292,7 @@
     :recursive="formGeneratorRecursive"
     :workflow-name="currentWorkflowName"
     :initial-yaml="formGeneratorInitialYaml ?? yamlContent"
+    :node-order="formGeneratorNodeOrder"
     :initial-form-data="formGeneratorInitialFormData"
     :mode="formGeneratorMode"
     :field-filter="formGeneratorFieldFilter"
@@ -525,6 +526,8 @@ const yamlLoadError = ref(null)
 
 const showDynamicFormGenerator = ref(false)
 const showMenu = ref(false)
+// Hover already opens the menu, so a mouse click on the trigger must not toggle it closed again.
+const menuHovered = ref(false)
 const formGeneratorBreadcrumbs = ref([])
 const formGeneratorRecursive = ref(false)
 const formGeneratorInitialYaml = ref(null)
@@ -532,6 +535,7 @@ const formGeneratorInitialFormData = ref(null)
 const formGeneratorMode = ref('create')
 const formGeneratorFieldFilter = ref([])
 const formGeneratorReadOnlyFields = ref([])
+const formGeneratorNodeOrder = ref(null)
 
 // Modal states for rename and copy
 const showRenameModal = ref(false)
@@ -1835,6 +1839,7 @@ const openDynamicFormGenerator = (type, options = {}) => {
 
   formGeneratorFieldFilter.value = options.fieldFilter ?? []
   formGeneratorReadOnlyFields.value = options.readOnlyFields ?? []
+  formGeneratorNodeOrder.value = (yamlContent.value?.graph?.nodes || []).map((node) => node?.id)
 
   showDynamicFormGenerator.value = true
 }

@@ -459,7 +459,8 @@ const trackerStates = computed(() => {
 const computeState = (agent) => {
   const tracked = trackerStates.value[agent.id]
   if (waitingIds.value.has(agent.id) || tracked === 'waiting') return 'waiting'
-  if (props.activeNodes.includes(agent.id) || tracked === 'working') return 'working'
+  // Nobody works once the run is over, even if the Launch view still lists them as active
+  if ((isRunning.value && props.activeNodes.includes(agent.id)) || tracked === 'working') return 'working'
   if (hasRun.has(agent.id) || tracked === 'done') return 'done'
   return 'idle'
 }
