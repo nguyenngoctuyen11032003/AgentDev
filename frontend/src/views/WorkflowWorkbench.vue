@@ -6,6 +6,7 @@
         :use-routing="false"
         :selected="selectedWorkflow"
         @select="handleSelect"
+        @open-assistant="openAssistant('create')"
       />
     </div>
     <!-- Sidebar toggle button, positioned next to the sidebar -->
@@ -22,8 +23,9 @@
     <div class="workflow-viewer" :class="{ 'sidebar-open': isSidebarOpen }">
       <WorkflowView
         v-if="selectedWorkflow"
+        ref="workflowViewRef"
         :workflow-name="selectedWorkflow"
-        :key="selectedWorkflow"
+        :key="`${selectedWorkflow}#${reloadKey}`"
         @refresh-workflows="handleRefreshWorkflows"
       />
       <div v-else class="placeholder">
@@ -39,19 +41,48 @@
           </button>
         </div>
       </div>
+      <!-- Workflow assistant: explain / edit the open workflow, or build a new one -->
+      <button
+        v-if="!isAssistantOpen"
+        ref="toggleRef"
+        type="button"
+        class="assistant-toggle"
+        :title="$t('workflow_assistant.open')"
+        :aria-label="$t('workflow_assistant.open')"
+        @click="openAssistant(selectedWorkflow ? 'workflow' : 'create')"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" /><path d="M8.5 11h.01M12 11h.01M15.5 11h.01" /></svg>
+        <span class="assistant-toggle-label">{{ $t('workflow_assistant.short_title') }}</span>
+      </button>
     </div>
+    <WorkflowAssistantPanel
+      v-if="isAssistantOpen"
+      @close="closeAssistant"
+      @apply="handleApply"
+    />
   </div>
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import WorkflowList from './WorkflowList.vue'
 import WorkflowView from './WorkflowView.vue'
+import WorkflowAssistantPanel from '@/components/workflow/assistant/WorkflowAssistantPanel.vue'
+import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
+import { toast } from '@/utils/toast.js'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const workflowListRef = ref(null)
+const workflowViewRef = ref(null)
+const toggleRef = ref(null)
+const assistant = useWorkflowAssistant()
+const isAssistantOpen = ref(false)
+// Bumped to remount WorkflowView once the assistant has saved the workflow (YAML and layout).
+const reloadKey = ref(0)
 
 const normalizeName = (name) => name?.replace?.('.yaml', '') ?? ''
 const selectedWorkflow = ref(normalizeName(route.params.name))
@@ -94,6 +125,62 @@ const handleSelect = (name) => {
   } else {
     router.push({ path: '/workflows' })
   }
+}
+
+// ---------------------------------------------------------------- workflow assistant
+const openAssistant = (mode) => {
+  assistant.setContext(mode, mode === 'workflow' ? selectedWorkflow.value : null)
+  isAssistantOpen.value = true
+}
+
+const closeAssistant = () => {
+  isAssistantOpen.value = false
+  nextTick(() => toggleRef.value?.focus())
+}
+
+// While the panel is open it follows the workflow shown on the canvas.
+watch(selectedWorkflow, (name) => {
+  if (isAssistantOpen.value) assistant.setContext(name ? 'workflow' : 'create', name || null)
+})
+
+const undoApply = async () => {
+  const result = await assistant.undoLast()
+  if (result.ok) {
+    toast.success(t('workflow_assistant.undone'))
+    if (normalizeName(result.filename) === selectedWorkflow.value) reloadKey.value += 1
+  } else if (result.reason === 'stale') {
+    toast.error(t('workflow_assistant.undo_stale'))
+  } else {
+    toast.error(result.message || t('workflow_assistant.undo_failed'))
+  }
+}
+
+const handleApply = async () => {
+  const proposal = assistant.currentThread.value.pendingProposal
+  if (!proposal) return
+  const formOpen = !!workflowViewRef.value?.hasOpenForm?.()
+  const result = await assistant.applyProposal({ formOpen })
+  if (!result.ok) {
+    // The chat keeps a conflict notice with a "redo" button, so the toast need not stay forever
+    // (it would cover the panel header).
+    if (result.reason === 'conflict') toast.error(t('workflow_assistant.conflict'), { duration: 8000 })
+    else if (result.reason === 'form_open') toast.warning(t('workflow_assistant.close_form_first'))
+    else toast.error(result.message || t('workflow_assistant.apply_failed'))
+    return
+  }
+  const name = normalizeName(result.filename)
+  if (proposal.kind === 'create') {
+    toast.success(t('workflow_assistant.applied_create', { name }))
+    await handleRefreshWorkflows()
+    handleSelect(name)
+    return
+  }
+  // YAML and layout are both saved by now: reload the canvas from them.
+  if (name === selectedWorkflow.value) reloadKey.value += 1
+  toast.success(t('workflow_assistant.applied_edit', { name }), {
+    duration: 10000,
+    action: { label: t('workflow_assistant.undo'), run: undoApply }
+  })
 }
 
 const handleRefreshWorkflows = async () => {
@@ -189,6 +276,49 @@ const handleRefreshWorkflows = async () => {
   flex-direction: column;
   overflow: hidden;
   margin-left: 10px; /* Match the visible width when the sidebar is collapsed */
+  position: relative;
+}
+
+/* Assistant button: fixed in the top-right corner, inside the workflow header row */
+.assistant-toggle {
+  position: absolute;
+  top: 5px;
+  right: 12px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  border: 1px solid rgb(var(--accent-sky-rgb) / 0.45);
+  border-radius: 999px;
+  background: rgb(var(--accent-sky-rgb) / 0.1);
+  color: var(--accent-sky);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.assistant-toggle:hover {
+  background: rgb(var(--accent-sky-rgb) / 0.18);
+  border-color: var(--accent-sky);
+}
+
+.assistant-toggle:focus-visible {
+  outline: 2px solid var(--accent-sky);
+  outline-offset: 2px;
+}
+
+@media (max-width: 599px) {
+  .assistant-toggle {
+    padding: 0 8px;
+  }
+
+  .assistant-toggle-label {
+    display: none;
+  }
 }
 
 .placeholder {

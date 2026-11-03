@@ -526,6 +526,8 @@ const yamlParseError = ref(null)
 const yamlLoadError = ref(null)
 
 const showDynamicFormGenerator = ref(false)
+// The node/edge form is the only unsaved work on the canvas; the assistant's Apply waits for it.
+defineExpose({ hasOpenForm: () => showDynamicFormGenerator.value })
 const showMenu = ref(false)
 // Hover already opens the menu, so a mouse click on the trigger must not toggle it closed again.
 const menuHovered = ref(false)
