@@ -38,6 +38,7 @@ dependencies = [
     "filelock>=3.20.1",
     "markdown>=3.10",
     "xhtml2pdf>=0.2.17",
+    "ruamel-yaml>=0.18",
 ]
 
 [build-system]

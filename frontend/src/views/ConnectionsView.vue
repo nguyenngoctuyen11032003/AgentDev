@@ -1,5 +1,5 @@
 <template>
-  <div class="connections-view">
+  <div class="connections-view page">
     <header class="hero">
       <div class="hero-text">
         <p class="hero-kicker">{{ $t('connections.kicker') }}</p>
@@ -43,10 +43,10 @@
       <h2 class="block-title">{{ $t('connections.section_connected') }}</h2>
 
       <div v-if="loading" class="skeleton-list" aria-hidden="true">
-        <div class="skeleton"></div>
+        <div v-for="n in 3" :key="n" class="skeleton"></div>
       </div>
 
-      <div v-else-if="!connections.length" class="empty">
+      <div v-else-if="!connections.length" class="empty-state">
         <span class="empty-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1" /></svg>
         </span>
@@ -106,13 +106,13 @@
           </button>
 
           <div class="connection-actions">
-            <button v-if="conn.id !== defaultId" type="button" class="btn" @click="makeDefault(conn)">
+            <button v-if="conn.id !== defaultId" type="button" class="btn sm" @click="makeDefault(conn)">
               {{ $t('connections.make_default') }}
             </button>
-            <button type="button" class="btn" :disabled="busyId === conn.id" @click="runTest(conn)">
+            <button type="button" class="btn sm" :disabled="busyId === conn.id" @click="runTest(conn)">
               {{ busyId === conn.id ? $t('connections.testing') : $t('connections.test') }}
             </button>
-            <button type="button" class="btn btn-danger" :aria-label="`${$t('connections.logout')}: ${conn.label}`" @click="logout(conn)">
+            <button type="button" class="btn sm secondary btn-danger" :aria-label="`${$t('connections.logout')}: ${conn.label}`" @click="logout(conn)">
               {{ $t('connections.logout') }}
             </button>
           </div>
@@ -351,12 +351,8 @@ onMounted(async () => {
 
 <style scoped>
 .connections-view {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 40px 24px 72px;
-  color: var(--text-1);
+  padding-bottom: 72px;
+  color: var(--fg);
   font-family: 'Inter', system-ui, sans-serif;
 }
 
@@ -376,7 +372,7 @@ onMounted(async () => {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent-sky);
+  color: var(--accent);
 }
 
 .hero-title {
@@ -393,7 +389,7 @@ onMounted(async () => {
   max-width: 64ch;
   font-size: 15px;
   line-height: 1.65;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .hero-count {
@@ -423,11 +419,9 @@ onMounted(async () => {
 
 .block-title {
   margin: 0 0 14px;
-  font-size: 12.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted-4);
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--fg-muted);
 }
 
 /* ---- provider cards ---- */
@@ -438,7 +432,7 @@ onMounted(async () => {
 }
 
 .provider-card {
-  --brand: var(--accent-indigo);
+  --pc: var(--accent-indigo);
   position: relative;
   display: grid;
   grid-template-columns: auto 1fr;
@@ -451,8 +445,8 @@ onMounted(async () => {
   box-sizing: border-box;
   padding: 18px;
   border-radius: 16px;
-  border: 1px solid var(--line-4);
-  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -460,14 +454,14 @@ onMounted(async () => {
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.provider-card.is-anthropic { --brand: #d97757; }
-.provider-card.is-openai { --brand: #74d3ae; }
-.provider-card.is-gemini { --brand: #8ab4f8; }
+.provider-card.is-anthropic { --pc: var(--brand); }
+.provider-card.is-openai { --pc: var(--accent-mint); }
+.provider-card.is-gemini { --pc: var(--accent-blue-1); }
 
 .provider-card:hover,
 .provider-card:focus-visible {
-  border-color: color-mix(in srgb, var(--brand) 55%, transparent);
-  background: color-mix(in srgb, var(--brand) 5%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--pc) 55%, transparent);
+  background: color-mix(in srgb, var(--pc) 5%, var(--surface));
 }
 
 .provider-text {
@@ -487,7 +481,7 @@ onMounted(async () => {
 .provider-tagline {
   font-size: 13px;
   line-height: 1.5;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .provider-linked {
@@ -507,12 +501,12 @@ onMounted(async () => {
   top: 18px;
   right: 16px;
   flex: none;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   transition: transform 0.15s ease, color 0.15s ease;
 }
 
 .provider-card:hover .provider-chevron {
-  color: var(--brand);
+  color: var(--pc);
   transform: translateX(2px);
 }
 
@@ -532,14 +526,14 @@ onMounted(async () => {
   gap: 16px;
   padding: 0 18px 0 0;
   border-radius: 16px;
-  border: 1px solid var(--line-4);
-  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .connection-card:hover {
-  border-color: color-mix(in srgb, var(--accent-sky) 45%, var(--line-4));
-  background: color-mix(in srgb, var(--accent-sky) 3%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface));
 }
 
 .card-open {
@@ -579,59 +573,19 @@ onMounted(async () => {
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 650;
-  color: var(--accent-emerald, #059669);
-  background: color-mix(in srgb, var(--accent-emerald, #059669) 14%, transparent);
+  color: var(--accent-mint);
+  background: color-mix(in srgb, var(--accent-mint) 14%, transparent);
 }
 
 .account-name {
-  color: var(--text-1);
+  color: var(--fg);
   font-weight: 550;
 }
 
 .account-email {
   margin-left: 2px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   font-weight: 400;
-}
-
-.usage-mini {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 20px;
-  margin-top: 10px;
-}
-
-.usage-mini-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-muted-4);
-}
-
-.mini-bar {
-  width: 88px;
-  height: 6px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--surface-3);
-}
-
-.mini-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent-sky);
-}
-
-.mini-fill.is-warn { background: #f59e0b; }
-.mini-fill.is-danger { background: var(--danger); }
-
-.usage-mini-value {
-  min-width: 3ch;
-  font-weight: 650;
-  color: var(--text-1);
-  font-variant-numeric: tabular-nums;
 }
 
 .connection-top {
@@ -653,7 +607,7 @@ onMounted(async () => {
   gap: 6px;
   margin-top: 3px;
   font-size: 12.5px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .connection-meta code {
@@ -676,21 +630,17 @@ onMounted(async () => {
   border-radius: 8px;
   font-size: 11.5px;
   background: var(--surface-3);
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .chip.is-premium {
-  color: #b45309;
-  background: color-mix(in srgb, #f59e0b 16%, transparent);
-}
-
-:root[data-theme='dark'] .chip.is-premium {
-  color: #fbbf24;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
 }
 
 .chip-more {
   background: transparent;
-  border: 1px dashed var(--line-4);
+  border: 1px dashed var(--border-strong);
 }
 
 .connection-error {
@@ -709,7 +659,7 @@ onMounted(async () => {
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   background: var(--surface-3);
 }
 
@@ -745,34 +695,13 @@ onMounted(async () => {
   gap: 8px;
 }
 
-.btn {
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--line-4);
-  background: var(--surface-3);
-  color: var(--text-1);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.15s;
+/* actions use the global .btn.sm.secondary (ui.css); only the destructive tint is local */
+.btn.btn-danger {
+  color: var(--fg-muted);
 }
 
-.btn:hover:not(:disabled) {
-  border-color: var(--accent-sky);
-}
-
-.btn:disabled {
-  opacity: 0.55;
-  cursor: progress;
-}
-
-.btn-danger {
+.btn.btn-danger:hover:not(:disabled) {
   background: transparent;
-  color: var(--text-muted-4);
-}
-
-.btn-danger:hover:not(:disabled) {
   border-color: var(--danger);
   color: var(--danger);
 }
@@ -780,7 +709,7 @@ onMounted(async () => {
 .tip {
   margin: 14px 2px 0;
   font-size: 12.5px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 /* ---- quota fallback ---- */
@@ -814,16 +743,16 @@ onMounted(async () => {
   gap: 7px;
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .fallback-step.is-linked {
-  color: var(--text-1);
+  color: var(--fg);
 }
 
 .fallback-arrow {
   margin-right: 2px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .fallback-state {
@@ -831,7 +760,7 @@ onMounted(async () => {
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   background: rgb(var(--ink) / 0.06);
 }
 
@@ -843,81 +772,52 @@ onMounted(async () => {
 .fallback-note {
   margin: 14px 0 0;
   font-size: 12.5px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .fallback-note.is-warn {
-  color: var(--warn-soft-1);
+  color: var(--warn);
 }
 
 /* ---- empty + loading ---- */
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 40px 20px;
-  text-align: center;
-  border-radius: 18px;
-  border: 1px dashed var(--line-4);
-  background: var(--surface-1);
-}
-
 .empty-icon {
   display: grid;
   place-items: center;
   width: 56px;
   height: 56px;
-  margin-bottom: 14px;
   border-radius: 16px;
-  color: var(--accent-sky);
-  background: color-mix(in srgb, var(--accent-sky) 12%, transparent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .empty-title {
-  margin: 0 0 4px;
-  font-size: 15px;
   font-weight: 650;
 }
 
 .empty-desc {
-  margin: 0;
   max-width: 42ch;
-  font-size: 13.5px;
   line-height: 1.55;
-  color: var(--text-muted-4);
+}
+
+.skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .skeleton {
   height: 78px;
   border-radius: 16px;
-  background: linear-gradient(90deg, var(--surface-1), var(--surface-3), var(--surface-1));
-  background-size: 200% 100%;
-  animation: shimmer 1.4s linear infinite;
-}
-
-@keyframes shimmer {
-  to { background-position: -200% 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton { animation: none; }
   .provider-card,
   .provider-chevron { transition: none; }
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent-sky);
-  outline-offset: 2px;
 }
 
 @media (max-width: 900px) {
   .provider-grid { grid-template-columns: 1fr; }
   .provider-card { min-height: 0; }
-}
-
-@media (max-width: 720px) {
-  .connections-view { padding: 28px 16px 56px; }
-  .hero-title { font-size: 27px; }
 
   .connection-card {
     flex-wrap: wrap;
@@ -936,5 +836,10 @@ onMounted(async () => {
     flex-wrap: wrap;
     padding: 0 16px 14px;
   }
+}
+
+@media (max-width: 720px) {
+  .connections-view { padding-bottom: 56px; }
+  .hero-title { font-size: 27px; }
 }
 </style>

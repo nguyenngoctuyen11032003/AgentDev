@@ -184,6 +184,59 @@ export async function updateYaml(filename, content) {
   }
 }
 
+// Save an edited workflow document from the visual editor. The server changes only the lines whose
+// data differs, so comments, anchors/aliases and block text in hand-written YAML survive the save.
+export async function mergeWorkflowDocument(filename, document) {
+  try {
+    const yamlFilename = addYamlSuffix(filename)
+    const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(yamlFilename)}/merge`), {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ document })
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (response.ok) {
+      notifyWorkflowChanged(data?.filename || yamlFilename)
+      return {
+        success: true,
+        filename: data?.filename || yamlFilename,
+        content: typeof data?.content === 'string' ? data.content : null,
+        message: t('common.api_success.workflow_updated')
+      }
+    }
+
+    return failureResult('errors.api.update_workflow_failed', response, data)
+  } catch (error) {
+    console.error('Error saving workflow document:', error)
+    return networkFailure(error)
+  }
+}
+
+export async function deleteWorkflow(filename) {
+  try {
+    const yamlFilename = addYamlSuffix(filename)
+    const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(yamlFilename)}/delete`), {
+      method: 'DELETE'
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (response.ok) {
+      notifyWorkflowChanged(yamlFilename, { kind: 'delete' })
+      return { success: true, filename: data?.filename || yamlFilename }
+    }
+
+    return failureResult('errors.api.delete_workflow_failed', response, data)
+  } catch (error) {
+    console.error('Error deleting workflow:', error)
+    return networkFailure(error)
+  }
+}
+
 // Rename YAML file
 export async function postYamlNameChange(filename, newFilename) {
   try {
@@ -264,31 +317,20 @@ export async function fetchWorkflowNames() {
 
 export async function fetchWorkflowsWithDesc() {
   try {
-    const response = await fetch(apiUrl('/api/workflows'), FRESH)
+    // One request: the server reads every description (no /desc call per workflow)
+    const response = await fetch(apiUrl('/api/workflows?include_descriptions=true'), FRESH)
     if (!response.ok) {
       throw await responseError('errors.api.load_workflows_failed', response)
     }
     const data = await response.json()
-
-    // Fetch YAML descriptions by filename
-    const filesWithDesc = await Promise.all(
-      (Array.isArray(data.workflows) ? data.workflows : []).map(async (filename) => {
-        try {
-          const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(filename)}/desc`), FRESH)
-          const fileData = await response.json()
-          return {
-            name: filename,
-            description: fileData.description || t('workflow_list.no_description')
-          }
-        } catch {
-          return { name: filename, description: t('workflow_list.no_description') }
-        }
-      })
-    )
+    const descriptions = data.descriptions && typeof data.descriptions === 'object' ? data.descriptions : {}
 
     return {
       success: true,
-      workflows: filesWithDesc
+      workflows: (Array.isArray(data.workflows) ? data.workflows : []).map((filename) => ({
+        name: filename,
+        description: descriptions[filename] || t('workflow_list.no_description')
+      }))
     }
   } catch (err) {
     console.error('Failed to load YAML files:', err)
@@ -299,7 +341,6 @@ export async function fetchWorkflowsWithDesc() {
         : errorMessage('errors.api.load_workflows_unavailable', extractErrorDetail(err))
     }
   }
-
 }
 
 // Fetch YAML file content

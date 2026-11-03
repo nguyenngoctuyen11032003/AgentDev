@@ -549,7 +549,7 @@ onUnmounted(() => {
   background: rgb(var(--panel-20) / 0.8);
   box-shadow: 0 0 0 1px rgb(var(--ink) / 0.12), 0 2px 6px rgb(var(--shade) / 0.35);
   z-index: 3;
-  animation: sprite-working-in 0.3s ease-out both;
+  animation: sprite-working-in 0.3s var(--ease-out) both;
 }
 
 .sprite-working i {

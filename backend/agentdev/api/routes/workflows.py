@@ -1,8 +1,11 @@
 from fastapi import APIRouter, HTTPException
 from typing import Any
 
+import yaml
+
 from agentdev.api.models import (
     WorkflowCopyRequest,
+    WorkflowMergeRequest,
     WorkflowRenameRequest,
     WorkflowUpdateContentRequest,
     WorkflowUploadContentRequest,
@@ -14,6 +17,7 @@ from agentdev.api.services.workflow_storage import (
     validate_workflow_content,
     validate_workflow_filename,
 )
+from agentdev.api.services.workflow_yaml_merge import merge_workflow_document
 from agentdev.api.settings import YAML_DIR
 from agentdev.utils.exceptions import (
     ResourceConflictError,
@@ -62,10 +66,22 @@ def _persist_workflow_from_content(
 
 
 @router.get("/api/workflows")
-async def list_workflows():
+async def list_workflows(include_descriptions: bool = False):
     if not YAML_DIR.exists():
-        return {"workflows": []}
-    return {"workflows": sorted(file.name for file in YAML_DIR.glob("*.y*ml") if file.suffix in (".yaml", ".yml"))}
+        return {"workflows": [], **({"descriptions": {}} if include_descriptions else {})}
+    names = sorted(file.name for file in YAML_DIR.glob("*.y*ml") if file.suffix in (".yaml", ".yml"))
+    if not include_descriptions:
+        return {"workflows": names}
+    # One request for the workflow list page instead of one /desc call per file
+    descriptions: dict[str, str] = {}
+    for name in names:
+        try:
+            graph = (yaml.safe_load((YAML_DIR / name).read_text(encoding="utf-8")) or {}).get("graph") or {}
+            description = graph.get("description") if isinstance(graph, dict) else None
+        except Exception:
+            description = None
+        descriptions[name] = description.strip() if isinstance(description, str) else ""
+    return {"workflows": names, "descriptions": descriptions}
 
 
 @router.get("/api/workflows/{filename}/args")
@@ -234,6 +250,51 @@ async def update_workflow_content(filename: str, request: WorkflowUpdateContentR
         action="update",
         success_message="Workflow {filename} updated successfully",
     )
+
+
+@router.put("/api/workflows/{filename}/merge")
+async def merge_workflow_content(filename: str, request: WorkflowMergeRequest):
+    """Save an edited document from the visual editor, changing only the lines that differ.
+
+    Unlike ``/update`` (which writes the text it is given), this keeps the file's comments,
+    anchors/aliases, block scalars, layout and line endings wherever the data did not change.
+    """
+    try:
+        safe_filename = validate_workflow_filename(filename, require_yaml_extension=True)
+        file_path = YAML_DIR / safe_filename
+        if not file_path.exists() or not file_path.is_file():
+            raise ResourceNotFoundError(
+                "Workflow file not found",
+                resource_type="workflow",
+                resource_id=safe_filename,
+            )
+
+        raw = file_path.read_bytes().decode("utf-8")
+        newline = "\r\n" if "\r\n" in raw else "\n"
+        original = raw.replace("\r\n", "\n")
+        try:
+            content = merge_workflow_document(original, request.document)
+        except Exception as exc:  # an unparseable file: fall back to a plain dump
+            get_server_logger().warning(
+                "Workflow merge fell back to a full rewrite",
+                details={"filename": safe_filename, "error": str(exc)},
+            )
+            content = yaml.safe_dump(request.document, sort_keys=False, allow_unicode=True)
+
+        _, yaml_content = validate_workflow_content(safe_filename, content)
+        persist_workflow(safe_filename, content, yaml_content, action="merge", directory=YAML_DIR, newline=newline)
+        return {
+            "status": "success",
+            "filename": safe_filename,
+            "content": content,
+            "message": f"Workflow {safe_filename} updated successfully",
+        }
+    except (ValidationError, SecurityError, ResourceNotFoundError):
+        raise
+    except Exception as exc:
+        logger = get_server_logger()
+        logger.log_exception(exc, f"Unexpected error merging workflow: {filename}")
+        raise WorkflowExecutionError(f"Failed to update workflow: {exc}")
 
 
 @router.delete("/api/workflows/{filename}/delete")

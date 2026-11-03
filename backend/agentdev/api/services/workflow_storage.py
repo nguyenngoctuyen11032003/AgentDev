@@ -88,12 +88,13 @@ def persist_workflow(
     *,
     action: str,
     directory: Path,
+    newline: str | None = None,
 ) -> None:
     save_path = directory / safe_filename
     logger = get_server_logger()
 
     try:
-        save_path.write_text(content, encoding="utf-8")
+        save_path.write_text(content, encoding="utf-8", newline=newline)
     except Exception as exc:
         logger.log_exception(exc, f"Failed to save workflow file {safe_filename}")
         raise WorkflowExecutionError(

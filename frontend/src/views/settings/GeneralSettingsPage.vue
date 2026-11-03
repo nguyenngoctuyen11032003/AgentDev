@@ -39,7 +39,7 @@ function apply(key, value) {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent-sky);
+  color: var(--accent);
 }
 
 .title {
@@ -56,7 +56,7 @@ function apply(key, value) {
   max-width: 64ch;
   font-size: 15px;
   line-height: 1.65;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 @media (max-width: 600px) {

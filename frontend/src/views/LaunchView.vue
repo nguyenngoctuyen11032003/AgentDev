@@ -19,6 +19,7 @@
         :draft-project="currentProjectName"
         :project-workflows="projectWorkflows"
         :collapsed="!isSessionSidebarOpen"
+        :loading="!sessionsLoaded"
         @select="openSession"
         @new="startNewSession"
         @add-project="handleAddProject"
@@ -39,8 +40,8 @@
           }"
           v-show="viewMode === 'chat' || true"
         >
-          <button v-show="viewMode !== 'chat'" class="chat-panel-toggle" @click="isChatPanelOpen = !isChatPanelOpen" :title="isChatPanelOpen ? $t('launch.collapse_chat') : $t('launch.expand_chat')">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ 'chevron-collapsed': !isChatPanelOpen }">
+          <button v-show="viewMode !== 'chat'" class="chat-panel-toggle" type="button" @click="isChatPanelOpen = !isChatPanelOpen" :aria-expanded="isChatPanelOpen" :aria-label="isChatPanelOpen ? $t('launch.collapse_chat') : $t('launch.expand_chat')" :title="isChatPanelOpen ? $t('launch.collapse_chat') : $t('launch.expand_chat')">
+            <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ 'chevron-collapsed': !isChatPanelOpen }">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
@@ -94,6 +95,7 @@
                   <div class="chat-empty-title">{{ leadName ? $t('launch.empty_chat.title_lead', { lead: leadName }) : $t('launch.empty_chat.title') }}</div>
                   <div class="chat-empty-hint">{{ currentProjectName ? $t('launch.empty_chat.hint_project', { project: currentProjectName }) : $t('launch.empty_chat.hint') }}</div>
                   <div class="chat-empty-keys">{{ $t('launch.empty_chat.keys') }}</div>
+                  <ChatSuggestions :disabled="!isConnectionReady || isStopping" @pick="pickSuggestion" />
                 </div>
                 <!-- Notifications and dialogues in order -->
                 <div
@@ -109,6 +111,7 @@
                     message.error,
                     configStore.AUTO_EXPAND_MESSAGES,
                     message.plan ? isPlanOpen(message) : false,
+                    message.retryPrompt ? canRetryRun(message) : false,
                     i18nLocale
                   ]"
                 >
@@ -123,6 +126,15 @@
               >
                 <div class="notification-content">
                   <div class="notification-text">{{ message.message }}</div>
+                  <button
+                    v-if="canRetryRun(message)"
+                    type="button"
+                    class="send-error-btn send-error-retry notification-retry"
+                    :disabled="loading || isStopping"
+                    @click="retryRun(message)"
+                  >
+                    {{ $t('launch.chat_ui.retry') }}
+                  </button>
                   <div class="message-timestamp">{{ formatTime(message.timestamp) }}</div>
                 </div>
               </div>
@@ -153,33 +165,66 @@
                     class="activity"
                     :class="{ 'activity-running': message.isLoading, 'activity-open': message.activityOpen }"
                   >
+                    <!-- Finished: one collapsed line; the steps on demand -->
                     <button
+                      v-if="!message.isLoading"
                       type="button"
                       class="activity-summary"
                       :aria-expanded="!!message.activityOpen"
                       @click="toggleActivity(message)"
                     >
-                      <span v-if="message.isLoading" class="activity-spinner" aria-hidden="true"></span>
-                      <svg v-else class="activity-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
+                      <svg class="activity-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
                       <span class="activity-label">{{ activityHeadline(message) }}</span>
-                      <span v-if="message.isLoading" class="activity-time">
-                        <LiveDuration :started-at="message.startedAt" />
-                      </span>
                     </button>
-                    <ol v-if="message.activityOpen" class="activity-steps">
+                    <!-- Running: the last few finished steps grow above the live one -->
+                    <button
+                      v-if="message.isLoading && hiddenStepCount(message)"
+                      type="button"
+                      class="activity-more"
+                      :aria-expanded="!!message.activityOpen"
+                      @click="toggleActivity(message)"
+                    >
+                      {{ message.activityOpen ? $t('launch.activity.fewer_steps') : $t('launch.activity.more_steps', { n: hiddenStepCount(message) }) }}
+                    </button>
+                    <ol v-if="message.activityOpen || (message.isLoading && shownSteps(message).length)" class="activity-steps">
                       <li
-                        v-for="entry in message.loadingEntries"
+                        v-for="entry in shownSteps(message)"
                         :key="entry.key"
                         class="activity-step"
                         :class="{ 'step-running': entry.status === 'running' }"
                       >
-                        <span class="activity-step-dot" aria-hidden="true"></span>
-                        <span class="activity-step-label">{{ entry.label }}</span>
-                        <span class="activity-step-time">
-                          <LiveDuration :started-at="entry.startedAt" :ended-at="entry.endedAt || 0" />
-                        </span>
+                        <component
+                          :is="entry.detailHtml ? 'button' : 'div'"
+                          :type="entry.detailHtml ? 'button' : undefined"
+                          class="activity-step-row"
+                          :class="{ 'activity-step-toggle': !!entry.detailHtml }"
+                          :aria-expanded="entry.detailHtml ? !!entry.detailOpen : undefined"
+                          @click="entry.detailHtml && toggleStepDetail(message, entry)"
+                        >
+                          <span class="activity-step-dot" aria-hidden="true"></span>
+                          <span class="activity-step-label">{{ stepLabel(entry) }}<span v-if="entry.count > 1" class="activity-step-count"> ×{{ entry.count }}</span></span>
+                          <svg v-if="entry.detailHtml" class="activity-step-chevron" :class="{ 'is-open': entry.detailOpen }" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
+                          <span v-if="showStepTime(entry)" class="activity-step-time">
+                            <LiveDuration :started-at="entry.startedAt" :ended-at="entry.endedAt || 0" />
+                          </span>
+                        </component>
+                        <!-- A member's report to its lead: readable here, not a chat message of its own -->
+                        <div v-if="entry.detailHtml && entry.detailOpen" class="activity-step-detail">
+                          <CollapsibleMessage
+                            :html-content="entry.detailHtml"
+                            :raw-content="entry.detailText"
+                            :default-expanded="false"
+                          />
+                        </div>
                       </li>
                     </ol>
+                    <div v-if="message.isLoading" class="activity-live" role="status">
+                      <span class="activity-spinner" aria-hidden="true"></span>
+                      <span class="activity-label">{{ liveStep(message).label }}</span>
+                      <span class="activity-time">
+                        <LiveDuration :key="liveStep(message).at" :started-at="liveStep(message).at" />
+                      </span>
+                    </div>
                   </div>
 
                   <!-- The lead's plan waiting for your go-ahead (replaces its normal answer) -->
@@ -213,6 +258,43 @@
                     :raw-content="message.text"
                     :default-expanded="true"
                   />
+
+                  <!-- Files the turn produced (the agent's and its team's), each shown once -->
+                  <div v-if="message.files && message.files.length" class="turn-files">
+                    <div v-for="file in message.files" :key="file.fileName" class="turn-file">
+                      <img
+                        v-if="file.isImage && file.dataUri"
+                        :src="file.dataUri"
+                        :alt="file.fileName || $t('launch.image_artifact_alt')"
+                        class="artifact-image"
+                        role="button"
+                        tabindex="0"
+                        @click="openImageModal(file)"
+                        @keydown.enter.prevent="openImageModal(file)"
+                        @keydown.space.prevent="openImageModal(file)"
+                      />
+                      <div v-else-if="file.error" class="artifact-status artifact-error">{{ file.error }}</div>
+                      <div class="artifact-file-wrapper">
+                        <div class="artifact-filename">
+                          <img
+                            v-if="getFilePreviewSrc(file)"
+                            :src="getFilePreviewSrc(file)"
+                            :alt="$t('launch.file_preview_alt', { name: file.fileName || '' })"
+                            class="artifact-filename-icon"
+                          />
+                          <span class="artifact-filename-text">{{ file.fileName }}</span>
+                        </div>
+                        <button
+                          class="artifact-download-button"
+                          type="button"
+                          :disabled="file.loading"
+                          @click="downloadTurnFile(message, file)"
+                        >
+                          {{ file.loading ? $t('launch.preparing') : $t('launch.download') }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
 
                   <!-- Artifact image -->
 
@@ -297,13 +379,13 @@
               <!-- Scrolled up while new messages came in: one click back to the latest -->
               <Transition name="jump-latest">
                 <button
-                  v-if="hasUnseenMessages"
+                  v-if="hasUnseenMessages || isScrolledUp"
                   type="button"
                   class="jump-latest"
-                  :aria-label="$t('launch.jump_to_latest')"
+                  :aria-label="hasUnseenMessages ? $t('launch.jump_to_latest') : $t('launch.chat_ui.scroll_to_bottom')"
                   @click="jumpToLatest"
                 >
-                  {{ $t('launch.jump_to_latest') }}
+                  {{ hasUnseenMessages ? $t('launch.jump_to_latest') : $t('launch.chat_ui.scroll_to_bottom') }}
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
                 </button>
               </Transition>
@@ -325,6 +407,27 @@
                   @click="isQuestionExpanded = !isQuestionExpanded"
                 >
                   {{ isQuestionExpanded ? $t('components.collapsible_message.show_less') : $t('components.collapsible_message.show_more') }}
+                </button>
+              </div>
+              <!-- The message never reached the server: it is still in the box, one click resends it -->
+              <div v-if="launchError" class="send-error" role="alert">
+                <span class="send-error-text">{{ launchError }}</span>
+                <button
+                  type="button"
+                  class="send-error-btn send-error-retry"
+                  :disabled="loading || isStopping || isWorkflowRunning || !hasComposerContent"
+                  @click="retryLaunch"
+                >
+                  {{ $t('launch.chat_ui.retry') }}
+                </button>
+                <button
+                  type="button"
+                  class="send-error-btn"
+                  :aria-label="$t('launch.chat_ui.dismiss')"
+                  :title="$t('launch.chat_ui.dismiss')"
+                  @click="launchError = ''"
+                >
+                  ×
                 </button>
               </div>
               <div
@@ -376,11 +479,14 @@
                   v-model="taskPrompt"
                   class="task-input"
                   rows="1"
-                  :disabled="!isConnectionReady || isStopping || (isWorkflowRunning && status !== 'Waiting for input...')"
+                  :disabled="!isConnectionReady || isStopping"
                   :placeholder="composerPlaceholder"
+                  :aria-label="$t(leadName ? 'launch.chat_ui.composer_label' : 'launch.chat_ui.composer_label_agent')"
                   ref="taskInputRef"
                   @input="autoResizeTaskInput"
                   @keydown.enter="handleEnterKey"
+                  @compositionstart="handleCompositionStart"
+                  @compositionend="handleCompositionEnd"
                   @paste="handlePaste"
                 ></textarea>
 
@@ -678,9 +784,15 @@
     <div
       v-if="selectedArtifactImage"
       class="image-modal"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="selectedArtifactImage.name"
       @click.self="closeImageModal"
     >
       <div class="image-modal-content">
+        <button ref="imageModalCloseRef" type="button" class="image-modal-close" aria-label="Đóng ảnh" @click="closeImageModal">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
         <img
           :src="selectedArtifactImage.src"
           :alt="selectedArtifactImage.name"
@@ -723,6 +835,7 @@ import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import { onWorkflowChanged, workflowKey } from '@/utils/workflowSync.js'
 import OfficeView from '@/components/office/OfficeView.vue'
 import SessionSidebar from '@/components/launch/SessionSidebar.vue'
+import ChatSuggestions from '@/components/launch/chat/ChatSuggestions.vue'
 import { computeTeamLinks, layoutOrgTree } from '@/utils/teamLinks.js'
 import yaml from 'js-yaml'
 import MarkdownIt from 'markdown-it'
@@ -748,6 +861,13 @@ md.renderer.rules.fence = withCopyButton(md.renderer.rules.fence)
 md.renderer.rules.code_block = withCopyButton(md.renderer.rules.code_block)
 md.renderer.rules.table_open = () => '<div class="md-table"><table>\n'
 md.renderer.rules.table_close = () => '</table></div>\n'
+// Links in a message open in a new tab and never get a handle back on this page
+const defaultLinkOpen = md.renderer.rules.link_open || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  tokens[idx].attrSet('target', '_blank')
+  tokens[idx].attrSet('rel', 'noopener noreferrer')
+  return defaultLinkOpen(tokens, idx, options, env, self)
+}
 
 // Memoize markdown output by source text so re-renders never re-parse the same message
 const MARKDOWN_CACHE_LIMIT = 300
@@ -903,6 +1023,8 @@ const LOG_EVENT_KEYS = {
   THINKING_PROCESS: 'launch.log_events.thinking_process',
   MEMORY_OPERATION: 'launch.log_events.memory_operation'
 }
+// Run set-up lines that mean nothing to the user (memory stores being loaded)
+const SETUP_LOG_RE = /^(Global memory '.*' built successfully|Memory manager built for node )/
 // Actionable hint for well-known backend/provider failures (appended after the raw detail)
 const ERROR_HINTS = [
   [/MAC_ALLOW_UNSAFE_CODE_EXECUTION/, 'launch.error_hints.python_disabled'],
@@ -1047,7 +1169,7 @@ const addTotalLoadingMessage = (nodeId, at = Date.now()) => {
 
 // Add a loading entry (model/tool call) and associate it with baseKey
 // `at` is the backend event time (ms), so a replayed session shows the real durations
-const addLoadingEntry = (nodeId, baseKey, label, { isModel = false, at = Date.now(), member = '' } = {}) => {
+const addLoadingEntry = (nodeId, baseKey, label, { isModel = false, at = Date.now(), member = '', doneLabel = '', delegates = false } = {}) => {
   const nodeState = addTotalLoadingMessage(nodeId, at)
   if (!nodeState || !baseKey) return null
 
@@ -1059,8 +1181,10 @@ const addLoadingEntry = (nodeId, baseKey, label, { isModel = false, at = Date.no
     key,
     baseKey,
     label,
+    doneLabel,
     isModel,
     member,
+    delegates,
     status: 'running',
     startedAt: at,
     endedAt: null
@@ -1132,6 +1256,12 @@ const settleNodeTurn = (nodeId, content = null, at = Date.now()) => {
   const endedAt = Math.max(at, nodeState.message.startedAt)
   finalizeAllLoadingEntries(nodeState, endedAt)
   const message = nodeState.message
+  // Members' steps shown in this bubble end with it too
+  for (const entry of message.loadingEntries || []) {
+    if (entry.status !== 'running') continue
+    entry.status = 'done'
+    entry.endedAt = Math.max(endedAt, entry.startedAt)
+  }
   message.isLoading = false
   message.endedAt = endedAt
   message.duration = formatDuration(message.startedAt, endedAt)
@@ -1142,14 +1272,8 @@ const settleNodeTurn = (nodeId, content = null, at = Date.now()) => {
     message.text = built.text
     message.htmlContent = built.htmlContent
     message.timestamp = endedAt
-    // Delegation lines ("X giao việc cho Y") were added below the turn while it ran: the
-    // answer belongs after them, at the bottom of the chat
-    const list = chatMessages.value
-    const index = list.indexOf(message)
-    if (index > -1 && index < list.length - 1) {
-      list.splice(index, 1)
-      list.push(message)
-    }
+    // The bubble stays where it is: the team's steps went into its activity block, so the
+    // answer lands right below that block instead of the bubble jumping to the bottom
   }
   message.rev += 1
   // An agent's answer landed in its bubble while you read further up
@@ -1171,35 +1295,189 @@ const settleAllNodeTurns = ({ at = Date.now(), interrupted = false } = {}) => {
   }
 }
 
-// Human-friendly activity labels (no raw model ids in the chat)
+// Who handed each team member its task in this session (member -> lead); unlike
+// delegatedNodes it is kept after the member is done, for its late files and report
+const memberLeads = new Map()
+// When each delegated member picked up its task (event time, ms)
+const memberStarts = new Map()
+
+// The agent bubble of the current turn that speaks for `nodeId`: its own bubble, else the one
+// of the lead it reports to (up the chain of sub-leads). Running bubbles first, then the
+// finished ones since your last message. null when the turn has none.
+const findTurnBubble = (nodeId) => {
+  if (!nodeId) return null
+  const chain = [nodeId]
+  for (let lead = memberLeads.get(nodeId); lead && !chain.includes(lead); lead = memberLeads.get(lead)) {
+    chain.push(lead)
+  }
+  for (const name of chain) {
+    const state = nodesLoadingMessagesMap.get(name)
+    if (state) return state.message
+  }
+  const list = chatMessages.value
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const message = list[i]
+    if (message.type !== 'dialogue') continue
+    if (message.isRight) break
+    if (!message.isArtifact && chain.includes(message.name)) return message
+  }
+  return null
+}
+
+// Something since your last message came from an agent (its bubble speaks for the turn)
+const turnHasAgentBubble = () => {
+  const list = chatMessages.value
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (list[i].type !== 'dialogue') continue
+    return !list[i].isRight
+  }
+  return false
+}
+
+// A finished team step (a member's report, a file it made) in a lead's activity block
+let teamStepSeq = 0
+const addTeamStep = (message, { label, startedAt = 0, endedAt = 0, detail = null }) => {
+  if (!message?.loadingEntries) return false
+  const built = detail ? buildDialogueContent(detail) : null
+  message.loadingEntries.push({
+    key: `team-${++teamStepSeq}`,
+    baseKey: 'team',
+    label,
+    doneLabel: label,
+    isModel: false,
+    member: '',
+    status: 'done',
+    startedAt,
+    endedAt: endedAt ? Math.max(endedAt, startedAt) : null,
+    detailText: built?.text || '',
+    detailHtml: built?.htmlContent || '',
+    detailOpen: false
+  })
+  message.rev += 1
+  scheduleScrollToBottom()
+  return true
+}
+
+// Running steps say what is going on ("Đang suy nghĩ…"), finished ones what was done
+const stepLabel = (entry) => (entry.status === 'running' ? entry.label : entry.doneLabel || entry.label)
+
+const toggleStepDetail = (message, entry) => {
+  entry.detailOpen = !entry.detailOpen
+  message.rev += 1
+}
+
+// A file the turn produced: one card on the bubble that speaks for the turn, however many
+// times it is reported (the member makes it, the lead hands the same file over again)
+const attachTurnFile = (message, { nodeId, fileName, mimeType, attachmentId }) => {
+  if (!message.files) message.files = []
+  const isImage = !!mimeType && mimeType.includes('image')
+  let file = message.files.find((item) => item.fileName === fileName)
+  if (file) {
+    // Same name again: the latest copy is the one to download
+    if (attachmentId && file.attachmentId !== attachmentId) {
+      file.attachmentId = attachmentId
+      file.mimeType = mimeType
+      file.isImage = isImage
+      file.dataUri = null
+      file.error = null
+    } else {
+      return
+    }
+  } else {
+    message.files.push({ fileName, mimeType, attachmentId, isImage, dataUri: null, loading: false, error: null })
+    file = message.files[message.files.length - 1]
+    // A member's file also shows up as a step of the lead's work
+    if (nodeId && nodeId !== message.name && message.loadingEntries) {
+      addTeamStep(message, { label: t('launch.activity.member_file', { member: nodeId, file: fileName }) })
+    }
+  }
+  message.rev += 1
+  scheduleScrollToBottom()
+  if (isImage && sessionId && attachmentId) {
+    file.loading = true
+    getAttachment(sessionId, attachmentId)
+      .then((dataUri) => { file.dataUri = dataUri })
+      .catch((error) => {
+        console.error('Failed to load image artifact:', error)
+        file.error = t('launch.errors.image_load_failed')
+      })
+      .finally(() => {
+        file.loading = false
+        message.rev += 1
+      })
+  }
+}
+
+const downloadTurnFile = async (message, file) => {
+  const pending = downloadArtifact(file)
+  message.rev += 1
+  await pending
+  message.rev += 1
+}
+
+// Human-friendly activity labels (no raw model ids in the chat). Covers the workflow's own
+// tools and those a CLI agent reports (claude:Bash, codex:shell, mcp__playwright__browser_click …)
 const TOOL_ACTIVITY_KEYS = {
   ask_user: 'ask_user',
   delegate_task: 'delegate',
   delegate_parallel: 'delegate_parallel',
   read_file_segment: 'read',
   read_file: 'read',
+  read: 'read',
+  notebookread: 'read',
   list_directory: 'list',
   describe_available_files: 'list',
+  ls: 'list',
   search_in_files: 'search',
+  glob: 'search',
+  grep: 'search',
   write_file: 'write',
+  save_file: 'write',
   edit_file: 'write',
   apply_patch: 'write',
+  apply_text_edits: 'write',
+  create_folder: 'write',
+  move_path: 'write',
+  rename_path: 'write',
+  delete_path: 'write',
+  write: 'write',
+  edit: 'write',
+  multiedit: 'write',
+  notebookedit: 'write',
   run_command: 'run',
+  run_shell_command: 'run',
   execute_code: 'run',
+  bash: 'run',
+  shell: 'run',
+  powershell: 'run',
   web_search: 'web',
-  fetch_url: 'web'
+  websearch: 'web',
+  fetch_url: 'web',
+  webfetch: 'web'
 }
 
-const toolActivityLabel = (toolName, rawArgs) => {
+const bareToolName = (toolName) => String(toolName || '').split('__').pop().replace(/^(claude|codex):/i, '')
+
+const toolActivityKey = (toolName) => {
+  const base = bareToolName(toolName).toLowerCase()
+  if (base.startsWith('browser_')) return 'browser'
+  return TOOL_ACTIVITY_KEYS[base] || ''
+}
+
+const isDelegateTool = (toolName) => ['delegate', 'delegate_parallel'].includes(toolActivityKey(toolName))
+
+// `done`: the past-tense label of a finished step ("Đã giao việc cho …")
+const toolActivityLabel = (toolName, rawArgs, done = false) => {
   let args = rawArgs
   if (typeof args === 'string') {
     try { args = JSON.parse(args) } catch { args = null }
   }
-  const key = TOOL_ACTIVITY_KEYS[String(toolName || '').split('__').pop()]
-  if (key === 'delegate' && args?.member) return t('launch.activity.delegate_to', { member: args.member })
-  if (key) return t(`launch.activity.${key}`)
-  const pretty = String(toolName || t('launch.unknown_name')).replace(/[_-]+/g, ' ')
-  return t('launch.activity.tool', { name: pretty })
+  const group = done ? 'launch.activity_done' : 'launch.activity'
+  const key = toolActivityKey(toolName)
+  if (key === 'delegate' && args?.member) return t(`${group}.delegate_to`, { member: args.member })
+  if (key) return t(`${group}.${key}`)
+  const pretty = (bareToolName(toolName) || t('launch.unknown_name')).replace(/[_-]+/g, ' ')
+  return t(`${group}.tool`, { name: pretty })
 }
 
 const humanDuration = (ms) => {
@@ -1209,47 +1487,151 @@ const humanDuration = (ms) => {
   return m ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`
 }
 
-// While a lead waits on a member: who is actually working now, down the chain of
-// sub-leads ("Project Manager → QA Tester"), and what that person is doing
-const MEMBER_ACTIVITY_KEYS = { model: 'launch.activity.thinking' }
-const delegationHeadline = (entry) => {
-  const chain = [entry.member]
-  const seen = new Set(chain)
+// What each delegated member is doing right now: { kind: 'model' | 'tool' | null, name, args, at }
+// (`at`: when that step began, or when the last one ended)
+const memberNow = new Map()
+const setMemberNow = (member, kind, at, name = '', args = null) => {
+  memberNow.set(member, { kind, name, args, at })
+}
+
+// An agent run through a CLI in native mode works on its own (reads, edits, runs commands)
+// and reports those steps only when it is done: while it runs it is "working", not "thinking"
+const isNativeNode = (id) => {
+  const node = (workflowYaml.value?.graph?.nodes || []).find((item) => item?.id === id)
+  return Boolean(node?.config?.native_mode?.enabled)
+}
+
+const memberDoing = (member) => {
+  const now = memberNow.get(member)
+  if (now?.kind === 'tool') return toolActivityLabel(now.name, now.args)
+  if (now?.kind === 'model') return t(isNativeNode(member) ? 'launch.activity.working' : 'launch.activity.thinking')
+  return ''
+}
+
+// The member actually working under `lead` (down the chain of sub-leads, the most recently
+// active one when several work at once) and what it is doing, timed from that step's start
+const activeWorkerStep = (lead) => {
+  const chain = []
+  let current = lead
   for (;;) {
-    const last = chain[chain.length - 1]
     let next = ''
-    for (const [member, lead] of delegatedNodes) {
-      if (lead === last && !seen.has(member)) next = member
+    let nextAt = -1
+    for (const [member, by] of delegatedNodes) {
+      if (by !== current || member === lead || chain.includes(member)) continue
+      const at = memberNow.get(member)?.at ?? memberStarts.get(member) ?? 0
+      if (at > nextAt) {
+        next = member
+        nextAt = at
+      }
     }
     if (!next) break
     chain.push(next)
-    seen.add(next)
+    current = next
   }
+  if (!chain.length) return null
   const worker = chain[chain.length - 1]
-  if (!delegatedNodes.has(worker)) return entry.label
-  const node = runTracker.state.nodes[worker]
-  const run = node?.runs?.[node.runs.length - 1]
-  const doing = run?.activity
-    ? run.activity.kind === 'tool'
-      ? toolActivityLabel(run.activity.name)
-      : t(MEMBER_ACTIVITY_KEYS.model)
-    : ''
-  return t(doing ? 'launch.activity.member_working_doing' : 'launch.activity.member_working', {
-    chain: chain.join(' → '),
-    doing
-  })
+  const doing = memberDoing(worker)
+  return {
+    label: t(doing ? 'launch.activity.member_working_doing' : 'launch.activity.member_working', {
+      chain: chain.join(' → '),
+      doing
+    }),
+    at: memberNow.get(worker)?.at || memberStarts.get(worker) || 0
+  }
 }
 
-const activityHeadline = (message) => {
-  if (message.isLoading) {
-    const entries = message.loadingEntries || []
-    for (let i = entries.length - 1; i >= 0; i--) {
-      if (entries[i].status !== 'running') continue
-      return entries[i].member ? delegationHeadline(entries[i]) : entries[i].label
+// The live line of a running bubble: the step going on right now, timed from its start
+const liveStep = (message) => {
+  const entries = message.loadingEntries || []
+  let running = null
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].status === 'running' && !entries[i].sub) {
+      running = entries[i]
+      break
     }
-    return t('launch.activity.thinking')
   }
-  const steps = (message.loadingEntries || []).filter((e) => !e.isModel).length
+  if (!running || running.delegates) {
+    const worker = activeWorkerStep(message.name)
+    if (worker) return { label: worker.label, at: worker.at || running?.startedAt || message.startedAt }
+  }
+  if (running) return { label: running.label, at: running.startedAt }
+  const last = entries[entries.length - 1]
+  return { label: t('launch.activity.thinking'), at: last?.endedAt || message.startedAt }
+}
+
+// While running, the last few finished steps stay in view above the live line
+const LIVE_STEP_ROWS = 3
+const finishedSteps = (message) => (message.loadingEntries || []).filter((entry) => entry.status !== 'running')
+const shownSteps = (message) => {
+  if (!message.isLoading) return message.loadingEntries || []
+  const done = finishedSteps(message)
+  return message.activityOpen ? done : done.slice(-LIVE_STEP_ROWS)
+}
+const hiddenStepCount = (message) => Math.max(0, finishedSteps(message).length - LIVE_STEP_ROWS)
+// A step that took no measurable time (e.g. a CLI agent's steps, reported all at once) shows none
+const showStepTime = (entry) =>
+  Boolean(entry.startedAt) && (entry.status === 'running' || !entry.endedAt || entry.endedAt - entry.startedAt >= 1000)
+
+// A member's own step (a command it ran, a file it read …) in its lead's activity block.
+// Repeats of the same step in a row share one row ("QA Tester · Đã chạy lệnh ×3").
+const memberStepKeys = new Map()
+const addMemberStep = (member, toolName, args, at) => {
+  const message = findTurnBubble(member)
+  if (!message?.loadingEntries || message.name === member) return
+  const label = t('launch.activity.member_step', { member, step: toolActivityLabel(toolName, args) })
+  const doneLabel = t('launch.activity.member_step', { member, step: toolActivityLabel(toolName, args, true) })
+  const entries = message.loadingEntries
+  const last = entries[entries.length - 1]
+  let entry = last
+  if (last?.sub === member && last.doneLabel === doneLabel && last.status !== 'running') {
+    last.count = (last.count || 1) + 1
+    last.status = 'running'
+    last.endedAt = null
+  } else {
+    entry = {
+      key: `member-${++teamStepSeq}`,
+      baseKey: 'member',
+      label,
+      doneLabel,
+      isModel: false,
+      member: '',
+      sub: member,
+      count: 1,
+      status: 'running',
+      startedAt: at,
+      endedAt: null
+    }
+    entries.push(entry)
+  }
+  memberStepKeys.set(`${member}|${toolName}`, { entry, message })
+  message.rev += 1
+  scheduleScrollToBottom()
+}
+
+const endMemberStep = (key, found, at) => {
+  memberStepKeys.delete(key)
+  found.entry.status = 'done'
+  found.entry.endedAt = Math.max(at, found.entry.startedAt)
+  found.message.rev += 1
+}
+
+const finishMemberStep = (member, toolName, at) => {
+  const key = `${member}|${toolName}`
+  const found = memberStepKeys.get(key)
+  if (found) endMemberStep(key, found, at)
+}
+
+const finishMemberSteps = (member, at) => {
+  for (const [key, found] of [...memberStepKeys.entries()]) {
+    if (found.entry.sub === member) endMemberStep(key, found, at)
+  }
+}
+
+// The finished turn's collapsed line: "Đã xử lý trong 12s · 5 bước"
+const activityHeadline = (message) => {
+  // The count is the number of rows the block lists; thinking alone is just "thought for 5s"
+  const entries = message.loadingEntries || []
+  const steps = entries.some((e) => !e.isModel) ? entries.length : 0
   const time = humanDuration((message.endedAt || Date.now()) - message.startedAt)
   if (message.interrupted) return t('launch.activity.interrupted', { time })
   return steps
@@ -1452,6 +1834,7 @@ const writeStorage = (key, value) => {
 }
 
 const sessions = ref([])
+const sessionsLoaded = ref(false)
 const isSessionSidebarOpen = ref(readStorage(SIDEBAR_OPEN_KEY) !== '0')
 watch(isSessionSidebarOpen, (open) => writeStorage(SIDEBAR_OPEN_KEY, open ? '1' : '0'))
 
@@ -1596,6 +1979,8 @@ const refreshSessions = async () => {
     notifyBackgroundChanges(list)
   } catch (error) {
     console.warn('Failed to load sessions:', error)
+  } finally {
+    sessionsLoaded.value = true
   }
 }
 // Coalesce bursts of status changes into one request
@@ -1624,6 +2009,12 @@ let ws = null
 let sessionId = null
 // Shows the "new messages" button: something arrived while the chat was scrolled up
 const hasUnseenMessages = ref(false)
+// The chat is scrolled well above the latest message
+const isScrolledUp = ref(false)
+// A send that never reached the server: shown above the composer with a Retry
+const launchError = ref('')
+// The prompt of the latest turn launched from this page, offered again after a failed run
+let lastLaunchPrompt = ''
 // Session being opened right now: a second click (double click) while it connects is a no-op
 let pendingOpenSessionId = null
 // Set when Stop was pressed here, so the server's confirmation adds no second notice
@@ -1747,7 +2138,7 @@ const composerPlaceholder = computed(() => {
     return asker ? t('launch.reply_placeholder', { name: asker }) : t('launch.reply_placeholder_any')
   }
   // The box is locked while the team works: say why, and what can be done meanwhile
-  if (isWorkflowRunning.value) return t('launch.running_placeholder')
+  if (isWorkflowRunning.value) return t(leadName.value ? 'launch.chat_ui.running_draft_placeholder' : 'launch.chat_ui.running_draft_placeholder_agent')
   if (isRunFinished.value) return t('launch.followup_placeholder')
   return t('launch.enter_prompt')
 })
@@ -1797,7 +2188,7 @@ const handlePanelRunClick = async () => {
 const buttonLabel = computed(() => {
   if (isStopping.value) return t('launch.stopping')
   if (isStopMode.value) {
-    return t('common.cancel')
+    return t('launch.chat_ui.stop')
   }
   if (isWorkflowRunning.value) {
     return t('launch.send')
@@ -1859,6 +2250,10 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
     chatMessages.value = []
     nodesLoadingMessagesMap.clear()
     delegatedNodes.clear()
+    memberLeads.clear()
+    memberStarts.clear()
+    memberNow.clear()
+    memberStepKeys.clear()
     refreshTeamEdges()
     nameToSpriteMap.clear()
     nodeSpriteMap.value.clear()
@@ -2143,12 +2538,13 @@ const touchWorkingTurns = () => {
 }
 
 // Add a notification (supports levels)
-const addChatNotification = (message, { type = 'notification', at = null } = {}) => {
+const addChatNotification = (message, { type = 'notification', at = null, retryPrompt = '' } = {}) => {
   chatMessages.value.push({
     type,
     message,
     timestamp: at ?? Date.now(),
-    rev: 0
+    rev: 0,
+    ...(retryPrompt ? { retryPrompt } : {})
   })
   scheduleScrollToBottom()
 }
@@ -2346,6 +2742,20 @@ const openImageModal = (message) => {
   lockBodyScroll()
 }
 
+const imageModalCloseRef = ref(null)
+const onImageModalKeydown = (e) => {
+  if (e.key === 'Escape') closeImageModal()
+}
+watch(selectedArtifactImage, (val) => {
+  if (val) {
+    window.addEventListener('keydown', onImageModalKeydown)
+    nextTick(() => imageModalCloseRef.value?.focus())
+  } else {
+    window.removeEventListener('keydown', onImageModalKeydown)
+  }
+})
+onUnmounted(() => window.removeEventListener('keydown', onImageModalKeydown))
+
 const closeImageModal = () => {
   if (!selectedArtifactImage.value) {
     return
@@ -2362,8 +2772,20 @@ const handleKeydown = (event) => {
 
 // Like Claude/Codex chat: Enter sends, Shift+Enter is a new line. Never send while an IME
 // (e.g. Vietnamese Telex/VNI) is still composing a character.
+// Safari fires the Enter that commits a composition *after* compositionend (isComposing is
+// already false then), so a composition that just ended still counts for a moment.
+let isImeComposing = false
+let imeEndedAt = 0
+const handleCompositionStart = () => {
+  isImeComposing = true
+}
+const handleCompositionEnd = () => {
+  isImeComposing = false
+  imeEndedAt = Date.now()
+}
 const handleEnterKey = (e) => {
   if (e.shiftKey || e.altKey || e.isComposing || e.keyCode === 229) return
+  if (isImeComposing || Date.now() - imeEndedAt < 60) return
   e.preventDefault()
   // Check disabled state logically similar to button
   if (isStopMode.value || loading.value || (isWorkflowRunning.value && !hasComposerContent.value) || (!isWorkflowRunning.value && !isRunFinished.value && !isConnectionReady.value)) {
@@ -2536,6 +2958,11 @@ const handleButtonClick = () => {
     // If Launch, start the workflow
     launchWorkflow()
   }
+  // After a click on Send the focus is back in the box, ready for the next message
+  nextTick(() => {
+    const input = taskInputRef.value
+    if (input && !input.disabled && document.activeElement !== input) input.focus({ preventScroll: true })
+  })
 }
 
 // Send human input
@@ -2816,6 +3243,10 @@ const clearReplayedState = () => {
   nodesLoadingMessagesMap.clear()
   activeNodes.value = []
   delegatedNodes.clear()
+  memberLeads.clear()
+  memberStarts.clear()
+  memberNow.clear()
+  memberStepKeys.clear()
   refreshTeamEdges()
   officeRef.value?.reset()
   runTracker.reset()
@@ -2945,7 +3376,7 @@ const startNewSession = async (target = null) => {
 // Once the review view has looked, its own count wins: it leaves out plain Q&A runs
 const reviewPendingFromView = ref(null)
 // Plans waiting for your go-ahead count too: they need you just as much
-const awaitingPlanCount = computed(() => sessions.value.filter((s) => s.awaiting_plan).length)
+const awaitingPlanCount = computed(() => sessions.value.filter((s) => s.awaiting_plan && !['cancelled', 'error'].includes(s.status)).length)
 const reviewPendingCount = computed(() =>
   awaitingPlanCount.value + (reviewPendingFromView.value ?? sessions.value.filter((s) =>
     s.status === 'completed' && (s.review?.verdict || 'pending') === 'pending' && !s.awaiting_plan && s.has_work !== false
@@ -3476,6 +3907,7 @@ const launchWorkflow = async () => {
   }
 
   shouldGlow.value = false
+  launchError.value = ''
   // A failed follow-up leaves a finished session as it was (not a draft "waiting for launch")
   const statusBefore = ['Completed', 'Cancelled', 'Error', 'Failed'].includes(status.value) ? status.value : 'Waiting for launch...'
   // The run is live from the moment it is posted: the server may already stream its first
@@ -3535,6 +3967,7 @@ const launchWorkflow = async () => {
         pendingLaunch = { undo: undoRejected }
       }
 
+      lastLaunchPrompt = trimmedPrompt
       // Clear uploaded attachments
       clearUploadedAttachments()
 
@@ -3570,7 +4003,7 @@ const launchWorkflow = async () => {
       console.error('Failed to launch workflow:', error)
       undoLaunch()
       status.value = 'Failed'
-      toast.error(errorWithDetail('launch.errors.launch_failed', error.detail || error.error?.message || (response.status ? `HTTP ${response.status}` : '')))
+      launchError.value = errorWithDetail('launch.errors.launch_failed', error.detail || error.error?.message || (response.status ? `HTTP ${response.status}` : ''))
       shouldGlow.value = true
       if (isConnectionReady.value) {
         status.value = statusBefore
@@ -3580,13 +4013,53 @@ const launchWorkflow = async () => {
     console.error('Error calling execute API:', error)
     undoLaunch()
     status.value = 'Error'
-    toast.error(errorWithDetail('launch.errors.execute_failed', error))
+    launchError.value = errorWithDetail('launch.errors.execute_failed', error)
     shouldGlow.value = true
     if (isConnectionReady.value) {
       status.value = statusBefore
     }
   }
 }
+
+// Starter prompt from the empty chat: into the box (not sent), cursor at the end
+const pickSuggestion = (text) => {
+  taskPrompt.value = text
+  nextTick(() => {
+    const input = taskInputRef.value
+    if (!input) return
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
+    autoResizeTaskInput()
+  })
+}
+
+// Retry for a send that never reached the server: the message is still in the box
+const retryLaunch = () => {
+  launchError.value = ''
+  handleButtonClick()
+}
+
+// Retry for a run that failed: the same prompt again as a new turn of this session. A draft
+// typed meanwhile is kept and put back once the retry is on its way.
+const canRetryRun = (message) =>
+  Boolean(message.retryPrompt) &&
+  message === chatMessages.value[chatMessages.value.length - 1] &&
+  !isWorkflowRunning.value &&
+  isRunFinished.value
+const retryRun = async (message) => {
+  if (!canRetryRun(message) || loading.value || isStopping.value) return
+  const draft = taskPrompt.value
+  taskPrompt.value = message.retryPrompt
+  await launchWorkflow()
+  if (draft.trim() && !taskPrompt.value.trim()) taskPrompt.value = draft
+  nextTick(() => taskInputRef.value?.focus())
+}
+
+// Another session's failed send is not this one's
+watch(activeSessionId, () => {
+  launchError.value = ''
+  lastLaunchPrompt = ''
+})
 
 // When workflow is finished or cancelled, re-enable glow
 watch(status, (newStatus) => {
@@ -4003,11 +4476,18 @@ const processMessage = async (msg) => {
     if (data.status === 'running' || data.status === 'waiting_for_input' || data.status === 'cancelling') {
       isWorkflowRunning.value = true
       if (data.status === 'cancelling') startStopping()
-    } else if (runTracker.state.task && !runTracker.state.outcome) {
+    } else {
+      // The run this page was following ended while the connection was down (e.g. a server
+      // restart): unlock the box instead of still saying the team is at work
+      isWorkflowRunning.value = false
+      endStopping()
+    }
+    if (!['running', 'waiting_for_input', 'cancelling'].includes(data.status) && runTracker.state.task && !runTracker.state.outcome) {
       // The replay never recorded the end of the last turn, but the server is not running it:
       // close it, so the next request starts a turn of its own
       const outcome = { completed: 'completed', error: 'error' }[data.status] || 'cancelled'
-      runTracker.finish(outcome, { error: outcome === 'error' ? formatErrorDetail(data.error_message) : '' })
+      runTracker.finish(outcome, { error: outcome === 'error' ? formatErrorDetail(data.error_message) : '', settled: true })
+      activeNodes.value = []
     }
     const isLive = ['running', 'waiting_for_input', 'cancelling'].includes(data.status)
     if (!isLive || data.error_message === 'Interrupted by a server restart') {
@@ -4047,7 +4527,7 @@ const processMessage = async (msg) => {
       sessionIdToDownload = sessionId
     }
 
-    if (data.current_node_id && !activeNodes.value.includes(data.current_node_id)) {
+    if (isLive && data.current_node_id && !activeNodes.value.includes(data.current_node_id)) {
       activeNodes.value.push(data.current_node_id)
     }
 
@@ -4131,6 +4611,13 @@ const processMessage = async (msg) => {
         const fileName = event?.file_name || 'artifact'
         const mimeType = event?.mime_type || ''
         const attachmentId = event?.attachment_id
+
+        // The turn's agent bubble (the lead's, for a member's file) shows it once, under its answer
+        const turnBubble = findTurnBubble(event?.node_id)
+        if (turnBubble) {
+          attachTurnFile(turnBubble, { nodeId: event?.node_id, fileName, mimeType, attachmentId })
+          continue
+        }
 
         // Build the avatar
         const avatar = avatarFor(nodeName)
@@ -4223,11 +4710,18 @@ const processMessage = async (msg) => {
       // Team member picked up a task from its lead: one compact line, no member chatter in the chat.
       if (delegatedBy && nodeId) {
         delegatedNodes.set(nodeId, delegatedBy)
+        memberLeads.set(nodeId, delegatedBy)
+        memberStarts.set(nodeId, eventAt)
+        setMemberNow(nodeId, null, eventAt)
         refreshTeamEdges()
         touchWorkingTurns()
         officeRef.value?.handoff(delegatedBy, nodeId, { visit: true })
         runTracker.handoff(delegatedBy, nodeId, msg.data.timestamp)
-        addChatNotification(t('launch.team.assigned', { lead: delegatedBy, member: nodeId }), { at })
+        // The lead's "delegating to …" step already says it; a separate line only when the
+        // turn has no lead bubble to hold it
+        if (!findTurnBubble(delegatedBy)) {
+          addChatNotification(t('launch.team.assigned', { lead: delegatedBy, member: nodeId }), { at })
+        }
       }
     }
 
@@ -4236,8 +4730,17 @@ const processMessage = async (msg) => {
       // Model call started
       if (msg.data.details.stage === "before") {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
-        if (!delegatedNodes.has(nodeId)) addLoadingEntry(nodeId, baseKey, t('launch.activity.thinking'), { isModel: true, at: eventAt })
-        else touchWorkingTurns()
+        if (!delegatedNodes.has(nodeId)) {
+          addLoadingEntry(nodeId, baseKey, t('launch.activity.thinking'), {
+            isModel: true,
+            at: eventAt,
+            doneLabel: t('launch.activity_done.thinking')
+          })
+        }
+        else {
+          setMemberNow(nodeId, 'model', eventAt)
+          touchWorkingTurns()
+        }
         officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', true)
         runTracker.activity(nodeId, 'model', msg.data.details.model_name || '', true, msg.data.timestamp)
       }
@@ -4246,6 +4749,10 @@ const processMessage = async (msg) => {
       if (msg.data.details.stage === "after") {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
         finishLoadingEntry(nodeId, baseKey, eventAt)
+        if (delegatedNodes.has(nodeId)) {
+          setMemberNow(nodeId, null, eventAt)
+          touchWorkingTurns()
+        }
         officeRef.value?.activity(nodeId, 'model', msg.data.details.model_name || '', false)
         runTracker.activity(nodeId, 'model', msg.data.details.model_name || '', false, msg.data.timestamp)
       }
@@ -4264,9 +4771,14 @@ const processMessage = async (msg) => {
         if (!delegatedNodes.has(nodeId)) {
           addLoadingEntry(nodeId, baseKey, toolActivityLabel(msg.data.details.tool_name, msg.data.details.arguments), {
             at: eventAt,
-            member: delegateTarget(msg.data.details.tool_name, msg.data.details.arguments)
+            doneLabel: toolActivityLabel(msg.data.details.tool_name, msg.data.details.arguments, true),
+            member: delegateTarget(msg.data.details.tool_name, msg.data.details.arguments),
+            delegates: isDelegateTool(msg.data.details.tool_name)
           })
         } else {
+          // A member's step: live on its lead's bubble (the line below the finished steps)
+          setMemberNow(nodeId, 'tool', eventAt, msg.data.details.tool_name || '', msg.data.details.arguments || null)
+          addMemberStep(nodeId, msg.data.details.tool_name || '', msg.data.details.arguments || null, eventAt)
           touchWorkingTurns()
         }
         officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', true, msg.data.details.arguments || null)
@@ -4277,6 +4789,11 @@ const processMessage = async (msg) => {
       if (msg.data.details.stage === "after") {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
         finishLoadingEntry(nodeId, baseKey, eventAt)
+        if (delegatedNodes.has(nodeId)) {
+          finishMemberStep(nodeId, msg.data.details.tool_name || '', eventAt)
+          setMemberNow(nodeId, null, eventAt)
+          touchWorkingTurns()
+        }
         officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', false, msg.data.details.arguments || null)
         runTracker.activity(nodeId, 'tool', msg.data.details.tool_name || '', false, msg.data.timestamp)
       }
@@ -4301,6 +4818,7 @@ const processMessage = async (msg) => {
       const memberReported = Boolean(delegatedBy) && !memberCancelled && details.output_count !== 0
       if (delegatedBy && nodeId) {
         settleNodeTurn(nodeId, null, eventAt)
+        finishMemberSteps(nodeId, eventAt)
         // The lead summarises for the user; the member's full report stays in Tasks / Overview / Review.
         delegatedNodes.delete(nodeId)
         refreshTeamEdges()
@@ -4308,8 +4826,18 @@ const processMessage = async (msg) => {
         if (memberReported) {
           officeRef.value?.handoff(nodeId, delegatedBy, { visit: true })
           runTracker.handoff(nodeId, delegatedBy, msg.data.timestamp)
-          addChatNotification(t('launch.team.reported', { lead: delegatedBy, member: nodeId }), { at })
+          // The report is a step of the lead's work (expand it to read); the lead's answer
+          // speaks for the turn
+          const added = addTeamStep(findTurnBubble(delegatedBy), {
+            label: t('launch.team.reported', { lead: delegatedBy, member: nodeId }),
+            startedAt: memberStarts.get(nodeId) || eventAt,
+            endedAt: eventAt,
+            detail: details.output
+          })
+          if (!added) addChatNotification(t('launch.team.reported', { lead: delegatedBy, member: nodeId }), { at })
         }
+        memberStarts.delete(nodeId)
+        memberNow.delete(nodeId)
       } else if (!settleNodeTurn(nodeId, msg.data.details?.output, eventAt)) {
         addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output, at)
       }
@@ -4325,6 +4853,33 @@ const processMessage = async (msg) => {
     // Other log messages
     // "Received your input for CTO": your own bubble already says it
     else if (eventType === 'HUMAN_INTERACTION') {
+      // nothing to add
+    }
+
+    // "Run started" / "run finished": the turn's bubble already shows it working and done.
+    // The end line stays only for a turn where no agent said anything.
+    else if (eventType === 'WORKFLOW_START' || (eventType === 'WORKFLOW_END' && turnHasAgentBubble())) {
+      // nothing to add
+    }
+
+    // An agent looked up / saved memory or reflected: a step of its own turn, not a chat line
+    // (a member's goes nowhere: its lead's block lists what it did)
+    else if (eventType === 'MEMORY_OPERATION' || eventType === 'THINKING_PROCESS') {
+      if (nodeId && !delegatedNodes.has(nodeId)) {
+        const details = msg.data.details || {}
+        const label = eventType === 'THINKING_PROCESS'
+          ? t('launch.activity_done.reflect')
+          : t(String(details.operation_type || '').toUpperCase() === 'RETRIEVE' ? 'launch.activity_done.memory_read' : 'launch.activity_done.memory_write')
+        const baseKey = `note-${eventType}`
+        addLoadingEntry(nodeId, baseKey, label, { at: eventAt, doneLabel: label })
+        finishLoadingEntry(nodeId, baseKey, eventAt)
+      } else if (!nodeId) {
+        addChatNotification(localizeLogMessage(msg.data), { at })
+      }
+    }
+
+    // Set-up chatter ("Global memory 'X' built successfully", "Memory manager built for node A")
+    else if (!eventType && SETUP_LOG_RE.test(msg.data.message || '')) {
       // nothing to add
     }
 
@@ -4350,7 +4905,7 @@ const processMessage = async (msg) => {
     if (runTracker.state.plan) {
       // The turn ended with a plan waiting for approval: "finished" would mislead
       if (isEndLine) chatMessages.value.pop()
-    } else if (!isEndLine) addChatNotification(t('launch.workflow_completed'), { at })
+    } else if (!isEndLine && !turnHasAgentBubble()) addChatNotification(t('launch.workflow_completed'), { at })
     runTracker.finish('completed', { summary: formatErrorDetail(msg.data?.summary), tokenUsage: msg.data?.token_usage })
     settleAllNodeTurns({ at: at || Date.now() })
     status.value = 'Completed'
@@ -4397,7 +4952,9 @@ const processMessage = async (msg) => {
   }
   if (msg.type === 'error') {
     const errorMessage = withErrorHint(errorWithDetail('launch.errors.workflow_error', msg.data?.message))
-    addChatNotification(errorMessage, { type: 'error', at })
+    // Live failures of a turn sent from this page can be retried in place
+    const retryPrompt = !isReconnecting.value ? lastLaunchPrompt : ''
+    addChatNotification(errorMessage, { type: 'error', at, retryPrompt })
     runTracker.finish('error', { error: formatErrorDetail(msg.data?.message) })
     settleAllNodeTurns({ at: at || Date.now(), interrupted: true })
     status.value = 'Error'
@@ -4534,11 +5091,21 @@ const SCROLL_BOTTOM_THRESHOLD = 120
 let isNearBottom = true
 let scrollRafId = null
 
+let lastScrollTop = 0
+
 const handleChatScroll = () => {
   const el = chatMessagesRef.value
   if (!el) return
-  isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD
+  const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+  // Only scrolling up lets go of the bottom: content that grew between our own scroll to the
+  // bottom and its scroll event must not count as "you scrolled away"
+  const movedUp = el.scrollTop < lastScrollTop - 2
+  lastScrollTop = el.scrollTop
+  isNearBottom = distance <= SCROLL_BOTTOM_THRESHOLD || (isNearBottom && !movedUp)
   if (isNearBottom) hasUnseenMessages.value = false
+  // Far up in the history: offer the way back down even when nothing new came in
+  const scrolledUp = !isNearBottom && distance > SCROLL_BOTTOM_THRESHOLD * 3
+  if (isScrolledUp.value !== scrolledUp) isScrolledUp.value = scrolledUp
 }
 
 // "New messages" button: back to the latest message, following the chat again from there
@@ -4551,6 +5118,7 @@ function scheduleScrollToBottom(force = false) {
   if (force) {
     isNearBottom = true
     hasUnseenMessages.value = false
+    isScrolledUp.value = false
   }
   if (!isNearBottom || scrollRafId !== null) return
   scrollRafId = requestAnimationFrame(() => {
@@ -4558,7 +5126,11 @@ function scheduleScrollToBottom(force = false) {
     const el = chatMessagesRef.value
     if (el) {
       el.scrollTop = el.scrollHeight
+      lastScrollTop = el.scrollTop
     }
+    // At the bottom now: nothing is unseen, the "new messages" button goes away
+    hasUnseenMessages.value = false
+    isScrolledUp.value = false
   })
 }
 
@@ -4569,6 +5141,7 @@ watch(
     if (length === 0) {
       isNearBottom = true
       hasUnseenMessages.value = false
+      isScrolledUp.value = false
     } else if (length > (previous || 0) && !isNearBottom) {
       // Reading further up: say something new came in instead of yanking the view down
       hasUnseenMessages.value = true
@@ -4639,7 +5212,11 @@ watch(
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  outline: none;
+}
+
+.back-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .back-button:hover {
@@ -4745,6 +5322,21 @@ watch(
   z-index: 11;
 }
 
+.chat-panel-toggle::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.chat-panel-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+@media (pointer: coarse) {
+  .chat-panel-toggle { width: 44px; height: 44px; right: -44px; }
+}
+
 .chat-panel-toggle:hover {
   background: rgb(var(--ink) / 0.1);
   color: var(--text-1);
@@ -4794,7 +5386,7 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: rgb(var(--ink) / 0.5);
 }
 
@@ -4873,7 +5465,8 @@ watch(
 
 .chat-messages {
   flex: 1;
-  padding: 24px clamp(16px, 4%, 48px);
+  /* Extra room at the bottom: the "new messages" button never sits on the last line */
+  padding: 24px clamp(16px, 4%, 48px) 52px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-behavior: auto;
@@ -4922,7 +5515,7 @@ watch(
   position: absolute;
   top: 7px;
   left: 12px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-muted-7);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   pointer-events: none;
@@ -4935,7 +5528,7 @@ watch(
   align-items: center;
   gap: 4px;
   padding: 3px 7px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-muted-7);
   background: transparent;
   border: 1px solid transparent;
@@ -4969,6 +5562,17 @@ watch(
   vertical-align: top;
   min-width: 72px;
   max-width: 360px;
+}
+/* The user's own line breaks stay as typed (a single Enter is a soft break in markdown) */
+.chat-messages :deep(.dialogue-right .markdown-body p) {
+  white-space: pre-line;
+}
+/* Long URLs / unbroken words wrap instead of widening the bubble (code blocks keep scrolling) */
+.chat-messages :deep(.markdown-body p),
+.chat-messages :deep(.markdown-body li),
+.chat-messages :deep(.markdown-body td),
+.chat-messages :deep(.markdown-body blockquote) {
+  overflow-wrap: anywhere;
 }
 .chat-messages :deep(.md-table th) {
   background: rgb(var(--ink) / 0.05);
@@ -5040,8 +5644,8 @@ watch(
 }
 
 .chat-notification-error .notification-content {
-  background: rgba(255, 82, 82, 0.12);
-  border-color: rgba(255, 82, 82, 0.4);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
   color: var(--danger-soft);
 }
 
@@ -5051,11 +5655,11 @@ watch(
   margin-left: 6px;
   padding: 1px 7px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  color: #f59e0b;
-  background: rgb(245 158 11 / 0.12);
-  border: 1px solid rgb(245 158 11 / 0.35);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
 }
 
 .message-timestamp {
@@ -5273,23 +5877,53 @@ watch(
 
 /* Running label shimmers instead of glowing borders */
 .activity-running .activity-label {
-  color: rgb(var(--ink) / 0.75);
-  background: linear-gradient(
-    90deg,
-    rgb(var(--ink) / 0.45) 0%,
-    rgb(var(--ink) / 0.95) 50%,
-    rgb(var(--ink) / 0.45) 100%
-  );
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: activityShimmer 2s linear infinite;
+  color: rgb(var(--ink) / 0.85);
+  animation: activityPulse 1.8s ease-in-out infinite;
 }
 
-@keyframes activityShimmer {
-  from { background-position: 100% 0; }
-  to { background-position: -100% 0; }
+@keyframes activityPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* The step going on now, under the finished ones */
+.activity-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 4px 8px 4px 2px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* "+4 earlier steps": opens the whole list while the turn runs */
+.activity-more {
+  padding: 2px 6px 2px 2px;
+  margin: 0 0 -2px 21px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--ink) / 0.42);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.activity-more:hover {
+  color: rgb(var(--ink) / 0.75);
+  background: rgb(var(--ink) / 0.05);
+}
+
+.activity-more:focus-visible {
+  outline: 2px solid rgb(var(--accent-sky-rgb) / 0.6);
+  outline-offset: 1px;
+}
+
+.activity-step-count {
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--ink) / 0.4);
 }
 
 .activity-time {
@@ -5333,10 +5967,74 @@ watch(
 
 .activity-step {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
   font-size: 12.5px;
   color: rgb(var(--ink) / 0.55);
+}
+
+.activity-step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* A member's report: the row opens it */
+.activity-step-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.activity-step-toggle:hover .activity-step-label {
+  color: rgb(var(--ink) / 0.85);
+}
+
+.activity-step-toggle:focus-visible {
+  outline: 2px solid var(--accent-mint);
+  outline-offset: 2px;
+}
+
+.activity-step-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-step-chevron {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 0.15s ease;
+}
+
+.activity-step-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.activity-step-detail {
+  margin: 6px 0 4px 13px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgb(var(--ink) / 0.04);
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+/* Files of the turn, under the answer */
+.turn-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.turn-files .artifact-file-wrapper {
+  padding: 4px 0;
 }
 
 .activity-step-dot {
@@ -5490,13 +6188,62 @@ watch(
   box-shadow: 0 2px 10px rgb(var(--shade) / 0.18);
 }
 
+/* A send that failed: inline above the composer, with Retry (like ChatGPT / Claude) */
+.send-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.send-error-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.send-error-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.send-error-btn:hover:not(:disabled) {
+  background: rgb(var(--ink) / 0.08);
+}
+.send-error-btn:focus-visible {
+  outline: 2px solid var(--accent-blue-1);
+  outline-offset: 2px;
+}
+.send-error-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.send-error-retry {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  font-weight: 600;
+}
+.notification-retry {
+  margin-top: 6px;
+}
+
 /* The lead's open question, pinned right above the composer */
 .question-card {
   margin-bottom: 8px;
   padding: 10px 14px;
   border-radius: 12px;
-  border: 1px solid rgb(245 158 11 / 0.4);
-  background: rgb(245 158 11 / 0.08);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
   color: var(--text-1);
   font-size: 13px;
   line-height: 1.5;
@@ -5508,7 +6255,7 @@ watch(
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  color: #f59e0b;
+  color: var(--warn);
   margin-bottom: 4px;
 }
 .question-card-dot {
@@ -5516,7 +6263,7 @@ watch(
   height: 8px;
   flex: none;
   border-radius: 50%;
-  background: #f59e0b;
+  background: var(--warn);
   animation: question-pulse 1.6s ease-in-out infinite;
 }
 @keyframes question-pulse {
@@ -5544,9 +6291,6 @@ watch(
 }
 .question-card-toggle:hover {
   text-decoration: underline;
-}
-:root[data-theme="light"] .question-card-head {
-  color: #b45309;
 }
 @media (prefers-reduced-motion: reduce) {
   .question-card-dot { animation: none; }
@@ -5874,7 +6618,7 @@ watch(
   right: -6px;
   background: var(--accent-sky);
   color: var(--bg-base);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 10px;
@@ -5920,7 +6664,7 @@ watch(
 
 .attachment-meta {
   margin-left: 6px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-3, rgb(var(--ink) / 0.5));
 }
 
@@ -6085,7 +6829,7 @@ watch(
   transform: translateY(-50%);
   color: rgb(var(--ink) / 0.3);
   pointer-events: none;
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .file-dropdown {
@@ -6132,7 +6876,7 @@ watch(
 
 .file-desc {
   color: rgb(var(--ink) / 0.5);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .file-empty {
@@ -6170,8 +6914,8 @@ watch(
 }
 
 .status-awaiting-plan {
-  color: #d97706;
-  background: rgb(245 158 11 / 0.12);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
   font-weight: 600;
 }
 
@@ -6198,9 +6942,9 @@ watch(
 }
 
 .plan-card-open .plan-card-badge {
-  color: #d97706;
-  background: rgb(245 158 11 / 0.12);
-  border-color: rgb(245 158 11 / 0.4);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
 .plan-card-summary {
@@ -6316,11 +7060,11 @@ watch(
   margin-left: 4px;
   padding: 0 4px;
   border-radius: 99px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 1;
-  color: #fff;
-  background: #f59e0b;
+  color: var(--on-warn);
+  background: var(--warn);
   vertical-align: 1px;
 }
 
@@ -6507,9 +7251,27 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
-  backdrop-filter: blur(2px);
+  z-index: var(--z-modal);
 }
+
+.image-modal-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.image-modal-close:hover { background: rgb(var(--ink) / 0.1); }
+.image-modal-close:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
 .image-modal-content {
   position: relative;
@@ -6585,7 +7347,7 @@ watch(
 }
 
 /* Phones: one column (sessions, chat, controls) that scrolls, instead of three side by side */
-@media (max-width: 720px) {
+@media (max-width: 640px) {
   .content {
     flex-direction: column;
     overflow-x: hidden;
@@ -6611,7 +7373,7 @@ watch(
   .left-panel {
     flex: none;
     height: 72vh;
-    min-height: 420px;
+    min-height: min(420px, 70dvh);
   }
 
   .right-panel:not(.right-panel-overlay) {

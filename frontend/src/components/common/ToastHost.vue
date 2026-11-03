@@ -1,11 +1,11 @@
 <script setup>
-import { toasts, dismissToast, runToastAction } from '@/utils/toast'
+import { toasts, dismissToast, runToastAction, pauseToast, resumeToast } from '@/utils/toast'
 
 const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
 </script>
 
 <template>
-  <div class="toast-host" aria-live="polite">
+  <div class="toast-host">
     <TransitionGroup name="toast">
       <div
         v-for="item in toasts"
@@ -13,6 +13,10 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
         class="toast"
         :class="`toast--${item.type}`"
         :role="item.type === 'error' ? 'alert' : 'status'"
+        @mouseenter="pauseToast(item.id)"
+        @mouseleave="resumeToast(item.id)"
+        @focusin="pauseToast(item.id)"
+        @focusout="resumeToast(item.id)"
       >
         <span class="toast-icon" aria-hidden="true">{{ ICONS[item.type] }}</span>
         <div class="toast-body">
@@ -47,9 +51,9 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
 <style scoped>
 .toast-host {
   position: fixed;
-  top: 16px;
+  top: 67px; /* below the 55px sticky header */
   right: 16px;
-  z-index: 3000;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -58,22 +62,21 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
 }
 
 .toast {
-  --toast-accent: var(--accent-sky);
+  --toast-accent: var(--accent);
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 12px 12px 12px 14px;
-  background: var(--surface-1);
-  border: 1px solid var(--line-2);
-  border-left: 3px solid var(--toast-accent);
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--toast-accent) 45%, var(--line-2));
   border-radius: 8px;
   box-shadow: 0 8px 24px rgb(var(--shade) / 0.45);
-  color: var(--text-1);
+  color: var(--fg);
   pointer-events: auto;
 }
 
 .toast--success { --toast-accent: var(--accent-mint); }
-.toast--warning { --toast-accent: var(--warn-soft-1); }
+.toast--warning { --toast-accent: var(--warn); }
 .toast--error { --toast-accent: var(--danger); }
 
 .toast-icon {
@@ -119,7 +122,7 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
   max-height: 96px;
   overflow-y: auto;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--text-muted-6);
   overflow-wrap: anywhere;
@@ -132,7 +135,7 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
   border-radius: 6px;
   background: none;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   cursor: pointer;
 }
@@ -148,9 +151,9 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
 
 .toast-close {
   flex: none;
-  width: 24px;
-  height: 24px;
-  margin: -2px -2px 0 0;
+  width: 32px;
+  height: 32px;
+  margin: -6px -6px 0 0;
   border: none;
   border-radius: 4px;
   background: none;
@@ -172,7 +175,7 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
 
 .toast-enter-active,
 .toast-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity 0.18s var(--ease-out), transform 0.18s var(--ease-out);
 }
 
 .toast-enter-from,

@@ -32,6 +32,11 @@ class WorkflowUpdateContentRequest(BaseModel):
     content: str
 
 
+class WorkflowMergeRequest(BaseModel):
+    # The whole desired workflow document as plain data; the file keeps its formatting where unchanged
+    document: Dict[str, Any]
+
+
 class WorkflowRenameRequest(BaseModel):
     new_filename: str
 

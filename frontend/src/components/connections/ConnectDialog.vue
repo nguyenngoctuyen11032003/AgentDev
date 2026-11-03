@@ -1,25 +1,20 @@
 <template>
-  <Teleport to="body">
-    <div v-if="open" class="dialog-backdrop" @mousedown.self="requestClose">
-      <section
-        ref="dialogEl"
-        class="dialog"
-        role="dialog"
-        aria-modal="true"
-        :aria-labelledby="titleId"
-        @keydown.esc.stop="requestClose"
-      >
-        <button type="button" class="icon-btn close-btn" :aria-label="$t('connections.close')" @click="requestClose">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
-        </button>
+  <BaseDialog
+    :model-value="open"
+    :labelledby="titleId"
+    width="440px"
+    :close-on-backdrop="!saving"
+    @update:model-value="(value) => !value && requestClose()"
+  >
+    <template #header>
+      <header class="dialog-head">
+        <ProviderLogo :vendor="vendor.id" :label="vendor.label" :size="56" />
+        <h2 :id="titleId">{{ $t('connections.login_heading', { provider: vendor.label }) }}</h2>
+        <p>{{ $t('connections.dialog_subtitle') }}</p>
+      </header>
+    </template>
 
-        <header class="dialog-head">
-          <ProviderLogo :vendor="vendor.id" :label="vendor.label" :size="56" />
-          <h2 :id="titleId">{{ $t('connections.login_heading', { provider: vendor.label }) }}</h2>
-          <p>{{ $t('connections.dialog_subtitle') }}</p>
-        </header>
-
-        <div class="dialog-body">
+        <div ref="dialogEl" class="dialog-body">
           <!-- Sign-in method: stacked options, like the login picker in the VS Code extensions -->
           <div v-if="!login.session" class="method-list" role="radiogroup" :aria-label="$t('connections.auth_method')">
             <button
@@ -30,7 +25,9 @@
               class="method-card"
               :class="{ 'is-selected': method === option.key }"
               :aria-checked="method === option.key"
+              :tabindex="method === option.key ? 0 : -1"
               @click="selectMethod(option.key)"
+              @keydown="onMethodKey($event, option.key)"
             >
               <span class="method-icon" aria-hidden="true">
                 <svg v-if="option.key === 'device'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
@@ -82,8 +79,8 @@
                           <p class="step-title">{{ $t('connections.step_signin') }}</p>
                           <p class="step-text">{{ $t('connections.login_step_open') }}</p>
                           <div class="step-actions">
-                            <a :href="login.session.url" target="_blank" rel="noopener noreferrer" class="btn btn-small">{{ $t('connections.login_open_link') }}</a>
-                            <button type="button" class="btn btn-ghost btn-small" @click="copyLoginUrl">{{ $t('connections.login_copy_link') }}</button>
+                            <a :href="login.session.url" target="_blank" rel="noopener noreferrer" class="btn sm">{{ $t('connections.login_open_link') }}</a>
+                            <button type="button" class="btn ghost sm" @click="copyLoginUrl">{{ $t('connections.login_copy_link') }}</button>
                           </div>
                         </div>
                       </li>
@@ -103,7 +100,7 @@
                             />
                             <button type="button" class="btn" @click="pasteLoginCode">{{ $t('connections.login_paste') }}</button>
                           </div>
-                          <button type="button" class="btn btn-primary btn-block" :disabled="login.busy || !login.code.trim()" @click="submitLoginCode">
+                          <button type="button" class="btn primary btn-block" :disabled="login.busy || !login.code.trim()" @click="submitLoginCode">
                             {{ login.busy ? $t('connections.login_verifying') : $t('connections.login_confirm') }}
                           </button>
                           <p class="note waiting"><span class="spinner" aria-hidden="true"></span>{{ $t('connections.login_waiting_browser') }}</p>
@@ -142,26 +139,26 @@
           </div>
         </div>
 
-        <footer class="dialog-foot">
+    <template #footer>
+        <div class="dialog-foot">
           <button
             v-if="!login.session"
             type="button"
-            class="btn btn-primary btn-cta"
+            class="btn primary btn-cta"
             :disabled="!canSubmit || saving || login.busy"
             @click="submit"
           >
             <span v-if="saving || login.busy" class="spinner" aria-hidden="true"></span>
             {{ login.busy ? $t('connections.login_starting') : submitLabel }}
           </button>
-          <button type="button" class="btn btn-ghost btn-cta-sub" @click="requestClose">{{ $t('connections.cancel') }}</button>
+          <button type="button" class="btn ghost btn-cta-sub" @click="requestClose">{{ $t('connections.cancel') }}</button>
           <p class="privacy">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
             {{ $t('connections.privacy') }}
           </p>
-        </footer>
-      </section>
-    </div>
-  </Teleport>
+        </div>
+    </template>
+  </BaseDialog>
 </template>
 
 <script setup>
@@ -169,6 +166,7 @@ defineOptions({ name: 'ConnectDialog' })
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ProviderLogo from './ProviderLogo.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import {
   cancelCliLogin,
   createConnection,
@@ -447,6 +445,19 @@ async function prepareMethod() {
   }
 }
 
+// Radio group: arrows move + select, only the checked option is in the tab order.
+function onMethodKey(event, key) {
+  const forward = ['ArrowDown', 'ArrowRight'].includes(event.key)
+  const backward = ['ArrowUp', 'ArrowLeft'].includes(event.key)
+  if (!forward && !backward) return
+  event.preventDefault()
+  const list = methods.value
+  const index = list.findIndex((m) => m.key === key)
+  const next = list[(index + (forward ? 1 : -1) + list.length) % list.length]
+  selectMethod(next.key)
+  nextTick(() => dialogEl.value?.querySelector('.method-card[aria-checked="true"]')?.focus())
+}
+
 function selectMethod(key) {
   if (method.value === key) return
   method.value = key
@@ -501,7 +512,7 @@ watch(
     method.value = methods.value[0]?.key || 'cli'
     await prepareMethod()
     await nextTick()
-    dialogEl.value?.querySelector('button.method-card')?.focus()
+    dialogEl.value?.querySelector('.method-card[aria-checked="true"]')?.focus()
   },
   { immediate: true }
 )
@@ -514,51 +525,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 9000;
-  display: grid;
-  place-items: center;
-  padding: 24px 16px;
-  overflow-y: auto;
-  background: rgb(8 8 10 / 0.66);
-  backdrop-filter: blur(4px);
-  animation: fade 0.16s ease-out;
-}
-
-.dialog {
-  position: relative;
-  box-sizing: border-box;
-  width: min(440px, 100%);
-  max-height: calc(100dvh - 48px);
-  display: flex;
-  flex-direction: column;
-  border-radius: 12px;
-  border: 1px solid var(--line-4);
-  background: var(--surface-1);
-  color: var(--text-1);
-  box-shadow: 0 24px 64px -20px rgb(0 0 0 / 0.7);
-  animation: rise 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-@keyframes fade {
-  from { opacity: 0; }
-}
-
-@keyframes rise {
-  from { opacity: 0; transform: translateY(8px) scale(0.99); }
-}
-
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dialog-backdrop,
-  .dialog {
-    animation: none;
-  }
 }
 
 /* ---- header: centered brand, like the extension sign-in screens ---- */
@@ -567,7 +535,9 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 32px 28px 18px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0 6px 40px;
   text-align: center;
 }
 
@@ -581,38 +551,13 @@ onBeforeUnmount(() => {
 .dialog-head p {
   margin: 0;
   font-size: 13px;
-  color: var(--text-muted-4);
-}
-
-.icon-btn {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted-4);
-  cursor: pointer;
-}
-
-.close-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-}
-
-.icon-btn:hover {
-  background: var(--surface-3);
-  color: var(--text-1);
+  color: var(--fg-muted);
 }
 
 .dialog-body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 0 28px 8px;
-  overflow-y: auto;
 }
 
 /* ---- method list ---- */
@@ -628,7 +573,7 @@ onBeforeUnmount(() => {
   gap: 12px;
   padding: 11px 14px;
   border-radius: 8px;
-  border: 1px solid var(--line-4);
+  border: 1px solid var(--border-strong);
   background: var(--surface-2);
   color: inherit;
   font: inherit;
@@ -638,12 +583,12 @@ onBeforeUnmount(() => {
 }
 
 .method-card:hover {
-  border-color: color-mix(in srgb, var(--accent-sky) 60%, var(--line-4));
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border-strong));
 }
 
 .method-card.is-selected {
-  border-color: var(--accent-sky);
-  background: color-mix(in srgb, var(--accent-sky) 8%, var(--surface-2));
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
 }
 
 .method-icon {
@@ -654,11 +599,11 @@ onBeforeUnmount(() => {
   height: 32px;
   border-radius: 8px;
   background: var(--surface-3);
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .method-card.is-selected .method-icon {
-  color: var(--accent-sky);
+  color: var(--accent);
 }
 
 .method-text {
@@ -681,7 +626,7 @@ onBeforeUnmount(() => {
 .method-desc {
   font-size: 12px;
   line-height: 1.45;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .method-radio {
@@ -689,12 +634,12 @@ onBeforeUnmount(() => {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 1.5px solid var(--line-4);
+  border: 1.5px solid var(--border-strong);
 }
 
 .method-card.is-selected .method-radio {
-  border-color: var(--accent-sky);
-  background: radial-gradient(circle, var(--accent-sky) 0 4px, transparent 5px);
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 4px, transparent 5px);
 }
 
 .pill {
@@ -725,7 +670,7 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 12.5px;
   line-height: 1.55;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .note-dim {
@@ -776,11 +721,11 @@ onBeforeUnmount(() => {
 }
 
 .status-row.is-warn {
-  color: #ffd27a;
+  color: var(--warn);
 }
 
 .status-row.is-warn .status-dot {
-  background: #ffd27a;
+  background: var(--warn);
 }
 
 .login-box {
@@ -803,7 +748,7 @@ onBeforeUnmount(() => {
   list-style: none;
   border-radius: 8px;
   background: var(--surface-2);
-  border: 1px solid var(--line-4);
+  border: 1px solid var(--border-strong);
 }
 
 .step {
@@ -829,7 +774,7 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .step-num {
@@ -841,8 +786,8 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   font-size: 11.5px;
   font-weight: 700;
-  background: color-mix(in srgb, var(--accent-sky) 20%, transparent);
-  color: var(--accent-sky);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
 }
 
 .step-actions,
@@ -895,17 +840,18 @@ onBeforeUnmount(() => {
 
 .field-hint {
   font-size: 11.5px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .input {
   box-sizing: border-box;
   width: 100%;
+  min-height: 40px;
   padding: 9px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--line-4);
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
   background: var(--surface-2);
-  color: var(--text-1);
+  color: var(--fg);
   font: inherit;
   font-size: 13.5px;
 }
@@ -915,91 +861,40 @@ onBeforeUnmount(() => {
 }
 
 .input:focus-visible {
-  outline: 1px solid var(--accent-sky);
+  outline: 2px solid var(--accent);
   outline-offset: 0;
-  border-color: var(--accent-sky);
+  border-color: var(--accent);
 }
 
 .advanced summary {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
   width: fit-content;
-  margin-bottom: 8px;
   font-size: 12.5px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   cursor: pointer;
 }
 
 .advanced summary:hover {
-  color: var(--text-1);
+  color: var(--fg);
 }
 
-.advanced:not([open]) summary {
-  margin-bottom: 0;
+.advanced[open] summary {
+  margin-bottom: 8px;
 }
 
-/* ---- buttons ---- */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 6px;
-  border: 1px solid var(--line-4);
-  background: var(--surface-3);
-  color: var(--text-1);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, filter 0.15s;
-}
-
-.btn:hover:not(:disabled) {
-  border-color: var(--accent-sky);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-small {
-  padding: 5px 11px;
-  font-size: 12.5px;
-}
-
-.btn-ghost {
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-muted-4);
-}
-
-.btn-ghost:hover:not(:disabled) {
-  border-color: transparent;
-  color: var(--text-1);
-}
-
-.btn-primary {
-  border-color: transparent;
-  background: var(--accent-sky);
-  color: #101418;
-}
-
-.btn-primary:hover:not(:disabled) {
-  border-color: transparent;
-  filter: brightness(1.08);
-}
-
+/* ---- buttons: global .btn (ui.css) ---- */
 .btn-block {
   width: 100%;
 }
 
 .link-btn {
-  padding: 0;
+  min-height: 40px;
+  padding: 0 4px;
   border: 0;
   background: none;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   font: inherit;
   font-size: 12.5px;
   text-decoration: underline;
@@ -1007,25 +902,23 @@ onBeforeUnmount(() => {
 }
 
 .link-btn:hover {
-  color: var(--text-1);
+  color: var(--fg);
 }
 
 /* ---- footer: one full-width call to action ---- */
 .dialog-foot {
+  flex: 1 1 100%;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-  padding: 16px 28px 20px;
 }
 
 .btn-cta {
-  padding: 11px 16px;
   font-size: 14px;
 }
 
 .btn-cta-sub {
-  padding: 6px 12px;
   font-size: 12.5px;
 }
 
@@ -1045,8 +938,9 @@ onBeforeUnmount(() => {
   flex: none;
 }
 
-:focus-visible {
-  outline: 1px solid var(--accent-sky);
-  outline-offset: 2px;
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 </style>

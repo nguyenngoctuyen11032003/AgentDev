@@ -255,12 +255,15 @@ def trim(text: str, limit: int = 500) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
 
 
-def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str) -> subprocess.CompletedProcess:
+def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str,
+            on_line: Optional[Callable[[str], None]] = None) -> subprocess.CompletedProcess:
     """Run a vendor CLI. Raises ``CliCancelled`` (CLI tree killed) when the enclosing
-    ``cli_cancel_scope`` event is set while it runs."""
+    ``cli_cancel_scope`` event is set while it runs. ``on_line`` gets each stdout line live (reader thread)."""
+    extra: Dict[str, Any] = {"on_stdout_line": on_line} if on_line is not None else {}
     try:
         return cli_auth.run_capture(
-            cmd, input=prompt, timeout=timeout, cwd=cwd, env=cli_auth.cli_env(), cancel_event=current_cancel_event()
+            cmd, input=prompt, timeout=timeout, cwd=cwd, env=cli_auth.cli_env(), cancel_event=current_cancel_event(),
+            **extra,
         )
     except subprocess.TimeoutExpired as exc:
         raise CliTimeoutError(f"`{name}` CLI timed out after {timeout}s") from exc

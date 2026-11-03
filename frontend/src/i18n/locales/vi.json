@@ -100,7 +100,11 @@
     "copied": "Đã sao chép",
     "failed_to_copy": "Không thể sao chép mã: ",
     "failed_to_fetch": "Không thể tải nội dung hướng dẫn",
-    "failed_to_load": "Không thể tải hướng dẫn:"
+    "failed_to_load": "Không thể tải hướng dẫn:",
+    "loading": "Đang tải hướng dẫn",
+    "error_title": "Không tải được hướng dẫn",
+    "error_desc": "Kiểm tra kết nối mạng rồi thử lại.",
+    "retry": "Thử lại"
   },
   "home": {
     "eyebrow": "Nền tảng đa agent · không cần viết mã",
@@ -162,7 +166,14 @@
     "dept_content": "Phòng nội dung",
     "dept_content_desc": "Tổng biên tập giao việc nghiên cứu và kiểm chứng, viết, tối ưu SEO và soát lỗi.",
     "dept_video": "Phòng sản xuất video",
-    "dept_video_desc": "Nhà sản xuất điều phối kịch bản, storyboard, lồng tiếng và phụ đề, dựng video, thumbnail và duyệt."
+    "dept_video_desc": "Nhà sản xuất điều phối kịch bản, storyboard, lồng tiếng và phụ đề, dựng video, thumbnail và duyệt.",
+    "delete": "Xoá",
+    "delete_aria": "Xoá quy trình {name}",
+    "confirm_delete_title": "Xoá quy trình \"{name}\"?",
+    "confirm_delete_message": "Tệp YAML của quy trình sẽ bị xoá vĩnh viễn. Không thể hoàn tác.",
+    "confirm_delete_open": "Quy trình này đang mở trong trình chỉnh sửa: thay đổi chưa lưu sẽ mất và tệp YAML sẽ bị xoá vĩnh viễn. Không thể hoàn tác.",
+    "delete_success": "Đã xoá quy trình \"{name}\".",
+    "delete_failed": "Không thể xoá quy trình."
   },
   "workflow_view": {
     "yaml_parse_error": "Lỗi phân tích YAML: ",
@@ -211,7 +222,8 @@
     "duplicate_many_done_team": "Đã tạo {count} bản sao (\"{first}\" … \"{last}\") và thêm vào nhóm của {leads}.",
     "try_in_lab": "Thử trong Lab",
     "try_in_lab_hint": "Mở Lab với quy trình này để chạy thử các kịch bản và chấm điểm",
-    "more_actions": "Thêm thao tác"
+    "more_actions": "Thêm thao tác",
+    "delete_workflow": "Xoá quy trình"
   },
   "batch_run": {
     "title": "Chạy hàng loạt",
@@ -260,7 +272,18 @@
     "log_batch_completed": "Đã chạy hàng loạt xong: {succeeded} nhiệm vụ thành công, {failed} nhiệm vụ thất bại",
     "log_task_started": "[ID {id}, dòng {row}] đã bắt đầu",
     "log_task_completed": "[ID {id}, dòng {row}] đã hoàn tất trong {duration} ms, dùng {tokens} token",
-    "log_task_failed": "[ID {id}, dòng {row}] thất bại. Lỗi: {error}"
+    "log_task_failed": "[ID {id}, dòng {row}] thất bại. Lỗi: {error}",
+    "copy_logs": "Sao chép",
+    "clear_logs": "Xóa nhật ký",
+    "logs_copied": "Đã sao chép nhật ký.",
+    "logs_copy_failed": "Không sao chép được nhật ký.",
+    "remove_input_file": "Bỏ tệp đã chọn",
+    "input_file_hint": "Hỗ trợ tệp .xlsx hoặc .csv",
+    "column_guide_title": "Định dạng tệp đầu vào",
+    "progress_detail": "{done}/{total} dòng · {failed} lỗi",
+    "hint_pick_workflow": "Chọn quy trình để có thể chạy.",
+    "hint_pick_file": "Chọn tệp đầu vào (.xlsx hoặc .csv) để có thể chạy.",
+    "hint_connecting": "Đang kết nối tới máy chủ..."
   },
   "launch": {
     "plan": {
@@ -283,6 +306,7 @@
       "search": "Tìm phiên...",
       "empty": "Chưa có phiên nào. Chọn quy trình và khởi chạy để bắt đầu.",
       "no_results": "Không tìm thấy phiên phù hợp",
+      "loading": "Đang tải danh sách phiên...",
       "untitled": "Phiên mới",
       "draft": "Chưa khởi chạy",
       "rename": "Đổi tên",
@@ -430,7 +454,31 @@
       "web": "Đang tra cứu trên web",
       "tool": "Đang dùng {name}",
       "member_working": "{chain} đang làm",
-      "member_working_doing": "{chain} · {doing}"
+      "member_working_doing": "{chain} · {doing}",
+      "member_file": "{member} đã tạo {file}",
+      "working": "Đang làm việc",
+      "browser": "Đang thao tác trình duyệt",
+      "member_step": "{member} · {step}",
+      "more_steps": "+{n} bước trước",
+      "fewer_steps": "Thu gọn"
+    },
+    "activity_done": {
+      "thinking": "Đã suy nghĩ",
+      "ask_user": "Đã soạn câu hỏi cho bạn",
+      "delegate": "Đã giao việc cho đội",
+      "delegate_to": "Đã giao việc cho {member}",
+      "delegate_parallel": "Đã giao việc song song cho đội",
+      "read": "Đã đọc tệp",
+      "list": "Đã xem cấu trúc dự án",
+      "search": "Đã tìm trong mã nguồn",
+      "write": "Đã chỉnh sửa tệp",
+      "run": "Đã chạy lệnh",
+      "web": "Đã tra cứu trên web",
+      "tool": "Đã dùng {name}",
+      "browser": "Đã thao tác trình duyệt",
+      "reflect": "Đã suy ngẫm lại",
+      "memory_read": "Đã tra cứu bộ nhớ",
+      "memory_write": "Đã ghi vào bộ nhớ"
     },
     "workflow_completed": "Quy trình đã hoàn tất",
     "errors": {
@@ -632,6 +680,8 @@
       "show_less": "Thu gọn",
       "no_tasks_member": "Chưa có việc",
       "no_output": "Đã xong (không có nội dung bàn giao)",
+      "no_output_cancelled": "Dừng giữa chừng, chưa bàn giao gì",
+      "no_output_error": "Lỗi giữa chừng, chưa bàn giao gì",
       "go_review": "Duyệt kết quả →",
       "states": {
         "todo": "Chờ",
@@ -654,6 +704,8 @@
       "turn_filter": "Xem việc theo lượt"
     },
     "dashboard": {
+      "timeline_wall_hint": "Gồm cả lúc chờ giữa các tin nhắn của bạn; ô Thời gian chạy chỉ tính lúc đội làm việc",
+      "timeline_wall": "Từ đầu đến cuối {time}",
       "view": "Tổng quan",
       "title": "Tổng quan công việc",
       "progress_aria": "Đã hoàn thành {p}%",
@@ -730,6 +782,10 @@
       "chat_only": "Chỉ trao đổi, chưa giao việc"
     },
     "review": {
+      "back": "Danh sách",
+      "run_time_hint": "Thời gian đội làm việc, không tính lúc chờ giữa các tin nhắn của bạn",
+      "run_time": "⏱ {time} làm việc",
+      "other_requests": "Yêu cầu khác của bạn trong phiên ({n})",
       "view": "Duyệt",
       "eyebrow": "Kiểm duyệt chất lượng",
       "title": "Duyệt kết quả",
@@ -853,6 +909,20 @@
     "replaced_by_other_tab": "Phiên này đang mở ở tab khác. Bấm \"Mở ở đây\" để tiếp tục trong tab này.",
     "run_in_progress": "Lượt trước vẫn đang chạy. Hãy chờ xong hoặc bấm Dừng rồi gửi lại.",
     "jump_to_latest": "Tin nhắn mới",
+    "chat_ui": {
+      "composer_label": "Nhập tin nhắn cho trưởng nhóm",
+      "running_draft_placeholder": "Đội đang làm việc… bạn có thể soạn tin tiếp theo hoặc dừng lượt chạy",
+      "scroll_to_bottom": "Xuống tin mới nhất",
+      "retry": "Thử lại",
+      "stop": "Dừng",
+      "dismiss": "Đóng",
+      "suggestions_label": "Gợi ý câu hỏi",
+      "suggestion_intro": "Giới thiệu đội của bạn và cách các bạn làm việc",
+      "suggestion_plan": "Lên kế hoạch làm một ứng dụng ghi chú đơn giản",
+      "suggestion_review": "Rà soát mã trong dự án và đề xuất cải tiến",
+      "composer_label_agent": "Nhập tin nhắn",
+      "running_draft_placeholder_agent": "Đang làm việc… bạn có thể soạn tin tiếp theo hoặc dừng lượt chạy"
+    },
     "run_new_turn": "Chạy lượt mới",
     "running_placeholder": "Đang chạy… bạn có thể dừng hoặc chờ trưởng nhóm hỏi",
     "question_card": {
@@ -1347,7 +1417,8 @@
       "connections_failed": "Không thể tải danh sách kết nối",
       "sessions_failed": "Không thể tải danh sách phiên",
       "skills_failed": "Không thể xử lý thư viện skill",
-      "lab_failed": "Phòng thí nghiệm gặp lỗi"
+      "lab_failed": "Phòng thí nghiệm gặp lỗi",
+      "delete_workflow_failed": "Không thể xoá quy trình."
     },
     "backend": {
       "technical": "Chi tiết kỹ thuật: {detail}",
@@ -2019,7 +2090,7 @@
     "test_ok": "Đã kết nối — có {count} model",
     "test_failed": "Kiểm tra kết nối thất bại",
     "models": "Model",
-    "used_in": "Chọn kết nối này ở trường \"Kết nối tài khoản\" trong biểu mẫu của nút agent.",
+    "used_in": "Chọn kết nối này ở trường \"Tài khoản AI\" trong biểu mẫu của nút agent.",
     "precheck_failed": "Một số agent dùng kết nối chưa sẵn sàng",
     "cli_hint": "Chỉ hỗ trợ văn bản: agent có dùng công cụ chưa chạy được với nhà cung cấp này.",
     "cli_ready": "CLI sẵn sàng",
@@ -2193,6 +2264,7 @@
     "import_title": "Nhập skill từ thư mục",
     "import_source": "Thư mục nguồn",
     "import_reload": "Tải lại",
+    "import_loading": "Đang đọc danh sách skill...",
     "import_none": "Không tìm thấy skill nào trong thư mục này.",
     "import_missing": "Không tìm thấy thư mục {path}",
     "select_all": "Chọn tất cả ({count})",
@@ -2250,7 +2322,7 @@
     "remove": "Xóa",
     "prompt_label": "Yêu cầu gửi cho quy trình",
     "prompt_placeholder": "VD: Sửa lỗi nút Đăng nhập không phản hồi trên điện thoại",
-    "criteria_label": "Tiêu chí đạt (để trống = chỉ cần trả lời không lỗi)",
+    "criteria_label": "Tiêu chí đạt (để trống = AI chấm theo tiêu chí chung: trả lời đúng, đủ, đúng ngôn ngữ)",
     "criteria_placeholder": "VD: Trả lời bằng tiếng Việt; nêu nguyên nhân; có giao cho Bug Fixer và QA Tester; nêu cách kiểm tra lại",
     "add_scenario": "Thêm kịch bản",
     "add_samples": "Thêm kịch bản mẫu",
@@ -2303,6 +2375,8 @@
     "sample2_name": "Việc nhỏ cần một chuyên gia",
     "sample2_prompt": "Nhờ QA Tester liệt kê 3 test case quan trọng nhất cho form đăng nhập email + mật khẩu. Không cần kế hoạch, làm luôn.",
     "sample2_criteria": "Trả lời bằng tiếng Việt; có đúng 3 test case cụ thể (bước làm và kết quả mong đợi); không viết code.",
+    "sample2_generic_prompt": "Nhờ {member} làm một việc nhỏ đúng chuyên môn: đưa ra 3 gợi ý cụ thể cho chủ đề \"ra mắt ứng dụng ghi chú cho sinh viên\". Không cần kế hoạch, làm luôn.",
+    "sample2_generic_criteria": "Trả lời bằng tiếng Việt; có giao việc cho {member}; đúng 3 gợi ý cụ thể, đúng chuyên môn của {member}; ngắn gọn.",
     "checks": {
       "yaml": {
         "title": "Đọc tệp YAML",
@@ -2350,6 +2424,9 @@
         "problem": "Các nút này không có liên kết tới và không thuộc nhóm nào, nên sẽ không bao giờ chạy:"
       }
     },
-    "job_lost": "Không còn theo dõi được lượt chạy này (máy chủ có thể đã khởi động lại). Hãy chạy lại."
+    "job_lost": "Không còn theo dõi được lượt chạy này (máy chủ có thể đã khởi động lại). Hãy chạy lại.",
+    "scenario_skipped": "Chưa đủ, sẽ bỏ qua",
+    "run_hint_empty": "Nhập yêu cầu cho ít nhất một kịch bản để chạy.",
+    "progress_label": "Tiến độ kiểm định"
   }
 }

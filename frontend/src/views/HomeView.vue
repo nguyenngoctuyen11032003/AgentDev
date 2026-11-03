@@ -81,11 +81,11 @@ const orbitDots = [
       <p class="introduction">{{ $t('home.introduction') }}</p>
 
       <div class="actions">
-        <button type="button" class="btn get-started-btn" @click="goToTutorial">
+        <button type="button" class="btn primary get-started-btn" @click="goToTutorial">
           {{ $t('home.get_started') }}
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
         </button>
-        <router-link to="/workflows" class="btn secondary-btn">{{ $t('home.secondary') }}</router-link>
+        <router-link to="/workflows" class="btn secondary secondary-btn">{{ $t('home.secondary') }}</router-link>
       </div>
 
       <div class="runs-on">
@@ -139,14 +139,14 @@ const orbitDots = [
   padding: 24px;
   overflow-x: hidden;
   overflow-y: auto;
-  background: var(--bg-base);
+  background: var(--bg);
   font-family: 'Inter', sans-serif;
   isolation: isolate;
 }
 
 /* ---------------------------------------------------------------- backdrop */
 .backdrop {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: -1;
   pointer-events: none;
@@ -244,13 +244,13 @@ const orbitDots = [
   height: 7px;
   margin: -3.5px;
   border-radius: 50%;
-  background: var(--accent-sky);
+  background: var(--accent);
   box-shadow: 0 0 0 3px rgb(var(--accent-sky-rgb) / 0.16), 0 0 12px rgb(var(--accent-sky-rgb) / 0.7);
   transform: rotate(var(--a)) translateX(var(--r));
 }
 
-.orbit-1 .orbit-dot { background: var(--accent-mint); box-shadow: 0 0 0 3px rgb(var(--accent-mint-rgb) / 0.16), 0 0 12px rgb(var(--accent-mint-rgb) / 0.7); }
-.orbit-2 .orbit-dot { background: var(--accent-indigo); box-shadow: 0 0 0 3px rgb(var(--accent-indigo-rgb) / 0.16), 0 0 12px rgb(var(--accent-indigo-rgb) / 0.7); }
+.orbit-1 .orbit-dot { background: var(--success); box-shadow: 0 0 0 3px rgb(var(--accent-mint-rgb) / 0.16), 0 0 12px rgb(var(--accent-mint-rgb) / 0.7); }
+.orbit-2 .orbit-dot { background: var(--info); box-shadow: 0 0 0 3px rgb(var(--accent-indigo-rgb) / 0.16), 0 0 12px rgb(var(--accent-indigo-rgb) / 0.7); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -269,8 +269,7 @@ const orbitDots = [
   100% { transform: translate3d(0, 110vh, 0); }
 }
 
-.home-view.paused .backdrop *,
-.home-view.paused .title-highlight {
+.home-view.paused .backdrop * {
   animation-play-state: paused;
 }
 
@@ -294,9 +293,9 @@ const orbitDots = [
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: var(--text-soft-1);
-  background: rgb(var(--panel-20) / 0.6);
-  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.1);
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .eyebrow-dot {
@@ -304,7 +303,7 @@ const orbitDots = [
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent-mint);
+  background: var(--success);
 }
 
 .eyebrow-dot::after {
@@ -312,7 +311,7 @@ const orbitDots = [
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  border: 1.5px solid var(--accent-mint);
+  border: 1.5px solid var(--success);
   animation: ping 2s ease-out infinite;
 }
 
@@ -326,34 +325,28 @@ const orbitDots = [
   flex-direction: column;
   align-items: center;
   margin: 0 0 24px;
-  font-size: 82px;
+  font-size: clamp(40px, 7vw, 82px);
   font-weight: 900;
   line-height: 1.12;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
 }
 
 .title-line {
-  color: var(--text-strong);
+  color: var(--fg);
 }
 
 .title-highlight {
   padding-bottom: 0.06em;
-  background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo), var(--accent-sky), var(--accent-mint));
-  background-size: 200% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: shimmer 8s linear infinite;
+  color: var(--accent);
 }
-
-@keyframes shimmer { to { background-position: -200% 0; } }
 
 .introduction {
   max-width: 680px;
   margin: 0 auto 38px;
   font-size: 20px;
   line-height: 1.6;
-  color: rgb(var(--ink-softer) / 0.62);
+  color: var(--fg-muted);
 }
 
 .actions {
@@ -362,32 +355,23 @@ const orbitDots = [
   justify-content: center;
 }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.actions .btn {
   gap: 9px;
-  min-height: 50px;
-  padding: 0 30px;
-  border: 0;
-  border-radius: 999px;
+  min-height: 48px;
+  padding: 0 28px;
+  border-radius: 12px;
   font-size: 16px;
   font-weight: 650;
-  text-decoration: none;
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, filter 0.2s ease;
 }
 
 .get-started-btn {
-  position: relative;
-  color: #04121f;
-  background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
-  box-shadow: 0 0 0 1px rgb(var(--accent-sky-rgb) / 0.5), 0 10px 34px -8px rgb(var(--accent-sky-rgb) / 0.65);
+  box-shadow: 0 10px 34px -10px rgb(var(--accent-sky-rgb) / 0.6);
 }
 
 .get-started-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 0 0 1px rgb(var(--accent-sky-rgb) / 0.7), 0 14px 40px -8px rgb(var(--accent-sky-rgb) / 0.85);
+  box-shadow: 0 14px 40px -10px rgb(var(--accent-sky-rgb) / 0.8);
 }
 
 .get-started-btn svg {
@@ -399,20 +383,12 @@ const orbitDots = [
 }
 
 .secondary-btn {
-  color: var(--text-1);
-  background: rgb(var(--panel-20) / 0.55);
-  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.14);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  backdrop-filter: blur(6px);
 }
 
 .secondary-btn:hover {
-  color: var(--text-1);
-  background: rgb(var(--ink) / 0.08);
-  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.24);
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--accent-sky);
-  outline-offset: 3px;
+  background: var(--surface-raised);
 }
 
 .runs-on {
@@ -424,22 +400,19 @@ const orbitDots = [
   margin-top: 46px;
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .runs-on-label {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.8;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .provider {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-soft-1);
+  color: var(--fg-muted);
 }
 
 /* ---------------------------------------------------------------- quick start */
@@ -450,11 +423,9 @@ const orbitDots = [
 
 .quickstart-title {
   margin: 0 0 14px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted-4);
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--fg-muted);
 }
 
 .quick-steps {
@@ -472,8 +443,8 @@ const orbitDots = [
   gap: 12px;
   padding: 16px 16px 14px;
   border-radius: 16px;
-  background: rgb(var(--panel-20) / 0.55);
-  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.1);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border);
   backdrop-filter: blur(6px);
 }
 
@@ -486,12 +457,12 @@ const orbitDots = [
   border-radius: 50%;
   font-size: 13px;
   font-weight: 800;
-  color: #04121f;
-  background: var(--accent-mint);
+  color: var(--on-success);
+  background: var(--success);
 }
 
-.quick-step:nth-child(2) .step-no { background: var(--accent-sky); }
-.quick-step:nth-child(3) .step-no { background: var(--accent-indigo); color: #fff; }
+.quick-step:nth-child(2) .step-no { background: var(--accent); color: var(--on-accent); }
+.quick-step:nth-child(3) .step-no { background: var(--info); color: var(--on-info); }
 
 .step-body {
   display: flex;
@@ -503,13 +474,13 @@ const orbitDots = [
 .step-title {
   font-size: 15px;
   font-weight: 700;
-  color: var(--text-strong);
+  color: var(--fg);
 }
 
 .step-desc {
   font-size: 13px;
   line-height: 1.5;
-  color: var(--text-soft-1);
+  color: var(--fg-muted);
 }
 
 .step-links {
@@ -522,10 +493,11 @@ const orbitDots = [
 .step-link {
   display: inline-flex;
   align-items: center;
+  min-height: 40px;
   gap: 5px;
   font-size: 13px;
   font-weight: 650;
-  color: var(--accent-sky);
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -535,42 +507,16 @@ const orbitDots = [
 }
 
 .step-link.subtle {
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .step-link:focus-visible {
-  outline: 2px solid var(--accent-sky);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
 /* ---------------------------------------------------------------- light theme */
-:root[data-theme='light'] .quick-step {
-  background: rgb(255 255 255 / 0.8);
-}
-
-:root[data-theme='light'] .step-link:not(.subtle) {
-  color: #0369a1;
-}
-
-:root[data-theme='light'] .title-highlight {
-  background-image: linear-gradient(90deg, #047857, #0369a1, #4338ca, #0369a1, #047857);
-}
-
-:root[data-theme='light'] .introduction {
-  color: var(--text-soft-1);
-}
-
-:root[data-theme='light'] .get-started-btn {
-  color: #fff;
-  background: linear-gradient(90deg, #047857, #0369a1, #4338ca);
-}
-
-:root[data-theme='light'] .eyebrow,
-:root[data-theme='light'] .secondary-btn {
-  background: rgb(255 255 255 / 0.75);
-}
-
 :root[data-theme='light'] .grid-plane {
   background-image:
     linear-gradient(rgb(var(--accent-sky-rgb) / 0.14) 1px, transparent 1px),
@@ -579,7 +525,6 @@ const orbitDots = [
 
 /* ---------------------------------------------------------------- responsive */
 @media (max-width: 768px) {
-  .title { font-size: 46px; }
   .introduction { font-size: 17px; }
   .actions { flex-direction: column; width: 100%; max-width: 320px; }
   .runs-on { margin-top: 32px; }
@@ -595,8 +540,7 @@ const orbitDots = [
   .grid-plane,
   .orbit,
   .scanline,
-  .eyebrow-dot::after,
-  .title-highlight {
+  .eyebrow-dot::after {
     animation: none;
   }
 

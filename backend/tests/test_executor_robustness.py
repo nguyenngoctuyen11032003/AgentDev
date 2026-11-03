@@ -263,9 +263,11 @@ def skills_root(tmp_path, monkeypatch):
     return root
 
 
-def test_skill_body_sent_once_at_the_end(tmp_path, scripted, skills_root):
+def test_skill_body_sent_once_at_the_end(tmp_path, scripted, skills_root, monkeypatch):
     from agentdev.runtime.sdk import run_workflow
 
+    # On-demand path: a skill past the preload budget is loaded with activate_skill.
+    monkeypatch.setattr(skills_manager_module, "MAX_PRELOADED_SKILL_CHARS", 0)
     activate = [("activate_skill", {"skill_name": "demo"})]
     scripted.scripts = {"A": [activate, activate, "done"]}
     path = _write(tmp_path, [_agent("A", "worker", skills={"enabled": True, "allow": ["demo"]})], start="A")
@@ -319,16 +321,19 @@ def test_member_works_from_role_description_and_skills(tmp_path, scripted, skill
 
     # The lead sees the member's skills in its roster, so it can route by skill.
     cto_system = [t for r, t in scripted.seen["CTO"][0]["messages"] if r == MessageRole.SYSTEM][0]
-    assert "`FE`: Frontend dev (Vue) — skills: demo" in cto_system
+    assert "`FE`: You are the frontend engineer. | Frontend dev (Vue) — skills: demo" in cto_system
 
-    # The member's own prompt carries role, full description and the binding skill rules.
+    # The member's own prompt carries role, full description, the binding skill rules and, since the
+    # ticked skill fits the preload budget, its full body and reference files.
     fe_first = scripted.seen["FE"][0]["messages"]
     fe_system = "\n".join(t for r, t in fe_first if r == MessageRole.SYSTEM)
     assert "You are the frontend engineer." in fe_system
     assert "Always mobile first; WCAG AA." in fe_system
-    assert "MUST be loaded first" in fe_system and "<name>demo</name>" in fe_system
+    assert "MUST be loaded first" in fe_system and "# Loaded skills" in fe_system
+    assert SKILL_BODY in fe_system and "reference/rules.md" in fe_system
     assert "Build the login page" in "\n".join(t for r, t in fe_first if r != MessageRole.SYSTEM)
 
-    # Activating the skill delivers its body and its reference files.
-    after = scripted.seen["FE"][1]["messages"][-1][1]
-    assert SKILL_BODY in after and "reference/rules.md" in after
+    # Activating a preloaded skill only acknowledges it: the body is not sent a second time.
+    after = scripted.seen["FE"][1]["messages"]
+    assert '"already_active": true' in after[-1][1]
+    assert sum(SKILL_BODY in t for _r, t in after) == 1

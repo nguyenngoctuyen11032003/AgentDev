@@ -60,7 +60,11 @@
     "copied": "已复制",
     "failed_to_copy": "复制代码失败：",
     "failed_to_fetch": "获取教程 markdown 失败",
-    "failed_to_load": "加载教程失败："
+    "failed_to_load": "加载教程失败：",
+    "loading": "正在加载教程",
+    "error_title": "无法加载教程",
+    "error_desc": "请检查网络连接后重试。",
+    "retry": "重试"
   },
   "home": {
     "eyebrow": "多智能体平台 · 零代码",
@@ -122,7 +126,14 @@
     "dept_content": "内容部",
     "dept_content_desc": "主编分派调研与事实核查、写作、SEO 编辑和校对。",
     "dept_video": "视频制作部",
-    "dept_video_desc": "制片人协调脚本、分镜、配音与字幕、剪辑、封面和审片。"
+    "dept_video_desc": "制片人协调脚本、分镜、配音与字幕、剪辑、封面和审片。",
+    "delete": "删除",
+    "delete_aria": "删除工作流 {name}",
+    "confirm_delete_title": "删除工作流“{name}”？",
+    "confirm_delete_message": "该工作流的 YAML 文件将被永久删除，且无法撤销。",
+    "confirm_delete_open": "该工作流正在编辑器中打开：未保存的更改将丢失，其 YAML 文件将被永久删除，且无法撤销。",
+    "delete_success": "已删除工作流“{name}”。",
+    "delete_failed": "无法删除工作流。"
   },
   "workflow_view": {
     "yaml_parse_error": "YAML 解析错误：",
@@ -171,7 +182,8 @@
     "duplicate_many_done_team": "已创建 {count} 个副本（“{first}”…“{last}”）并加入 {leads} 的团队。",
     "try_in_lab": "在实验室试用",
     "try_in_lab_hint": "在实验室中打开此工作流，运行测试场景并评分",
-    "more_actions": "更多操作"
+    "more_actions": "更多操作",
+    "delete_workflow": "删除工作流"
   },
   "batch_run": {
     "title": "批量运行",
@@ -220,7 +232,18 @@
     "log_batch_completed": "批量处理完成：成功 {succeeded} 个任务，失败 {failed} 个任务",
     "log_task_started": "[ID {id}，第 {row} 行] 已启动",
     "log_task_completed": "[ID {id}，第 {row} 行] 已完成，耗时 {duration} 毫秒，共使用 {tokens} 个 token",
-    "log_task_failed": "[ID {id}，第 {row} 行] 失败。错误：{error}"
+    "log_task_failed": "[ID {id}，第 {row} 行] 失败。错误：{error}",
+    "copy_logs": "复制",
+    "clear_logs": "清空日志",
+    "logs_copied": "日志已复制。",
+    "logs_copy_failed": "无法复制日志。",
+    "remove_input_file": "移除已选文件",
+    "input_file_hint": "支持 .xlsx 或 .csv 文件",
+    "column_guide_title": "输入文件格式",
+    "progress_detail": "{done}/{total} 行 · {failed} 个失败",
+    "hint_pick_workflow": "请选择工作流后再启动。",
+    "hint_pick_file": "请选择输入文件（.xlsx 或 .csv）后再启动。",
+    "hint_connecting": "正在连接服务器..."
   },
   "launch": {
     "plan": {
@@ -243,6 +266,7 @@
       "search": "搜索会话...",
       "empty": "还没有会话。选择工作流并启动即可开始。",
       "no_results": "没有匹配的会话",
+      "loading": "正在加载会话...",
       "untitled": "新会话",
       "draft": "未启动",
       "rename": "重命名",
@@ -390,7 +414,31 @@
       "web": "正在网上查询",
       "tool": "正在使用 {name}",
       "member_working": "{chain} 正在处理",
-      "member_working_doing": "{chain} · {doing}"
+      "member_working_doing": "{chain} · {doing}",
+      "member_file": "{member} 创建了 {file}",
+      "working": "正在工作",
+      "browser": "正在操作浏览器",
+      "member_step": "{member} · {step}",
+      "more_steps": "+{n} 个更早的步骤",
+      "fewer_steps": "收起"
+    },
+    "activity_done": {
+      "thinking": "已思考",
+      "ask_user": "已为你拟好问题",
+      "delegate": "已向团队分配任务",
+      "delegate_to": "已分配任务给 {member}",
+      "delegate_parallel": "已并行向团队分配任务",
+      "read": "已读取文件",
+      "list": "已查看项目结构",
+      "search": "已搜索代码",
+      "write": "已编辑文件",
+      "run": "已运行命令",
+      "web": "已搜索网络",
+      "tool": "已使用 {name}",
+      "browser": "已操作浏览器",
+      "reflect": "已反思",
+      "memory_read": "已检索记忆",
+      "memory_write": "已写入记忆"
     },
     "workflow_completed": "工作流已完成",
     "errors": {
@@ -592,6 +640,8 @@
       "show_less": "收起",
       "no_tasks_member": "暂无任务",
       "no_output": "已完成（无交付内容）",
+      "no_output_cancelled": "中途停止，未交付内容",
+      "no_output_error": "中途出错，未交付内容",
       "go_review": "验收结果 →",
       "states": {
         "todo": "待办",
@@ -614,6 +664,8 @@
       "turn_filter": "按轮次查看任务"
     },
     "dashboard": {
+      "timeline_wall_hint": "包含你两条消息之间的等待；运行时间卡片只计算团队工作的时间",
+      "timeline_wall": "从头到尾 {time}",
       "view": "概览",
       "title": "工作概览",
       "progress_aria": "已完成 {p}%",
@@ -690,6 +742,10 @@
       "chat_only": "仅对话，未分派任务"
     },
     "review": {
+      "back": "列表",
+      "run_time_hint": "团队工作的时间，不含你两条消息之间的等待",
+      "run_time": "⏱ 工作 {time}",
+      "other_requests": "你在此会话中的其他请求（{n}）",
       "view": "验收",
       "eyebrow": "质量验收",
       "title": "验收结果",
@@ -811,8 +867,22 @@
     "reply_placeholder": "回复 {name}...",
     "reply_placeholder_any": "输入你的回答...",
     "replaced_by_other_tab": "此会话已在另一个标签页中打开。点击\"在此打开\"以在此标签页继续。",
-    "run_in_progress": "上一轮仍在运行。请等待完成，或点击停止后重新发送。",
+    "run_in_progress": "上一轮仍在运行。请等待完成，或停止本次运行后重新发送。",
     "jump_to_latest": "新消息",
+    "chat_ui": {
+      "composer_label": "给负责人发消息",
+      "running_draft_placeholder": "团队正在工作… 你可以先写下一条消息，或停止本次运行",
+      "scroll_to_bottom": "跳到最新",
+      "retry": "重试",
+      "stop": "停止",
+      "dismiss": "关闭",
+      "suggestions_label": "建议的提问",
+      "suggestion_intro": "介绍你的团队以及工作方式",
+      "suggestion_plan": "规划一个简单的笔记应用",
+      "suggestion_review": "审查本项目的代码并提出改进建议",
+      "composer_label_agent": "输入消息",
+      "running_draft_placeholder_agent": "正在工作… 你可以先写下一条消息，或停止本次运行"
+    },
     "run_new_turn": "运行新一轮",
     "running_placeholder": "运行中… 你可以停止，或等待负责人向你提问",
     "question_card": {
@@ -1044,7 +1114,7 @@
     "multiline": "多行标志（MULTILINE）",
     "multiple": "返回多个匹配",
     "embedding": "嵌入（embedding）配置",
-    "encoding": "Encoding",
+    "encoding": "编码（encoding）",
     "file_sources": "文件来源列表",
     "file_types": "文件类型过滤",
     "group": "捕获组",
@@ -1055,10 +1125,10 @@
     "max_parallel": "最大并行数",
     "memory_path": "记忆文件路径",
     "on_no_match": "未匹配时",
-    "path": "Path",
+    "path": "路径",
     "prefix": "工具前缀",
     "recursive": "扫描子目录",
-    "role": "Role",
+    "role": "角色（role）",
     "split": "数据拆分方式",
     "tool_sources": "工具来源过滤"
   },
@@ -1347,7 +1417,8 @@
       "connections_failed": "无法加载连接列表",
       "sessions_failed": "无法加载会话列表",
       "skills_failed": "技能库请求失败",
-      "lab_failed": "实验室请求失败"
+      "lab_failed": "实验室请求失败",
+      "delete_workflow_failed": "无法删除工作流。"
     },
     "backend": {
       "technical": "技术详情：{detail}",
@@ -1445,8 +1516,8 @@
       "web_search": "web:web_search"
     },
     "type": {
-      "map": "Map",
-      "tree": "Tree",
+      "map": "映射（Map）",
+      "tree": "树形（Tree）",
       "function": "function",
       "keyword": "keyword",
       "regex_extract": "regex_extract",
@@ -1461,8 +1532,8 @@
       "literal": "literal",
       "loop_counter": "loop_counter",
       "loop_timer": "loop_timer",
-      "message": "Message",
-      "regex": "Regex",
+      "message": "按消息（Message）",
+      "regex": "正则（Regex）",
       "json_path": "JSON 路径",
       "config": "config",
       "reflection": "reflection",
@@ -1470,11 +1541,11 @@
       "mcp_local": "本地 MCP"
     },
     "log_level": {
-      "DEBUG": "Debug",
-      "INFO": "Info",
-      "WARNING": "Warning",
-      "ERROR": "Error",
-      "CRITICAL": "Critical"
+      "DEBUG": "调试（Debug）",
+      "INFO": "信息（Info）",
+      "WARNING": "警告（Warning）",
+      "ERROR": "错误（Error）",
+      "CRITICAL": "严重（Critical）"
     },
     "retrieve_stage": {
       "pre_gen_thinking": "生成前思考阶段",
@@ -1578,7 +1649,7 @@
     "test_ok": "已连接 — 可用模型 {count} 个",
     "test_failed": "连接测试失败",
     "models": "模型",
-    "used_in": "在智能体节点的“Connection”字段中选择它。",
+    "used_in": "在智能体节点的“AI 账号”字段中选择它。",
     "precheck_failed": "部分智能体使用的连接尚未就绪",
     "cli_hint": "仅文本：此服务商暂不支持使用工具的智能体。",
     "cli_ready": "CLI 就绪",
@@ -1752,6 +1823,7 @@
     "import_title": "从文件夹导入技能",
     "import_source": "源文件夹",
     "import_reload": "重新加载",
+    "import_loading": "正在读取技能列表...",
     "import_none": "此文件夹中没有技能。",
     "import_missing": "找不到文件夹：{path}",
     "select_all": "全选（{count}）",
@@ -1773,7 +1845,7 @@
     "ask_before_building": "开工前先确认计划",
     "max_delegations_per_request": "每次请求最多委派次数",
     "max_fix_review_rounds": "最多修复/评审轮数",
-    "model_name": "Model",
+    "model_name": "模型",
     "system_prompt": "角色与任务说明",
     "model_provider": "模型服务商",
     "base_url": "基础 URL（Base URL）",
@@ -1856,7 +1928,7 @@
     "passthrough_mode": "直通模式",
     "max_parallel": "最大并行数",
     "launch_command": "启动命令",
-    "arguments": "Arguments",
+    "arguments": "参数",
     "working_directory": "工作目录",
     "environment_variables": "环境变量",
     "inherit_parent_env": "继承父进程环境变量",
@@ -1906,13 +1978,13 @@
     "subgraph_id": "子图 ID",
     "subgraph_description": "子图描述",
     "majority_voting": "多数投票",
-    "variables": "Variables",
-    "organization": "Organization",
+    "variables": "变量",
+    "organization": "组织",
     "thinking_mode": "思考模式",
     "tool_type": "工具类型",
     "tool_prefix": "工具前缀",
     "group_size": "分组大小",
-    "mascot": "Mascot",
+    "mascot": "吉祥物",
     "connection": "AI 账号",
     "native_coding_agent": "原生编程智能体",
     "allow_shell_commands": "允许执行 shell 命令",
@@ -1961,7 +2033,7 @@
     "remove": "删除",
     "prompt_label": "发送给工作流的请求",
     "prompt_placeholder": "例如：修复手机上“登录”按钮无响应的问题",
-    "criteria_label": "通过标准（留空 = 只要回答无错误即通过）",
+    "criteria_label": "通过标准（留空 = AI 评审按通用标准：回答正确、完整、语言一致）",
     "criteria_placeholder": "例如：用中文回答；指出原因；分派给 Bug Fixer 和 QA Tester；说明如何验证",
     "add_scenario": "添加场景",
     "add_samples": "添加示例场景",
@@ -2014,6 +2086,8 @@
     "sample2_name": "交给一位专员的小任务",
     "sample2_prompt": "请 QA Tester 为邮箱 + 密码登录表单给出最重要的 3 个测试用例。不需要计划，直接做。",
     "sample2_criteria": "用中文回答；恰好 3 个具体测试用例（步骤和预期结果）；不写代码。",
+    "sample2_generic_prompt": "请 {member} 完成一个符合其专业的小任务：为“面向学生的笔记应用上线”给出 3 条具体建议。不需要计划，直接做。",
+    "sample2_generic_criteria": "用中文回答；任务交给了 {member}；恰好 3 条具体建议，符合 {member} 的专业；简洁。",
     "checks": {
       "yaml": {
         "title": "读取 YAML",
@@ -2061,7 +2135,10 @@
         "problem": "这些节点没有入边也不属于任何团队："
       }
     },
-    "job_lost": "已无法跟踪此次运行（服务器可能已重启），请重新运行。"
+    "job_lost": "已无法跟踪此次运行（服务器可能已重启），请重新运行。",
+    "scenario_skipped": "内容不完整，将被跳过",
+    "run_hint_empty": "请至少为一个场景填写请求后再运行。",
+    "progress_label": "评测进度"
   },
   "schema_desc_text": {
     "h11aw3kw": "该智能体的职责：工作范围、工作规则以及怎样算好的结果。智能体在每个任务中都会遵循它。团队负责人读取第一行来决定把任务分派给谁，因此第一行要简短并写明专长。",

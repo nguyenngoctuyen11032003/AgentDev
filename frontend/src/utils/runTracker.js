@@ -204,11 +204,13 @@ export function createRunTracker() {
     return best?.output || ''
   }
 
-  const finish = (outcome,{ summary = '', error = '', tokenUsage = null, at } = {}) => {
+  // `settled`: the run already ended elsewhere (a replayed session the server is no longer
+  // running, e.g. one cut by a restart): it ends with its last event, never "now"
+  const finish = (outcome, { summary = '', error = '', tokenUsage = null, at, settled = false } = {}) => {
     // Completion messages carry no time: while a step is still open it is "now" (live
     // stop); otherwise the run ended with its last event (also right for replays).
-    const stillOpen = Object.values(state.nodes).some((node) => openRun(node))
-    const time = at ? toMs(at) : stillOpen ? Date.now() : lastEventAt() || Date.now()
+    const stillOpen = !settled && Object.values(state.nodes).some((node) => openRun(node))
+    const time = at ? toMs(at) : stillOpen ? Date.now() : lastEventAt() || (settled && state.task?.at) || Date.now()
     state.outcome = outcome
     state.endedAt = time
     // The backend's own summary ("Workflow finished with N node outputs ...") says nothing

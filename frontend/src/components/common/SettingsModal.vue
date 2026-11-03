@@ -73,12 +73,12 @@ const save = () => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgb(var(--shade) / 0.6);
+  background: var(--backdrop-color);
 }
 
 .modal-content.settings-modal {
@@ -91,7 +91,6 @@ const save = () => {
   background: var(--bg-base);
   box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.1), 0 24px 60px rgb(var(--shade) / 0.5);
   color: var(--text-strong);
-  font-family: 'Inter', system-ui, sans-serif;
 }
 
 .modal-header {
@@ -118,7 +117,7 @@ const save = () => {
   border: 0;
   border-radius: 9px;
   background: transparent;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   cursor: pointer;
 }
 
@@ -140,7 +139,7 @@ const save = () => {
   margin-top: 16px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent-sky);
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -157,42 +156,9 @@ const save = () => {
   border-top: 1px solid rgb(var(--ink) / 0.09);
 }
 
-.btn {
-  min-height: 40px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: 10px;
-  background: rgb(var(--ink) / 0.05);
-  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.1);
-  color: var(--text-1);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.btn:hover {
-  background: rgb(var(--ink) / 0.09);
-}
-
-.btn.primary {
-  background: var(--accent-sky);
-  box-shadow: none;
-  color: #05141f;
-}
-
-.btn.primary:hover {
-  filter: brightness(1.06);
-}
-
-:root[data-theme='light'] .btn.primary {
-  color: #fff;
-}
-
 .close-button:focus-visible,
-.btn:focus-visible,
 .more-link:focus-visible {
-  outline: 2px solid var(--accent-sky);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 

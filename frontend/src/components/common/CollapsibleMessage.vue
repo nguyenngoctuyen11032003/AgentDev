@@ -234,6 +234,7 @@ watch(() => props.htmlContent, () => {
   color: var(--accent-blue-1); /* Adjust color to match theme */
   cursor: pointer;
   font-size: 0.9em;
+  font-weight: 500;
   padding: 4px 8px;
   border-radius: 4px;
   transition: background-color 0.2s;
@@ -241,13 +242,13 @@ watch(() => props.htmlContent, () => {
 }
 
 .toggle-btn:hover {
-  background-color: rgba(100, 181, 246, 0.1);
+  background-color: color-mix(in srgb, var(--accent-blue-1) 10%, transparent);
   text-decoration: underline;
 }
 
 /* Markdown Styles */
 .markdown-body {
-  color: var(--text-1);
+  color: var(--fg);
   font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;
   font-size: 14px;
   line-height: 1.6;
@@ -336,7 +337,7 @@ watch(() => props.htmlContent, () => {
 
 /* Light theme: crisper edges for the copy button and code blocks */
 :root[data-theme="light"] .copy-btn {
-  background: var(--surface-1);
+  background: var(--surface);
   border-color: var(--line-4);
   box-shadow: 0 1px 2px rgb(var(--shade) / 0.15);
 }

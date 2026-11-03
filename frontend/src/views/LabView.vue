@@ -1,12 +1,8 @@
 <template>
-  <div class="lab-view">
+  <div class="lab-view page">
     <!-- ================================================================ header -->
     <header class="hero">
       <div class="hero-text">
-        <p class="hero-kicker">
-          <span class="kicker-dot" aria-hidden="true"></span>
-          {{ tr('lab.kicker', 'Kiểm định quy trình') }}
-        </p>
         <h1 class="hero-title">{{ $t('lab.title') }}</h1>
         <p class="hero-sub">{{ $t('lab.subtitle') }}</p>
       </div>
@@ -19,17 +15,19 @@
 
     <!-- ================================================================ control bar -->
     <section class="control card">
-      <label class="field picker-field">
-        <span class="field-label">{{ $t('lab.workflow_label') }}</span>
-        <span class="select-wrap">
-          <svg class="select-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6L4.5 18.5A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.7-3L14 9V3" /><path d="M7 15h10" /></svg>
-          <select v-model="workflow" :disabled="isRunning">
-            <option value="" disabled>{{ $t('lab.workflow_placeholder') }}</option>
-            <option v-for="wf in workflows" :key="wf.name" :value="wf.name">{{ wf.name.replace(/\.ya?ml$/, '') }}</option>
-          </select>
-          <svg class="select-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-        </span>
-      </label>
+      <BaseSelect
+        id="lab-workflow-picker"
+        v-model="workflow"
+        class="picker-field"
+        :label="$t('lab.workflow_label')"
+        :disabled="isRunning"
+      >
+        <template #icon>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="6" height="6" rx="1.5" /><rect x="15" y="14" width="6" height="6" rx="1.5" /><path d="M9 7h3a3 3 0 0 1 3 3v4" /></svg>
+        </template>
+        <option value="" disabled>{{ $t('lab.workflow_placeholder') }}</option>
+        <option v-for="wf in workflows" :key="wf.name" :value="wf.name">{{ wf.name.replace(/.ya?ml$/, '') }}</option>
+      </BaseSelect>
 
       <dl v-if="workflow" class="metrics">
         <div class="metric">
@@ -65,8 +63,8 @@
     <!-- ================================================================ empty state -->
     <section v-if="!workflow" class="intro card" :aria-label="tr('lab.how_it_works', 'Cách kiểm định')">
       <div class="intro-head">
-        <h2 class="intro-heading">{{ tr('lab.how_it_works', 'Cách kiểm định') }}</h2>
         <p class="intro-cta">{{ tr('lab.empty_cta', 'Chọn một quy trình ở trên để bắt đầu.') }}</p>
+        <h2 class="intro-heading">{{ tr('lab.how_it_works', 'Cách kiểm định') }}</h2>
       </div>
       <ol class="intro-steps">
         <li class="intro-step">
@@ -94,6 +92,67 @@
 
     <!-- ================================================================ workspace -->
     <div v-else class="workspace">
+      <!-- Config health (sticky side panel) -->
+      <aside class="side-col">
+        <section class="card panel health-panel">
+          <header class="panel-head compact">
+            <span class="icon-tile sky" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z" /><path d="m9 12 2 2 4-4" /></svg>
+            </span>
+            <div class="panel-text">
+              <p class="step-label">{{ tr('lab.step', 'Bước {n}', { n: 1 }) }}</p>
+              <h2 class="panel-title">{{ stripNo($t('lab.check_title')) }}</h2>
+            </div>
+            <button
+              type="button"
+              class="btn ghost sm icon-only"
+              :title="$t('lab.check_run')"
+              :aria-label="$t('lab.check_run')"
+              :disabled="checking"
+              @click="runCheck"
+            >
+              <span v-if="checking" class="btn-spinner" aria-hidden="true"></span>
+              <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8" /><path d="M21 3v5h-5" /></svg>
+            </button>
+          </header>
+          <p class="panel-hint">{{ $t('lab.check_hint') }}</p>
+
+          <p v-if="checkError" class="error" role="alert">{{ checkError }}</p>
+
+          <template v-if="report">
+            <div class="meter" role="img" :aria-label="`${checkCounts.pass} ${$t('lab.status.pass')}, ${checkCounts.warn} ${$t('lab.status.warn')}, ${checkCounts.fail} ${$t('lab.status.fail')}`">
+              <span v-for="s in ['pass', 'warn', 'fail']" v-show="checkCounts[s]" :key="s" :class="['seg', s]" :style="{ flexGrow: checkCounts[s] }"></span>
+            </div>
+            <div class="chips">
+              <span v-for="s in ['pass', 'warn', 'fail']" v-show="checkCounts[s]" :key="s" :class="['chip', s]">
+                <span class="chip-count">{{ checkCounts[s] }}</span>
+                {{ $t(`lab.status.${s}`) }}
+              </span>
+              <span class="chip-total">/ {{ checkTotal }}</span>
+            </div>
+            <ul class="check-list">
+              <li v-for="item in report.checks" :key="item.id" :class="['check-item', item.status]">
+                <span class="status-icon" role="img" :aria-label="$t(`lab.status.${item.status}`)">
+                  <svg v-if="item.status === 'pass'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+                  <svg v-else-if="item.status === 'warn'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v6M12 17h.01" /></svg>
+                  <svg v-else viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7l10 10M17 7 7 17" /></svg>
+                </span>
+                <div class="check-text">
+                  <span class="check-name">{{ $t(`lab.checks.${item.id}.title`) }}</span>
+                  <span v-if="item.status !== 'pass'" class="check-detail">
+                    {{ $t(`lab.checks.${item.id}.problem`) }}
+                    <code v-if="item.detail">{{ item.detail }}</code>
+                  </span>
+                </div>
+              </li>
+            </ul>
+          </template>
+          <div v-else-if="checking" class="skel-list" aria-hidden="true">
+            <span v-for="n in 5" :key="n"></span>
+          </div>
+        </section>
+      </aside>
+
       <div class="main-col">
         <!-- Scenarios -->
         <section class="card panel">
@@ -112,17 +171,21 @@
             <li v-for="(sc, index) in scenarios" :key="sc.key" class="scenario">
               <div class="scenario-head">
                 <span class="scenario-no" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span>
-                <input
-                  v-model="sc.name"
-                  class="scenario-name"
-                  :aria-label="$t('lab.scenario_name', { n: index + 1 })"
-                  :placeholder="$t('lab.scenario_name', { n: index + 1 })"
-                  :disabled="isRunning"
-                />
+                <span class="name-wrap">
+                  <input
+                    v-model="sc.name"
+                    class="scenario-name"
+                    :aria-label="$t('lab.scenario_name', { n: index + 1 })"
+                    :placeholder="$t('lab.scenario_name', { n: index + 1 })"
+                    :disabled="isRunning"
+                  />
+                  <svg v-if="!isRunning" class="name-pencil" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM14 6l4 4" /></svg>
+                </span>
+                <span v-if="!sc.prompt.trim()" class="skip-tag">{{ $t('lab.scenario_skipped') }}</span>
                 <button
                   v-if="scenarios.length > 1"
                   type="button"
-                  class="icon-btn danger"
+                  class="btn ghost sm icon-only icon-danger"
                   :title="$t('lab.remove')"
                   :aria-label="`${$t('lab.remove')} ${sc.name || $t('lab.scenario_name', { n: index + 1 })}`"
                   :disabled="isRunning"
@@ -134,35 +197,42 @@
               <div class="scenario-fields">
                 <label class="field">
                   <span class="field-label">{{ $t('lab.prompt_label') }}</span>
-                  <textarea v-model="sc.prompt" rows="3" :placeholder="$t('lab.prompt_placeholder')" :disabled="isRunning"></textarea>
+                  <textarea v-model="sc.prompt" class="input" rows="3" :placeholder="$t('lab.prompt_placeholder')" :disabled="isRunning"></textarea>
                 </label>
                 <label class="field">
                   <span class="field-label">{{ $t('lab.criteria_label') }}</span>
-                  <textarea v-model="sc.criteria" rows="3" :placeholder="$t('lab.criteria_placeholder')" :disabled="isRunning"></textarea>
+                  <textarea v-model="sc.criteria" class="input" rows="3" :placeholder="$t('lab.criteria_placeholder')" :disabled="isRunning"></textarea>
                 </label>
               </div>
             </li>
           </ol>
 
           <div class="scenario-tools">
-            <button type="button" class="btn subtle" :disabled="isRunning || scenarios.length >= 20" @click="addScenario()">
+            <button type="button" class="btn secondary sm" :disabled="isRunning || scenarios.length >= 20" @click="addScenario()">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               {{ $t('lab.add_scenario') }}
             </button>
-            <button type="button" class="btn subtle" :disabled="isRunning" @click="addSamples">
+            <button type="button" class="btn secondary sm" :disabled="isRunning" @click="addSamples">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3ZM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" /></svg>
               {{ $t('lab.add_samples') }}
             </button>
-            <label class="repeat">
-              {{ $t('lab.repeats') }}
-              <span class="select-wrap small">
-                <select v-model.number="repeats" :disabled="isRunning">
-                  <option v-for="n in 5" :key="n" :value="n">{{ n }}</option>
-                </select>
-                <svg class="select-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-              </span>
-            </label>
+            <div class="repeat">
+              <BaseSelect
+                id="lab-repeats"
+                :label="$t('lab.repeats')"
+                :model-value="repeats"
+                :disabled="isRunning"
+                @update:model-value="repeats = Number($event)"
+              >
+                <option v-for="n in 5" :key="n" :value="n">{{ n }}</option>
+              </BaseSelect>
+            </div>
           </div>
+
+          <p v-if="configBlocked && !isRunning" class="warn-note">{{ configBlockedHint }}</p>
+          <p v-if="evalError" class="error" role="alert">{{ evalError }}</p>
+
+          <p v-if="runHint" class="run-hint">{{ runHint }}</p>
 
           <footer class="run-bar">
             <p class="run-note">
@@ -177,21 +247,20 @@
               :title="configBlocked ? configBlockedHint : undefined"
               @click="startEval"
             >
-              <span v-if="starting" class="spinner" aria-hidden="true"></span>
+              <span v-if="starting" class="btn-spinner" aria-hidden="true"></span>
               <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
               {{ $t('lab.eval_run') }}
             </button>
-            <button v-else type="button" class="btn danger-ghost" @click="stopEval">
+            <button v-else type="button" class="btn secondary sm danger-outline" @click="stopEval">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
               {{ $t('lab.eval_stop') }}
             </button>
           </footer>
-          <p v-if="configBlocked && !isRunning" class="warn-note">{{ configBlockedHint }}</p>
-          <p v-if="evalError" class="error" role="alert">{{ evalError }}</p>
         </section>
 
         <!-- Results -->
-        <section v-if="job" class="card panel results" aria-live="polite">
+        <section v-if="job" class="card panel results">
+          <p class="sr-only" role="status" aria-live="polite">{{ srStatus }}</p>
           <header class="panel-head">
             <span class="icon-tile mint" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18" /><path d="m7 15 4-4 3 3 5-6" /></svg>
@@ -221,7 +290,7 @@
               </span>
               <span class="progress-num">{{ job.done }}/{{ job.total }}</span>
             </div>
-            <div class="bar" role="progressbar" :aria-valuenow="progressPct" aria-valuemin="0" aria-valuemax="100">
+            <div class="bar" role="progressbar" :aria-label="$t('lab.progress_label')" :aria-valuenow="progressPct" aria-valuemin="0" aria-valuemax="100">
               <div class="fill" :style="{ transform: `scaleX(${job.total ? job.done / job.total : 0})` }"></div>
             </div>
           </div>
@@ -296,67 +365,6 @@
           </div>
         </section>
       </div>
-
-      <!-- Config health (sticky side panel) -->
-      <aside class="side-col">
-        <section class="card panel health-panel">
-          <header class="panel-head compact">
-            <span class="icon-tile sky" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z" /><path d="m9 12 2 2 4-4" /></svg>
-            </span>
-            <div class="panel-text">
-              <p class="step-label">{{ tr('lab.step', 'Bước {n}', { n: 1 }) }}</p>
-              <h2 class="panel-title">{{ stripNo($t('lab.check_title')) }}</h2>
-            </div>
-            <button
-              type="button"
-              class="icon-btn"
-              :title="$t('lab.check_run')"
-              :aria-label="$t('lab.check_run')"
-              :disabled="checking"
-              @click="runCheck"
-            >
-              <span v-if="checking" class="spinner" aria-hidden="true"></span>
-              <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8" /><path d="M21 3v5h-5" /></svg>
-            </button>
-          </header>
-          <p class="panel-hint">{{ $t('lab.check_hint') }}</p>
-
-          <p v-if="checkError" class="error" role="alert">{{ checkError }}</p>
-
-          <template v-if="report">
-            <div class="meter" role="img" :aria-label="`${checkCounts.pass} ${$t('lab.status.pass')}, ${checkCounts.warn} ${$t('lab.status.warn')}, ${checkCounts.fail} ${$t('lab.status.fail')}`">
-              <span v-for="s in ['pass', 'warn', 'fail']" v-show="checkCounts[s]" :key="s" :class="['seg', s]" :style="{ flexGrow: checkCounts[s] }"></span>
-            </div>
-            <div class="chips">
-              <span v-for="s in ['pass', 'warn', 'fail']" v-show="checkCounts[s]" :key="s" :class="['chip', s]">
-                <span class="chip-count">{{ checkCounts[s] }}</span>
-                {{ $t(`lab.status.${s}`) }}
-              </span>
-              <span class="chip-total">/ {{ checkTotal }}</span>
-            </div>
-            <ul class="check-list">
-              <li v-for="item in report.checks" :key="item.id" :class="['check-item', item.status]">
-                <span class="status-icon" role="img" :aria-label="$t(`lab.status.${item.status}`)">
-                  <svg v-if="item.status === 'pass'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
-                  <svg v-else-if="item.status === 'warn'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v6M12 17h.01" /></svg>
-                  <svg v-else viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7l10 10M17 7 7 17" /></svg>
-                </span>
-                <div class="check-text">
-                  <span class="check-name">{{ $t(`lab.checks.${item.id}.title`) }}</span>
-                  <span v-if="item.status !== 'pass'" class="check-detail">
-                    {{ $t(`lab.checks.${item.id}.problem`) }}
-                    <code v-if="item.detail">{{ item.detail }}</code>
-                  </span>
-                </div>
-              </li>
-            </ul>
-          </template>
-          <div v-else-if="checking" class="skeleton" aria-hidden="true">
-            <span v-for="n in 5" :key="n"></span>
-          </div>
-        </section>
-      </aside>
     </div>
   </div>
 </template>
@@ -366,6 +374,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { fetchWorkflowNames, labCancel, labCheck, labEvaluate, labJob } from '@/api/client'
 
 const { t, te } = useI18n()
@@ -453,6 +462,12 @@ const scenarioMeta = (s) =>
     s.members?.length ? s.members.join(', ') : ''
   ])
 const filledScenarios = computed(() => scenarios.value.filter((s) => s.prompt.trim()).length)
+// Why Run is disabled (the config-blocked reason has its own note above the run bar)
+const runHint = computed(() => (!isRunning.value && !plannedRuns.value && !configBlocked.value ? t('lab.run_hint_empty') : ''))
+// One short line for screen readers instead of announcing the whole results panel on every poll
+const srStatus = computed(() =>
+  job.value ? `${t(`lab.job_status.${job.value.status}`)}: ${job.value.done}/${job.value.total}` : ''
+)
 
 // Scenarios are kept per workflow in this browser so a test suite can be re-run after changes.
 const storageKey = (name) => `agentdev.lab.scenarios.${name}`
@@ -566,9 +581,21 @@ function removeScenario(index) {
 }
 function addSamples() {
   const samples = [
-    { name: t('lab.sample1_name'), prompt: t('lab.sample1_prompt'), criteria: t('lab.sample1_criteria') },
-    { name: t('lab.sample2_name'), prompt: t('lab.sample2_prompt'), criteria: t('lab.sample2_criteria') }
+    { name: t('lab.sample1_name'), prompt: t('lab.sample1_prompt'), criteria: t('lab.sample1_criteria') }
   ]
+  // The "one specialist" sample must name a member this workflow really has: the QA Tester sample
+  // only fits the software team, other teams (marketing, content, video) get a generic one.
+  const members = report.value?.checks?.find((c) => c.id === 'team')?.members || []
+  if (members.includes('QA Tester')) {
+    samples.push({ name: t('lab.sample2_name'), prompt: t('lab.sample2_prompt'), criteria: t('lab.sample2_criteria') })
+  } else if (members.length) {
+    const member = members[0]
+    samples.push({
+      name: t('lab.sample2_name'),
+      prompt: t('lab.sample2_generic_prompt', { member }),
+      criteria: t('lab.sample2_generic_criteria', { member })
+    })
+  }
   if (scenarios.value.length === 1 && !scenarios.value[0].prompt.trim()) scenarios.value = []
   samples.forEach((s) => addScenario(s))
 }
@@ -682,6 +709,8 @@ onMounted(async () => {
   // Links may name the file with or without its extension (/lab?workflow=my_flow or my_flow.yaml).
   const match = preset && workflows.value.find((w) => [preset, `${preset}.yaml`, `${preset}.yml`].includes(w.name))
   if (match) workflow.value = match.name
+  // Empty state: put the cursor on the one thing to do
+  else document.getElementById('lab-workflow-picker')?.focus()
 })
 onBeforeUnmount(() => {
   unmounted = true
@@ -693,38 +722,32 @@ onBeforeUnmount(() => {
 <style scoped>
 .warn-note { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--warn); }
 .verdict-text .warn-text { display: block; margin-top: 4px; font-size: 12.5px; }
-.stab-meta { margin-left: auto; font-size: 12px; color: var(--text-muted-4); text-align: right; }
-.judge-tag { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--tint-2); color: var(--text-muted-4); }
+.stab-meta { margin-left: auto; font-size: 12px; color: var(--fg-muted); text-align: right; }
+.judge-tag { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--tint-2); color: var(--fg-muted); }
 .judge-tag.basic { color: var(--warn); }
-.flow-label { margin: 12px 0 4px; font-size: 12px; font-weight: 650; letter-spacing: 0.03em; color: var(--accent-sky); }
+.flow-label { margin: 12px 0 4px; font-size: 12px; font-weight: 650; letter-spacing: 0.03em; color: var(--accent); }
 .answer.plan { opacity: 0.85; }
 .lab-view {
   --line: rgb(var(--ink) / 0.08);
   --line-strong: rgb(var(--ink) / 0.14);
   --tint: rgb(var(--ink) / 0.035);
   --tint-2: rgb(var(--ink) / 0.06);
-  --warn: #f59e0b;
   --radius: 14px;
-  box-sizing: border-box; width: 100%; max-width: 1240px; margin: 0 auto; padding: 40px 32px 88px;
-  color: var(--text-1); font-family: 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums;
+  max-width: 1240px;
+  padding-bottom: 88px;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
 }
-:root[data-theme='light'] .lab-view { --warn: #b45309; }
 
 /* ================================================================ header */
 .hero { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; justify-content: space-between; margin-bottom: 24px; }
-.hero-kicker {
-  display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 4px 10px 4px 8px; border-radius: 999px;
-  font-size: 12px; font-weight: 650; letter-spacing: 0.04em; color: var(--accent-sky);
-  background: rgb(var(--accent-sky-rgb) / 0.1); box-shadow: inset 0 0 0 1px rgb(var(--accent-sky-rgb) / 0.22);
-}
-.kicker-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px rgb(var(--accent-sky-rgb) / 0.2); }
-.hero-title { margin: 0 0 8px; font-size: 30px; line-height: 1.15; font-weight: 750; letter-spacing: -0.03em; color: var(--text-strong); }
-.hero-sub { margin: 0; max-width: 70ch; font-size: 14.5px; line-height: 1.65; color: var(--text-muted-4); }
+.hero-title { margin: 0 0 8px; font-size: 30px; line-height: 1.15; font-weight: 750; letter-spacing: -0.03em; color: var(--fg); }
+.hero-sub { margin: 0; max-width: 70ch; font-size: 14.5px; line-height: 1.65; color: var(--fg-muted); }
 .ext { opacity: 0.6; }
 
 /* ================================================================ cards */
 .card {
-  border-radius: var(--radius); background: var(--surface-1);
+  border-radius: var(--radius); background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px -24px rgb(0 0 0 / 0.35);
 }
 .icon-tile {
@@ -733,8 +756,8 @@ onBeforeUnmount(() => {
 }
 .icon-tile.indigo { --c: var(--accent-indigo-rgb); }
 .icon-tile.mint { --c: var(--accent-mint-rgb); }
-.step-label { margin: 0 0 2px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted-4); }
-.muted { color: var(--text-muted-4); font-weight: 500; }
+.step-label { margin: 0 0 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--fg-muted); }
+.muted { color: var(--fg-muted); font-weight: 500; }
 
 /* ================================================================ control bar */
 .control { display: flex; align-items: stretch; gap: 0; margin-bottom: 20px; overflow: hidden; }
@@ -742,201 +765,172 @@ onBeforeUnmount(() => {
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(104px, auto)); margin: 0; border-left: 1px solid var(--line); }
 .metric { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 14px 20px; border-left: 1px solid var(--line); }
 .metric:first-child { border-left: 0; }
-.metric dt { font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted-4); white-space: nowrap; }
-.metric dd { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-strong); white-space: nowrap; }
+.metric dt { font-size: var(--fs-xs); font-weight: 600; color: var(--fg-muted); white-space: nowrap; }
+.metric dd { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--fg); white-space: nowrap; }
 .metric dd .muted { font-size: 14px; }
-.unit { font-size: 13px; font-weight: 600; color: var(--text-muted-4); letter-spacing: 0; }
-.rate.ready { color: var(--accent-mint); }
+.unit { font-size: 13px; font-weight: 600; color: var(--fg-muted); letter-spacing: 0; }
+.rate.ready { color: var(--success); }
 .rate.not_ready { color: var(--danger); }
 .health-tag { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 650; }
 .health-tag .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent); }
-.health-tag.pass { color: var(--accent-mint); }
+.health-tag.pass { color: var(--success); }
 .health-tag.warn { color: var(--warn); }
 .health-tag.fail { color: var(--danger); }
 
 /* ================================================================ empty state */
 .intro { padding: 28px; }
 .intro-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
-.intro-heading { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-strong); }
-.intro-cta { margin: 0; font-size: 13px; color: var(--text-muted-4); }
+.intro-heading { margin: 0; font-size: 13px; font-weight: 600; color: var(--fg-muted); }
+.intro-cta { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }
 .intro-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; position: relative; }
 .intro-step { display: flex; gap: 14px; align-items: flex-start; padding: 20px; border-radius: 12px; background: var(--tint); box-shadow: inset 0 0 0 1px var(--line); }
-.intro-title { margin: 0 0 6px; font-size: 15.5px; font-weight: 650; color: var(--text-strong); }
-.intro-desc { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--text-muted-4); }
+.intro-title { margin: 0 0 6px; font-size: 15.5px; font-weight: 650; color: var(--fg); }
+.intro-desc { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--fg-muted); }
 
 /* ================================================================ workspace */
-.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+.workspace { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; align-items: start; }
 .main-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .side-col { position: sticky; top: 20px; min-width: 0; }
 .panel { padding: 22px 24px; }
 .panel-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 18px; }
 .panel-head.compact { margin-bottom: 10px; align-items: center; }
 .panel-text { flex: 1; min-width: 0; }
-.panel-title { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-strong); }
-.panel-hint { margin: 4px 0 0; font-size: 13px; color: var(--text-muted-4); line-height: 1.55; }
+.panel-title { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }
+.panel-hint { margin: 4px 0 0; font-size: 13px; color: var(--fg-muted); line-height: 1.55; }
 .health-panel > .panel-hint { margin: 0 0 16px; }
 
 /* ================================================================ fields */
-.field { display: flex; flex-direction: column; gap: 6px; margin: 0; min-width: 0; }
-.field-label { font-size: 12px; font-weight: 600; color: var(--text-muted-6); }
-.select-wrap { position: relative; display: block; }
-.select-wrap select { width: 100%; appearance: none; -webkit-appearance: none; padding-right: 38px; }
-.select-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted-4); pointer-events: none; }
-.picker-field select { padding-left: 38px; font-weight: 600; font-size: 14px; min-height: 42px; }
-.select-chevron { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted-4); pointer-events: none; }
-.field select, .field textarea, .scenario-name, .repeat select {
-  box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--tint);
-  color: var(--text-1); font-size: 13.5px; font-family: inherit; transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+.picker-field { min-width: 0; }
+.picker-field :deep(.select) { font-weight: 600; }
+.scenario-name {
+  box-sizing: border-box; flex: 1; min-width: 0; padding: 6px 28px 6px 8px; border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--fg); font: inherit; font-size: 14px; font-weight: 650; cursor: text;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
-.field textarea { resize: vertical; line-height: 1.55; min-height: 84px; }
-.field select:hover:not(:disabled), .field textarea:hover:not(:disabled), .scenario-name:hover:not(:disabled), .repeat select:hover:not(:disabled) { border-color: rgb(var(--ink) / 0.24); }
-.field select:focus-visible, .field textarea:focus-visible, .scenario-name:focus-visible, .repeat select:focus-visible {
-  outline: none; border-color: var(--accent-sky); background: var(--surface-1); box-shadow: 0 0 0 3px rgb(var(--accent-sky-rgb) / 0.2);
-}
-.field select:disabled, .field textarea:disabled, .scenario-name:disabled, .repeat select:disabled { opacity: 0.55; cursor: not-allowed; }
-.field textarea::placeholder, .scenario-name::placeholder { color: var(--text-muted-4); opacity: 0.8; }
+.scenario-name:hover:not(:disabled):not(:focus-visible) { border-bottom: 1px dashed var(--line-strong); border-radius: 4px; }
+.scenario-name:focus-visible { border-color: var(--accent); background: var(--surface); }
+.scenario-name:disabled { opacity: 0.55; cursor: not-allowed; }
+.scenario-name::placeholder { color: var(--fg-subtle); }
 
 /* ================================================================ buttons */
-.btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; border-radius: 10px; padding: 0 16px;
-  font-size: 13.5px; font-weight: 600; font-family: inherit; cursor: pointer; border: 0; background: var(--surface-1);
-  box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 2px rgb(0 0 0 / 0.05); color: var(--text-1);
-  text-decoration: none; white-space: nowrap; transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
-}
-.btn:hover:not(:disabled) { color: var(--text-1); background: var(--tint-2); }
-.btn:active:not(:disabled) { transform: translateY(1px); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn.subtle { min-height: 34px; padding: 0 12px; font-size: 13px; background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
-.btn.subtle:hover:not(:disabled) { background: var(--tint-2); }
-.btn.primary {
-  min-height: 42px; padding: 0 20px; color: #05141f; box-shadow: 0 1px 0 rgb(255 255 255 / 0.25) inset, 0 6px 16px -6px rgb(var(--accent-sky-rgb) / 0.6);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-sky) 92%, white), var(--accent-sky));
-}
-.btn.primary:hover:not(:disabled) { background: var(--accent-sky); filter: brightness(1.05); }
-:root[data-theme='light'] .btn.primary { color: #fff; }
-.btn.danger-ghost { background: transparent; color: var(--danger); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 45%, transparent); }
-.btn.danger-ghost:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.icon-btn {
-  display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 9px; border: 0; cursor: pointer;
-  color: var(--text-muted-4); background: transparent; transition: color 0.15s ease, background-color 0.15s ease;
-}
-.icon-btn:hover:not(:disabled) { color: var(--text-1); background: var(--tint-2); }
-.icon-btn.danger:hover:not(:disabled) { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn:focus-visible, .icon-btn:focus-visible, .run summary:focus-visible { outline: 2px solid var(--accent-sky); outline-offset: 2px; }
+.btn.danger-outline { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+.btn.danger-outline:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
+.btn.icon-danger:hover:not(:disabled) { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .error { color: var(--danger); font-size: 13px; margin: 12px 0 0; line-height: 1.5; }
-.spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; animation: spin 0.7s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ================================================================ scenarios */
 .scenario-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .scenario { padding: 14px 16px 16px; border-radius: 12px; background: var(--tint); box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow 0.15s ease; }
 .scenario:focus-within { box-shadow: inset 0 0 0 1px rgb(var(--accent-sky-rgb) / 0.45); }
 .scenario-head { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
-.scenario-no { flex: none; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--accent-indigo); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; }
-.scenario-name { flex: 1; min-width: 0; padding: 6px 8px; font-size: 14px; font-weight: 650; border-color: transparent; background: transparent; }
+.scenario-no { flex: none; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--info); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; }
+.name-wrap { position: relative; display: flex; flex: 1; min-width: 0; }
+.name-pencil { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--fg-muted); opacity: 0; pointer-events: none; transition: opacity 0.15s ease; }
+.name-wrap:hover .name-pencil, .name-wrap:focus-within .name-pencil { opacity: 0.8; }
+.skip-tag { flex: none; padding: 2px 9px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 .scenario-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.scenario-fields textarea { background: var(--surface-1); }
 .scenario-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
-.repeat { display: flex; gap: 10px; align-items: center; font-size: 13px; color: var(--text-muted-4); margin-left: auto; }
-.select-wrap.small select { padding: 6px 30px 6px 12px; min-width: 64px; }
-.select-wrap.small .select-chevron { right: 9px; }
+.repeat { margin-left: auto; font-size: 13px; color: var(--fg-muted); }
+.repeat :deep(.field) { flex-direction: row; align-items: center; gap: var(--space-3); }
+.repeat :deep(.select-wrap) { min-width: 80px; }
 .run-bar {
   display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;
   margin: 20px -24px -22px; padding: 16px 24px; border-top: 1px solid var(--line);
   background: var(--tint); border-radius: 0 0 var(--radius) var(--radius);
 }
-.run-note { display: flex; gap: 8px; align-items: flex-start; flex: 1; min-width: 220px; margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--text-muted-4); }
+.run-note { display: flex; gap: 8px; align-items: flex-start; flex: 1; min-width: 220px; margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--fg-muted); }
 .run-note svg { flex: none; margin-top: 2px; }
-.panel > .error:last-child { margin-top: 30px; }
+.run-hint { margin: 16px 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--fg-muted); }
+.run-hint + .run-bar { margin-top: 10px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ================================================================ config health */
 .meter { display: flex; gap: 3px; height: 6px; margin-bottom: 12px; }
 .seg { border-radius: 999px; min-width: 6px; }
-.seg.pass { background: var(--accent-mint); }
+.seg.pass { background: var(--success); }
 .seg.warn { background: var(--warn); }
 .seg.fail { background: var(--danger); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .chip-count { font-weight: 750; }
-.chip.pass { color: var(--accent-mint); background: color-mix(in srgb, var(--accent-mint) 12%, transparent); }
+.chip.pass { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
 .chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 .chip.fail { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
-.chip-total { font-size: 12px; color: var(--text-muted-4); }
+.chip-total { font-size: 12px; color: var(--fg-muted); }
 .check-list { list-style: none; margin: 0 -8px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.check-item { --tone: var(--accent-mint); display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 9px; }
+.check-item { --tone: var(--success); display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 9px; }
 .check-item.warn { --tone: var(--warn); background: color-mix(in srgb, var(--warn) 7%, transparent); }
 .check-item.fail { --tone: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .status-icon { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--tone); background: color-mix(in srgb, var(--tone) 16%, transparent); }
 .check-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-top: 1px; }
 .check-name { font-weight: 600; font-size: 13px; }
-.check-item.pass .check-name { font-weight: 500; color: var(--text-muted-6); }
-.check-detail { font-size: 12.5px; color: var(--text-muted-4); line-height: 1.5; overflow-wrap: anywhere; }
-.check-detail code { display: block; margin-top: 6px; padding: 7px 9px; border-radius: 7px; background: var(--tint-2); white-space: pre-wrap; word-break: break-word; font-size: 11.5px; color: var(--text-1); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; }
-.skeleton { display: flex; flex-direction: column; gap: 10px; }
-.skeleton span { height: 14px; border-radius: 6px; background: linear-gradient(90deg, var(--tint), var(--tint-2), var(--tint)); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
-.skeleton span:nth-child(2n) { width: 75%; }
+.check-item.pass .check-name { font-weight: 500; color: var(--fg-muted); }
+.check-detail { font-size: 12.5px; color: var(--fg-muted); line-height: 1.5; overflow-wrap: anywhere; }
+.check-detail code { display: block; margin-top: 6px; padding: 7px 9px; border-radius: 7px; background: var(--tint-2); white-space: pre-wrap; word-break: break-word; font-size: 11.5px; color: var(--fg); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; }
+.skel-list { display: flex; flex-direction: column; gap: 10px; }
+.skel-list span { height: 14px; border-radius: 6px; background: linear-gradient(90deg, var(--tint), var(--tint-2), var(--tint)); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+.skel-list span:nth-child(2n) { width: 75%; }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 
 /* ================================================================ results */
 .verdict {
-  --tone: var(--accent-mint); display: flex; align-items: center; gap: 20px; padding: 18px 20px; border-radius: 12px; margin-bottom: 14px;
+  --tone: var(--success); display: flex; align-items: center; gap: 20px; padding: 18px 20px; border-radius: 12px; margin-bottom: 14px;
   background: color-mix(in srgb, var(--tone) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 30%, transparent);
 }
 .verdict.not_ready { --tone: var(--danger); }
 .verdict-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .verdict-text strong { font-size: 16px; color: var(--tone); }
-.verdict-text span { font-size: 13.5px; color: var(--text-muted-6); line-height: 1.5; }
+.verdict-text span { font-size: 13.5px; color: var(--fg-muted); line-height: 1.5; }
 .ring {
   flex: none; width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; position: relative;
   background: conic-gradient(var(--tone) var(--p), color-mix(in srgb, var(--tone) 16%, transparent) 0);
 }
-.ring::before { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: var(--surface-1); }
-.ring span { position: relative; font-size: 19px; font-weight: 750; color: var(--text-strong); }
-.ring small { font-size: 11px; font-weight: 600; margin-left: 1px; color: var(--text-muted-4); }
+.ring::before { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: var(--surface); }
+.ring span { position: relative; font-size: 19px; font-weight: 750; color: var(--fg); }
+.ring small { font-size: 11px; font-weight: 600; margin-left: 1px; color: var(--fg-muted); }
 .progress { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .progress-row { display: flex; justify-content: space-between; font-size: 13px; }
 .progress-label { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
-.progress-num { color: var(--text-muted-4); }
-.pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-sky); animation: pulse 1.4s ease-in-out infinite; }
+.progress-num { color: var(--fg-muted); }
+.pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.35; transform: scale(0.8); } }
 .bar { height: 6px; border-radius: 999px; background: var(--tint-2); overflow: hidden; }
 /* scaleX instead of width: the bar animates on the compositor, no layout per frame */
-.fill { width: 100%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent-sky), var(--accent-indigo)); transform-origin: 0 50%; transition: transform 0.4s ease; }
+.fill { width: 100%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--info)); transform-origin: 0 50%; transition: transform 0.4s ease; }
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 14px; }
 .kpi { padding: 12px 14px; border-radius: 11px; background: var(--tint); box-shadow: inset 0 0 0 1px var(--line); }
-.kpi dt { font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted-4); margin-bottom: 4px; }
-.kpi dd { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kpi dt { font-size: var(--fs-xs); font-weight: 600; color: var(--fg-muted); margin-bottom: 4px; }
+.kpi dd { margin: 0; font-size: 18px; font-weight: 700; color: var(--fg); letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stability { list-style: none; margin: 0 0 14px; padding: 4px 0; border-radius: 11px; box-shadow: inset 0 0 0 1px var(--line); font-size: 13px; }
 .stability li { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 14px; }
 .stability li + li { border-top: 1px solid var(--line); }
 .stab-name { flex: 1 1 140px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .num { font-weight: 650; }
 .warn-text { color: var(--warn); font-weight: 600; }
-.ok-text { color: var(--accent-mint); font-weight: 600; }
+.ok-text { color: var(--success); font-weight: 600; }
 
 .runs { border-radius: 11px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
-.run { --tone: var(--text-muted-4); }
+.run { --tone: var(--fg-muted); }
 .run + .run { border-top: 1px solid var(--line); }
-.run.passed { --tone: var(--accent-mint); }
+.run.passed { --tone: var(--success); }
 .run.failed, .run.error { --tone: var(--danger); }
-.run.running { --tone: var(--accent-sky); }
+.run.running { --tone: var(--accent); }
 .run summary { display: flex; gap: 10px; align-items: center; cursor: pointer; font-size: 13px; padding: 11px 14px; list-style: none; transition: background-color 0.15s ease; }
 .run summary:hover { background: var(--tint); }
 .run summary::-webkit-details-marker { display: none; }
 .run[open] summary { background: var(--tint); }
 .run-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); }
 .run-title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.run-attempt { font-weight: 500; color: var(--text-muted-4); }
-.run-meta { color: var(--text-muted-4); font-size: 12px; white-space: nowrap; }
-.run-chevron { flex: none; color: var(--text-muted-4); transition: transform 0.2s ease; }
+.run-attempt { font-weight: 500; color: var(--fg-muted); }
+.run-meta { color: var(--fg-muted); font-size: 12px; white-space: nowrap; }
+.run-chevron { flex: none; color: var(--fg-muted); transition: transform 0.2s ease; }
 .run[open] .run-chevron { transform: rotate(180deg); }
 .pill { flex: none; font-size: 11px; font-weight: 650; padding: 2px 9px; border-radius: 999px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
 .run-body { padding: 2px 14px 14px 32px; }
-.judge, .meta-line { font-size: 13px; line-height: 1.6; margin: 10px 0 0; color: var(--text-muted-6); }
-.judge strong, .meta-line strong { color: var(--text-1); }
+.judge, .meta-line { font-size: 13px; line-height: 1.6; margin: 10px 0 0; color: var(--fg-muted); }
+.judge strong, .meta-line strong { color: var(--fg); }
 .meta-line ul { margin: 4px 0 0; padding-left: 18px; }
-.answer { margin: 12px 0 0; padding: 14px 16px; border-radius: 10px; background: var(--tint); box-shadow: inset 0 0 0 1px var(--line); font-size: 13px; max-height: 380px; overflow: auto; }
+.answer { margin: 12px 0 0; padding: 14px 16px; border-radius: 10px; background: var(--tint); box-shadow: inset 0 0 0 1px var(--line); font-size: 13px; overflow-wrap: anywhere; }
 
 /* ================================================================ responsive */
 @media (max-width: 1080px) {
@@ -946,7 +940,7 @@ onBeforeUnmount(() => {
   .metrics { flex: 1 1 100%; border-left: 0; border-top: 1px solid var(--line); grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 720px) {
-  .lab-view { padding: 28px 16px 64px; }
+  .lab-view { padding-bottom: 64px; }
   .hero-title { font-size: 26px; }
   .intro { padding: 18px; }
   .intro-steps { grid-template-columns: 1fr; }
@@ -956,14 +950,17 @@ onBeforeUnmount(() => {
   .panel { padding: 16px; }
   .run-bar { margin: 16px -16px -16px; padding: 14px 16px; }
   .run-bar .btn { width: 100%; }
+  .btn { min-height: 44px; }
+  .btn.icon-only { width: 44px; }
+  .scenario-head { flex-wrap: wrap; }
   .scenario-fields { grid-template-columns: 1fr; }
   .repeat { margin-left: 0; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .run-meta { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .spinner { animation-duration: 2s; }
-  .pulse, .skeleton span { animation: none; }
-  .fill, .run-chevron, .btn, .scenario, .run summary { transition: none; }
+  .pulse, .skel-list span { animation: none; }
+  .name-pencil { transition: none; }
+  .fill, .run-chevron, .scenario, .run summary { transition: none; }
 }
 </style>

@@ -92,6 +92,7 @@ const route = useRoute()
 const { locale, t } = useI18n()
 
 const renderedContent = ref('')
+const status = ref('loading') // loading | ready | error
 const markdownBody = ref(null)
 const getTutorialFile = () => TUTORIAL_FILES[locale.value] || TUTORIAL_FILES.en
 
@@ -232,14 +233,20 @@ let loadToken = 0
 
 const loadTutorial = async () => {
   const token = ++loadToken
+  status.value = 'loading'
   try {
     const html = await fetchRendered(getTutorialFile())
     if (token !== loadToken) return
     renderedContent.value = html
+    status.value = 'ready'
     addCopyButtons()
     buildToc()
     scrollToHash()
   } catch (error) {
+    if (token !== loadToken) return
+    status.value = 'error'
+    renderedContent.value = ''
+    toc.value = []
     if (error && error.notOk) {
       console.error(t('tutorial.failed_to_fetch'))
     } else {
@@ -258,7 +265,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div ref="scroller" class="tutorial-view">
+  <div ref="scroller" class="tutorial-view scroll-y">
     <div class="tutorial-layout">
       <nav v-if="toc.length" class="toc" :aria-label="$t('tutorial.toc')">
         <p class="toc-title">{{ $t('tutorial.toc') }}</p>
@@ -273,7 +280,21 @@ onMounted(() => {
           </li>
         </ul>
       </nav>
-      <article ref="markdownBody" class="markdown-body" v-html="renderedContent"></article>
+      <div v-if="status === 'loading'" class="doc-skeleton" role="status" :aria-label="$t('tutorial.loading')">
+        <span class="skeleton sk sk-title"></span>
+        <span class="skeleton sk sk-line"></span>
+        <span class="skeleton sk sk-line"></span>
+        <span class="skeleton sk sk-line sk-short"></span>
+        <span class="skeleton sk sk-block"></span>
+        <span class="skeleton sk sk-line"></span>
+        <span class="skeleton sk sk-line sk-short"></span>
+      </div>
+      <div v-else-if="status === 'error'" class="doc-error" role="alert">
+        <p class="doc-error-title">{{ $t('tutorial.error_title') }}</p>
+        <p class="doc-error-desc">{{ $t('tutorial.error_desc') }}</p>
+        <button type="button" class="btn primary doc-retry" @click="loadTutorial">{{ $t('tutorial.retry') }}</button>
+      </div>
+      <article v-show="status === 'ready'" ref="markdownBody" class="markdown-body" v-html="renderedContent"></article>
     </div>
   </div>
 </template>
@@ -281,25 +302,24 @@ onMounted(() => {
 <style scoped>
 .tutorial-view {
   --doc-text: var(--text-2);
-  --doc-muted: var(--text-muted-4);
+  --doc-muted: var(--fg-muted);
   --doc-strong: var(--text-strong);
   --doc-line: rgb(var(--ink) / 0.1);
   --doc-soft: rgb(var(--ink) / 0.04);
-  --doc-accent: var(--accent-sky);
+  --doc-accent: var(--accent);
   --doc-accent-rgb: var(--accent-sky-rgb);
 
   box-sizing: border-box;
   width: 100%;
-  height: calc(100vh - 55px); /* below the top bar */
+  height: calc(100dvh - var(--nav-height, 55px)); /* below the top bar */
   overflow-x: hidden;
-  overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--bg-base);
+  background: var(--bg);
   font-family: 'Inter', system-ui, sans-serif;
 }
 
 :global(body.nav-hidden .tutorial-view) {
-  height: 100vh;
+  height: 100dvh;
 }
 
 .tutorial-layout {
@@ -318,17 +338,15 @@ onMounted(() => {
   position: sticky;
   top: 32px;
   align-self: start;
-  max-height: calc(100vh - 140px);
+  max-height: calc(100dvh - 140px);
   overflow-y: auto;
   padding-right: 8px;
 }
 
 .toc-title {
   margin: 0 0 12px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 650;
   color: var(--doc-muted);
 }
 
@@ -346,7 +364,7 @@ onMounted(() => {
 .toc a {
   display: block;
   margin-left: -1px;
-  padding: 5px 0 5px 14px;
+  padding: 9px 0 9px 14px;
   border-left: 2px solid transparent;
   font-size: 13.5px;
   font-weight: 500;
@@ -546,9 +564,10 @@ onMounted(() => {
 
 .markdown-body :deep(.copy-code-btn) {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  padding: 4px 10px;
+  top: 6px;
+  right: 8px;
+  min-height: 36px;
+  padding: 4px 12px;
   border-radius: 7px;
   border: 0;
   font-family: inherit;
@@ -570,8 +589,8 @@ onMounted(() => {
 .markdown-body :deep(blockquote) {
   margin: 0 0 22px;
   padding: 14px 18px;
-  border-left: 3px solid var(--doc-accent);
-  border-radius: 0 10px 10px 0;
+  border: 1px solid rgb(var(--doc-accent-rgb) / 0.35);
+  border-radius: 10px;
   color: var(--doc-text);
   background: rgb(var(--doc-accent-rgb) / 0.07);
 }
@@ -610,10 +629,8 @@ onMounted(() => {
 }
 
 .markdown-body :deep(th) {
-  font-size: 12.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 650;
   color: var(--doc-muted);
   background: var(--doc-soft);
 }
@@ -630,7 +647,7 @@ onMounted(() => {
 .markdown-body :deep(img),
 .markdown-body :deep(video) {
   display: block;
-  width: 100%;
+  width: auto;
   max-width: 100%;
   height: auto;
   margin: 8px 0 22px;
@@ -644,12 +661,43 @@ onMounted(() => {
   transform: translateZ(0);
 }
 
-/* Scrollbar */
-.tutorial-view::-webkit-scrollbar { width: 10px; }
-.tutorial-view::-webkit-scrollbar-thumb {
-  border: 3px solid var(--bg-base);
+/* Loading + error */
+.doc-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.sk {
+  height: 14px;
   border-radius: 8px;
-  background: rgb(var(--ink) / 0.18);
+}
+
+.sk-title { width: 55%; height: 36px; margin-bottom: 14px; }
+.sk-short { width: 70%; }
+.sk-block { height: 120px; margin: 10px 0; border-radius: 12px; }
+
+.doc-error {
+  align-self: start;
+  padding: 28px;
+  border: 1px solid var(--doc-line);
+  border-radius: 14px;
+  background: var(--doc-soft);
+}
+
+.doc-error-title {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--doc-strong);
+}
+
+.doc-error-desc {
+  margin: 0 0 16px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--doc-muted);
 }
 
 /* ---------------------------------------------------------------- responsive */

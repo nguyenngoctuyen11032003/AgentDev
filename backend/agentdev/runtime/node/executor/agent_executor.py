@@ -105,15 +105,16 @@ TOOL_LIMIT_SKIPPED_RESULT = "Not executed: the tool call limit for this request 
 # before working, follow it, and check the result against it.
 _SKILL_WORKFLOW = (
     "1. Before you start any real task (building, writing, designing, reviewing, analysing, planning), compare it "
-    "with every skill listed below. Every skill whose domain matches the work you are about to do yourself (for "
+    "with your skills. Skills under \"Loaded skills\" are already in these instructions. Every other skill whose "
+    "domain matches the work you are about to do yourself (for "
     "example a frontend/UI skill for any UI, page, component or styling work) MUST be loaded first, all of them "
     "in one turn. Do not load skills for parts of the work you delegate (the member applies their own skills) or "
     "skills unrelated to the task: each loaded skill takes context for the rest of the task.\n"
     "2. Treat a loaded skill as your binding standard for that kind of work: follow its process, rules, "
     "conventions and checklists over your own habits. Your role and task description still set the scope; when "
     "they explicitly conflict with a skill, they win.\n"
-    "3. Before you answer, check your result against each loaded skill's rules and checklist and fix what does "
-    "not meet them.\n"
+    "3. Before you finish, check your result against your task description and each applied skill's rules and "
+    "checklist, and fix what does not meet them.\n"
     "4. In your answer or report, name the skills you applied in one short line.\n"
     "Skip skills only for greetings, small talk and simple factual questions."
 )
@@ -121,6 +122,14 @@ SKILL_USAGE_RULES = (
     "# Your skills (professional standards for your work)\n"
     "Load a skill with `activate_skill` (and `read_skill_file` for files it references). Never assume a skill's "
     "contents before loading it, and never claim to have used a skill you did not load.\n" + _SKILL_WORKFLOW
+)
+# Ticked skills that fit the preload budget go into the system prompt in full (see
+# AgentSkillManager.preload): followed from the first call, no activate_skill round trip, prompt-cached.
+LOADED_SKILLS_HEADING = (
+    "# Loaded skills\n"
+    "The user chose these skills for you; their full instructions follow (no need to load them). For work in "
+    "their domain they are your binding working standards: follow them, and before finishing check your output "
+    "against them."
 )
 NATIVE_SKILL_USAGE_RULES = (
     "# Your skills (professional standards for your work)\n"
@@ -470,9 +479,13 @@ class AgentNodeExecutor(NodeExecutor):
             parts.append(team.system_prompt_section())
 
         if skill_manager is not None:
+            skill_manager.preload()
+            loaded = skill_manager.build_preloaded_skills_section()
             skills_xml = skill_manager.build_available_skills_xml()
-            if skills_xml:
-                parts.append("\n".join([SKILL_USAGE_RULES, skills_xml]))
+            if skills_xml or loaded:
+                parts.append("\n".join(part for part in (SKILL_USAGE_RULES, skills_xml) if part))
+                if loaded:
+                    parts.append(LOADED_SKILLS_HEADING + "\n\n" + loaded)
             else:
                 warning_lines = skill_manager.discovery_warnings()
                 warning_text = "\n".join(f"- {warning}" for warning in warning_lines[:5])
@@ -487,9 +500,13 @@ class AgentNodeExecutor(NodeExecutor):
                 )
 
         if native_skills is not None:
+            native_skills.preload()
+            loaded = native_skills.build_preloaded_skills_section(with_paths=True)
             listing = native_skills.build_skill_file_listing()
-            if listing:
-                parts.append(NATIVE_SKILL_USAGE_RULES + "\n" + listing)
+            if listing or loaded:
+                parts.append((NATIVE_SKILL_USAGE_RULES + "\n" + listing).rstrip())
+                if loaded:
+                    parts.append(LOADED_SKILLS_HEADING + "\n\n" + loaded)
 
         rules = self._response_rules_section()
         if rules:
@@ -1638,7 +1655,8 @@ class AgentNodeExecutor(NodeExecutor):
             skill_name = str(arguments.get("skill_name", "")).strip()
             if not skill_name:
                 raise ValueError("skill_name is required")
-            already_active = skill_manager.is_activated(skill_name)
+            # A preloaded skill is already in the system prompt: acknowledge it without repeating its text.
+            already_active = skill_manager.is_activated(skill_name) or skill_manager.is_preloaded(skill_name)
             result = dict(skill_manager.activate_skill(skill_name))
             if already_active:
                 result["already_active"] = True

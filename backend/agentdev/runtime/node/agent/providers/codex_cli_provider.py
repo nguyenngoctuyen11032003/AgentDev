@@ -30,6 +30,8 @@ from agentdev.runtime.node.agent.providers._cli_common import (
 )
 from agentdev.runtime.node.agent.providers._native import (
     DEFAULT_NATIVE_TIMEOUT,
+    CodexActivityReader,
+    LiveEvents,
     NativeRunContext,
     absolutize_attachments,
     changed_files_note,
@@ -277,14 +279,22 @@ class CodexCliProvider(ModelProvider):
             if self.model_name:
                 cmd += ["--model", validate_model_name(self.model_name)]
             cmd.append("-")
-            proc = run_cli(cmd, prompt, timeout, "codex", native.workspace)
+            # Commands / file changes are reported to the UI as their item.started/completed events arrive.
+            live = LiveEvents(CodexActivityReader(native))
+            try:
+                proc = run_cli(cmd, prompt, timeout, "codex", native.workspace, on_line=live.push)
+            except BaseException:
+                live.abort()
+                raise
             text = ""
             if os.path.exists(out_file):
                 with open(out_file, "r", encoding="utf-8", errors="replace") as fh:
                     text = fh.read().strip()
         if proc.returncode != 0:
+            live.abort()
             _raise_codex_failure(proc)
-        changed = read_codex_activity(proc.stdout or "", native)
+        live.finish(proc.stdout or "")  # reports what was not seen live; changed files from the whole output
+        changed = read_codex_activity(proc.stdout or "", None)
         usage, event_text = _read_events(proc.stdout or "")
         text = text or event_text.strip()
         raw = {"result": text, "usage": usage, "changed_files": changed}

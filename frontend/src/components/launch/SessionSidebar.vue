@@ -18,7 +18,7 @@
 
       <div class="sidebar-search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-        <input v-model="query" type="text" :placeholder="t('launch.sessions.search')" />
+        <input v-model="query" type="text" :aria-label="t('launch.sessions.search')" :placeholder="t('launch.sessions.search')" />
       </div>
 
       <div class="sidebar-list">
@@ -79,6 +79,7 @@
                   ref="renameInputRef"
                   v-model="editingTitle"
                   class="session-rename"
+                  :aria-label="t('launch.sessions.rename')"
                   maxlength="120"
                   @click.stop
                   @keydown.enter.prevent="commitRename(item)"
@@ -87,7 +88,7 @@
                 />
                 <span v-else class="session-name" :title="item.title">{{ item.title || t('launch.sessions.untitled') }}</span>
                 <span class="session-sub">
-                  <span v-if="item.awaiting_plan" class="plan-badge" :title="t('launch.plan.status')">{{ t('launch.sessions.awaiting_plan') }}</span>
+                  <span v-if="waitsOnPlan(item)" class="plan-badge" :title="t('launch.plan.status')">{{ t('launch.sessions.awaiting_plan') }}</span>
                   <template v-if="group.isProject">{{ workflowLabel(item.yaml_file) }} · </template>{{ statusLabel(item.status) }} · {{ timeAgo(item.updated_at) }}
                 </span>
               </span>
@@ -103,7 +104,8 @@
           </div>
         </section>
 
-        <p v-if="!sessions.length && !draft" class="sidebar-empty">{{ t('launch.sessions.empty') }}</p>
+        <p v-if="!sessions.length && loading" class="sidebar-empty">{{ t('launch.sessions.loading') }}</p>
+        <p v-else-if="!sessions.length && !draft" class="sidebar-empty">{{ t('launch.sessions.empty') }}</p>
         <p v-else-if="query && !groups.length" class="sidebar-empty">{{ t('launch.sessions.no_results') }}</p>
       </div>
     </template>
@@ -188,7 +190,9 @@ const props = defineProps({
   draftProject: { type: String, default: '' },
   // Workflow each project uses for its next session: { [projectName]: yamlFile }
   projectWorkflows: { type: Object, default: () => ({}) },
-  collapsed: { type: Boolean, default: false }
+  collapsed: { type: Boolean, default: false },
+  // The list has not arrived yet: say so instead of "no sessions"
+  loading: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['select', 'new', 'add-project', 'rename', 'delete', 'delete-group', 'toggle'])
@@ -229,6 +233,9 @@ const statusLabel = (status) => {
   const key = `launch.sessions.status.${status}`
   return te(key) ? t(key) : status || ''
 }
+
+// A stopped or failed run no longer waits on its plan (older saved sessions still say so)
+const waitsOnPlan = (item) => Boolean(item.awaiting_plan) && !['cancelled', 'error'].includes(item.status)
 
 const projectName = (item) => (item.projects?.[0]?.name || '').replace(/\/+$/, '')
 
@@ -400,7 +407,7 @@ const commitRename = (item) => {
 .sidebar-count {
   padding: 0 7px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 18px;
   background: rgb(var(--ink) / 0.08);
 }
@@ -415,6 +422,8 @@ const commitRename = (item) => {
   border: 1px solid rgb(var(--ink) / 0.1);
   background: rgb(var(--ink) / 0.04);
 }
+
+.sidebar-search:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
 .sidebar-search svg { width: 14px; height: 14px; flex: none; opacity: 0.55; }
 
@@ -529,12 +538,12 @@ const commitRename = (item) => {
 }
 
 .status-running { border: none; background: #34d399; box-shadow: 0 0 6px #34d399; animation: session-pulse 1.4s ease-in-out infinite; }
-.status-waiting_for_input { border: none; background: #fbbf24; }
+.status-waiting_for_input { border: none; background: var(--warn); }
 .status-completed { border: none; background: rgb(var(--ink) / 0.35); }
-.status-error { border: none; background: #f87171; }
-.status-cancelled { border-color: #f87171; }
+.status-error { border: none; background: var(--danger); }
+.status-cancelled { border-color: var(--danger); }
 /* Stop pressed, still winding down */
-.status-cancelling { border: none; background: #fbbf24; animation: session-pulse 1.4s ease-in-out infinite; }
+.status-cancelling { border: none; background: var(--warn); animation: session-pulse 1.4s ease-in-out infinite; }
 
 /* The lead's plan waits for your approval */
 .plan-badge {
@@ -546,9 +555,9 @@ const commitRename = (item) => {
   font-weight: 650;
   line-height: 16px;
   vertical-align: 1px;
-  color: #d97706;
-  background: rgb(245 158 11 / 0.14);
-  border: 1px solid rgb(245 158 11 / 0.4);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
 @keyframes session-pulse { 50% { opacity: 0.45; } }
@@ -571,7 +580,7 @@ const commitRename = (item) => {
   color: var(--text-1);
 }
 .live-chip .session-dot { margin: 0; }
-.live-chip.waiting { background: rgb(251 191 36 / 0.14); }
+.live-chip.waiting { background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .live-chip.running { background: rgb(52 211 153 / 0.12); }
 
 .group-flow {
@@ -595,12 +604,12 @@ const commitRename = (item) => {
   border-radius: 999px;
   display: inline-grid;
   place-items: center;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #0b1a12;
 }
 .group-live.running { background: #34d399; }
-.group-live.waiting { background: #fbbf24; color: #2a1c00; }
+.group-live.waiting { background: var(--warn); color: var(--on-warn); }
 
 .session-body {
   flex: 1;
@@ -622,7 +631,7 @@ const commitRename = (item) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: rgb(var(--ink) / 0.5);
 }
 
@@ -635,8 +644,9 @@ const commitRename = (item) => {
   color: var(--text-1);
   font: inherit;
   font-weight: 600;
-  outline: none;
 }
+
+.session-rename:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
 .session-actions {
   display: none;
@@ -648,6 +658,7 @@ const commitRename = (item) => {
 .session-item:focus-within .session-actions { display: inline-flex; }
 
 .icon-btn {
+  position: relative;
   width: 24px;
   height: 24px;
   flex: none;
@@ -662,14 +673,16 @@ const commitRename = (item) => {
   cursor: pointer;
 }
 
+.icon-btn::before { content: ''; position: absolute; inset: -6px; }
+@media (pointer: coarse) { .icon-btn { width: 44px; height: 44px; } }
 .icon-btn svg { width: 14px; height: 14px; }
 .icon-btn:hover { background: rgb(var(--ink) / 0.1); color: var(--text-1); }
-.icon-btn.danger:hover { color: #f87171; }
+.icon-btn.danger:hover { color: var(--danger); }
 
 /* Teleported to <body>, so these rules are not tied to the sidebar box */
 .session-menu {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--z-backdrop);
   min-width: 190px;
   max-width: 260px;
   display: flex;
@@ -701,9 +714,9 @@ const commitRename = (item) => {
 
 .menu-item svg { width: 15px; height: 15px; flex: none; }
 .menu-item:hover,
-.menu-item:focus-visible { background: rgb(var(--ink) / 0.08); color: var(--text-1); outline: none; }
-.menu-item.danger { color: #f87171; }
-.menu-item.danger:hover { background: rgb(248 113 113 / 0.12); color: #ef4444; }
+.menu-item:focus-visible { background: rgb(var(--ink) / 0.08); color: var(--text-1); outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.menu-item.danger { color: var(--danger); }
+.menu-item.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 
 .menu-sep { height: 1px; margin: 4px 6px; background: rgb(var(--ink) / 0.1); }
 

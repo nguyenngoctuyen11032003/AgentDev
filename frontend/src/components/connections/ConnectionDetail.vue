@@ -1,34 +1,27 @@
 <template>
-  <Teleport to="body">
-    <div v-if="open && connection" class="dialog-backdrop" @mousedown.self="$emit('close')">
-      <section
-        ref="dialogEl"
-        class="dialog"
-        role="dialog"
-        aria-modal="true"
-        :aria-labelledby="titleId"
-        tabindex="-1"
-        @keydown.esc.stop="$emit('close')"
-      >
-        <button type="button" class="icon-btn close-btn" :aria-label="$t('connections.close')" @click="$emit('close')">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
-        </button>
-
-        <header class="detail-head">
-          <ProviderLogo :vendor="connection.vendor" :label="vendorLabel" :size="52" />
-          <div class="head-text">
-            <h2 :id="titleId">{{ connection.label }}</h2>
-            <div class="head-meta">
-              <span>{{ vendorLabel }}</span>
-              <span class="status-pill" :class="`is-${status}`">
-                <span class="status-dot" aria-hidden="true"></span>
-                {{ $t(`connections.status_${status}`) }}
-              </span>
-            </div>
+  <BaseDialog
+    :model-value="open && !!connection"
+    :labelledby="titleId"
+    width="560px"
+    @update:model-value="(value) => !value && $emit('close')"
+  >
+    <template #header>
+      <header v-if="connection" class="detail-head">
+        <ProviderLogo :vendor="connection.vendor" :label="vendorLabel" :size="52" />
+        <div class="head-text">
+          <h2 :id="titleId">{{ connection.label }}</h2>
+          <div class="head-meta">
+            <span>{{ vendorLabel }}</span>
+            <span class="status-pill" :class="`is-${status}`">
+              <span class="status-dot" aria-hidden="true"></span>
+              {{ $t(`connections.status_${status}`) }}
+            </span>
           </div>
-        </header>
+        </div>
+      </header>
+    </template>
 
-        <div class="detail-body" :aria-busy="loading">
+        <div v-if="connection" class="detail-body" :aria-busy="loading">
           <!-- Account -->
           <section class="panel">
             <h3 class="panel-title">{{ $t('connections.detail_account') }}</h3>
@@ -118,23 +111,24 @@
           </section>
         </div>
 
-        <footer class="detail-foot">
-          <button type="button" class="btn btn-danger" @click="$emit('logout', connection)">
+    <template #footer>
+      <div class="detail-foot">
+          <button type="button" class="btn secondary btn-danger" @click="$emit('logout', connection)">
             {{ $t('connections.logout') }}
           </button>
-          <button type="button" class="btn btn-primary" :disabled="busy" @click="$emit('test', connection)">
+          <button type="button" class="btn primary" :disabled="busy" @click="$emit('test', connection)">
             {{ busy ? $t('connections.testing') : $t('connections.refresh') }}
           </button>
-        </footer>
-      </section>
-    </div>
-  </Teleport>
+      </div>
+    </template>
+  </BaseDialog>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ProviderLogo from './ProviderLogo.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import { formatDateTime, formatReset, isPremiumModel, usageLabel, usageLevel } from '@/utils/accountFormat'
 
 const props = defineProps({
@@ -151,7 +145,6 @@ defineEmits(['close', 'test', 'logout', 'copy-id'])
 
 const { t, te, locale } = useI18n()
 const titleId = `conn-detail-${Math.random().toString(36).slice(2, 8)}`
-const dialogEl = ref(null)
 const showAllModels = ref(false)
 
 const accountRows = computed(() => {
@@ -179,87 +172,25 @@ const hiddenCount = computed(() => props.models.length - visibleModels.value.len
 
 watch(
   () => props.open,
-  async (open) => {
-    if (!open) return
-    showAllModels.value = false
-    await nextTick()
-    dialogEl.value?.focus()
+  (open) => {
+    if (open) showAllModels.value = false
   },
   { immediate: true }
 )
 </script>
 
 <style scoped>
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 9000;
-  display: grid;
-  place-items: center;
-  padding: 24px 16px;
-  overflow-y: auto;
-  background: rgb(8 8 10 / 0.66);
-  backdrop-filter: blur(4px);
-  animation: fade 0.16s ease-out;
-}
-
-.dialog {
-  position: relative;
-  box-sizing: border-box;
-  width: min(560px, 100%);
-  max-height: calc(100dvh - 48px);
-  display: flex;
-  flex-direction: column;
-  border-radius: 14px;
-  border: 1px solid var(--line-4);
-  background: var(--surface-1);
-  color: var(--text-1);
-  font-family: 'Inter', system-ui, sans-serif;
-  box-shadow: 0 24px 64px -20px rgb(0 0 0 / 0.7);
-  animation: rise 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
-  outline: none;
-}
-
-@keyframes fade {
-  from { opacity: 0; }
-}
-
-@keyframes rise {
-  from { opacity: 0; transform: translateY(8px) scale(0.99); }
-}
-
-.icon-btn {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted-4);
-  cursor: pointer;
-}
-
-.icon-btn:hover {
-  background: var(--surface-3);
-  color: var(--text-1);
-}
-
-.close-btn {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-}
-
 .detail-head {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 24px 56px 16px 24px;
-  border-bottom: 1px solid var(--line-4);
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
 }
 
 .head-text {
+  flex: 1;
   min-width: 0;
 }
 
@@ -278,21 +209,19 @@ watch(
   gap: 10px;
   margin-top: 4px;
   font-size: 13px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .detail-body {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 18px 24px;
-  overflow-y: auto;
 }
 
 .panel {
   padding: 14px 16px;
   border-radius: 12px;
-  border: 1px solid var(--line-4);
+  border: 1px solid var(--border-strong);
   background: color-mix(in srgb, var(--surface-3) 40%, transparent);
 }
 
@@ -306,17 +235,15 @@ watch(
 
 .panel-title {
   margin: 0 0 10px;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted-4);
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--fg-muted);
 }
 
 .panel-note {
   margin: 10px 0 0;
   font-size: 12px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .panel-row .panel-note {
@@ -332,7 +259,7 @@ watch(
 }
 
 .kv dt {
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .kv dd {
@@ -349,7 +276,7 @@ watch(
 .kv-extra {
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .plan-badge {
@@ -408,12 +335,12 @@ watch(
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--accent-sky);
+  background: var(--accent);
   transition: width 0.3s ease;
 }
 
 .bar-fill.is-warn,
-.usage-value.is-warn { --tone: #f59e0b; }
+.usage-value.is-warn { --tone: var(--warn); }
 .bar-fill.is-danger,
 .usage-value.is-danger { --tone: var(--danger); }
 .bar-fill.is-warn,
@@ -425,7 +352,7 @@ watch(
   display: block;
   margin-top: 5px;
   font-size: 12px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 /* ---- models ---- */
@@ -443,7 +370,7 @@ watch(
   border-radius: 8px;
   font-size: 11.5px;
   background: var(--surface-3);
-  color: var(--text-1);
+  color: var(--fg);
 }
 
 .chip code {
@@ -451,42 +378,40 @@ watch(
 }
 
 .chip.is-secondary {
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 .chip.is-premium {
-  color: #b45309;
-  background: color-mix(in srgb, #f59e0b 16%, transparent);
-  border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);
-}
-
-:root[data-theme='dark'] .chip.is-premium {
-  color: #fbbf24;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
 .chip-more {
-  border: 1px dashed var(--line-4);
+  min-height: 40px;
+  border: 1px dashed var(--border-strong);
   background: transparent;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   font: inherit;
   font-size: 11.5px;
   cursor: pointer;
 }
 
 .chip-more:hover {
-  color: var(--text-1);
-  border-color: var(--accent-sky);
+  color: var(--fg);
+  border-color: var(--accent);
 }
 
 .chip-btn {
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 4px 9px;
   border-radius: 8px;
-  border: 1px dashed var(--line-4);
+  border: 1px dashed var(--border-strong);
   background: transparent;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   cursor: pointer;
 }
 
@@ -495,8 +420,8 @@ watch(
 }
 
 .chip-btn:hover {
-  border-color: var(--accent-sky);
-  color: var(--text-1);
+  border-color: var(--accent);
+  color: var(--fg);
 }
 
 /* ---- status ---- */
@@ -508,7 +433,7 @@ watch(
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   background: var(--surface-3);
 }
 
@@ -526,65 +451,28 @@ watch(
 
 /* ---- footer ---- */
 .detail-foot {
+  flex: 1 1 100%;
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px 24px 18px;
-  border-top: 1px solid var(--line-4);
 }
 
-.btn {
-  padding: 8px 16px;
-  border-radius: 10px;
-  border: 1px solid var(--line-4);
-  background: var(--surface-3);
-  color: var(--text-1);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-
-.btn:hover:not(:disabled) {
-  border-color: var(--accent-sky);
-}
-
-.btn:disabled {
-  opacity: 0.55;
-  cursor: progress;
-}
-
-.btn-danger {
-  background: transparent;
+/* footer buttons: global .btn (ui.css); only the destructive tint is local */
+.btn.btn-danger {
   color: var(--danger);
 }
 
-.btn-danger:hover:not(:disabled) {
+.btn.btn-danger:hover:not(:disabled) {
+  background: transparent;
   border-color: var(--danger);
 }
 
 .skeleton {
   height: 96px;
   border-radius: 10px;
-  background: linear-gradient(90deg, var(--surface-1), var(--surface-3), var(--surface-1));
-  background-size: 200% 100%;
-  animation: shimmer 1.4s linear infinite;
-}
-
-@keyframes shimmer {
-  to { background-position: -200% 0; }
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent-sky);
-  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dialog-backdrop,
-  .dialog,
-  .skeleton,
   .bar-fill {
     animation: none;
     transition: none;
@@ -592,9 +480,6 @@ watch(
 }
 
 @media (max-width: 520px) {
-  .detail-head { padding: 20px 52px 14px 16px; }
-  .detail-body { padding: 14px 16px; }
-  .detail-foot { padding: 12px 16px 16px; }
   .kv { grid-template-columns: 1fr; gap: 2px; }
   .kv dd { margin-bottom: 8px; }
 }

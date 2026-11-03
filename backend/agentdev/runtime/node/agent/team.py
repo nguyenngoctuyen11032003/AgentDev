@@ -111,11 +111,15 @@ class TeamState:
     # Language of the user's newest message ("Vietnamese", "English", "Chinese", "Japanese", "Korean");
     # "" when unknown.
     user_language: str = ""
+    # The newest user message as the lead saw it (``set_user_language``), for the small-talk fast path.
+    user_message: str = ""
     # Shared member-run budget of the whole run (all leads together).
     max_member_runs: int = DEFAULT_MAX_MEMBER_RUNS
     member_runs: int = 0
     # The run's cancel event (threading.Event), when the caller provides one.
     cancel_event: Any = field(default=None, repr=False, compare=False)
+    # Returns the run's account switches after a usage limit ({exhausted connection: replacement}).
+    account_switches: Optional[Callable[[], Dict[str, str]]] = field(default=None, repr=False, compare=False)
     lock: Any = field(default_factory=threading.RLock, repr=False, compare=False)
 
     @property
@@ -142,6 +146,8 @@ class TeamState:
 
     def set_user_language(self, text: str) -> None:
         """Set the language from ``text``; a too short / ambiguous text keeps the current language."""
+        with self.lock:
+            self.user_message = (text or "").strip()
         language = detect_language(text)
         if language:
             with self.lock:
@@ -329,6 +335,34 @@ def latest_user_message(text: Optional[str]) -> str:
     return latest
 
 
+# Whole messages that are only a greeting / thanks / goodbye: the lead answers them without its team.
+_SMALL_TALK_PHRASES = frozenset(
+    "hi|hello|hey|hiya|yo|good morning|good afternoon|good evening|thanks|thank you|thank you so much|"
+    "thanks a lot|thx|ty|bye|goodbye|see you|chào|xin chào|chào bạn|chào anh|chào chị|chào em|hello bạn|"
+    "hi bạn|chao|xin chao|chao ban|cảm ơn|cám ơn|cảm ơn bạn|cảm ơn nhé|cảm ơn nha|cảm ơn nhiều|cam on|"
+    "cam on ban|thanks bạn|tạm biệt|bye bạn|tam biet|こんにちは|ありがとう|ありがとうございます|你好|谢谢|"
+    "안녕하세요|감사합니다".split("|")
+)
+_SMALL_TALK_STRIP = re.compile(r"[\s!.?,~:;()*^_-]+|[\U0001F300-\U0001FAFF\u2600-\u27BF]+")
+
+
+def is_small_talk(text: Optional[str]) -> bool:
+    """True when ``text`` is only a greeting or thanks ("hi", "xin chào!", "cảm ơn nhé 🙏").
+
+    Deliberately narrow: approvals ("ok", "làm đi"), questions and anything with a request in it
+    return False, so they keep the full lead protocol and the team tools.
+    """
+    words = _SMALL_TALK_STRIP.sub(" ", (text or "").lower()).split()
+    if not 0 < len(words) <= 6:
+        return False
+    # The whole message is one phrase, or a few joined ("hi chào", "hello xin chào")
+    ends = {0}
+    for end in range(1, len(words) + 1):
+        if any(" ".join(words[start:end]) in _SMALL_TALK_PHRASES for start in ends if start < end):
+            ends.add(end)
+    return len(words) in ends
+
+
 def team_digest(state: Any) -> List[Dict[str, str]]:
     """The last delegations of a run, clipped: ``{"member", "task", "report"}`` per entry."""
     if not isinstance(state, TeamState):
@@ -365,11 +399,13 @@ def resolve_members(lead_id: str, team_members: List[str], nodes: Mapping[str, A
             continue
         description = getattr(node, "description", None) or ""
         role = getattr(node, "role", None) or ""
+        # Role and task description both shape what a member is good at: the lead routes on both.
+        lines = dict.fromkeys(line for line in (_first_line(role, 120), _first_line(description, 160)) if line)
         members.append(
             TeamMember(
                 node_id=node_id,
                 title=node_id,
-                summary=_first_line(description) or _first_line(role) or "General team member",
+                summary=" | ".join(lines) or "General team member",
                 manages=tuple(_sub_team(node_id, node, nodes)),
                 skills=tuple(_member_skills(node)),
             )
@@ -400,14 +436,14 @@ The user is your client. They talk ONLY to you; your team members never talk to 
 
 ## First, classify the message (silently) and act on it
 (a) Question, greeting or small talk, advice ("X vs Y?", "how does Z work?"), or anything you can answer well yourself (an explanation, a question about earlier work, a short review): answer it yourself, right away: no delegation, no plan (delegate only when the work needs a member's role or tools; otherwise answer directly). Keep it short (a greeting: 1-3 sentences).
-(b) Bug fix or small, clear change (one function, a config, a text or style tweak): no plan, no approval round. Look at the relevant files if a project is attached, then delegate it directly to the right specialist (e.g. the bug fixer, then QA only if it is worth testing), or do it yourself if it needs no member.
+(b) Bug fix or small, clear change (one function, a config, a text or style tweak): no plan, no approval round. Look at the relevant files if a project is attached, then delegate it directly to the right specialist (a bug: the fixer, with symptom, likely files and how to reproduce; then the tester verifies it, skipped only for a text or style tweak), or do it yourself if it needs no member.
 (c) New project or significant new feature: see the plan rule below.
 - "Can you build X?": say yes (or what is not possible) and propose a concrete default in a few lines (what you would build, key features, stack) so the user can just say "ok".
 - Work on an existing project (attached files or a project folder): look at the relevant files with your read tools BEFORE planning or delegating, and base the plan and briefs on what is really there.
-- Follow-up message: decisions, plans and answers in the earlier conversation still stand, and "What the team did" there lists your members' earlier work. If your last answer proposed a plan or asked a question and the user now approves ("ok", "đồng ý", "duyệt", "go ahead"…) or answers it, act on it immediately, with the changes they asked for — do not re-plan or ask for approval again.
+- Follow-up message: decisions, plans and answers in the earlier conversation still stand, and "What the team did" there lists your members' earlier work. If your last answer proposed a plan or asked a question and the user now approves ("ok", "đồng ý", "duyệt", "go ahead"…) or answers it, act on it immediately, with the changes they asked for — do not re-plan or ask for approval again. Never re-delegate work already done unless the user asks to redo or change it.
 
 ## How you work
-1. Fill gaps with sensible, industry-standard defaults and state them as assumptions the user can change, instead of asking about each one. Questions you have before starting go at the end of your answer (with the plan, each with your recommended default). Use `ask_user` only for a genuine decision that comes up mid-work (e.g. a member needs a choice only the user can make) and that you cannot assume: one short question with your recommended answer.
+1. Fill gaps with sensible, industry-standard defaults and state them as assumptions the user can change, instead of asking about each one. Questions you have before starting go at the end of your answer (with the plan, each with your recommended default). Use `ask_user` only for a genuine decision you cannot assume: the request itself can mean very different things and a wrong guess would waste the team's work, or a member needs a choice only the user can make. One short question with your recommended answer.
 2. Decide yourself who does what, in which order, and how many times. Do not call members the task does not need (a one-line fix does not need the whole team). If the request or your brief names a specific person ("ask the QA Tester…"), that person does the work: delegate to them if they are on your team, otherwise to the member who leads them and say in the brief who must do it. Never do a named person's work yourself.
 3. Delegate with `delegate_task`. Give each member a self-contained brief: goal, relevant context and earlier results, constraints (stack, files, conventions), and what to hand back. Members do not see this conversation. Scope the brief to what the user asked (plus normal quality); do not add requirements of your own, and judge results against the user's request, not extras.
 {parallel_rule}4. Chain work through yourself: pass one member's result to the next (e.g. analysis → fix → test → acceptance review). If a review or test fails, send it back for a fix, at most {max_rounds} rounds, then report the situation to the user.
@@ -418,12 +454,19 @@ Member reports reach you clipped to about {report_chars} characters (the full te
 ## Rules
 - The user's technology choices are binding. If one is clearly wrong for the goal, say so with reasons and a better option, and let the user decide — never silently switch.
 - {plan_rule}
-- Report only what members actually produced; if something failed or was not checked, say so.
+- Report only what members actually produced; if something failed (a member error, an account usage limit) or was not checked, say so plainly.
 - No process narration ("I will now call…"), no internal tool, node or model names.
 - You have at most {max_delegations} delegations for this request, and the whole team (sub-teams included) shares a budget of {max_member_runs} member runs per request; plan accordingly.
 {language_rule}
 ## Your team
 {roster}
+"""
+
+# The lead's whole team section for a message that is only a greeting or thanks (``is_small_talk``):
+# no protocol, roster or team tools, so the reply is fast and cheap.
+LEAD_SMALL_TALK = """\
+# You lead a team
+The user's message is a greeting or thanks. Reply yourself in 1-2 short sentences, in its language; no team work.
 """
 
 PLAN_RULE_ON = (
@@ -540,11 +583,18 @@ class TeamDelegation:
         return self.plan is not None
 
     @property
+    def small_talk(self) -> bool:
+        """The top lead got only a greeting / thanks: it answers alone, without team tools."""
+        return not self.delegated and is_small_talk(self.state.user_message)
+
+    @property
     def parallel_enabled(self) -> bool:
         return self.max_parallel > 1 and len(self.members) > 1
 
     # ---- prompt ----
     def system_prompt_section(self) -> str:
+        if self.small_talk:
+            return LEAD_SMALL_TALK
         roster = "\n".join(
             f"- `{m.node_id}`: {m.summary}"
             + (f" — skills: {', '.join(m.skills)}" if m.skills else "")
@@ -585,7 +635,16 @@ class TeamDelegation:
         }
 
     def tool_specs(self) -> List[ToolSpec]:
-        task_property = {"type": "string", "description": "Self-contained brief: goal, context, constraints, expected output."}
+        if self.small_talk:
+            return []
+        # The Scope line lets testers and reviewers size their effort (a static page needs no browser run)
+        task_property = {
+            "type": "string",
+            "description": (
+                "Self-contained brief: goal, context, constraints, expected output. First line `Scope: small` "
+                "(one file, a static page, a small fix), `Scope: medium` or `Scope: large`."
+            ),
+        }
         specs = [] if self.delegated else [
             ToolSpec(
                 name=ASK_USER_TOOL,
@@ -758,6 +817,7 @@ class TeamDelegation:
             if self._cancelled():
                 raise WorkflowCancelledError("Workflow execution cancelled")
             brief = self._compose_brief(member, task)
+            switches_before = self._account_switches()
             with _nested_delegation():
                 outputs = self.runner(
                     member, [Message(role=MessageRole.USER, content=brief, metadata={"source": self.lead_id})], self.lead_id
@@ -775,28 +835,59 @@ class TeamDelegation:
 
         outputs = [m for m in outputs or [] if m is not None]
         report = "\n\n".join(msg.text_content() for msg in outputs).strip() or "(no output)"
+        account_note = self._account_note(switches_before)
         failed = next((m for m in outputs if (m.metadata or {}).get("model_error")), None)
         if failed is not None:
             reason = str((failed.metadata or {}).get("error") or report)
             self.state.add_report(member, task, f"[failed: model error] {reason}")
-            return {
+            failure = {
                 "member": member,
                 "error": f"model call failed ({reason}). The task was not done. Retry once, give it to another "
                 "member, or tell the user it is blocked.",
                 "needs_user_decision": False,
             }
+            if account_note:
+                failure["account_note"] = account_note
+            return failure
         self.state.add_report(member, task, report)  # the full report stays in the team state
         result: Dict[str, Any] = {
             "member": member,
             "report": _truncate(report, MAX_MEMBER_RESULT_CHARS),
             "needs_user_decision": report.lstrip().upper().startswith(DECISION_MARKER),
         }
+        if account_note:
+            result["account_note"] = account_note
         if len(report) > MAX_MEMBER_RESULT_CHARS:
             result["note"] = (
                 f"Report clipped to {MAX_MEMBER_RESULT_CHARS} of {len(report)} characters; the full text is kept. "
                 f"If you need a detail that was cut, ask {member} for exactly that detail."
             )
         return result
+
+    def _account_switches(self) -> Dict[str, str]:
+        source = self.state.account_switches
+        if source is None:
+            return {}
+        try:
+            return dict(source() or {})
+        except Exception:  # noqa: BLE001 - bookkeeping must never fail a delegation
+            return {}
+
+    def _account_note(self, before: Dict[str, str]) -> str:
+        """A one-line note for the lead when an account hit its usage limit while the member worked."""
+        new = [conn for key, conn in self._account_switches().items() if before.get(key) != conn]
+        if not new:
+            return ""
+        try:
+            from agentdev.runtime.node.agent.account_fallback import account_label
+
+            names = sorted({account_label(conn) for conn in new})
+        except Exception:  # noqa: BLE001 - labels are cosmetic
+            names = sorted(set(new))
+        return (
+            f"An account reached its usage limit during this task; work continued on another account "
+            f"({', '.join(names)}). Mention it to the user in one line."
+        )
 
     def _parse_parallel_tasks(self, raw_tasks: Any) -> List[Tuple[str, str]]:
         if not isinstance(raw_tasks, list) or len(raw_tasks) < 2:
@@ -983,6 +1074,8 @@ def get_team_state(global_state: Dict[str, Any], cancel_event: Any = None) -> Te
         state = TeamState(max_member_runs=_max_member_runs(global_state))
         # Earlier turns of the conversation, when the run's caller provides them (see WebSocketGraphExecutor).
         state.seed_earlier_turns(global_state.get(CONVERSATION_TURNS_KEY))
+        # account_fallback.FallbackState lives in the same global_state ("_account_fallback").
+        state.account_switches = lambda: dict(getattr(global_state.get("_account_fallback"), "replacement", None) or {})
         global_state["_team_state"] = state
     if cancel_event is not None and state.cancel_event is None:
         state.cancel_event = cancel_event

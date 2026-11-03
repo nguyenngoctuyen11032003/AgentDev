@@ -53,7 +53,7 @@ const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
   box-shadow: 0 6px 18px rgb(var(--shade) / 0.35);
   font-weight:600;
   font-size:13px;
-  transition: opacity 0.10s ease-in-out;
+  transition: opacity 0.1s var(--ease-out);
 }
 .start-node::before{
   content: '';
@@ -93,7 +93,7 @@ const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
   background: linear-gradient(90deg, var(--accent-mint-2), var(--accent-blue-2), var(--accent-indigo-5));
   border: 1.5px solid var(--bg-base);
   border-radius: 50%;
-  transition: filter 0.2s ease, transform 0.2s ease;
+  transition: filter 0.2s var(--ease-out), transform 0.2s var(--ease-out);
 }
 
 .start-node-handle:hover {

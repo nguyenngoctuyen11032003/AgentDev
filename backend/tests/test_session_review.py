@@ -51,6 +51,36 @@ def test_digest_condenses_a_run():
     assert digest["ended_at"] - digest["started_at"] == 30_000
 
 
+def _turn(text, start, end, *, plan=False):
+    return [
+        {"type": "user_message", "data": {"text": text}},
+        _log("CTO", "NODE_START", start),
+        _log("CTO", "NODE_END", end, f"answer to {text}"),
+        *([{"type": "plan_proposed", "data": {"plan": "1. build"}}] if plan else []),
+        {"type": "workflow_completed", "data": {"summary": f"answer to {text}"}},
+    ]
+
+
+def test_only_answers_to_the_team_count_as_feedback():
+    conversation = [
+        *_turn("chào bạn", 0, 2),
+        *_turn("What stack for a landing page?", 10, 13),
+        *_turn("Làm luôn: trang đồng hồ index.html", 30, 40, plan=True),
+        *_turn("ok, duyệt", 50, 55),  # answers the plan
+        {"type": "error", "data": {"message": "A run is in progress", "code": "run_in_progress", "fatal": False}},
+    ]
+    digest = build_digest(conversation)
+    # The task is the latest real request (what the result answers), not the greeting; an earlier
+    # question is another request, not feedback; only the plan's answer is a reply
+    assert digest["task"] == {"text": "Làm luôn: trang đồng hồ index.html", "attachments": []}
+    assert digest["other_requests"] == ["What stack for a landing page?"]
+    assert digest["replies"] == ["ok, duyệt"]
+    assert digest["outcome"] == "completed"
+    # Run time adds up the runs (2 + 3 + 10 + 5 s); the span also counts the idle gaps
+    assert digest["active_ms"] == 20_000
+    assert digest["ended_at"] - digest["started_at"] == 55_000
+
+
 def test_last_hand_over_is_the_result_without_a_summary():
     digest = build_digest(RUN[:-1])
     assert digest["outcome"] == "" and digest["summary"] == "Implemented with sqlite"

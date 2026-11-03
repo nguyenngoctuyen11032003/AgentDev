@@ -68,6 +68,8 @@ def test_static_check_template_passes_structure(no_skills):
     checks = _by_id(report)
     assert checks["structure"]["status"] == "pass"
     assert checks["team"]["status"] == "pass"
+    # Members (leads excluded) feed the Lab's sample scenarios.
+    assert "QA Tester" in checks["team"]["members"] and "CTO" not in checks["team"]["members"]
     assert checks["unreachable"]["status"] == "pass"
 
 

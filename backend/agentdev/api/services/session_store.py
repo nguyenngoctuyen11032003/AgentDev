@@ -140,6 +140,7 @@ class WorkflowSessionStore:
         self._sessions: Dict[str, WorkflowSession] = {}
         self.history = history
         self.logger = logging.getLogger(__name__)
+        self._titles_backfilled = False
 
     @staticmethod
     def _meta(session: WorkflowSession) -> Dict[str, Any]:
@@ -221,6 +222,7 @@ class WorkflowSessionStore:
     def list_summaries(self) -> List[Dict[str, Any]]:
         """Every known session, newest first; live sessions override their saved copy."""
         merged: Dict[str, Dict[str, Any]] = {}
+        self._backfill_small_talk_titles()
         if self.history is not None:
             for meta in self.history.list_meta():
                 merged[meta["session_id"]] = meta
@@ -233,7 +235,28 @@ class WorkflowSessionStore:
         for item in merged.values():  # sessions saved before these fields existed
             item.setdefault("awaiting_plan", False)
             item.setdefault("has_work", False)
+            # Older saved meta can keep a plan flag after the run was stopped or failed
+            if item.get("status") in (SessionStatus.CANCELLED.value, SessionStatus.ERROR.value):
+                item["awaiting_plan"] = False
         return sorted(merged.values(), key=lambda item: item.get("updated_at") or 0, reverse=True)
+
+    def _backfill_small_talk_titles(self) -> None:
+        """Once per process (and once per storage folder, via a marker): re-title sessions
+        saved before ``_retitle_after_small_talk`` existed."""
+        if self._titles_backfilled or self.history is None:
+            return
+        self._titles_backfilled = True
+        from agentdev.runtime.node.agent.team import is_small_talk
+
+        try:
+            changed = self.history.retitle_small_talk_sessions(is_small_talk)
+        except Exception as exc:  # a broken storage folder must not break the sidebar
+            self.logger.warning("Re-titling saved sessions failed: %s", exc)
+            return
+        for session_id, title in changed.items():
+            session = self._sessions.get(session_id)
+            if session is not None and is_small_talk(session.title):
+                session.title = title
 
     def delete_session(self, session_id: str) -> bool:
         removed = self._sessions.pop(session_id, None) is not None
@@ -268,13 +291,28 @@ class WorkflowSessionStore:
             session.message_buffer = list(draft.message_buffer)
             session.turns = list(draft.turns)
             session.files_changed = draft.files_changed
-            if draft.turns and draft.title:
+            if draft.turns and draft.title and not self._retitle_after_small_talk(draft, session.title):
                 # A follow-up message keeps the conversation's title
                 session.title = draft.title
         self._sessions[session_id] = session
         self._persist(session)
         self.logger.info("Created session %s for workflow %s", session_id, yaml_file)
         return session
+
+    def _retitle_after_small_talk(self, draft: WorkflowSession, new_title: str) -> bool:
+        """The conversation opened with a greeting ("chào bạn"): title it by the first real request.
+
+        Only while the title still is that greeting, the user never renamed the session, and
+        the new message is itself a request (not one more greeting or a thank-you).
+        """
+        # Lazy: the runtime package is heavy and only this check needs it
+        from agentdev.runtime.node.agent.team import is_small_talk
+
+        if not is_small_talk(draft.title) or not new_title or is_small_talk(new_title):
+            return False
+        if self.history is not None and (self.history.get_meta(draft.session_id) or {}).get("title_custom"):
+            return False
+        return True
 
     def register_project(self, session_id: str, yaml_file: Optional[str], project: Dict[str, Any]) -> WorkflowSession:
         """Attach an uploaded project folder; creates a draft session so it is listed right away."""

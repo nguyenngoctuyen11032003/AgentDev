@@ -43,6 +43,8 @@ from agentdev.runtime.node.agent.providers._native import (
     CLAUDE_NATIVE_FILE_TOOLS,
     CLAUDE_SHELL_TOOL,
     DEFAULT_NATIVE_TIMEOUT,
+    ClaudeStreamReader,
+    LiveEvents,
     NativeRunContext,
     absolutize_attachments,
     changed_files_note,
@@ -375,13 +377,17 @@ class ClaudeCliProvider(ModelProvider):
             if section:
                 prompt = prompt + chr(10) * 2 + section
             optional = [flag for group in _NATIVE_OPTIONAL_FLAGS for flag in group]
-            proc = run_cli(base + optional, prompt, timeout, "claude", native.workspace)
+            proc, live = self._run_native_cli(base + optional, prompt, timeout, native)
             if proc.returncode != 0 and "unknown option" in (proc.stderr or "").lower():
                 logger.warning("claude CLI rejected native-mode hardening flags; retrying without them: %s",
                                trim(proc.stderr or "", 200))
-                proc = run_cli(base, prompt, timeout, "claude", native.workspace)
+                live.abort()
+                proc, live = self._run_native_cli(base, prompt, timeout, native)
         out, err = proc.stdout or "", proc.stderr or ""
-        result, changed = read_claude_stream(out, native)
+        # Tool calls were reported live while the CLI ran; finish() reports any it did not see yet. The
+        # result and changed files come from the whole output, exactly as before.
+        live.finish(out)
+        result, changed = read_claude_stream(out, None)
         if result is None:
             if proc.returncode != 0:
                 errors_text = err + chr(10) + _stream_error_text(out)
@@ -406,6 +412,16 @@ class ClaudeCliProvider(ModelProvider):
         raw = dict(result)
         raw["changed_files"] = changed
         return ModelResponse(message=Message(role=MessageRole.ASSISTANT, content=text), raw_response=raw)
+
+    @staticmethod
+    def _run_native_cli(cmd: List[str], prompt: str, timeout: float, native: NativeRunContext):
+        """Run a native ``claude -p`` with its stream-json tool calls reported to ``native`` as they arrive."""
+        live = LiveEvents(ClaudeStreamReader(native))
+        try:
+            return run_cli(cmd, prompt, timeout, "claude", native.workspace, on_line=live.push), live
+        except BaseException:
+            live.abort()
+            raise
 
     def extract_token_usage(self, response: Any) -> TokenUsage:
         usage = response.get("usage") if isinstance(response, dict) else None

@@ -329,14 +329,20 @@ const shownTurns = computed(() => {
 watch(turns, (list) => {
   if (turnFilter.value !== 'all' && !list.some((turn) => turn.number === turnFilter.value)) turnFilter.value = 'all'
 })
-// The tracker was reset (another session, a new draft): no filter carries over
+// The tracker was reset (another session, a new draft): no filter or opened card carries
+// over. Only a reset replaces the list of turns (a new turn is pushed onto it), and a
+// reset followed by a replay can land on the same turn number, so the list is watched.
+const clearViewState = () => {
+  turnFilter.value = 'all'
+  for (const key of Object.keys(memberFilter)) delete memberFilter[key]
+  opened.clear()
+  expandedColumns.clear()
+}
+watch(() => props.tracker?.turns, clearViewState)
 watch(
   () => props.tracker?.turn || 0,
   (turn, previous) => {
-    if (turn === 0 || turn < previous) {
-      turnFilter.value = 'all'
-      for (const key of Object.keys(memberFilter)) delete memberFilter[key]
-    }
+    if (turn === 0 || turn < previous) clearViewState()
   }
 )
 const view = computed(() => combineTurns(shownTurns.value))
@@ -460,7 +466,7 @@ const columns = computed(() =>
       for (const run of runs) {
         if (!run.endedAt) continue
         const { title, body } = splitOutput(run.output)
-        done.push({ key: `${step.id}#${run.turn}.${run.index}`, step, run, status: run.status, title: title || t('launch.board.no_output'), body })
+        done.push({ key: `${step.id}#${run.turn}.${run.index}`, step, run, status: run.status, title: title || noOutputLabel(run.status), body })
       }
     }
     done.sort((a, b) => b.run.endedAt - a.run.endedAt)
@@ -468,7 +474,10 @@ const columns = computed(() =>
     const statuses = members.map((m) => statusOf(m.id))
     const doneMembers = statuses.filter((s) => s === 'done').length
     let status = statuses.reduce((best, s) => (statusRank[s] > statusRank[best] ? s : best), 'todo')
-    if (status === 'done' && doneMembers < members.length) status = 'working'
+    // In a pipeline the members not started yet are still to come. In a team the lead
+    // picks who works: members nobody asked do not keep the team "working".
+    const pending = teamMode.value ? 0 : statuses.filter((s) => s === 'todo').length
+    if (status === 'done' && pending) status = 'working'
     if (!isLive.value && status === 'working') status = view.value.outcome || 'todo'
 
     const indexes = members.map((m) => m.index)
@@ -489,6 +498,13 @@ const columns = computed(() =>
     }
   })
 )
+
+// A run cut short handed nothing over: do not call it "done"
+const noOutputLabel = (status) => {
+  if (status === 'cancelled') return t('launch.board.no_output_cancelled')
+  if (status === 'error') return t('launch.board.no_output_error')
+  return t('launch.board.no_output')
+}
 
 const visibleDone = (column) =>
   expandedColumns.has(column.key) ? column.done : column.done.slice(0, DONE_PREVIEW)
@@ -576,7 +592,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .kb-eyebrow {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -904,7 +920,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   height: 30px;
   border-radius: 10px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--dept);
   background: color-mix(in srgb, var(--dept) 14%, var(--surface-1));
@@ -949,7 +965,6 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   background: var(--surface-1);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
   animation: card-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-  outline: none;
 }
 
 .card[tabindex] { cursor: pointer; }
@@ -1037,7 +1052,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 .card-from {
   margin: 0 0 2px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--kb-muted);
 }
 
@@ -1099,7 +1114,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   white-space: nowrap;
   padding: 2px 8px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   color: var(--text-soft-1, var(--text-1));
   background: rgb(var(--ink) / 0.06);
@@ -1134,11 +1149,10 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 .review-btn {
   border-style: solid;
   border-color: transparent;
-  color: #0b1220;
+  color: var(--on-accent);
   background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky));
 }
 
-:root[data-theme='light'] .review-btn { color: #fff; }
 .review-btn:hover { filter: brightness(1.06); }
 
 .placeholder {

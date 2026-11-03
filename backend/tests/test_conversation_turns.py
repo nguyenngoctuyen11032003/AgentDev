@@ -136,6 +136,35 @@ def test_new_session_has_no_turns(tmp_path):
     assert session.turns == [] and session.title == "Hello there"
 
 
+def test_greeting_title_is_replaced_by_the_first_real_request(tmp_path):
+    store = WorkflowSessionStore(history=SessionHistoryStore(root=tmp_path / "sessions"))
+    store.create_session(session_id="hi", yaml_file="team.yaml", task_prompt="chào bạn")
+    store.add_turn("hi", make_turn("chào bạn", "Chào bạn!"))
+
+    # Another greeting keeps it; the first real request names the conversation
+    assert store.create_session(session_id="hi", yaml_file="team.yaml", task_prompt="cảm ơn nhé").title == "chào bạn"
+    store.add_turn("hi", make_turn("cảm ơn nhé", "Không có gì"))
+    long_request = "Làm luôn: tạo một trang HTML đơn giản hiển thị đồng hồ số, một file index.html. " + "x" * 80
+    session = store.create_session(session_id="hi", yaml_file="team.yaml", task_prompt=f"\n  {long_request}\nchi tiết")
+    assert session.title == long_request[:79].rstrip() + "…"
+    store.add_turn("hi", make_turn(long_request, "done"))
+
+    # From then on follow-ups keep it, like any other title
+    assert store.create_session(session_id="hi", yaml_file="team.yaml", task_prompt="Thêm nút dừng").title == session.title
+    restored = WorkflowSessionStore(history=SessionHistoryStore(root=tmp_path / "sessions"))
+    assert next(m for m in restored.list_summaries() if m["session_id"] == "hi")["title"] == session.title
+
+
+def test_greeting_title_the_user_chose_is_kept(tmp_path):
+    history = SessionHistoryStore(root=tmp_path / "sessions")
+    store = WorkflowSessionStore(history=history)
+    store.create_session(session_id="hi", yaml_file="team.yaml", task_prompt="hello")
+    store.add_turn("hi", make_turn("hello", "Hi!"))
+    history.rename("hi", "hello")  # typed by the user in the sidebar
+    session = store.create_session(session_id="hi", yaml_file="team.yaml", task_prompt="Build a login page")
+    assert session.title == "hello"
+
+
 # ---------------------------------------------------------------- end to end
 
 

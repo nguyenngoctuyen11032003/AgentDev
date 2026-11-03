@@ -15,6 +15,12 @@ from agentdev.paths import SKILLS_ROOT
 DEFAULT_SKILLS_ROOT = SKILLS_ROOT
 MAX_SKILL_FILE_BYTES = 128 * 1024
 MAX_LISTED_SKILL_FILES = 60
+# Ticked skills whose instructions fit in this many characters (frontmatter stripped, in tick order)
+# go straight into the agent's system prompt: the agent follows them without first spending a model
+# call on activate_skill, and the system prompt is the static, prompt-cached part of every call.
+# Skills past the budget stay in the catalog and are loaded on demand. ~32k chars is ~8k tokens:
+# two typical skills of the library.
+MAX_PRELOADED_SKILL_CHARS = 32_000
 _LISTED_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".py", ".js", ".ts", ".sh", ".html", ".css"}
 _TOOL_ENTRY = re.compile(r"[^\s,()]+(?:\([^)]*\))?")
 
@@ -90,6 +96,15 @@ def _parse_frontmatter(text: str, path: Path) -> Mapping[str, object]:
     return data
 
 
+def _strip_frontmatter(text: str) -> str:
+    lines = text.splitlines()
+    if lines and lines[0].strip() == "---":
+        for idx in range(1, len(lines)):
+            if lines[idx].strip() == "---":
+                return "\n".join(lines[idx + 1:]).strip()
+    return text.strip()
+
+
 def _parse_optional_str_list(value: object, path: Path, field_name: str) -> List[str]:
     if value is None:
         return []
@@ -153,7 +168,9 @@ class AgentSkillManager:
         warning_reporter: Callable[[str], None] | None = None,
     ) -> None:
         self.root = DEFAULT_SKILLS_ROOT
-        self.allow = {item.strip() for item in (allow or []) if item and item.strip()}
+        # Tick order is kept: it decides which skills are preloaded when they do not all fit.
+        self.allow_order = list(dict.fromkeys(item.strip() for item in (allow or []) if item and item.strip()))
+        self.allow = set(self.allow_order)
         self.available_tool_names = {item.strip() for item in (available_tool_names or []) if item and item.strip()}
         self.warning_reporter = warning_reporter
         self._skills_by_name: Dict[str, SkillMetadata] | None = None
@@ -161,6 +178,7 @@ class AgentSkillManager:
         self._activation_state: Dict[str, bool] = {}
         self._current_skill_name: str | None = None
         self._discovery_warnings: List[str] = []
+        self._preloaded: List[str] = []
 
     def discover(self) -> List[SkillMetadata]:
         if self._skills_by_name is None:
@@ -179,8 +197,69 @@ class AgentSkillManager:
     def has_skills(self) -> bool:
         return bool(self.discover())
 
+    def skill_body(self, skill_name: str) -> str:
+        """SKILL.md without its frontmatter (name and description are already in the catalog)."""
+        skill = self._get_skill(skill_name)
+        cached = self._skill_content_cache.get(skill.name)
+        if cached is None:
+            cached = skill.skill_file.read_text(encoding="utf-8")
+            self._skill_content_cache[skill.name] = cached
+        return _strip_frontmatter(cached)
+
+    def preload(self, budget: int | None = None) -> List[SkillMetadata]:
+        """Pick the ticked skills whose instructions go into the system prompt (see MAX_PRELOADED_SKILL_CHARS).
+
+        Only skills the user ticked explicitly: with an empty allowlist the agent sees the whole library,
+        and preloading arbitrary skills would only cost tokens. Greedy in tick order; a skill that does not
+        fit is skipped (it stays loadable on demand) and smaller ones after it may still fit.
+        """
+        if budget is None:
+            budget = MAX_PRELOADED_SKILL_CHARS
+        if not self.allow_order:
+            self._preloaded = []
+            return []
+        by_name = {skill.name: skill for skill in self.discover()}
+        picked: List[SkillMetadata] = []
+        used = 0
+        for name in self.allow_order:
+            skill = by_name.get(name)
+            if skill is None:
+                continue
+            try:
+                size = len(self.skill_body(name))
+            except OSError:
+                continue
+            if used + size > budget:
+                continue
+            used += size
+            picked.append(skill)
+        self._preloaded = [skill.name for skill in picked]
+        return picked
+
+    def is_preloaded(self, skill_name: str) -> bool:
+        return skill_name in self._preloaded
+
+    def build_preloaded_skills_section(self, *, with_paths: bool = False) -> str:
+        """Full instructions of the preloaded skills, for the system prompt. ``with_paths``: native agents
+        read a skill's other files themselves, so they get its folder instead of the read_skill_file hint."""
+        blocks: List[str] = []
+        for name in self._preloaded:
+            skill = self._get_skill(name)
+            head = f"## Skill: {skill.name}\n{summarise_description(skill.description)}"
+            files = self.skill_files(skill.name)
+            if files and with_paths:
+                head += f"\n(Skill folder, for the files it references: {skill.skill_dir.as_posix()})"
+            elif files:
+                head += (
+                    "\n(Files in this skill, read the ones it points to with `read_skill_file`: "
+                    + ", ".join(files) + ")"
+                )
+            blocks.append(f"{head}\n\n{self.skill_body(skill.name)}\n[End skill: {skill.name}]")
+        return "\n\n".join(blocks)
+
     def build_available_skills_xml(self) -> str:
-        skills = self.discover()
+        """Catalog of the skills to load on demand (preloaded skills are already in the prompt)."""
+        skills = [skill for skill in self.discover() if not self.is_preloaded(skill.name)]
         if not skills:
             return ""
 
@@ -269,13 +348,15 @@ class AgentSkillManager:
         """Name, short description and SKILL.md path of each skill, for agents that read files themselves."""
         lines = []
         for skill in self.discover():
+            if self.is_preloaded(skill.name):
+                continue
             path = skill.skill_file.as_posix()
             lines.append(f"- {skill.name}: {summarise_description(skill.description)} (file: {path})")
         return "\n".join(lines)
 
     def read_skill_file(self, skill_name: str, relative_path: str) -> Dict[str, str]:
         skill = self._get_skill(skill_name)
-        if not self.is_activated(skill.name):
+        if not self.is_activated(skill.name) and not self.is_preloaded(skill.name):
             raise ValueError(f"Skill '{skill.name}' must be activated before reading files")
 
         normalized = relative_path.strip()

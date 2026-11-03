@@ -167,7 +167,7 @@ const edgeStyle = computed(() => {
       // warm yellow -> orange
       stroke: 'url(#incomingEdgeGradient)',
       strokeWidth: 1.4,
-      transition: 'stroke 120ms ease, stroke-width 120ms ease',
+      transition: 'stroke 120ms cubic-bezier(.22,1,.36,1), stroke-width 120ms cubic-bezier(.22,1,.36,1)',
     }
   }
 
@@ -177,7 +177,7 @@ const edgeStyle = computed(() => {
       // cyan -> turquoise
       stroke: 'url(#outgoingEdgeGradient)',
       strokeWidth: 1.4,
-      transition: 'stroke 120ms ease, stroke-width 120ms ease',
+      transition: 'stroke 120ms cubic-bezier(.22,1,.36,1), stroke-width 120ms cubic-bezier(.22,1,.36,1)',
     }
   }
 
@@ -637,9 +637,12 @@ const labelStyle = computed(() => {
     border: '1px solid var(--text-1)',
     fontSize: '12px',
     whiteSpace: 'pre-line',
+    maxWidth: '200px',
+    overflowWrap: 'anywhere',
+    zIndex: 5,
     textAlign: 'center',
     lineHeight: '1.4',
-    transition: 'border-color 200ms ease, box-shadow 200ms ease, color 200ms ease',
+    transition: 'border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out), color 200ms var(--ease-out)',
   }
 
   const { isEntry, isExit } = hoverState.value

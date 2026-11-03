@@ -11,12 +11,15 @@ import json
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
+from agentdev.runtime.node.agent.team import PLAN_PROPOSED_EVENT, is_small_talk
+
 OUTPUT_LIMIT = 6000
 SUMMARY_LIMIT = 12000
 REPLY_LIMIT = 2000
 MAX_FILES = 200
 
 VERDICTS = ("pending", "approved", "rework")
+RUN_END_EVENTS = ("workflow_completed", "workflow_cancelled", "error")
 
 
 def _text(value: Any, limit: int) -> str:
@@ -38,8 +41,21 @@ def _ms(timestamp: Any) -> Optional[float]:
 
 
 def build_digest(messages: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-    task: Optional[Dict[str, Any]] = None
+    """Condense a session's messages for review.
+
+    A session is a conversation: each new message starts a run. Only the user's answers to the
+    team count as ``replies`` (feedback): a reply typed while a run waited for input, or the
+    answer to a plan the lead proposed. Any other message is a new request. The ``task`` is the
+    latest real request (the delivered result answers it; greetings and thanks don't count);
+    the other requests are listed in ``other_requests``. ``active_ms`` adds up the runs only;
+    ``started_at``..``ended_at`` also spans the idle time between messages.
+    """
+    requests: List[Dict[str, Any]] = []
     replies: List[str] = []
+    in_run = False  # a run is going: a message now answers its question
+    after_plan = False  # the last run ended on a plan: the next message answers it
+    active_ms = 0.0
+    run_start = run_end = None
     steps: Dict[str, Dict[str, Any]] = {}
     order: List[str] = []
     files: Dict[str, Dict[str, Any]] = {}
@@ -54,19 +70,27 @@ def build_digest(messages: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         data = message.get("data") or {}
         if not isinstance(data, dict):
             continue
+        if kind == "error" and data.get("fatal") is False:
+            continue  # about one client message (e.g. sent while busy); the run kept going
 
         if kind == "user_message":
-            text = _text(data.get("text"), REPLY_LIMIT)
-            if task is None:
-                task = {"text": _text(data.get("text"), SUMMARY_LIMIT), "attachments": list(data.get("attachments") or [])}
+            if requests and (in_run or after_plan):
+                replies.append(_text(data.get("text"), REPLY_LIMIT))
             else:
-                replies.append(text)
+                requests.append({"text": _text(data.get("text"), SUMMARY_LIMIT), "attachments": list(data.get("attachments") or [])})
+            after_plan = False
+            in_run = True
+
+        elif kind == PLAN_PROPOSED_EVENT:
+            after_plan = True
 
         elif kind == "log":
             at = _ms(data.get("timestamp"))
             if at is not None:
                 started_at = at if started_at is None else min(started_at, at)
                 ended_at = at if ended_at is None else max(ended_at, at)
+                run_start = at if run_start is None else min(run_start, at)
+                run_end = at if run_end is None else max(run_end, at)
             node_id = data.get("node_id")
             event = data.get("event_type")
             if not node_id or event not in ("NODE_START", "NODE_END"):
@@ -107,7 +131,13 @@ def build_digest(messages: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
                     "attachment_id": item.get("attachment_id"),
                 }
 
-        elif kind == "workflow_completed":
+        if kind in RUN_END_EVENTS:
+            in_run = False
+            if run_start is not None:
+                active_ms += run_end - run_start
+            run_start = run_end = None
+
+        if kind == "workflow_completed":
             outcome = "completed"
             summary = _text(data.get("summary"), SUMMARY_LIMIT)
             token_usage = data.get("token_usage")
@@ -118,6 +148,13 @@ def build_digest(messages: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
             outcome = "error"
             error = _text(data.get("message"), REPLY_LIMIT)
 
+    if run_start is not None:  # a run that never reported its end
+        active_ms += run_end - run_start
+
+    real = [r for r in requests if not is_small_talk(r["text"])]
+    task = real[-1] if real else (requests[0] if requests else None)
+    other_requests = [_text(r["text"], REPLY_LIMIT) for r in real if r is not task]
+
     # Without an explicit summary, the last agent's hand-over is the delivered result
     if not summary and order:
         last = next((steps[n]["output"] for n in reversed(order) if steps[n]["output"]), "")
@@ -126,6 +163,7 @@ def build_digest(messages: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "task": task,
         "replies": replies,
+        "other_requests": other_requests,
         "steps": [steps[n] for n in order],
         "files": list(files.values())[:MAX_FILES],
         "summary": summary,
@@ -134,6 +172,7 @@ def build_digest(messages: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         "token_usage": token_usage,
         "started_at": started_at,
         "ended_at": ended_at,
+        "active_ms": active_ms,
     }
 
 
