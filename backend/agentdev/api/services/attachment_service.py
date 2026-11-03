@@ -543,8 +543,6 @@ class AttachmentService:
                 "This session already has a project folder open; start a new session for another folder",
                 field="path",
             )
-        if not scan.files:
-            raise ValidationError("The folder has no project files", field="path")
         total_size = 0
         for path, _rel in scan.files:
             try:
@@ -589,6 +587,15 @@ class AttachmentService:
                 *("  " + line for line in tree_lines),
                 "```",
                 "",
+                *(
+                    [
+                        "The folder is currently empty: this is a brand-new project.",
+                        "Build it from scratch by creating the files and folders the task needs.",
+                        "",
+                    ]
+                    if not scan.files
+                    else []
+                ),
             ]
         )
         return self._register_overview(
