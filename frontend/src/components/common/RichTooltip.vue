@@ -276,10 +276,10 @@ onBeforeUnmount(() => {
 
 .rich-tooltip {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--z-tooltip);
   max-width: 320px;
   background: rgb(var(--panel-26) / 0.98);
-  color: var(--text-1);
+  color: var(--fg);
   border-radius: 8px;
   padding: 12px 16px;
   box-shadow: 0 4px 20px rgb(var(--shade) / 0.4), 0 0 0 1px rgb(var(--ink) / 0.1);
@@ -369,7 +369,7 @@ onBeforeUnmount(() => {
 
 /* Light theme: opaque card with a visible edge; mint hover is < 4.5:1 on white */
 :root[data-theme="light"] .rich-tooltip {
-  background: var(--surface-1);
+  background: var(--surface);
   box-shadow: 0 6px 20px rgb(var(--shade) / 0.3), 0 0 0 1px var(--line-4);
 }
 :root[data-theme="light"] .tooltip-learn-more:hover {

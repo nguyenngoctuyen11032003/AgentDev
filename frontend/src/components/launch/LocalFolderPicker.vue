@@ -235,12 +235,11 @@ watch(
 .picker-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 9000;
+  z-index: var(--z-modal);
   display: grid;
   place-items: center;
   padding: 24px 16px;
-  background: rgb(8 8 10 / 0.66);
-  backdrop-filter: blur(4px);
+  background: var(--backdrop-color);
   animation: fade 0.16s ease-out;
 }
 
@@ -306,17 +305,22 @@ watch(
 }
 
 .icon-btn {
+  position: relative;
   display: grid;
   flex: none;
   place-items: center;
   width: 32px;
   height: 32px;
+  padding: 0;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--text-muted-4);
   cursor: pointer;
 }
+
+.icon-btn::before { content: ''; position: absolute; inset: -6px; }
+@media (pointer: coarse) { .icon-btn { width: 44px; height: 44px; } }
 
 .icon-btn:hover:not(:disabled) {
   background: var(--surface-3);
@@ -347,7 +351,7 @@ watch(
 
 .places-title {
   margin: 8px 10px 4px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -424,7 +428,8 @@ watch(
 }
 
 .path-input:focus {
-  outline: none;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
   border-color: var(--accent-sky);
 }
 
@@ -511,7 +516,7 @@ watch(
 }
 
 .list-state.is-error {
-  color: #ef6b6b;
+  color: var(--danger);
 }
 
 .note {
@@ -523,12 +528,12 @@ watch(
   font-size: 12.5px;
   color: var(--text-1);
   border-top: 1px solid var(--line-4);
-  background: color-mix(in srgb, #e8b44a 9%, transparent);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
 }
 
 .note svg {
   flex: none;
-  color: #e8b44a;
+  color: var(--warn);
 }
 
 .picker-foot {
@@ -575,7 +580,7 @@ watch(
 
 .btn-primary {
   border-color: transparent;
-  color: #0b1220;
+  color: var(--on-accent);
   background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky));
 }
 
@@ -586,10 +591,6 @@ watch(
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-:root[data-theme='light'] .btn-primary {
-  color: #fff;
 }
 
 :focus-visible {

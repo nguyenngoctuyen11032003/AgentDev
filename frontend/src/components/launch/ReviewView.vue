@@ -47,7 +47,7 @@
 
         <label class="search">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-          <input v-model="query" type="search" :placeholder="$t('launch.review.search')" />
+          <input v-model="query" type="search" :aria-label="$t('launch.review.search')" :placeholder="$t('launch.review.search')" />
         </label>
 
         <ul v-if="queue.length" class="queue-list">
@@ -234,6 +234,7 @@
                   v-model="form.feedback"
                   rows="5"
                   class="feedback"
+                  :aria-label="$t('launch.review.feedback_placeholder')"
                   :placeholder="$t('launch.review.feedback_placeholder')"
                 ></textarea>
 
@@ -753,7 +754,7 @@ const ago = (seconds) => {
 .queue-head { padding: 16px 16px 10px; }
 
 .eyebrow {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -791,7 +792,7 @@ const ago = (seconds) => {
   min-width: 20px;
   padding: 0 6px;
   border-radius: 99px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   text-align: center;
   color: var(--tone, var(--muted));
   background: color-mix(in srgb, var(--tone, var(--muted)) 14%, transparent);
@@ -843,6 +844,8 @@ const ago = (seconds) => {
 
 .plan-open { flex: none; font-size: 11.5px; font-weight: 600; color: var(--wait); }
 
+.search:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
 .search {
   display: flex;
   align-items: center;
@@ -859,7 +862,6 @@ const ago = (seconds) => {
   flex: 1;
   min-width: 0;
   border: 0;
-  outline: none;
   background: transparent;
   color: var(--text-1);
   font: inherit;
@@ -936,7 +938,7 @@ const ago = (seconds) => {
 .qi-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qi-meta time { flex: none; }
 
-.stars-mini { padding-left: 16px; font-size: 11px; letter-spacing: 1px; color: rgb(var(--ink) / 0.18); }
+.stars-mini { padding-left: 16px; font-size: var(--fs-xs); letter-spacing: 1px; color: rgb(var(--ink) / 0.18); }
 .stars-mini .on { color: #f5b301; }
 
 .queue-empty {
@@ -1164,7 +1166,7 @@ const ago = (seconds) => {
   width: 22px;
   height: 22px;
   border-radius: 7px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--accent-sky);
   background: color-mix(in srgb, var(--accent-sky) 13%, transparent);
@@ -1252,7 +1254,8 @@ span.tag {
   line-height: 1.5;
 }
 
-.feedback:focus { outline: none; border-color: var(--accent-sky); }
+.feedback:focus { border-color: var(--accent-sky); }
+.feedback:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
 .check { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; cursor: pointer; }
 .check input { margin: 2px 0 0; accent-color: var(--rework); }
@@ -1340,13 +1343,13 @@ span.tag {
 .stars-line { display: flex; align-items: center; gap: 2px; margin: 0; font-size: 18px; color: rgb(var(--ink) / 0.15); }
 .stars-line .on { color: #f5b301; }
 .stars-line .muted { margin-left: 8px; font-size: 12.5px; }
-.feedback-quote { margin: 0; padding: 10px 12px; border-left: 3px solid var(--line); font-size: 13px; line-height: 1.5; font-style: italic; }
+.feedback-quote { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgb(var(--ink) / 0.03); font-size: 13px; line-height: 1.5; font-style: italic; }
 
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1100px) {
   .detail-grid { grid-template-columns: 1fr; }
   .verdict { position: static; }
 }
@@ -1365,7 +1368,7 @@ span.tag {
   .back { display: inline; flex-basis: 100%; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 640px) {
   .review { padding: 10px; }
 }
 </style>

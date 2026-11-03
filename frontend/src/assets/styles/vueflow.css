@@ -52,10 +52,13 @@
   border-radius: 12px;
   padding: 12px;
   min-width: 150px;
+  max-width: 240px;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
 
   /* Shadows & Transition (only the properties that actually change on hover) */
   box-shadow: 0 4px 6px -1px rgb(var(--shade) / 0.3), 0 2px 4px -1px rgb(var(--shade) / 0.06);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s var(--ease-out), box-shadow 0.3s var(--ease-out);
 
   /* Font settings */
   color: var(--text-2);
@@ -84,20 +87,30 @@
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  /* Solid text (no gradient text); the type colour lives in the small dot */
+  color: var(--text-2);
+}
 
-  /* Gradient Text */
-  background: var(--node-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: brightness(1.2);
+.workflow-node-type::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-image: var(--node-gradient);
 }
 
 .workflow-node-id {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-strong);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .workflow-node-description {
@@ -105,15 +118,28 @@
   color: var(--text-muted-6);
   margin-top: 4px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .workflow-node-handle {
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   background-image: var(--node-gradient);
   border: 2px solid var(--surface-4);
   border-radius: 50%;
-  transition: filter 0.2s ease, transform 0.2s ease;
+  transition: filter 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+}
+
+.workflow-node-handle::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
 }
 
 .workflow-node-handle:hover {
@@ -235,11 +261,11 @@
 }
 
 :root[data-theme="light"] .workflow-node-type {
-  background: var(--node-text-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: none;
+  color: var(--text-soft-1);
+}
+
+:root[data-theme="light"] .workflow-node-type::before {
+  background-image: var(--node-text-gradient);
 }
 
 :root[data-theme="light"] .workflow-node-handle {

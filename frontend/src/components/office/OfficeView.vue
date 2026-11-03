@@ -48,9 +48,17 @@
         ]"
         :style="agentStyle(agent)"
         :ref="(el) => bindEl(agent.id, 'root', el)"
+        role="button"
+        tabindex="0"
+        :aria-pressed="pinnedId === agent.id"
+        :aria-label="agent.label"
         @mouseenter="hoveredId = agent.id"
         @mouseleave="hoveredId = null"
+        @focus="hoveredId = agent.id"
+        @blur="hoveredId = null"
         @click="togglePin(agent.id)"
+        @keydown.enter.prevent="togglePin(agent.id)"
+        @keydown.space.prevent="togglePin(agent.id)"
       >
         <div class="office-agent-shadow"></div>
         <img class="office-agent-sprite" :src="spriteSrc(agent)" alt="" draggable="false" />
@@ -181,7 +189,7 @@
 
     <!-- Roster: every workflow step is one staff member -->
     <div v-if="agents.length" class="office-roster" :class="{ open: rosterOpen }">
-      <button class="roster-toggle" type="button" @click="rosterOpen = !rosterOpen">
+      <button class="roster-toggle" type="button" :aria-expanded="rosterOpen" @click="rosterOpen = !rosterOpen">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
         {{ t('launch.office.roster', { n: agents.length }) }}
         <svg class="roster-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6" /></svg>
@@ -192,9 +200,14 @@
           :key="`roster-${agent.id}`"
           class="roster-item"
           :class="{ active: focusId === agent.id }"
+          role="button"
+          tabindex="0"
+          :aria-pressed="pinnedId === agent.id"
           @mouseenter="hoveredId = agent.id"
           @mouseleave="hoveredId = null"
           @click="togglePin(agent.id)"
+          @keydown.enter.prevent="togglePin(agent.id)"
+          @keydown.space.prevent="togglePin(agent.id)"
         >
           <span class="roster-step">{{ agent.step }}</span>
           <img class="roster-avatar" :src="avatarSrc(agent)" alt="" />
@@ -1122,13 +1135,11 @@ onBeforeUnmount(() => {
   gap: 5px;
   padding: 2px 7px 2px 6px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: #f4f6fa;
   background: rgba(17, 20, 27, 0.82);
-  border-left: 3px solid var(--dept);
+  border: 1px solid color-mix(in srgb, var(--dept) 70%, transparent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   white-space: nowrap;
   pointer-events: none;
@@ -1146,7 +1157,7 @@ onBeforeUnmount(() => {
   padding: 0 4px;
   border-radius: 999px;
   text-align: center;
-  font-size: 9px;
+  font-size: var(--fs-xs);
   color: #11141b;
   background: var(--dept);
 }
@@ -1260,7 +1271,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 5000;
+  z-index: var(--z-sticky);
   width: 0;
   height: 0;
   pointer-events: none;
@@ -1283,7 +1294,7 @@ onBeforeUnmount(() => {
   max-width: 116px;
   padding: 1px 6px 1px 2px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   line-height: 14px;
   color: #f4f6fa;
@@ -1299,7 +1310,7 @@ onBeforeUnmount(() => {
   height: 14px;
   padding: 0 3px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: var(--fs-xs);
   font-weight: 800;
   line-height: 14px;
   text-align: center;
@@ -1350,7 +1361,7 @@ onBeforeUnmount(() => {
   max-width: 200px;
   padding: 4px 9px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   line-height: 1.3;
   color: #1c1f27;
@@ -1425,10 +1436,8 @@ onBeforeUnmount(() => {
 }
 
 .bubble-kicker {
-  font-size: 9px;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   opacity: 0.72;
 }
 
@@ -1508,7 +1517,7 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 1px;
   color: #e5e7eb;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
@@ -1549,7 +1558,7 @@ onBeforeUnmount(() => {
 /* ---------- info card ---------- */
 .office-card {
   position: absolute;
-  z-index: 6000;
+  z-index: var(--z-dropdown);
   width: 260px;
   padding: 12px;
   border-radius: 12px;
@@ -1575,7 +1584,7 @@ onBeforeUnmount(() => {
 
 .card-name { font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.card-type { color: #9aa3b2; font-size: 11px; }
+.card-type { color: #9aa3b2; font-size: var(--fs-xs); }
 
 .card-state {
   display: inline-flex;
@@ -1584,7 +1593,7 @@ onBeforeUnmount(() => {
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.07);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -1632,7 +1641,7 @@ onBeforeUnmount(() => {
   /* centred in the space not covered by the chat panel (--office-inset-left is set by LaunchView) */
   left: calc(var(--office-inset-left, 0px) + (100% - var(--office-inset-left, 0px)) / 2);
   transform: translateX(-50%);
-  z-index: 7000;
+  z-index: var(--z-backdrop);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1680,6 +1689,7 @@ onBeforeUnmount(() => {
 
 /* Pull tab under the HUD; once collapsed it hangs from the top edge with a summary. */
 .hud-toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1694,7 +1704,7 @@ onBeforeUnmount(() => {
   background: var(--hud-bg);
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   cursor: pointer;
   pointer-events: auto;
@@ -1806,7 +1816,7 @@ onBeforeUnmount(() => {
   position: absolute;
   left: calc(var(--office-inset-left, 0px) + 12px);
   bottom: 12px;
-  z-index: 7000;
+  z-index: var(--z-backdrop);
   width: 250px;
   max-width: calc(100% - var(--office-inset-left, 0px) - 24px);
   max-height: calc(100% - 70px);
@@ -1824,6 +1834,7 @@ onBeforeUnmount(() => {
 .office-roster:not(.open) { width: auto; }
 
 .roster-toggle {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1853,6 +1864,7 @@ onBeforeUnmount(() => {
 }
 
 .roster-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1864,7 +1876,7 @@ onBeforeUnmount(() => {
 .roster-item:hover,
 .roster-item.active { background: rgba(255, 255, 255, 0.08); }
 
-.roster-step { width: 16px; flex: none; text-align: right; color: #9aa3b2; font-size: 10px; font-weight: 700; }
+.roster-step { width: 16px; flex: none; text-align: right; color: #9aa3b2; font-size: var(--fs-xs); font-weight: 700; }
 
 .roster-avatar { width: 18px; height: 23px; flex: none; object-fit: contain; }
 
@@ -1874,7 +1886,7 @@ onBeforeUnmount(() => {
   flex: none;
   padding: 0 6px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 15px;
   color: var(--dept);
@@ -1886,7 +1898,7 @@ onBeforeUnmount(() => {
 .office-empty {
   position: absolute;
   inset: 0;
-  z-index: 8000;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1900,6 +1912,21 @@ onBeforeUnmount(() => {
   background: rgba(18, 21, 28, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.1);
   font-size: 14px;
+}
+
+.hud-toggle::before { content: ''; position: absolute; inset: -6px; }
+
+.office-agent:focus-visible,
+.roster-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 8px; }
+
+@media (pointer: coarse) {
+  .hud-toggle { height: 44px; }
+  .roster-item { min-height: 44px; }
+}
+
+@media (max-width: 640px) {
+  .office-roster { max-width: calc(100vw - 24px); }
+  .office-hud { max-width: calc(100vw - 24px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

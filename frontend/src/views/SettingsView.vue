@@ -51,9 +51,9 @@ const sections = [
   box-sizing: border-box;
   width: 100%;
   min-height: calc(100vh - 55px);
-  background: var(--bg-base);
+  background: var(--bg);
   font-family: 'Inter', system-ui, sans-serif;
-  color: var(--text-1);
+  color: var(--fg);
 }
 
 .settings-layout {
@@ -75,11 +75,9 @@ const sections = [
 
 .nav-title {
   margin: 0 0 14px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted-4);
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--fg-muted);
 }
 
 .settings-nav nav {
@@ -94,7 +92,7 @@ const sections = [
   gap: 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   text-decoration: none;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
@@ -105,22 +103,22 @@ const sections = [
 }
 
 .nav-item:hover {
-  color: var(--text-1);
+  color: var(--fg);
   background: rgb(var(--ink) / 0.05);
 }
 
 .nav-item.router-link-active {
   color: var(--text-strong);
   background: rgb(var(--ink) / 0.07);
-  box-shadow: inset 2px 0 0 var(--accent-sky);
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-sky-rgb) / 0.4);
 }
 
 .nav-item.router-link-active svg {
-  color: var(--accent-sky);
+  color: var(--accent);
 }
 
 .nav-item:focus-visible {
-  outline: 2px solid var(--accent-sky);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -139,7 +137,7 @@ const sections = [
 .nav-desc {
   font-size: 12.5px;
   line-height: 1.45;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
 }
 
 /* ---- content: the embedded pages drop their own page frame ---- */
@@ -184,7 +182,7 @@ const sections = [
   }
 
   .nav-item.router-link-active {
-    box-shadow: inset 0 0 0 1px var(--accent-sky);
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
 
   .nav-desc {

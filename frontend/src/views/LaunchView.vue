@@ -40,8 +40,8 @@
           }"
           v-show="viewMode === 'chat' || true"
         >
-          <button v-show="viewMode !== 'chat'" class="chat-panel-toggle" @click="isChatPanelOpen = !isChatPanelOpen" :title="isChatPanelOpen ? $t('launch.collapse_chat') : $t('launch.expand_chat')">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ 'chevron-collapsed': !isChatPanelOpen }">
+          <button v-show="viewMode !== 'chat'" class="chat-panel-toggle" type="button" @click="isChatPanelOpen = !isChatPanelOpen" :aria-expanded="isChatPanelOpen" :aria-label="isChatPanelOpen ? $t('launch.collapse_chat') : $t('launch.expand_chat')" :title="isChatPanelOpen ? $t('launch.collapse_chat') : $t('launch.expand_chat')">
+            <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ 'chevron-collapsed': !isChatPanelOpen }">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
@@ -784,9 +784,15 @@
     <div
       v-if="selectedArtifactImage"
       class="image-modal"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="selectedArtifactImage.name"
       @click.self="closeImageModal"
     >
       <div class="image-modal-content">
+        <button ref="imageModalCloseRef" type="button" class="image-modal-close" aria-label="Đóng ảnh" @click="closeImageModal">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
         <img
           :src="selectedArtifactImage.src"
           :alt="selectedArtifactImage.name"
@@ -2735,6 +2741,20 @@ const openImageModal = (message) => {
   }
   lockBodyScroll()
 }
+
+const imageModalCloseRef = ref(null)
+const onImageModalKeydown = (e) => {
+  if (e.key === 'Escape') closeImageModal()
+}
+watch(selectedArtifactImage, (val) => {
+  if (val) {
+    window.addEventListener('keydown', onImageModalKeydown)
+    nextTick(() => imageModalCloseRef.value?.focus())
+  } else {
+    window.removeEventListener('keydown', onImageModalKeydown)
+  }
+})
+onUnmounted(() => window.removeEventListener('keydown', onImageModalKeydown))
 
 const closeImageModal = () => {
   if (!selectedArtifactImage.value) {
@@ -5192,7 +5212,11 @@ watch(
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  outline: none;
+}
+
+.back-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .back-button:hover {
@@ -5298,6 +5322,21 @@ watch(
   z-index: 11;
 }
 
+.chat-panel-toggle::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.chat-panel-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+@media (pointer: coarse) {
+  .chat-panel-toggle { width: 44px; height: 44px; right: -44px; }
+}
+
 .chat-panel-toggle:hover {
   background: rgb(var(--ink) / 0.1);
   color: var(--text-1);
@@ -5347,7 +5386,7 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: rgb(var(--ink) / 0.5);
 }
 
@@ -5476,7 +5515,7 @@ watch(
   position: absolute;
   top: 7px;
   left: 12px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-muted-7);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   pointer-events: none;
@@ -5489,7 +5528,7 @@ watch(
   align-items: center;
   gap: 4px;
   padding: 3px 7px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-muted-7);
   background: transparent;
   border: 1px solid transparent;
@@ -5605,8 +5644,8 @@ watch(
 }
 
 .chat-notification-error .notification-content {
-  background: rgba(255, 82, 82, 0.12);
-  border-color: rgba(255, 82, 82, 0.4);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
   color: var(--danger-soft);
 }
 
@@ -5616,11 +5655,11 @@ watch(
   margin-left: 6px;
   padding: 1px 7px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  color: #f59e0b;
-  background: rgb(245 158 11 / 0.12);
-  border: 1px solid rgb(245 158 11 / 0.35);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
 }
 
 .message-timestamp {
@@ -5838,23 +5877,13 @@ watch(
 
 /* Running label shimmers instead of glowing borders */
 .activity-running .activity-label {
-  color: rgb(var(--ink) / 0.75);
-  background: linear-gradient(
-    90deg,
-    rgb(var(--ink) / 0.45) 0%,
-    rgb(var(--ink) / 0.95) 50%,
-    rgb(var(--ink) / 0.45) 100%
-  );
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: activityShimmer 2s linear infinite;
+  color: rgb(var(--ink) / 0.85);
+  animation: activityPulse 1.8s ease-in-out infinite;
 }
 
-@keyframes activityShimmer {
-  from { background-position: 100% 0; }
-  to { background-position: -100% 0; }
+@keyframes activityPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 /* The step going on now, under the finished ones */
@@ -6167,8 +6196,8 @@ watch(
   margin-bottom: 8px;
   padding: 8px 10px 8px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 82, 82, 0.4);
-  background: rgba(255, 82, 82, 0.1);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
   color: var(--danger-soft);
   font-size: 13px;
   line-height: 1.45;
@@ -6201,7 +6230,7 @@ watch(
   cursor: not-allowed;
 }
 .send-error-retry {
-  border-color: rgba(255, 82, 82, 0.45);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
   font-weight: 600;
 }
 .notification-retry {
@@ -6213,8 +6242,8 @@ watch(
   margin-bottom: 8px;
   padding: 10px 14px;
   border-radius: 12px;
-  border: 1px solid rgb(245 158 11 / 0.4);
-  background: rgb(245 158 11 / 0.08);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
   color: var(--text-1);
   font-size: 13px;
   line-height: 1.5;
@@ -6226,7 +6255,7 @@ watch(
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  color: #f59e0b;
+  color: var(--warn);
   margin-bottom: 4px;
 }
 .question-card-dot {
@@ -6234,7 +6263,7 @@ watch(
   height: 8px;
   flex: none;
   border-radius: 50%;
-  background: #f59e0b;
+  background: var(--warn);
   animation: question-pulse 1.6s ease-in-out infinite;
 }
 @keyframes question-pulse {
@@ -6262,9 +6291,6 @@ watch(
 }
 .question-card-toggle:hover {
   text-decoration: underline;
-}
-:root[data-theme="light"] .question-card-head {
-  color: #b45309;
 }
 @media (prefers-reduced-motion: reduce) {
   .question-card-dot { animation: none; }
@@ -6592,7 +6618,7 @@ watch(
   right: -6px;
   background: var(--accent-sky);
   color: var(--bg-base);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 10px;
@@ -6638,7 +6664,7 @@ watch(
 
 .attachment-meta {
   margin-left: 6px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-3, rgb(var(--ink) / 0.5));
 }
 
@@ -6803,7 +6829,7 @@ watch(
   transform: translateY(-50%);
   color: rgb(var(--ink) / 0.3);
   pointer-events: none;
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .file-dropdown {
@@ -6850,7 +6876,7 @@ watch(
 
 .file-desc {
   color: rgb(var(--ink) / 0.5);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .file-empty {
@@ -6888,8 +6914,8 @@ watch(
 }
 
 .status-awaiting-plan {
-  color: #d97706;
-  background: rgb(245 158 11 / 0.12);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
   font-weight: 600;
 }
 
@@ -6916,9 +6942,9 @@ watch(
 }
 
 .plan-card-open .plan-card-badge {
-  color: #d97706;
-  background: rgb(245 158 11 / 0.12);
-  border-color: rgb(245 158 11 / 0.4);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
 .plan-card-summary {
@@ -7034,11 +7060,11 @@ watch(
   margin-left: 4px;
   padding: 0 4px;
   border-radius: 99px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 1;
-  color: #fff;
-  background: #f59e0b;
+  color: var(--on-warn);
+  background: var(--warn);
   vertical-align: 1px;
 }
 
@@ -7225,9 +7251,27 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
-  backdrop-filter: blur(2px);
+  z-index: var(--z-modal);
 }
+
+.image-modal-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.image-modal-close:hover { background: rgb(var(--ink) / 0.1); }
+.image-modal-close:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
 .image-modal-content {
   position: relative;
@@ -7303,7 +7347,7 @@ watch(
 }
 
 /* Phones: one column (sessions, chat, controls) that scrolls, instead of three side by side */
-@media (max-width: 720px) {
+@media (max-width: 640px) {
   .content {
     flex-direction: column;
     overflow-x: hidden;
@@ -7329,7 +7373,7 @@ watch(
   .left-panel {
     flex: none;
     height: 72vh;
-    min-height: 420px;
+    min-height: min(420px, 70dvh);
   }
 
   .right-panel:not(.right-panel-overlay) {

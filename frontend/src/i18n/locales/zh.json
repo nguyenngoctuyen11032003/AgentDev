@@ -60,7 +60,11 @@
     "copied": "已复制",
     "failed_to_copy": "复制代码失败：",
     "failed_to_fetch": "获取教程 markdown 失败",
-    "failed_to_load": "加载教程失败："
+    "failed_to_load": "加载教程失败：",
+    "loading": "正在加载教程",
+    "error_title": "无法加载教程",
+    "error_desc": "请检查网络连接后重试。",
+    "retry": "重试"
   },
   "home": {
     "eyebrow": "多智能体平台 · 零代码",
@@ -228,7 +232,18 @@
     "log_batch_completed": "批量处理完成：成功 {succeeded} 个任务，失败 {failed} 个任务",
     "log_task_started": "[ID {id}，第 {row} 行] 已启动",
     "log_task_completed": "[ID {id}，第 {row} 行] 已完成，耗时 {duration} 毫秒，共使用 {tokens} 个 token",
-    "log_task_failed": "[ID {id}，第 {row} 行] 失败。错误：{error}"
+    "log_task_failed": "[ID {id}，第 {row} 行] 失败。错误：{error}",
+    "copy_logs": "复制",
+    "clear_logs": "清空日志",
+    "logs_copied": "日志已复制。",
+    "logs_copy_failed": "无法复制日志。",
+    "remove_input_file": "移除已选文件",
+    "input_file_hint": "支持 .xlsx 或 .csv 文件",
+    "column_guide_title": "输入文件格式",
+    "progress_detail": "{done}/{total} 行 · {failed} 个失败",
+    "hint_pick_workflow": "请选择工作流后再启动。",
+    "hint_pick_file": "请选择输入文件（.xlsx 或 .csv）后再启动。",
+    "hint_connecting": "正在连接服务器..."
   },
   "launch": {
     "plan": {
@@ -1099,7 +1114,7 @@
     "multiline": "多行标志（MULTILINE）",
     "multiple": "返回多个匹配",
     "embedding": "嵌入（embedding）配置",
-    "encoding": "Encoding",
+    "encoding": "编码（encoding）",
     "file_sources": "文件来源列表",
     "file_types": "文件类型过滤",
     "group": "捕获组",
@@ -1110,10 +1125,10 @@
     "max_parallel": "最大并行数",
     "memory_path": "记忆文件路径",
     "on_no_match": "未匹配时",
-    "path": "Path",
+    "path": "路径",
     "prefix": "工具前缀",
     "recursive": "扫描子目录",
-    "role": "Role",
+    "role": "角色（role）",
     "split": "数据拆分方式",
     "tool_sources": "工具来源过滤"
   },
@@ -1501,8 +1516,8 @@
       "web_search": "web:web_search"
     },
     "type": {
-      "map": "Map",
-      "tree": "Tree",
+      "map": "映射（Map）",
+      "tree": "树形（Tree）",
       "function": "function",
       "keyword": "keyword",
       "regex_extract": "regex_extract",
@@ -1517,8 +1532,8 @@
       "literal": "literal",
       "loop_counter": "loop_counter",
       "loop_timer": "loop_timer",
-      "message": "Message",
-      "regex": "Regex",
+      "message": "按消息（Message）",
+      "regex": "正则（Regex）",
       "json_path": "JSON 路径",
       "config": "config",
       "reflection": "reflection",
@@ -1526,11 +1541,11 @@
       "mcp_local": "本地 MCP"
     },
     "log_level": {
-      "DEBUG": "Debug",
-      "INFO": "Info",
-      "WARNING": "Warning",
-      "ERROR": "Error",
-      "CRITICAL": "Critical"
+      "DEBUG": "调试（Debug）",
+      "INFO": "信息（Info）",
+      "WARNING": "警告（Warning）",
+      "ERROR": "错误（Error）",
+      "CRITICAL": "严重（Critical）"
     },
     "retrieve_stage": {
       "pre_gen_thinking": "生成前思考阶段",
@@ -1808,6 +1823,7 @@
     "import_title": "从文件夹导入技能",
     "import_source": "源文件夹",
     "import_reload": "重新加载",
+    "import_loading": "正在读取技能列表...",
     "import_none": "此文件夹中没有技能。",
     "import_missing": "找不到文件夹：{path}",
     "select_all": "全选（{count}）",
@@ -1829,7 +1845,7 @@
     "ask_before_building": "开工前先确认计划",
     "max_delegations_per_request": "每次请求最多委派次数",
     "max_fix_review_rounds": "最多修复/评审轮数",
-    "model_name": "Model",
+    "model_name": "模型",
     "system_prompt": "角色与任务说明",
     "model_provider": "模型服务商",
     "base_url": "基础 URL（Base URL）",
@@ -1912,7 +1928,7 @@
     "passthrough_mode": "直通模式",
     "max_parallel": "最大并行数",
     "launch_command": "启动命令",
-    "arguments": "Arguments",
+    "arguments": "参数",
     "working_directory": "工作目录",
     "environment_variables": "环境变量",
     "inherit_parent_env": "继承父进程环境变量",
@@ -1962,13 +1978,13 @@
     "subgraph_id": "子图 ID",
     "subgraph_description": "子图描述",
     "majority_voting": "多数投票",
-    "variables": "Variables",
-    "organization": "Organization",
+    "variables": "变量",
+    "organization": "组织",
     "thinking_mode": "思考模式",
     "tool_type": "工具类型",
     "tool_prefix": "工具前缀",
     "group_size": "分组大小",
-    "mascot": "Mascot",
+    "mascot": "吉祥物",
     "connection": "AI 账号",
     "native_coding_agent": "原生编程智能体",
     "allow_shell_commands": "允许执行 shell 命令",
@@ -2119,7 +2135,10 @@
         "problem": "这些节点没有入边也不属于任何团队："
       }
     },
-    "job_lost": "已无法跟踪此次运行（服务器可能已重启），请重新运行。"
+    "job_lost": "已无法跟踪此次运行（服务器可能已重启），请重新运行。",
+    "scenario_skipped": "内容不完整，将被跳过",
+    "run_hint_empty": "请至少为一个场景填写请求后再运行。",
+    "progress_label": "评测进度"
   },
   "schema_desc_text": {
     "h11aw3kw": "该智能体的职责：工作范围、工作规则以及怎样算好的结果。智能体在每个任务中都会遵循它。团队负责人读取第一行来决定把任务分派给谁，因此第一行要简短并写明专长。",

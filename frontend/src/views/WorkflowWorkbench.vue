@@ -1,6 +1,12 @@
 <template>
   <div class="workflow-workbench">
-    <div class="workflow-sidebar" :class="{ open: isSidebarOpen }">
+    <div
+      id="workflow-sidebar"
+      class="workflow-sidebar"
+      :class="{ open: isSidebarOpen }"
+      :inert="!isSidebarOpen"
+      :aria-hidden="!isSidebarOpen"
+    >
       <WorkflowList
         ref="workflowListRef"
         :use-routing="false"
@@ -12,6 +18,8 @@
     <button 
       class="sidebar-toggle-btn" 
       :class="{ 'sidebar-open': isSidebarOpen }"
+      :aria-expanded="isSidebarOpen"
+      aria-controls="workflow-sidebar"
       @click="handleToggleSidebar" 
       :aria-label="isSidebarOpen ? $t('workbench.hide_sidebar') : $t('workbench.show_sidebar')"
       :title="isSidebarOpen ? $t('workbench.hide_sidebar') : $t('workbench.show_sidebar')"
@@ -106,9 +114,11 @@ const handleRefreshWorkflows = async () => {
 
 <style scoped>
 .workflow-workbench {
+  --sidebar-w: min(400px, 88vw);
   position: relative;
   display: flex;
   height: calc(100vh - 55px);
+  height: calc(100dvh - 55px);
   background-color: var(--bg-base);
   color: var(--text-1);
   overflow: hidden;
@@ -119,10 +129,10 @@ const handleRefreshWorkflows = async () => {
   left: 0;
   top: 0;
   bottom: 0;
-  width: 400px;
+  width: var(--sidebar-w);
   transform: translateX(calc(-100% + 10px));
-  transition: transform 0.35s cubic-bezier(.77,.2,.05,1.0);
-  z-index: 3;
+  transition: transform 0.35s var(--ease-out);
+  z-index: var(--z-sticky);
   border-right: 1px solid rgb(var(--ink) / 0.08);
   background-color: var(--bg-deep);
   overflow-y: auto;
@@ -153,19 +163,31 @@ const handleRefreshWorkflows = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 5;
+  z-index: calc(var(--z-sticky) + 1);
   /* Slide with transform (compositor only) instead of animating `left`,
      which would relayout the workbench on every frame */
-  transition: transform 0.35s cubic-bezier(.77,.2,.05,1.0),
-              color 0.2s,
-              border-color 0.2s,
-              box-shadow 0.2s;
+  transition: transform 0.35s var(--ease-out),
+              color 0.2s var(--ease-out),
+              border-color 0.2s var(--ease-out),
+              box-shadow 0.2s var(--ease-out);
   box-shadow: 4px 0 12px rgb(var(--shade) / 0.4);
   will-change: transform;
 }
 
 .sidebar-toggle-btn.sidebar-open {
-  transform: translate(390px, -50%); /* Follow the sidebar when expanded (10px + 390px = 400px) */
+  transform: translate(calc(var(--sidebar-w) - 10px), -50%); /* Follow the sidebar when expanded */
+}
+
+/* The tab is only 12px wide: extend the hit area without changing the look */
+.sidebar-toggle-btn::after {
+  content: '';
+  position: absolute;
+  inset: -8px -12px -8px -4px;
+}
+
+.sidebar-toggle-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .sidebar-toggle-btn:hover {
@@ -267,6 +289,10 @@ const handleRefreshWorkflows = async () => {
   cursor: pointer;
 }
 
+.ph-btn {
+  transition: background-color 0.2s var(--ease-out), filter 0.2s var(--ease-out);
+}
+
 .ph-btn:hover {
   background: rgb(var(--ink) / 0.1);
 }
@@ -286,7 +312,7 @@ const handleRefreshWorkflows = async () => {
 }
 
 .ph-btn:focus-visible {
-  outline: 2px solid var(--accent-sky);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 

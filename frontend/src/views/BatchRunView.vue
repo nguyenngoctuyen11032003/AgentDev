@@ -3,8 +3,14 @@
     <div class="launch-bg"></div>
     <div class="header">
       <h1>{{ $t('batch_run.title') }}</h1>
-      <button class="settings-button" @click="showBatchSettingsModal()" :title="$t('batch_run.batch_settings')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <button
+        type="button"
+        class="btn ghost icon-only settings-button"
+        :aria-label="$t('batch_run.batch_settings')"
+        :title="$t('batch_run.batch_settings')"
+        @click="showBatchSettingsModal()"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
@@ -15,9 +21,20 @@
       <div class="left-panel">
         <!-- Log area -->
         <div v-show="viewMode === 'terminal'" class="log-box">
-          <div class="log-messages" ref="logMessagesRef">
+          <div class="log-toolbar">
+            <button type="button" class="btn ghost sm log-tool" :disabled="logMessages.length === 0" @click="copyLogs">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V6a2 2 0 0 1 2-2h9"></path></svg>
+              {{ $t('batch_run.copy_logs') }}
+            </button>
+            <button type="button" class="btn ghost sm log-tool" :disabled="logMessages.length === 0" @click="clearLogs">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"></path></svg>
+              {{ $t('batch_run.clear_logs') }}
+            </button>
+          </div>
+          <div class="log-messages" ref="logMessagesRef" role="log" :aria-label="$t('batch_run.terminal')">
             <div v-for="logMessage in logMessages" :key="logMessage.id" class="log-message">
-              <span :class="`log-timestamp log-timestamp-${logMessage.type}`">{{ logMessage.timestamp }}</span> : {{ logMessage.message }}
+              <span :class="`log-timestamp log-timestamp-${logMessage.type}`">{{ logMessage.timestamp }}</span>
+              <span :class="`log-text log-text-${logMessage.type}`">{{ logMessage.message }}</span>
             </div>
             <div v-if="logMessages.length === 0" class="log-placeholder">
               {{ $t('batch_run.logs_placeholder') }}
@@ -28,34 +45,51 @@
         <!-- Dashboard area -->
         <div v-if="viewMode === 'dashboard'" class="dashboard-box">
           <div class="dashboard-content">
+            <!-- Progress is the hero -->
+            <div class="progress-section">
+              <div class="progress-head">
+                <span id="batch-progress-label" class="progress-label">{{ $t('batch_run.overall_progress') }}</span>
+                <span class="progress-detail">{{ progressDetail }}</span>
+              </div>
+              <div class="progress-row">
+                <div
+                  class="progress-bar"
+                  role="progressbar"
+                  aria-labelledby="batch-progress-label"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  :aria-valuenow="progressPercentage"
+                  :aria-valuetext="progressDetail ? `${progressPercentage}% (${progressDetail})` : `${progressPercentage}%`"
+                >
+                  <div
+                    class="progress-fill"
+                    :class="{ processing: status === 'In Progress', 'is-done': status === 'Batch completed', 'is-cancelled': status === 'Batch cancelled' }"
+                    :style="{ width: progressPercentage + '%' }"
+                  ></div>
+                </div>
+                <div class="progress-text">{{ progressPercentage }}%</div>
+              </div>
+            </div>
+
             <!-- Metrics Grid -->
             <div class="metrics-grid">
-              <div class="metric-card" :class="{ 'status-active': status === 'In Progress' }">
+              <div class="metric-card">
                 <div class="metric-title">{{ $t('batch_run.rows_completed') }}</div>
                 <div class="metric-value">{{ completedRows }}</div>
               </div>
-              <div class="metric-card" :class="{ 'status-active': status === 'In Progress' }">
+              <div class="metric-card">
                 <div class="metric-title">{{ $t('batch_run.total_time') }}</div>
-                <!-- Text is written by the timer loop directly (no per-frame re-render of the view) -->
+                <!-- Text is written by the timer loop directly (no per-tick re-render of the view) -->
                 <div ref="totalTimeEl" class="metric-value metric-timer"></div>
               </div>
-              <div class="metric-card" :class="{ 'status-active': status === 'In Progress' }">
+              <div class="metric-card">
                 <div class="metric-title">{{ $t('batch_run.success_rate') }}</div>
                 <div class="metric-value">{{ successRate }}</div>
               </div>
               <div class="metric-card" :class="{ 'status-active': status === 'In Progress' }">
                 <div class="metric-title">{{ $t('batch_run.current_status') }}</div>
-                <div class="metric-value" :class="{ 'status-active': status === 'In Progress' }">{{ computedStatus }}</div>
+                <div class="metric-value metric-status">{{ computedStatus }}</div>
               </div>
-            </div>
-
-            <!-- Progress Bar -->
-            <div class="progress-section">
-              <div class="progress-label">{{ $t('batch_run.overall_progress') }}</div>
-              <div class="progress-bar" :style="{ '--process-width': progressPercentage + '%'}">
-                <div class="progress-fill" :class="{ 'processing': status === 'In Progress' }" :style="{ width: progressPercentage + '%' }"></div>
-              </div>
-              <div class="progress-text">{{ progressPercentage }}%</div>
             </div>
           </div>
         </div>
@@ -64,54 +98,62 @@
       <!-- Right panel -->
       <div class="right-panel">
         <div class="control-section">
-          <label class="section-label">{{ $t('batch_run.workflow_selection') }}</label>
-      <div
-        class="select-wrapper custom-file-selector"
-        ref="fileSelectorWrapperRef"
-      >
-        <input
-          ref="fileSelectorInputRef"
-          v-model="fileSearchQuery"
-          type="text"
-          class="file-selector-input"
-          :placeholder="loading ? $t('batch_run.loading') : $t('batch_run.select_yaml')"
-          :disabled="loading || isWorkflowRunning"
-          @focus="handleFileInputFocus"
-          @input="handleFileInputChange"
-          @keydown.enter.prevent="handleFileInputEnter"
-          @blur="handleFileInputBlur"
-        />
-        <div class="select-arrow">▼</div>
-        <Transition name="file-dropdown">
-          <ul
-            v-if="isFileDropdownOpen"
-            class="file-dropdown"
-          >
-            <li
-              v-for="workflow in filteredWorkflowFiles"
-              :key="workflow.name"
-              class="file-option"
-              @mousedown.prevent="selectWorkflow(workflow.name)"
-            >
-              <span class="file-name">{{ workflow.name }}</span>
-              <span
-                v-if="workflow.description"
-                class="file-desc"
+          <label class="section-label" for="batch-workflow-input">{{ $t('batch_run.workflow_selection') }}</label>
+          <div class="select-wrapper custom-file-selector" ref="fileSelectorWrapperRef">
+            <input
+              id="batch-workflow-input"
+              ref="fileSelectorInputRef"
+              v-model="fileSearchQuery"
+              type="text"
+              class="input file-selector-input"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-haspopup="listbox"
+              aria-controls="batch-workflow-listbox"
+              :aria-expanded="isFileDropdownOpen ? 'true' : 'false'"
+              :aria-activedescendant="activeOptionId"
+              autocomplete="off"
+              spellcheck="false"
+              :placeholder="loading ? $t('batch_run.loading') : $t('batch_run.select_yaml')"
+              :disabled="loading || isWorkflowRunning"
+              @focus="handleFileInputFocus"
+              @input="handleFileInputChange"
+              @keydown="handleFileInputKeydown"
+              @blur="handleFileInputBlur"
+            />
+            <svg class="select-arrow" :class="{ open: isFileDropdownOpen }" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+            <Transition name="file-dropdown">
+              <ul
+                v-if="isFileDropdownOpen"
+                id="batch-workflow-listbox"
+                class="file-dropdown"
+                role="listbox"
+                :aria-label="$t('batch_run.workflow_selection')"
               >
-                {{ localizedWorkflowDescription(workflow.name, workflow.description) }}
-              </span>
-            </li>
-            <li
-              v-if="!filteredWorkflowFiles.length"
-              class="file-empty"
-            >
-              {{ $t('batch_run.no_results') }}
-            </li>
-          </ul>
-        </Transition>
-      </div>
+                <li
+                  v-for="(workflow, index) in filteredWorkflowFiles"
+                  :id="`batch-workflow-option-${index}`"
+                  :key="workflow.name"
+                  class="file-option"
+                  :class="{ active: index === activeOptionIndex, selected: workflow.name === selectedYamlFile }"
+                  role="option"
+                  :aria-selected="workflow.name === selectedYamlFile ? 'true' : 'false'"
+                  @mousedown.prevent="selectWorkflow(workflow.name)"
+                  @mousemove="activeOptionIndex = index"
+                >
+                  <span class="file-name">{{ workflow.name }}</span>
+                  <span v-if="workflow.description" class="file-desc">
+                    {{ localizedWorkflowDescription(workflow.name, workflow.description) }}
+                  </span>
+                </li>
+                <li v-if="!filteredWorkflowFiles.length" class="file-empty" role="presentation">
+                  {{ $t('batch_run.no_results') }}
+                </li>
+              </ul>
+            </Transition>
+          </div>
 
-          <label class="section-label">{{ $t('batch_run.input_file_selection') }}</label>
+          <span id="batch-input-file-label" class="section-label">{{ $t('batch_run.input_file_selection') }}</span>
           <div class="input-file-section">
             <div class="file-upload-wrapper">
               <input
@@ -119,62 +161,89 @@
                 type="file"
                 accept=".xlsx,.csv"
                 class="hidden-file-input"
+                tabindex="-1"
+                aria-hidden="true"
                 @change="onInputFileSelected"
               />
               <button
                 type="button"
                 class="file-upload-button"
+                :class="{ 'has-file': selectedInputFile }"
+                aria-labelledby="batch-input-file-label"
+                aria-describedby="batch-input-file-hint"
                 :disabled="loading || isWorkflowRunning"
                 @click="handleInputFileButtonClick"
               >
-                {{ selectedInputFile ? selectedInputFile.name : $t('batch_run.select_input_file') }}
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"></path></svg>
+                <span class="file-upload-text">{{ selectedInputFile ? selectedInputFile.name : $t('batch_run.select_input_file') }}</span>
+              </button>
+              <button
+                v-if="selectedInputFile"
+                type="button"
+                class="btn secondary icon-only remove-file-button"
+                :aria-label="$t('batch_run.remove_input_file')"
+                :title="$t('batch_run.remove_input_file')"
+                :disabled="loading || isWorkflowRunning"
+                @click="removeInputFile"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
               </button>
             </div>
+            <p id="batch-input-file-hint" class="field-hint">{{ $t('batch_run.input_file_hint') }}</p>
           </div>
 
           <div class="input-manual">
-            <div class="manual-title" @click="showColumnGuideModal = true">
+            <button type="button" class="manual-title" aria-haspopup="dialog" @click="showColumnGuideModal = true">
               {{ $t('batch_run.input_file_format') }}
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="info-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="info-icon" aria-hidden="true">
                 <circle cx="12" cy="12" r="10"></circle>
                 <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
                 <path d="M12 17h.01"></path>
               </svg>
-            </div>
+            </button>
           </div>
 
-          <label class="section-label">{{ $t('batch_run.view') }}</label>
-          <div class="view-toggle">
+          <span id="batch-view-label" class="section-label">{{ $t('batch_run.view') }}</span>
+          <div class="view-toggle" role="group" aria-labelledby="batch-view-label">
             <button
+              type="button"
               class="toggle-button"
               :class="{ active: viewMode === 'dashboard' }"
+              :aria-pressed="viewMode === 'dashboard' ? 'true' : 'false'"
               @click="switchToDashboard"
             >
               {{ $t('batch_run.dashboard') }}
             </button>
             <button
+              type="button"
               class="toggle-button"
               :class="{ active: viewMode === 'terminal' }"
+              :aria-pressed="viewMode === 'terminal' ? 'true' : 'false'"
               @click="viewMode = 'terminal'"
             >
               {{ $t('batch_run.terminal') }}
             </button>
           </div>
 
-
-
           <!-- Button area -->
           <div class="button-section">
             <button
-              class="launch-button"
-              :class="{ glow: shouldGlow, 'is-sending': isWorkflowRunning }"
+              type="button"
+              class="btn primary launch-button"
+              :class="{ glow: shouldGlow, 'is-sending': isSending }"
+              :aria-busy="isSending ? 'true' : 'false'"
+              :aria-describedby="launchHint ? 'batch-launch-hint' : undefined"
+              :disabled="isLaunchButtonDisabled"
               @click="handleButtonClick"
-              :disabled="isLaunchButtonDisabled">
+            >
+              <span v-if="isSending" class="btn-spinner" aria-hidden="true"></span>
               {{ buttonLabel }}
             </button>
+            <p v-if="launchHint" id="batch-launch-hint" class="launch-hint">{{ launchHint }}</p>
 
             <button
-              class="cancel-button"
+              type="button"
+              class="btn secondary cancel-button"
               :disabled="status !== 'In Progress'"
               @click="cancelBatchWorkflow"
             >
@@ -182,7 +251,8 @@
             </button>
 
             <button
-              class="download-button"
+              type="button"
+              class="btn secondary download-button"
               :disabled="status !== 'Batch completed' && status !== 'Batch cancelled'"
               @click="downloadLogs"
             >
@@ -194,112 +264,93 @@
     </div>
   </div>
 
-  <Transition name="image-modal">
-    <div
+  <!-- Result image preview -->
+  <BaseDialog
+    :model-value="!!selectedArtifactImage"
+    :title="selectedArtifactImage?.name || $t('batch_run.artifact_image')"
+    width="min(960px, 95vw)"
+    @update:model-value="closeImageModal"
+  >
+    <img
       v-if="selectedArtifactImage"
-      class="image-modal"
-      @click.self="closeImageModal"
-    >
-      <div class="image-modal-content">
-        <img
-          :src="selectedArtifactImage.src"
-          :alt="selectedArtifactImage.name"
-          @click="closeImageModal"
-        />
-      </div>
-    </div>
-  </Transition>
+      class="preview-image"
+      :src="selectedArtifactImage.src"
+      :alt="selectedArtifactImage.name"
+    />
+  </BaseDialog>
 
   <SettingsModal
     :is-visible="showSettingsModal"
     @update:is-visible="showSettingsModal = $event"
   />
 
-  <!-- Column Guide Modal -->
-  <Transition name="modal">
-    <div
-      v-if="showColumnGuideModal"
-      class="column-guide-modal-overlay"
-      @click.self="showColumnGuideModal = false"
-    >
-      <div class="column-guide-modal">
-        <div class="modal-content">
-          <div class="manual-content">
-            <div class="manual-item">
-              {{ $t('batch_run.manual_intro') }}
-            </div>
-            <div class="manual-item">
-              <code>id</code> - {{ $t('batch_run.manual_id') }}
-            </div>
-            <div class="manual-item">
-              <code>task</code> - {{ $t('batch_run.manual_task') }}
-            </div>
-            <div class="manual-item">
-              <code>vars</code> - {{ $t('batch_run.manual_vars') }}
-              <div class="manual-example">
-                <pre>{{
-JSON.stringify({"LANGUAGE": "vi", "MAX_ITERATIONS": "3"}, null, 2)
-}}</pre>
-              </div>
-            </div>
-            <div class="manual-item">
-              <code>attachments</code> - {{ $t('batch_run.manual_attachments') }}
-              <div class="manual-example">
-                <pre>{{
-JSON.stringify(["C:\\a_sheep.png"], null, 2)
-}}</pre>
-              </div>
-            </div>
-          </div>
+  <!-- Column guide -->
+  <BaseDialog
+    v-model="showColumnGuideModal"
+    :title="$t('batch_run.column_guide_title')"
+    width="560px"
+  >
+    <div class="manual-content">
+      <p class="manual-item">{{ $t('batch_run.manual_intro') }}</p>
+      <p class="manual-item">
+        <code>id</code> - {{ $t('batch_run.manual_id') }}
+      </p>
+      <p class="manual-item">
+        <code>task</code> - {{ $t('batch_run.manual_task') }}
+      </p>
+      <div class="manual-item">
+        <code>vars</code> - {{ $t('batch_run.manual_vars') }}
+        <div class="manual-example">
+          <pre>{{ JSON.stringify({"LANGUAGE": "vi", "MAX_ITERATIONS": "3"}, null, 2) }}</pre>
+        </div>
+      </div>
+      <div class="manual-item">
+        <code>attachments</code> - {{ $t('batch_run.manual_attachments') }}
+        <div class="manual-example">
+          <pre>{{ JSON.stringify(["C:\\a_sheep.png"], null, 2) }}</pre>
         </div>
       </div>
     </div>
-  </Transition>
+  </BaseDialog>
 
-  <!-- Batch Settings Modal -->
-  <Transition name="modal">
-    <div
-      v-if="isBatchSettingsModalVisible"
-      class="batch-settings-modal-overlay"
-      @click.self="cancelBatchSettings"
-    >
-      <div class="batch-settings-modal">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>{{ $t('batch_run.batch_settings') }}</h3>
-            <button class="close-button" :aria-label="$t('common.close')" @click="cancelBatchSettings">×</button>
-          </div>
-          <div class="modal-body">
-            <div class="settings-item">
-              <label class="setting-label">{{ $t('batch_run.max_parallel') }}</label>
-              <input
-                type="number"
-                v-model.number="maxParallel"
-                class="setting-input"
-                min="1"
-                max="50"
-                step="1"
-              />
-              <p class="setting-desc">{{ $t('batch_run.max_parallel_desc') }}</p>
-            </div>
-            <div class="settings-item">
-              <label class="setting-label">{{ $t('batch_run.log_level') }}</label>
-              <select v-model="logLevel" class="setting-select">
-                <option v-for="level in logLevelOptions" :key="level" :value="level">
-                  {{ level }}
-                </option>
-              </select>
-              <p class="setting-desc">{{ $t('batch_run.log_level_desc') }}</p>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="cancel-button" @click="cancelBatchSettings">{{ $t('common.cancel') }}</button>
-            <button class="confirm-button" @click="saveBatchSettings">{{ $t('common.save') }}</button>
-          </div>
-        </div>
-      </div>
+  <!-- Batch settings -->
+  <BaseDialog
+    :model-value="isBatchSettingsModalVisible"
+    :title="$t('batch_run.batch_settings')"
+    width="500px"
+    @update:model-value="(open) => { if (!open) cancelBatchSettings() }"
+  >
+    <div class="settings-item">
+      <label class="setting-label" for="batch-max-parallel">{{ $t('batch_run.max_parallel') }}</label>
+      <input
+        id="batch-max-parallel"
+        type="number"
+        v-model.number="maxParallel"
+        class="input setting-input"
+        min="1"
+        max="50"
+        step="1"
+        aria-describedby="batch-max-parallel-desc"
+      />
+      <p id="batch-max-parallel-desc" class="setting-desc">{{ $t('batch_run.max_parallel_desc') }}</p>
     </div>
-  </Transition>
+    <div class="settings-item">
+      <label class="setting-label" for="batch-log-level">{{ $t('batch_run.log_level') }}</label>
+      <span class="select-wrap">
+        <select id="batch-log-level" v-model="logLevel" class="select" aria-describedby="batch-log-level-desc">
+          <option v-for="level in logLevelOptions" :key="level" :value="level">
+            {{ level }}
+          </option>
+        </select>
+        <svg class="select-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+      </span>
+      <p id="batch-log-level-desc" class="setting-desc">{{ $t('batch_run.log_level_desc') }}</p>
+    </div>
+    <template #footer>
+      <button type="button" class="btn secondary" @click="cancelBatchSettings">{{ $t('common.cancel') }}</button>
+      <button type="button" class="btn primary" @click="saveBatchSettings">{{ $t('common.save') }}</button>
+    </template>
+  </BaseDialog>
 </template>
 
 <script setup>
@@ -329,6 +380,7 @@ const withErrorDetail = (message, result) => {
 }
 import { fetchWorkflowsWithDesc, fetchLogsZip, postBatchWorkflow } from '@/api/client.js'
 import SettingsModal from '@/components/common/SettingsModal.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
 import { toast } from '@/utils/toast.js'
 
@@ -442,9 +494,10 @@ const batchStartTime = ref(null)
 const batchEndTime = ref(null)
 
 // Elapsed-time display. The loop writes the text node directly instead of going
-// through reactive state: a reactive per-frame value would re-render the whole
-// view (including the full log list) 60 times a second while a batch runs.
-let timerFrame = null
+// through reactive state: a reactive per-tick value would re-render the whole
+// view (including the full log list) several times a second while a batch runs.
+let timerId = null
+const TIMER_INTERVAL_MS = 250
 const totalTimeEl = ref(null)
 
 const pad2 = (value) => value.toString().padStart(2, '0')
@@ -452,8 +505,7 @@ const formatElapsed = (duration) => {
   const hours = Math.floor(duration / (1000 * 60 * 60))
   const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60))
   const seconds = Math.floor((duration % (1000 * 60)) / 1000)
-  const centiseconds = Math.floor((duration % 1000) / 10)
-  return `${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}:${pad2(centiseconds)}`
+  return `${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`
 }
 
 const renderTotalTime = () => {
@@ -461,24 +513,21 @@ const renderTotalTime = () => {
   if (!el) return
   const text = batchStartTime.value
     ? formatElapsed((batchEndTime.value || Date.now()) - batchStartTime.value)
-    : '00:00:00:00'
+    : '00:00:00'
   if (el.textContent !== text) el.textContent = text
 }
 
-// Timer functions (rAF: paused automatically in background tabs)
+// Timer functions (4 Hz is plenty for a seconds display)
 const startTimer = () => {
-  if (timerFrame !== null) return
-  const tick = () => {
-    renderTotalTime()
-    timerFrame = requestAnimationFrame(tick)
-  }
-  timerFrame = requestAnimationFrame(tick)
+  if (timerId !== null) return
+  renderTotalTime()
+  timerId = setInterval(renderTotalTime, TIMER_INTERVAL_MS)
 }
 
 const stopTimer = () => {
-  if (timerFrame !== null) {
-    cancelAnimationFrame(timerFrame)
-    timerFrame = null
+  if (timerId !== null) {
+    clearInterval(timerId)
+    timerId = null
   }
   renderTotalTime()
 }
@@ -493,7 +542,7 @@ const completedRows = computed(() => {
 
 const successRate = computed(() => {
   const totalProcessed = successfulTasks.value + failedTasks.value
-  if (totalProcessed === 0) return '0%'
+  if (totalProcessed === 0) return '—'
   const rate = (successfulTasks.value / totalProcessed) * 100
   return `${Math.round(rate)}%`
 })
@@ -501,6 +550,16 @@ const successRate = computed(() => {
 const progressPercentage = computed(() => {
   if (totalRowsCount.value === 0) return 0
   return Math.round((completedRowsCount.value / totalRowsCount.value) * 100)
+})
+
+// "n/N rows · k failed" under the progress hero
+const progressDetail = computed(() => {
+  if (totalRowsCount.value === 0) return ''
+  return t('batch_run.progress_detail', {
+    done: completedRowsCount.value,
+    total: totalRowsCount.value,
+    failed: failedTasks.value
+  })
 })
 
 // WebSocket reference
@@ -529,13 +588,26 @@ const buttonLabel = computed(() => {
   return t('batch_run.launch')
 })
 
+// A launch request is in flight or the batch is running
+const isSending = computed(() => isWorkflowRunning.value || status.value === 'Launching...')
+
 // Computed button state
 const isLaunchButtonDisabled = computed(() => {
   if (loading.value) return true
+  if (isSending.value) return true
   if (status.value === 'Batch completed' || status.value === 'Batch cancelled') return false
   if (!isConnectionReady.value) return true
   if (!selectedYamlFile.value || !selectedInputFile.value) return true
   return false
+})
+
+// Why Launch is disabled (shown under the button so touch users see it too)
+const launchHint = computed(() => {
+  if (!isLaunchButtonDisabled.value || loading.value || isSending.value) return ''
+  if (!selectedYamlFile.value) return t('batch_run.hint_pick_workflow')
+  if (!selectedInputFile.value) return t('batch_run.hint_pick_file')
+  if (!isConnectionReady.value) return t('batch_run.hint_connecting')
+  return ''
 })
 
 // Reset the WebSocket connection and related state
@@ -668,10 +740,60 @@ const selectWorkflow = (fileName) => {
   })
 }
 
-const handleFileInputEnter = () => {
-  const [firstMatch] = filteredWorkflowFiles.value
-  if (firstMatch) {
-    selectWorkflow(firstMatch.name)
+// Keyboard-active option inside the open listbox (-1 = none)
+const activeOptionIndex = ref(-1)
+const activeOptionId = computed(() =>
+  isFileDropdownOpen.value && activeOptionIndex.value >= 0
+    ? `batch-workflow-option-${activeOptionIndex.value}`
+    : undefined
+)
+
+watch([filteredWorkflowFiles, isFileDropdownOpen], () => {
+  activeOptionIndex.value = -1
+})
+
+const moveActiveOption = (delta) => {
+  const count = filteredWorkflowFiles.value.length
+  if (!count) return
+  const next = activeOptionIndex.value < 0
+    ? (delta > 0 ? 0 : count - 1)
+    : (activeOptionIndex.value + delta + count) % count
+  activeOptionIndex.value = next
+  nextTick(() => {
+    document.getElementById(`batch-workflow-option-${next}`)?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+const handleFileInputKeydown = (event) => {
+  const count = filteredWorkflowFiles.value.length
+  switch (event.key) {
+    case 'ArrowDown':
+    case 'ArrowUp':
+      event.preventDefault()
+      if (!isFileDropdownOpen.value) openFileDropdown()
+      else moveActiveOption(event.key === 'ArrowDown' ? 1 : -1)
+      break
+    case 'Home':
+    case 'End':
+      if (isFileDropdownOpen.value && count) {
+        event.preventDefault()
+        activeOptionIndex.value = event.key === 'Home' ? 0 : count - 1
+      }
+      break
+    case 'Escape':
+      if (isFileDropdownOpen.value) {
+        event.preventDefault()
+        closeFileDropdown()
+        resetFileSearchQuery()
+      }
+      break
+    case 'Enter': {
+      event.preventDefault()
+      const option = filteredWorkflowFiles.value[activeOptionIndex.value] || filteredWorkflowFiles.value[0]
+      if (option) selectWorkflow(option.name)
+      break
+    }
+    default:
   }
 }
 
@@ -713,6 +835,22 @@ const addLogMessage = (message, type = LOG_TYPES.DEFAULT) => {
     type
   }))
   triggerRef(logMessages)
+}
+
+// Copy / clear the terminal log
+const copyLogs = async () => {
+  const text = logMessages.value.map((entry) => `${entry.timestamp}  ${entry.message}`).join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(t('batch_run.logs_copied'))
+  } catch (copyError) {
+    console.warn('Failed to copy logs:', copyError)
+    toast.error(t('batch_run.logs_copy_failed'))
+  }
+}
+
+const clearLogs = () => {
+  logMessages.value = []
 }
 
 // Input file selection methods
@@ -765,18 +903,6 @@ const closeImageModal = () => {
   }
   selectedArtifactImage.value = null
   unlockBodyScroll()
-}
-
-const handleKeydown = (event) => {
-  if (event.key === 'Escape') {
-    if (selectedArtifactImage.value) {
-      closeImageModal()
-    } else if (showColumnGuideModal.value) {
-      showColumnGuideModal.value = false
-    } else if (isBatchSettingsModalVisible.value) {
-      cancelBatchSettings()
-    }
-  }
 }
 
 // Show batch settings modal
@@ -971,13 +1097,11 @@ watch(
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
-  document.addEventListener('keydown', handleKeydown)
   loadWorkflows()
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
-  document.removeEventListener('keydown', handleKeydown)
   if (fileInputBlurTimeout) {
     clearTimeout(fileInputBlurTimeout)
     fileInputBlurTimeout = null
@@ -1192,15 +1316,17 @@ watch(viewMode, async (mode) => {
   }
 })
 </script>
-
 <style scoped>
 .launch-view {
+  --label-ink: rgb(var(--ink) / 0.68);
+  --mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'SF Mono', Menlo, 'Ubuntu Mono', monospace;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
-  background-color: var(--bg-base);
-  color: var(--text-1);
+  background-color: var(--bg);
+  color: var(--fg);
   font-family: 'Inter', sans-serif;
   position: relative;
   overflow: hidden;
@@ -1212,12 +1338,11 @@ watch(viewMode, async (mode) => {
   left: 0;
   right: 0;
   height: 500px;
-  /* Pre-softened radial glows instead of filter: blur(120px) on a large layer,
-     which is very expensive to rasterise and composite. */
+  /* Pre-softened radial glows instead of a big blur layer (cheaper to composite). */
   background:
-    radial-gradient(ellipse 40% 70% at 18% 45%, var(--accent-mint), transparent 72%),
-    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent-sky), transparent 72%),
-    radial-gradient(ellipse 40% 70% at 82% 45%, var(--accent-indigo), transparent 72%);
+    radial-gradient(ellipse 40% 70% at 18% 45%, var(--success), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent), transparent 72%),
+    radial-gradient(ellipse 40% 70% at 82% 45%, var(--info), transparent 72%);
   opacity: 0.15;
   z-index: 0;
   pointer-events: none;
@@ -1225,11 +1350,12 @@ watch(viewMode, async (mode) => {
 
 .header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
   padding: 0 20px;
-  height: 40px;
-  background-color: rgb(var(--ink) / 0.05);
-  border-bottom: 1px solid rgb(var(--ink) / 0.1);
+  height: 48px;
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   position: relative;
   z-index: 2;
@@ -1237,31 +1363,18 @@ watch(viewMode, async (mode) => {
 
 .header h1 {
   margin: 0;
-  color: var(--text-1);
+  color: var(--fg);
   font-size: 18px;
   font-weight: 600;
 }
 
-.back-button {
-  padding: 8px;
-  margin-right: 16px;
-  background: transparent;
-  color: rgb(var(--ink) / 0.6);
-  cursor: pointer;
-  transition: color 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-  outline: none;
-}
-
-.back-button:hover {
-  color: var(--text-1);
+.settings-button {
+  color: var(--info);
 }
 
 .content {
   flex: 1;
+  min-height: 0;
   display: flex;
   overflow: hidden;
   padding: 20px;
@@ -1270,32 +1383,55 @@ watch(viewMode, async (mode) => {
   z-index: 1;
 }
 
-/* Left Panel */
+/* ---------- Left panel ---------- */
 .left-panel {
   flex: 3;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  min-width: 0; /* Prevents overflow */
+  min-width: 0;
+  min-height: 0;
 }
 
-/* Log Box */
 .log-box {
   flex: 1;
-  background-color: rgb(var(--panel-25) / 0.95);
-  border: 1px solid rgb(var(--ink) / 0.2);
+  min-height: 0;
+  background-color: var(--surface);
+  border: 1px solid var(--line-3);
   border-radius: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-family: var(--mono);
 }
 
-/* Dashboard Box */
+.log-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'Inter', sans-serif;
+}
+
+.log-toolbar .log-tool {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: var(--fs-xs);
+  color: var(--label-ink);
+}
+
+.log-toolbar .log-tool:hover:not(:disabled) {
+  color: var(--fg);
+}
+
+
+
 .dashboard-box {
   flex: 1;
-  background-color: rgb(var(--ink) / 0.03);
-  border: 1px solid rgb(var(--ink) / 0.1);
+  min-height: 0;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
   display: flex;
@@ -1304,149 +1440,167 @@ watch(viewMode, async (mode) => {
 
 .dashboard-content {
   flex: 1;
-  padding: 20px;
+  padding: 24px;
   overflow-y: auto;
   color: var(--text-2b);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 28px;
   font-size: 14px;
   line-height: 1.4;
-  justify-content: space-between;
 }
 
-/* Metrics Grid */
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin-bottom: 8px;
-}
-
-.metric-card {
-  background: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 8px;
-  padding: 16px;
+/* Progress hero */
+.progress-head {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-.metric-card.status-active {
-  border-color: var(--accent-mint);
-  box-shadow: 0 0 15px rgb(var(--accent-sky-rgb) / 0.3);
-  animation: borderPulse 4s ease-in-out infinite alternate;
-}
-
-.metric-title {
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.6);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-weight: 600;
-}
-
-.metric-value {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-1);
-}
-
-/* Progress Section */
-.progress-section {
-  margin-top: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
 .progress-label {
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.6);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-size: 13px;
+  color: var(--label-ink);
   font-weight: 600;
-  margin-bottom: 8px;
+}
+
+.progress-detail {
+  font-size: 13px;
+  color: var(--label-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
 
 .progress-bar {
-  width: 100%;
-  height: 8px;
+  flex: 1;
+  height: 12px;
   background: rgb(var(--ink) / 0.1);
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
-  margin-bottom: 8px;
   position: relative;
-}
-
-.progress-fill.processing::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgb(var(--ink) / 0.3) 50%,
-    rgb(var(--ink) / 0.8) 60%,
-    rgb(var(--ink) / 0.3) 70%,
-    transparent 100%
-  );
-  transform: translateX(-100%);
-  animation: wavePulse 1.8s ease-in-out infinite;
-  border-radius: 4px;
-  will-change: transform, opacity;
 }
 
 .progress-fill {
   position: relative;
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
-  background-size: 200% 100%;
-  animation: gradientShift 3s ease-in-out infinite;
-  transition: width 0.3s ease;
+  border-radius: 6px;
+  background: var(--accent);
+  transition: width 0.3s var(--ease-out), background-color 0.3s;
   overflow: hidden;
 }
 
-.progress-text {
-  font-size: 13px;
-  color: rgb(var(--ink) / 0.8);
-  text-align: center;
-  font-weight: 500;
+.progress-fill.is-done {
+  background: var(--accent-green-2);
 }
 
-.log-messages::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+.progress-fill.is-cancelled {
+  background: var(--danger);
 }
-.log-messages::-webkit-scrollbar-track {
-  background: transparent;
+
+/* Moving sheen only while a batch is actually running */
+.progress-fill.processing::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.5) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: wavePulse 1.8s ease-in-out infinite;
 }
+
+.progress-text {
+  min-width: 3.4ch;
+  text-align: right;
+  font-size: 40px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Metrics */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.metric-card {
+  background: rgb(var(--ink) / 0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+/* Pulse lives on the status card only, and only while running */
+.metric-card.status-active {
+  border-color: var(--accent);
+  animation: statusPulse 2.4s ease-in-out infinite;
+}
+
+.metric-title {
+  font-size: var(--fs-xs);
+  color: var(--label-ink);
+  font-weight: 600;
+}
+
+.metric-value {
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.metric-status {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.metric-timer {
+  font-family: var(--mono);
+  letter-spacing: -0.02em;
+}
+
+/* ---------- Log lines ---------- */
+.log-messages::-webkit-scrollbar { width: 8px; height: 8px; }
+.log-messages::-webkit-scrollbar-track { background: transparent; }
 .log-messages::-webkit-scrollbar-thumb {
   background-color: rgb(var(--neutral-160) / 0.28);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-.log-messages::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(var(--neutral-160) / 0.48);
-}
+.log-messages::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--neutral-160) / 0.48); }
 
 .log-messages {
   flex: 1;
-  padding: 20px;
+  min-height: 0;
+  padding: 16px 20px;
   overflow-y: auto;
   color: var(--text-2b);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  font-size: 14px;
-  line-height: 1.4;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .log-message {
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
   white-space: pre-wrap;
   word-break: break-word;
   /* Skip layout/paint for off-screen rows when the log grows large */
@@ -1455,428 +1609,133 @@ watch(viewMode, async (mode) => {
 }
 
 .log-timestamp {
+  flex: none;
+  width: 21ch;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.log-timestamp-completed {
-  color: var(--accent-green-2);
+.log-text {
+  flex: 1;
+  min-width: 0;
 }
 
-.log-timestamp-failed {
-  color: var(--danger-2);
-}
-
-.log-timestamp-default {
-  color: var(--accent-sky-4);
-}
+.log-timestamp-completed { color: var(--accent-green-2); }
+.log-timestamp-failed { color: var(--danger); }
+.log-timestamp-default { color: var(--accent-sky-4); }
+.log-text-completed { color: var(--accent-green-2); }
+.log-text-failed { color: var(--danger); }
 
 .log-placeholder {
-  color: rgb(var(--ink) / 0.4);
-  font-style: italic;
+  color: var(--label-ink);
+  font-family: 'Inter', sans-serif;
   text-align: center;
   margin-top: 20px;
 }
 
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Dialogue Messages */
-.dialogue {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.dialogue-right {
-  flex-direction: row-reverse;
-}
-
-.message-content {
+/* ---------- Right panel ---------- */
+.right-panel {
   flex: 1;
-  max-width: 85%;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  /* Shrink to fit content */
-  align-items: flex-start;
+  gap: 20px;
+  min-width: 280px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
-.dialogue-right .message-content {
-  /* Right-side fit logic */
-  align-items: flex-end;
-}
-
-.user-name {
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.5);
-  font-weight: 500;
-  margin: 0 4px;
-}
-
-.dialogue-right .user-name {
-  text-align: right;
-}
-
-.profile-picture {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  overflow: hidden;
-  border: 1px solid rgb(var(--ink) / 0.2);
-  background: rgb(var(--ink) / 0.05);
-}
-
-.profile-picture img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 50% 20%;
-}
-
-.message-bubble {
-  background: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.1);
+.control-section {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  border-top-left-radius: 2px;
-  padding: 0 16px;
-  position: relative;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+  padding: 20px;
 }
 
-.dialogue-right .message-bubble {
-  background: linear-gradient(135deg, rgb(var(--accent-indigo-rgb) / 0.15), rgba(189, 178, 255, 0.15));
-  border-color: rgb(var(--accent-indigo-rgb) / 0.3);
-  border-top-left-radius: 12px;
-  border-top-right-radius: 2px;
+.section-label {
+  font-size: var(--fs-xs);
+  color: var(--label-ink);
+  font-weight: 600;
+  margin-top: 6px;
 }
 
-.loading-bubble {
-  border-color: var(--accent-mint);
-  background-color: rgb(var(--ink) / 0.08);
-  box-shadow: 0 0 12px rgb(var(--accent-sky-rgb) / 0.35);
-  animation: borderPulse 3s ease-in-out infinite alternate;
-  animation: bubbleGlow 3s ease-in-out infinite alternate;
+.field-hint {
+  margin: 6px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--label-ink);
 }
 
-@keyframes bubbleGlow {
-  0% {
-    box-shadow: 0 0 6px rgb(var(--accent-sky-rgb) / 0.35);
-  }
-  50% {
-    box-shadow: 0 0 12px rgb(var(--accent-sky-rgb) / 0.35);
-  }
-}
+.input-file-section { margin-bottom: 4px; }
 
-.loading-timer {
-  margin-left: 8px;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.7);
-}
+.input-manual { margin-bottom: 4px; }
 
-.loading-entries {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 10px 0 4px;
-  padding: 2px 0;
-  border-radius: 10px;
-}
-
-.loading-entry {
-  display: flex;
+.manual-title {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.12);
-  position: relative;
-}
-
-.loading-entry-label {
-  font-size: 14px;
-  color: rgb(var(--ink) / 0.9);
-}
-
-.loading-entry-duration {
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.6);
-}
-
-.entry-running {
-  border-color: var(--accent-mint);
-  box-shadow: 0 0 8px rgb(var(--accent-sky-rgb) / 0.25);
-  animation: loadingEntryPulse 2.6s ease-in-out infinite;
-}
-
-.entry-done {
-  border-color: rgb(var(--ink) / 0.15);
-  opacity: 0.8;
-}
-
-/* Fade-slide-in animation for entries */
-.loading-entry-enter-active,
-.loading-entry-leave-active {
-  transition: opacity 0.22s ease-out, transform 0.22s ease-out;
-}
-
-.loading-entry-enter-from,
-.loading-entry-leave-to {
-  opacity: 0;
-  transform: translateY(4px);
-}
-
-.loading-entry-enter-to,
-.loading-entry-leave-from {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-@keyframes loadingEntryPulse {
-  0% {
-    box-shadow: 0 0 4px rgb(var(--accent-sky-rgb) / 0.18);
-    border-color: rgb(var(--accent-sky-rgb) / 0.6);
-    background: rgb(var(--ink) / 0.06);
-  }
-  50% {
-    box-shadow: 0 0 10px rgb(var(--accent-sky-rgb) / 0.38);
-    border-color: rgb(var(--accent-mint-rgb) / 0.9);
-    background: rgb(var(--ink) / 0.09);
-  }
-  100% {
-    box-shadow: 0 0 4px rgb(var(--accent-sky-rgb) / 0.18);
-    border-color: rgb(var(--accent-sky-rgb) / 0.6);
-    background: rgb(var(--ink) / 0.06);
-  }
-}
-
-.message-text {
-  color: var(--text-1);
-  font-size: 14px;
-  line-height: 1.5;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-}
-
-/* Artifact wrappers */
-.artifact-image-wrapper {
-  padding: 10px 0;
-}
-
-.artifact-file-wrapper {
-  padding: 10px 0;
-}
-
-.artifact-image {
-  max-width: 260px;
-  max-height: 200px;
-  display: block;
-  cursor: zoom-in;
-  border-radius: 6px;
-  padding: 0 0 10px 0;
-}
-
-.artifact-filename {
-  margin-top: 4px;
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.7);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.artifact-filename-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.artifact-filename-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.artifact-download-button {
-  margin-top: 15px;
-  padding: 4px 10px;
-  border-radius: 10px;
-  border: 1px solid rgb(var(--ink) / 0.3);
-  background: rgb(var(--ink) / 0.06);
-  color: var(--text-1);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
-}
-
-.artifact-download-button:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.12);
-}
-
-.artifact-download-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.artifact-status {
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.6);
-}
-
-.artifact-status.artifact-error {
-  color: var(--danger-2);
-}
-
-
-.microphone-button {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid rgb(var(--ink) / 0.2);
-  background: rgb(var(--ink) / 0.05);
-  color: rgb(var(--ink) / 0.8);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+  min-height: 32px;
   padding: 0;
-  outline: none;
-  position: relative;
-}
-
-.microphone-button:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.1);
-  border-color: rgb(var(--ink) / 0.4);
-  color: var(--text-1);
-}
-
-.microphone-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.microphone-button.recording {
-  background: rgb(var(--ink) / 0.1);
-  border-color: var(--accent-mint);
-  color: var(--text-1);
-}
-
-.microphone-button.pulsating {
-  animation: microphonePulse 2s ease-in-out infinite;
-}
-
-@keyframes microphonePulse {
-  0% {
-    box-shadow:
-      0 0 0 0 rgb(var(--accent-mint-rgb) / 0.7),
-      0 0 0 0 rgb(var(--accent-sky-rgb) / 0.5);
-    border-color: var(--accent-mint);
-  }
-  50% {
-    box-shadow:
-      0 0 0 12px rgb(var(--accent-mint-rgb) / 0),
-      0 0 0 6px rgb(var(--accent-sky-rgb) / 0.3);
-    border-color: var(--accent-sky);
-  }
-  100% {
-    box-shadow:
-      0 0 0 24px rgb(var(--accent-mint-rgb) / 0),
-      0 0 0 18px rgb(var(--accent-sky-rgb) / 0);
-    border-color: var(--accent-mint);
-  }
-}
-
-.attachment-upload {
-  position: relative;
-}
-
-.attachment-button-wrapper {
-  position: relative;
-  display: inline-block;
-}
-
-.attachment-button {
-  padding: 6px 16px;
-  border-radius: 20px;
-  border: 1px solid rgb(var(--ink) / 0.2);
-  background: rgb(var(--ink) / 0.05);
-  color: rgb(var(--ink) / 0.8);
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--label-ink);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+  transition: color 0.2s;
 }
 
-.attachment-button:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.1);
-  border-color: rgb(var(--ink) / 0.4);
-  color: var(--text-1);
-}
+.manual-title:hover { color: var(--fg); }
 
-.attachment-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.info-icon { opacity: 0.8; }
 
-.hidden-file-input {
-  display: none;
-}
-
-.attachment-count {
-  position: absolute;
-  top: -8px;
-  right: -6px;
-  background: var(--accent-sky);
-  color: var(--bg-base);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 10px;
-}
-
-/* Input File Selection */
-.input-file-section {
-  margin-bottom: 16px;
-}
-
+/* File picker */
 .file-upload-wrapper {
-  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
 }
+
+.hidden-file-input { display: none; }
 
 .file-upload-button {
-  width: 100%;
-  padding: 10px 12px;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
   background-color: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.1);
+  border: 1px dashed rgb(var(--ink) / 0.3);
   border-radius: 8px;
-  color: rgb(var(--ink) / 0.6);
-  font-size: 13px;
-  font-weight: 400;
+  color: var(--label-ink);
+  font-size: 14px;
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
   text-align: left;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.file-upload-button svg { flex: none; }
+
+.file-upload-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-upload-button.has-file {
+  border-style: solid;
+  color: var(--fg);
 }
 
 .file-upload-button:hover:not(:disabled) {
-  background-color: rgb(var(--ink) / 0.08);
-  border-color: rgb(var(--ink) / 0.2);
+  background-color: rgb(var(--ink) / 0.09);
+  border-color: rgb(var(--ink) / 0.4);
 }
 
 .file-upload-button:disabled {
@@ -1884,222 +1743,13 @@ watch(viewMode, async (mode) => {
   cursor: not-allowed;
 }
 
-/* Input Manual */
-.input-manual {
-  margin-bottom: 16px;
-}
-
-.manual-title {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: rgb(var(--ink) / 0.4);
-  font-weight: 600;
-  margin-bottom: 8px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: color 0.2s ease;
-}
-
-.manual-title:hover {
-  color: rgb(var(--ink) / 0.6);
-}
-
-.info-icon {
-  opacity: 0.6;
-  transition: opacity 0.2s ease;
-}
-
-.manual-title:hover .info-icon {
-  opacity: 0.8;
-}
-
-.manual-content {
-  background-color: rgb(var(--ink) / 0.02);
-  border: 1px solid rgb(var(--ink) / 0.08);
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 13px;
-  line-height: 1.4;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.manual-item {
-  margin-bottom: 8px;
-  color: rgb(var(--ink) / 0.7);
-}
-
-.manual-item:last-child {
-  margin-bottom: 0;
-}
-
-.manual-item code {
-  background-color: rgb(var(--ink) / 0.1);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 12px;
-  color: var(--accent-indigo);
-  font-weight: 500;
-}
-
-.manual-example {
-  margin-top: 6px;
-  margin-left: 16px;
-}
-
-.manual-example pre {
-  background-color: rgb(var(--shade) / 0.3);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 6px;
-  padding: 8px;
-  font-size: 11px;
-  color: rgb(var(--ink) / 0.8);
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  overflow-x: auto;
-  margin: 4px 0 0 0;
-}
-
-.file-info-text {
-  font-size: 13px;
-  color: rgb(var(--ink) / 0.8);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.remove-file-button {
-  background: transparent;
-  border: none;
-  color: var(--accent-sky);
-  cursor: pointer;
-  padding: 0 6px;
-  font-size: 16px;
-  line-height: 1;
-  margin-left: 8px;
-  border-radius: 3px;
-  transition: background-color 0.2s;
-}
-
-.remove-file-button:hover {
-  background: rgb(var(--accent-sky-rgb) / 0.1);
-}
-
-/* Attachment Modal */
-.attachment-modal {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
-  width: 240px;
-  background: var(--surface-3);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 8px;
-  padding: 8px;
-  box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  z-index: 10;
-}
-
-.attachment-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  background: rgb(var(--ink) / 0.05);
-  border-radius: 4px;
-}
-
-.attachment-name {
-  font-size: 12px;
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.remove-attachment {
-  border: none;
-  background: transparent;
-  color: var(--accent-sky);
-  cursor: pointer;
-  padding: 0 4px;
-}
-
-/* Right Panel */
-.right-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 250px;
-}
-
-.control-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background-color: rgb(var(--ink) / 0.03);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  padding: 20px;
-}
-
-.section-label {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: rgb(var(--ink) / 0.4);
-  font-weight: 600;
-  margin-top: 4px;
-}
-
-/* Custom Select */
-.select-wrapper {
-  position: relative;
-}
-
-.custom-file-selector {
-  position: relative;
-}
-
-.file-selector,
-.file-selector-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  padding-right: 30px;
-  background-color: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 8px;
-  color: var(--text-1);
-  font-size: 14px;
-  appearance: none;
-  color: var(--text-1);
-}
+/* Workflow combobox */
+.select-wrapper,
+.custom-file-selector { position: relative; }
 
 .file-selector-input {
+  padding-right: 36px;
   cursor: text;
-}
-
-.file-selector:hover:not(:disabled),
-.file-selector-input:hover:not(:disabled),
-.file-selector-input:focus {
-  background-color: rgb(var(--ink) / 0.08);
-  border-color: rgb(var(--ink) / 0.2);
-}
-
-.file-selector:disabled,
-.file-selector-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .select-arrow {
@@ -2107,29 +1757,28 @@ watch(viewMode, async (mode) => {
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  color: rgb(var(--ink) / 0.3);
+  color: var(--label-ink);
   pointer-events: none;
-  font-size: 10px;
+  transition: transform 0.2s var(--ease-out);
 }
+
+.select-arrow.open { transform: translateY(-50%) rotate(180deg); }
 
 .file-dropdown {
   position: absolute;
-  top: calc(100%);
+  top: 100%;
   left: 0;
   right: 0;
-  margin-top: 1px;
+  margin: 4px 0 0;
+  list-style: none;
   background-color: var(--surface-3);
-  border: 1px solid rgb(var(--ink) / 0.12);
+  border: 1px solid var(--line-4);
   border-radius: 8px;
-  box-shadow: 0 20px 40px rgb(var(--shade) / 0.45);
+  box-shadow: 0 20px 40px -12px rgb(var(--shade) / 0.45);
   max-height: 260px;
   overflow-y: auto;
-  z-index: 5;
+  z-index: var(--z-dropdown);
   padding: 6px 0;
-}
-
-.file-dropdown::-webkit-scrollbar {
-  display: none;
 }
 
 .file-option {
@@ -2141,13 +1790,12 @@ watch(viewMode, async (mode) => {
   transition: background 0.15s ease;
 }
 
-.file-option:hover {
-  background: rgb(var(--ink) / 0.06);
-}
+.file-option.active { background: rgb(var(--ink) / 0.08); }
+.file-option.selected .file-name { color: var(--accent); }
 
 .file-name {
-  color: var(--text-1);
-  font-size: 12px;
+  color: var(--fg);
+  font-size: 14px;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2155,513 +1803,219 @@ watch(viewMode, async (mode) => {
 }
 
 .file-desc {
-  color: rgb(var(--ink) / 0.5);
-  font-size: 11px;
+  color: var(--label-ink);
+  font-size: var(--fs-xs);
 }
 
 .file-empty {
   padding: 12px 14px;
-  color: rgb(var(--ink) / 0.4);
+  color: var(--label-ink);
   font-size: 13px;
   text-align: center;
 }
 
 .file-dropdown-enter-active,
-.file-dropdown-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
+.file-dropdown-leave-active { transition: opacity 0.15s var(--ease-out), transform 0.15s var(--ease-out); }
 .file-dropdown-enter-from,
-.file-dropdown-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
+.file-dropdown-leave-to { opacity: 0; transform: translateY(-4px); }
 
-/* Status Display */
-.status-display {
-  padding: 10px;
-  background: rgb(var(--shade) / 0.2);
-  border-radius: 8px;
-  color: rgb(var(--ink) / 0.6);
-  font-size: 13px;
-  text-align: center;
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
-  font-weight: 500;
-}
-
-/* View Toggle */
+/* View toggle */
 .view-toggle {
   display: flex;
-  background: rgb(var(--shade) / 0.2);
+  background: rgb(var(--ink) / 0.07);
   padding: 4px;
   border-radius: 8px;
 }
 
 .toggle-button {
   flex: 1;
+  min-height: 34px;
   padding: 6px;
   border: none;
   background: transparent;
-  color: rgb(var(--ink) / 0.5);
+  color: var(--label-ink);
   cursor: pointer;
   border-radius: 6px;
   font-size: 13px;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.2s, color 0.2s;
 }
+
+.toggle-button:hover:not(.active) { color: var(--fg); }
 
 .toggle-button.active {
-  background: rgb(var(--ink) / 0.1);
-  color: var(--text-1);
-  font-weight: 500;
+  background: var(--surface-4);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px rgb(var(--ink) / 0.12);
 }
 
-
-/* Active Nodes */
-.active-nodes-display {
-  flex: 1;
-  background: rgb(var(--shade) / 0.2);
-  border-radius: 8px;
-  padding: 10px;
-  overflow-y: auto;
-  min-height: 100px;
-}
-
-.no-active-nodes {
-  color: rgb(var(--ink) / 0.3);
-  font-size: 13px;
-  text-align: center;
-  margin-top: 10px;
-}
-
-.active-node-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  background: rgb(var(--ink) / 0.05);
-  border-radius: 4px;
-  font-size: 13px;
-}
-
-.node-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--accent-sky);
-  box-shadow: 0 0 6px var(--accent-sky);
-}
-
-/* Button Section */
+/* ---------- Actions ---------- */
 .button-section {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-top: 8px;
 }
 
-.cancel-button {
+.button-section .launch-button {
+  min-height: 48px;
   padding: 12px 14px;
-  border-radius: 12px;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--bg-base);
-  background: linear-gradient(
-    135deg,
-    #e07152,
-    #dc5d4c,
-    #bd4a4a
-  );
-  background-size: 200% 100%;
-  animation: gradientShift 6s ease-in-out infinite;
-  transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, color 0.3s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.cancel-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
-}
-
-.cancel-button:disabled {
-  background: var(--line-2);
-  color: rgb(var(--ink) / 0.3);
-  cursor: not-allowed;
-}
-
-.launch-button {
-  padding: 14px;
-  border: none;
-  border-radius: 12px;
-  cursor: pointer;
+  border-radius: var(--radius-md);
   font-size: 16px;
   font-weight: 600;
-  color: var(--bg-base);
-  background: linear-gradient(
-        135deg,
-    var(--accent-mint),
-    var(--accent-sky),
-    var(--accent-indigo)
-  );
-  background-size: 200% 100%;
-  animation: gradientShift 6s ease-in-out infinite;
-  transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, color 0.3s ease;
-  position: relative;
-  overflow: hidden;
+  transition: transform 0.2s var(--ease-out), box-shadow 0.2s, filter 0.2s;
 }
 
-.launch-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
-}
-
-.launch-button:disabled {
-  background: var(--line-2);
-  color: rgb(var(--ink) / 0.3);
-  cursor: not-allowed;
-}
-
-.launch-button.glow {
-  animation: glowPulse 3s ease-in-out infinite, gradientShift 6s ease-in-out infinite;
-}
-
-/* Markdown Styles moved to CollapsibleMessage.vue */
-
-@keyframes gradientShift {
-  0%, 100% { background-position: 0% 0%; }
-  50% { background-position: 100% 0%; }
-}
-
-@keyframes glowPulse {
-  0% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0.4); }
-  50% { box-shadow: 0 0 0 5px rgb(var(--accent-sky-rgb) / 0); }
-  100% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0); }
-}
-
-@keyframes borderPulse {
-  0% { border-color: var(--accent-mint); box-shadow: 0 0 0px rgb(var(--accent-mint-rgb) / 0.15); }
-  50% { border-color: var(--accent-sky); box-shadow: 0 0 8px rgb(var(--accent-sky-rgb) / 0.35); }
-  100% { border-color: var(--accent-indigo); box-shadow: 0 0 0px rgb(var(--accent-indigo-rgb) / 0.2); }
-}
-
-@keyframes wavePulse {
-  0% {
-    transform: translateX(-100%);
-    opacity: 0;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-}
-
-.download-button {
-  padding: 12px;
-  background: rgb(var(--ink) / 0.03);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  color: var(--text-1);
-  cursor: pointer;
-  font-size: 14px;
-  transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
-}
-
-.download-button:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.08);
-  border-color: rgb(var(--ink) / 0.2);
+.button-section .launch-button:hover:not(:disabled) {
   transform: translateY(-1px);
+  box-shadow: 0 6px 18px -6px rgb(var(--accent-sky-rgb) / 0.55);
 }
 
-.download-button:disabled {
-  opacity: 0.5;
+.button-section .launch-button:disabled {
+  opacity: 1;
+  background: var(--surface-5);
+  border-color: var(--surface-5);
+  color: var(--label-ink);
   cursor: not-allowed;
 }
 
-
-.image-modal {
-  position: fixed;
-  inset: 0;
-  background: rgb(var(--shade) / 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  backdrop-filter: blur(2px);
+/* Ready cue: a short ring pulse (3 times), not an endless loop */
+.button-section .launch-button.glow:not(:disabled) {
+  animation: glowPulse 2.4s ease-out 3;
 }
 
-.image-modal-content {
-  position: relative;
-  max-width: 95vw;
-  max-height: 95vh;
+.button-section .launch-button.is-sending:disabled {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  cursor: progress;
+  opacity: 0.85;
+}
+
+.launch-hint {
+  margin: -4px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--label-ink);
+  text-align: center;
+}
+
+.button-section .cancel-button {
+  min-height: 44px;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.button-section .cancel-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.button-section .cancel-button:disabled {
+  opacity: 1;
+  border-color: var(--border);
+  color: var(--fg-subtle);
+  cursor: not-allowed;
+}
+
+.button-section .download-button {
+  min-height: 44px;
+}
+
+/* ---------- Dialog contents ---------- */
+.preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto;
+  border-radius: 6px;
+}
+
+.manual-content {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  align-items: center;
-  background: rgb(var(--panel-26) / 0.9);
-  padding: 20px;
-  border: 1px solid rgb(var(--ink) / 0.1);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-.image-modal-content img {
-  max-width: 70vw;
-  max-height: 65vh;
-  box-shadow: 0 20px 40px rgb(var(--shade) / 0.5);
-}
-
-.image-modal-enter-active,
-.image-modal-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.image-modal-enter-from,
-.image-modal-leave-to {
-  opacity: 0;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 20px;
-}
-
-.settings-button {
-  background: transparent;
-  border: none;
-  color: var(--accent-indigo);
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s;
-}
-
-.settings-button:hover {
-  background-color: rgb(var(--accent-indigo-rgb) / 0.1);
-}
-
-/* Column Guide Modal */
-.column-guide-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgb(var(--shade) / 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.column-guide-modal {
-  background: var(--surface-3);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  max-width: 550px;
-  width: 90vw;
-  max-height: 80vh;
-  overflow: hidden;
-  box-shadow: 0 20px 40px rgb(var(--shade) / 0.5);
-}
-
-.modal-content {
-  padding: 24px;
-  max-height: calc(80vh - 48px);
-  overflow-y: auto;
-}
-
-/* Modal animations */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-  transform: scale(0.95);
-}
-
-/* Batch Settings Modal */
-.batch-settings-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgb(var(--shade) / 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.batch-settings-modal {
-  background: var(--surface-3);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  max-width: 500px;
-  width: 90vw;
-  max-height: 80vh;
-  overflow: hidden;
-  box-shadow: 0 20px 40px rgb(var(--shade) / 0.5);
-}
-
-.batch-settings-modal .modal-content {
-  padding: 0;
-  max-height: calc(80vh - 48px);
-  overflow-y: auto;
-}
-
-.batch-settings-modal .modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid rgb(var(--ink) / 0.1);
-}
-
-.batch-settings-modal .modal-header h3 {
+.manual-item {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-1);
+  color: var(--text-2);
 }
 
-.batch-settings-modal .close-button {
-  background: none;
-  border: none;
-  color: var(--text-muted-3);
-  font-size: 24px;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-  transition: color 0.2s ease;
+.manual-item code {
+  background-color: rgb(var(--accent-indigo-rgb) / 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--info);
+  font-weight: 500;
 }
 
-.batch-settings-modal .close-button:hover {
-  color: var(--text-strong);
+.manual-example { margin-top: 8px; }
+
+.manual-example pre {
+  background-color: var(--surface-4);
+  border: 1px solid var(--line-3);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-2);
+  font-family: var(--mono);
+  overflow-x: auto;
+  margin: 0;
 }
 
-.batch-settings-modal .modal-body {
-  padding: 24px;
-  flex: 1;
-  overflow-y: auto;
-}
+.settings-item { margin-bottom: 22px; }
+.settings-item:last-child { margin-bottom: 0; }
 
-.batch-settings-modal .settings-item {
-  margin-bottom: 24px;
-}
-
-.batch-settings-modal .settings-item:last-child {
-  margin-bottom: 0;
-}
-
-.batch-settings-modal .setting-label {
+.setting-label {
   display: block;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-1);
+  color: var(--fg);
   margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
-.batch-settings-modal .setting-input {
-  width: 86px;
-  padding: 10px 12px;
-  background-color: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 8px;
-  color: var(--text-1);
-  font-size: 14px;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-}
+.setting-input { width: 96px; }
 
-.batch-settings-modal .setting-input:focus {
-  outline: none;
-  background-color: rgb(var(--ink) / 0.08);
-  border-color: rgb(var(--ink) / 0.2);
-}
-
-.batch-settings-modal .setting-select {
-  padding: 10px 12px;
-  background-color: rgb(var(--ink) / 0.05);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 8px;
-  color: var(--text-1);
-  font-size: 14px;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-  cursor: pointer;
-}
-
-.batch-settings-modal .setting-select:focus {
-  outline: none;
-  background-color: rgb(var(--ink) / 0.08);
-  border-color: rgb(var(--ink) / 0.2);
-}
-
-.batch-settings-modal .setting-select option {
-  background-color: var(--bg-base);
-  color: var(--text-1);
-}
-
-.batch-settings-modal .setting-desc {
-  margin-top: 6px;
-  color: rgb(var(--ink) / 0.6);
-  font-size: 12px;
+.setting-desc {
+  margin: 6px 0 0;
+  color: var(--label-ink);
+  font-size: 13px;
   line-height: 1.4;
 }
 
-.batch-settings-modal .modal-footer {
-  padding: 16px 24px;
-  border-top: 1px solid rgb(var(--ink) / 0.1);
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
+/* ---------- Keyframes ---------- */
+@keyframes glowPulse {
+  0% { box-shadow: 0 0 0 0 rgb(var(--accent-sky-rgb) / 0.5); }
+  70%, 100% { box-shadow: 0 0 0 8px rgb(var(--accent-sky-rgb) / 0); }
 }
 
-.batch-settings-modal .confirm-button {
-  background: #4facfe;
-  color: #fff;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background-color 0.2s ease;
+@keyframes statusPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--accent-sky-rgb) / 0.35); }
+  50% { box-shadow: 0 0 0 4px rgb(var(--accent-sky-rgb) / 0); }
 }
 
-.batch-settings-modal .confirm-button:hover {
-  background: #3a9cfa;
+@keyframes wavePulse {
+  0% { transform: translateX(-100%); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: translateX(100%); opacity: 0; }
 }
 
-.batch-settings-modal .cancel-button {
-  background: transparent;
-  color: var(--text-soft-1);
-  border: 1px solid rgb(var(--ink) / 0.2);
-  padding: 10px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+/* ---------- Responsive: 1200 / 980 (stack) / 900 / 640 ---------- */
+@media (max-width: 1200px) {
+  .content { gap: 16px; padding: 16px; }
+  .right-panel { min-width: 260px; }
 }
 
-.batch-settings-modal .cancel-button:hover {
-  background: rgb(var(--ink) / 0.05);
-  color: var(--text-strong);
-  border-color: rgb(var(--ink) / 0.3);
-}
-
-/* Narrow screens: controls on top, results below, the page scrolls */
-@media (max-width: 760px) {
+/* Panels stack: controls on top, results below, the page scrolls */
+@media (max-width: 980px) {
   .launch-view {
     height: auto;
     min-height: 100vh;
+    min-height: 100dvh;
   }
 
   .content {
@@ -2672,192 +2026,36 @@ watch(viewMode, async (mode) => {
 
   .right-panel {
     min-width: 0;
+    overflow: visible;
   }
 
-  .left-panel {
-    min-height: 420px;
-  }
+  .left-panel { min-height: 420px; }
+}
+
+@media (max-width: 900px) {
+  .metric-value { font-size: 24px; }
+  .progress-text { font-size: 34px; }
+}
+
+@media (max-width: 640px) {
+  .content { padding: 12px 12px 20px; }
+  .dashboard-content { padding: 16px; gap: 22px; }
+  .metrics-grid { grid-template-columns: 1fr; }
+  .progress-row { gap: 12px; }
+  .progress-text { font-size: 28px; }
+  .log-message { flex-direction: column; gap: 0; }
+  .log-timestamp { width: auto; }
+  .log-toolbar .log-tool { min-height: 40px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .launch-button,
-  .launch-button.glow,
-  .cancel-button,
-  .progress-fill,
+  .button-section .launch-button,
+  .button-section .launch-button.glow:not(:disabled),
   .progress-fill.processing::before,
   .metric-card.status-active {
     animation: none;
   }
+  .select-arrow,
+  .progress-fill { transition: none; }
 }
-
-/* ---------- Light theme: white glass cards instead of dark tinted panels ---------- */
-:root[data-theme="light"] .header {
-  background-color: rgb(255 255 255 / 0.72);
-  border-bottom-color: rgb(var(--ink) / 0.08);
-}
-:root[data-theme="light"] .dashboard-box,
-:root[data-theme="light"] .control-section,
-:root[data-theme="light"] .manual-content {
-  background: rgb(255 255 255 / 0.82);
-  border-color: rgb(var(--ink) / 0.08);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 30px -14px rgb(15 23 42 / 0.14);
-}
-:root[data-theme="light"] .metric-card {
-  background: #fff;
-  border-color: rgb(var(--ink) / 0.08);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
-}
-:root[data-theme="light"] .file-selector-input,
-:root[data-theme="light"] .batch-settings-modal .setting-input,
-:root[data-theme="light"] .batch-settings-modal .setting-select {
-  background-color: #fff;
-  border-color: rgb(var(--ink) / 0.12);
-}
-:root[data-theme="light"] .file-selector-input:hover:not(:disabled),
-:root[data-theme="light"] .file-selector-input:focus {
-  background-color: #fff;
-  border-color: rgb(var(--accent-sky-rgb) / 0.55);
-}
-
-/* ---------- Light theme: legibility (WCAG AA) ---------- */
-/* Faint ink-alpha labels (0.3-0.5) fall below 3:1 on white — raise to >= 0.72 (~7:1). */
-:root[data-theme="light"] .section-label,
-:root[data-theme="light"] .manual-title,
-:root[data-theme="light"] .metric-title,
-:root[data-theme="light"] .progress-label,
-:root[data-theme="light"] .file-upload-button,
-:root[data-theme="light"] .batch-settings-modal .setting-desc,
-:root[data-theme="light"] .status-display {
-  color: rgb(var(--ink) / 0.72);
-}
-:root[data-theme="light"] .manual-title:hover {
-  color: rgb(var(--ink) / 0.9);
-}
-:root[data-theme="light"] .info-icon {
-  opacity: 0.85;
-}
-:root[data-theme="light"] .manual-item {
-  color: rgb(var(--ink) / 0.82);
-}
-:root[data-theme="light"] .progress-text {
-  color: rgb(var(--ink) / 0.85);
-}
-:root[data-theme="light"] .log-placeholder,
-:root[data-theme="light"] .file-empty,
-:root[data-theme="light"] .file-desc,
-:root[data-theme="light"] .user-name,
-:root[data-theme="light"] .no-active-nodes {
-  color: rgb(var(--ink) / 0.62);
-}
-:root[data-theme="light"] .select-arrow {
-  color: rgb(var(--ink) / 0.55);
-}
-
-/* Log timestamps: #16a34a / #0284c7 are < 4.5:1 on white — use the deeper shades. */
-:root[data-theme="light"] .log-timestamp-completed {
-  color: var(--accent-green-1);
-}
-:root[data-theme="light"] .log-timestamp-default {
-  color: var(--accent-sky-2);
-}
-
-/* Manual code samples: slate-tinted block was muddy; use a clean light surface. */
-:root[data-theme="light"] .manual-example pre {
-  background-color: var(--surface-4);
-  border-color: rgb(var(--ink) / 0.12);
-  color: rgb(var(--ink) / 0.88);
-}
-:root[data-theme="light"] .manual-item code {
-  background-color: rgb(var(--accent-indigo-rgb) / 0.08);
-}
-
-/* View toggle: inactive text was ~2.9:1 and the active pill was barely distinguishable. */
-:root[data-theme="light"] .view-toggle {
-  background: rgb(var(--ink) / 0.06);
-}
-:root[data-theme="light"] .toggle-button {
-  color: rgb(var(--ink) / 0.68);
-}
-:root[data-theme="light"] .toggle-button:hover:not(.active) {
-  color: rgb(var(--ink) / 0.9);
-}
-:root[data-theme="light"] .toggle-button.active {
-  background: #fff;
-  color: var(--text-1);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.1), 0 0 0 1px rgb(var(--ink) / 0.06);
-}
-
-/* Control borders: ink/0.1 nearly disappears on white. */
-:root[data-theme="light"] .file-upload-button,
-:root[data-theme="light"] .download-button,
-:root[data-theme="light"] .file-selector-input,
-:root[data-theme="light"] .batch-settings-modal .setting-input,
-:root[data-theme="light"] .batch-settings-modal .setting-select {
-  border-color: rgb(var(--ink) / 0.2);
-}
-:root[data-theme="light"] .file-upload-button,
-:root[data-theme="light"] .download-button {
-  background-color: #fff;
-}
-:root[data-theme="light"] .file-upload-button:hover:not(:disabled),
-:root[data-theme="light"] .download-button:hover:not(:disabled) {
-  background-color: var(--surface-4);
-  border-color: rgb(var(--ink) / 0.3);
-}
-
-/* Launch button: near-white text on the light-theme mint (#0f9d7a) was ~3.3:1.
-   Deepen the gradient and use pure white text (>= 5:1 across the gradient). */
-:root[data-theme="light"] .launch-button:not(:disabled) {
-  color: #fff;
-  background: linear-gradient(135deg, #047857, #0369a1, #4338ca);
-  background-size: 200% 100%;
-}
-/* Cancel (red) button: #f3f5f9 on #e07152 was ~3:1. */
-:root[data-theme="light"] .button-section .cancel-button:not(:disabled) {
-  color: #fff;
-  background: linear-gradient(135deg, #c2410c, #b91c1c, #991b1b);
-  background-size: 200% 100%;
-}
-:root[data-theme="light"] .launch-button:disabled,
-:root[data-theme="light"] .button-section .cancel-button:disabled {
-  background: var(--surface-5);
-  color: rgb(var(--ink) / 0.45);
-}
-
-/* Progress shimmer: dark-navy sweep looks like a smudge on light; use a white sheen. */
-:root[data-theme="light"] .progress-fill.processing::before {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgb(255 255 255 / 0.25) 50%,
-    rgb(255 255 255 / 0.65) 60%,
-    rgb(255 255 255 / 0.25) 70%,
-    transparent 100%
-  );
-}
-
-/* Settings modal confirm: #fff on #4facfe is ~2.3:1. */
-:root[data-theme="light"] .batch-settings-modal .confirm-button {
-  background: var(--accent-blue-1);
-}
-:root[data-theme="light"] .batch-settings-modal .confirm-button:hover {
-  background: #1d4ed8;
-}
-:root[data-theme="light"] .batch-settings-modal .cancel-button {
-  border-color: rgb(var(--ink) / 0.25);
-}
-
-/* Modal surfaces: give them a visible edge on the light overlay. */
-:root[data-theme="light"] .column-guide-modal,
-:root[data-theme="light"] .batch-settings-modal,
-:root[data-theme="light"] .file-dropdown {
-  border-color: rgb(var(--ink) / 0.14);
-  box-shadow: 0 20px 40px -12px rgb(15 23 42 / 0.25);
-}
-:root[data-theme="light"] .column-guide-modal-overlay,
-:root[data-theme="light"] .batch-settings-modal-overlay {
-  background: rgb(15 23 42 / 0.4);
-}
-
 </style>

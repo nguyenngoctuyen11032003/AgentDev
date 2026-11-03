@@ -100,7 +100,11 @@
     "copied": "Đã sao chép",
     "failed_to_copy": "Không thể sao chép mã: ",
     "failed_to_fetch": "Không thể tải nội dung hướng dẫn",
-    "failed_to_load": "Không thể tải hướng dẫn:"
+    "failed_to_load": "Không thể tải hướng dẫn:",
+    "loading": "Đang tải hướng dẫn",
+    "error_title": "Không tải được hướng dẫn",
+    "error_desc": "Kiểm tra kết nối mạng rồi thử lại.",
+    "retry": "Thử lại"
   },
   "home": {
     "eyebrow": "Nền tảng đa agent · không cần viết mã",
@@ -268,7 +272,18 @@
     "log_batch_completed": "Đã chạy hàng loạt xong: {succeeded} nhiệm vụ thành công, {failed} nhiệm vụ thất bại",
     "log_task_started": "[ID {id}, dòng {row}] đã bắt đầu",
     "log_task_completed": "[ID {id}, dòng {row}] đã hoàn tất trong {duration} ms, dùng {tokens} token",
-    "log_task_failed": "[ID {id}, dòng {row}] thất bại. Lỗi: {error}"
+    "log_task_failed": "[ID {id}, dòng {row}] thất bại. Lỗi: {error}",
+    "copy_logs": "Sao chép",
+    "clear_logs": "Xóa nhật ký",
+    "logs_copied": "Đã sao chép nhật ký.",
+    "logs_copy_failed": "Không sao chép được nhật ký.",
+    "remove_input_file": "Bỏ tệp đã chọn",
+    "input_file_hint": "Hỗ trợ tệp .xlsx hoặc .csv",
+    "column_guide_title": "Định dạng tệp đầu vào",
+    "progress_detail": "{done}/{total} dòng · {failed} lỗi",
+    "hint_pick_workflow": "Chọn quy trình để có thể chạy.",
+    "hint_pick_file": "Chọn tệp đầu vào (.xlsx hoặc .csv) để có thể chạy.",
+    "hint_connecting": "Đang kết nối tới máy chủ..."
   },
   "launch": {
     "plan": {
@@ -2249,6 +2264,7 @@
     "import_title": "Nhập skill từ thư mục",
     "import_source": "Thư mục nguồn",
     "import_reload": "Tải lại",
+    "import_loading": "Đang đọc danh sách skill...",
     "import_none": "Không tìm thấy skill nào trong thư mục này.",
     "import_missing": "Không tìm thấy thư mục {path}",
     "select_all": "Chọn tất cả ({count})",
@@ -2408,6 +2424,9 @@
         "problem": "Các nút này không có liên kết tới và không thuộc nhóm nào, nên sẽ không bao giờ chạy:"
       }
     },
-    "job_lost": "Không còn theo dõi được lượt chạy này (máy chủ có thể đã khởi động lại). Hãy chạy lại."
+    "job_lost": "Không còn theo dõi được lượt chạy này (máy chủ có thể đã khởi động lại). Hãy chạy lại.",
+    "scenario_skipped": "Chưa đủ, sẽ bỏ qua",
+    "run_hint_empty": "Nhập yêu cầu cho ít nhất một kịch bản để chạy.",
+    "progress_label": "Tiến độ kiểm định"
   }
 }

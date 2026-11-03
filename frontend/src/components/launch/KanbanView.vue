@@ -592,7 +592,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .kb-eyebrow {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -920,7 +920,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   height: 30px;
   border-radius: 10px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--dept);
   background: color-mix(in srgb, var(--dept) 14%, var(--surface-1));
@@ -965,7 +965,6 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   background: var(--surface-1);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
   animation: card-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-  outline: none;
 }
 
 .card[tabindex] { cursor: pointer; }
@@ -1053,7 +1052,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 .card-from {
   margin: 0 0 2px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--kb-muted);
 }
 
@@ -1115,7 +1114,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   white-space: nowrap;
   padding: 2px 8px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   color: var(--text-soft-1, var(--text-1));
   background: rgb(var(--ink) / 0.06);
@@ -1150,11 +1149,10 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 .review-btn {
   border-style: solid;
   border-color: transparent;
-  color: #0b1220;
+  color: var(--on-accent);
   background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky));
 }
 
-:root[data-theme='light'] .review-btn { color: #fff; }
 .review-btn:hover { filter: brightness(1.06); }
 
 .placeholder {

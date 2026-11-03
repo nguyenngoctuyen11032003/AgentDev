@@ -684,12 +684,12 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .ring-text strong { font-size: 24px; font-weight: 720; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.ring-text span { font-size: 11px; color: var(--muted); }
+.ring-text span { font-size: var(--fs-xs); color: var(--muted); }
 
 .hero-main { min-width: 0; flex: 1; }
 
 .eyebrow {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -827,7 +827,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   font-weight: 620;
 }
 
-.pipe-sub { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pipe-sub { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---------- gantt ---------- */
 .gantt { display: flex; flex-direction: column; gap: 7px; }
@@ -926,7 +926,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   width: 22px;
   height: 22px;
   border-radius: 7px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--tone, var(--muted));
   background: color-mix(in srgb, var(--tone, var(--muted)) 13%, transparent);
 }
@@ -953,7 +953,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   font-size: 11.5px;
 }
 
-.feed-item time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.feed-item time { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---------- agents table ---------- */
 .table-wrap { overflow-x: auto; }
@@ -966,7 +966,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 .agents th {
   padding: 0 10px 8px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1021,7 +1021,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   height: 30px;
   border-radius: 10px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--dept);
   background: color-mix(in srgb, var(--dept) 14%, rgb(var(--ink) / 0.04));

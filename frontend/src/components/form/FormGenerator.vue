@@ -2,18 +2,25 @@
   <template v-for="(modal, index) in modalStack" :key="modal.id">
     <div
       class="modal-overlay"
-      :style="{ zIndex: 1000 + index }"
+      :style="{ zIndex: `calc(var(--z-modal) + ${index})` }"
       @mousedown.self="modalMousedownTargets.set(modal.id, true)"
       @mouseup.self="modalMouseupTargets.set(modal.id, true)"
       @click.self="handleOverlayClick(modal.id)"
     >
-      <div class="modal-content">
+      <div
+        class="modal-content"
+        data-fg-dialog
+        tabindex="-1"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="modalHeading(modal, index) ? `form-title-${modal.id}` : undefined"
+      >
         <div class="modal-header">
-          <h3 v-if="modalHeading(modal, index)" class="form-title">{{ modalHeading(modal, index) }}</h3>
+          <h3 v-if="modalHeading(modal, index)" :id="`form-title-${modal.id}`" class="form-title">{{ modalHeading(modal, index) }}</h3>
           <div v-if="modal.formError" class="submit-error">
             {{ modal.formError }}
           </div>
-          <button class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeModal(modal.id)">×</button>
+          <button type="button" class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeModal(modal.id)">×</button>
         </div>
         <div class="modal-body" data-local-scroll @wheel="handleLocalScrollWheel">
           <!-- 1. Basic fields (type, name, description, ...) -->
@@ -119,9 +126,9 @@
 
   <!-- Var edit modal -->
   <div v-if="showVarModal" class="modal-overlay modal-overlay-elevated" @click.self="closeVarModal">
-    <div class="modal-content var-modal">
+    <div class="modal-content var-modal" data-fg-dialog tabindex="-1" role="dialog" aria-modal="true" :aria-label="$t('form_generator.key')">
       <div class="modal-header">
-        <button class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeVarModal">×</button>
+        <button type="button" class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeVarModal">×</button>
       </div>
       <div class="modal-body" data-local-scroll @wheel="handleLocalScrollWheel">
         <div v-if="varFormError" class="submit-error">
@@ -159,10 +166,10 @@
     class="modal-overlay modal-overlay-elevated"
     @click.self="closeListItemModal"
   >
-    <div class="modal-content list-item-modal">
+    <div class="modal-content list-item-modal" data-fg-dialog tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="list-item-modal-title">
       <div class="modal-header">
-        <h3 class="modal-title">{{ editingListItemIndex !== null ? t('form_generator.edit_entry') : t('form_generator.add_entry') }}</h3>
-        <button class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeListItemModal">×</button>
+        <h3 id="list-item-modal-title" class="modal-title">{{ editingListItemIndex !== null ? t('form_generator.edit_entry') : t('form_generator.add_entry') }}</h3>
+        <button type="button" class="close-button" :aria-label="$t('common.close')" :title="$t('common.close')" @click="closeListItemModal">×</button>
       </div>
       <div class="modal-body" data-local-scroll @wheel="handleLocalScrollWheel">
         <div v-if="listItemFormError" class="submit-error">
@@ -1775,7 +1782,78 @@ const handleLocalScrollWheel = (event) => {
   }
 }
 
+// --- Dialog accessibility: focus trap, initial focus, focus return ---
+// Handled in-component rather than via BaseDialog: the modal stack, elevated var/list
+// modals, window-level Enter/Esc handling and per-index z-order don't map onto BaseDialog.
+const DIALOG_FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+const dialogReturnStack = []
+
+function topDialogEl() {
+  const all = document.querySelectorAll('[data-fg-dialog]')
+  return all.length ? all[all.length - 1] : null
+}
+
+function trapTab(event) {
+  const dlg = topDialogEl()
+  if (!dlg) return
+  const items = [...dlg.querySelectorAll(DIALOG_FOCUSABLE)].filter(
+    (el) => el.offsetParent !== null || el === document.activeElement
+  )
+  if (!items.length) {
+    event.preventDefault()
+    dlg.focus()
+    return
+  }
+  const active = document.activeElement
+  const first = items[0]
+  const last = items[items.length - 1]
+  if (!dlg.contains(active)) {
+    event.preventDefault()
+    ;(event.shiftKey ? last : first).focus()
+  } else if (event.shiftKey && (active === first || active === dlg)) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+const openDialogCount = computed(
+  () => modalStack.length + (showVarModal.value ? 1 : 0) + (showListItemModal.value ? 1 : 0)
+)
+// Record the element focused before each new dialog opens (sync: DOM not yet updated)
+watch(
+  openDialogCount,
+  (count, prev) => {
+    if (count > prev) dialogReturnStack[prev] = document.activeElement
+  },
+  { flush: 'sync' }
+)
+watch(openDialogCount, async (count, prev) => {
+  if (count > prev) {
+    await nextTick()
+    const dlg = topDialogEl()
+    if (dlg && !dlg.contains(document.activeElement)) {
+      ;(
+        dlg.querySelector('.modal-body input, .modal-body select, .modal-body textarea') ||
+        dlg.querySelector('.close-button') ||
+        dlg
+      ).focus()
+    }
+  } else if (count < prev) {
+    const target = dialogReturnStack.splice(count)[0]
+    await nextTick()
+    if (target instanceof HTMLElement && document.contains(target)) target.focus()
+  }
+})
+
 const handleKeystrokes = (event) => {
+  if (event.key === 'Tab') {
+    trapTab(event)
+    return
+  }
   if (event.key === 'Enter') {
     // Do not intercept Enter inside textarea to allow newlines
     const activeEl = document.activeElement
@@ -2188,12 +2266,11 @@ defineExpose({
   background: radial-gradient(circle at top, rgb(var(--accent-indigo-rgb) / 0.18), transparent 55%),
     radial-gradient(circle at bottom, rgb(var(--accent-sky-rgb) / 0.25), transparent 55%),
     rgb(var(--shade) / 0.6);
-  z-index: 1000;
-  font-family: 'Inter', sans-serif;
+  z-index: var(--z-modal);
 }
 
 .modal-overlay-elevated {
-  z-index: 3000;
+  z-index: calc(var(--z-modal) + 50);
 }
 
 /* Core modal container – glassmorphism similar to WorkflowList / Launch / WorkflowView */
@@ -2214,12 +2291,13 @@ defineExpose({
 
 .modal-header {
   flex-shrink: 0;
-  min-height: 12px;
+  min-height: 52px;
+  box-sizing: border-box;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  padding: 8px 8px;
+  padding: 8px 12px 8px 22px;
   background-color: transparent;
   border-bottom: none;
 }
@@ -2229,9 +2307,9 @@ defineExpose({
   flex: 1;
   min-width: 0;
   margin: 0;
-  padding: 10px 8px 2px 12px;
+  padding: 0;
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 650;
   letter-spacing: -0.01em;
   line-height: 1.3;
   color: var(--text-strong);
@@ -2249,7 +2327,7 @@ defineExpose({
 
 .modal-body {
   flex: 1;
-  padding: 15px 20px 30px 15px;
+  padding: 18px 22px 28px;
   max-height: none;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -2261,35 +2339,38 @@ defineExpose({
 .modal-body::-webkit-scrollbar { display: none; }
 
 .close-button {
+  flex: none;
   margin-left: auto;
   background: transparent;
   border: none;
-  width: 18px;
-  height: 18px;
+  border-radius: 10px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
+  font-size: 24px;
+  line-height: 1;
   color: rgb(var(--ink) / 0.6);
   cursor: pointer;
-  transition: color 0.2s ease, transform 0.15s ease;
-  padding: 14px 14px;
+  transition: color 0.2s var(--ease-out), background-color 0.2s var(--ease-out);
+  padding: 0;
 }
 
 .close-button:hover {
   color: var(--text-strong);
-  transform: scale(1.05);
+  background-color: rgb(var(--ink) / 0.08);
 }
 
 .submit-error {
   width: 100%;
   padding: 10px 12px;
   margin-bottom: 8px;
-  background-color: rgba(255, 68, 68, 0.12);
-  border: 1px solid rgba(255, 68, 68, 0.6);
+  background-color: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 60%, transparent);
   border-radius: 10px;
   color: var(--danger-3);
-  font-size: 13px;
+  font-size: var(--fs-xs);
 }
 
 .form-group {
@@ -2301,7 +2382,7 @@ defineExpose({
   margin-bottom: 6px;
   color: var(--text-1);
   font-weight: 500;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .form-group-inline {
@@ -2339,7 +2420,7 @@ defineExpose({
   cursor: default;
   color: rgb(var(--ink-soft) / 0.7);
   background-color: transparent;
-  transition: border-color 0.2s ease, color 0.2s ease;
+  transition: border-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 
 .help-icon:hover {
@@ -2363,7 +2444,7 @@ defineExpose({
   color: var(--text-1);
   font-size: 14px;
   box-sizing: border-box;
-  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
 .form-textarea {
@@ -2377,21 +2458,21 @@ defineExpose({
   box-sizing: border-box;
   min-height: 80px;
   resize: vertical;
-  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
 .form-textarea:focus {
   outline: none;
-  border-color: var(--accent-indigo);
+  border-color: var(--focus-ring);
   background-color: rgb(var(--panel-15) / 0.85);
-  box-shadow: 0 0 0 1px rgb(var(--accent-indigo-rgb) / 0.5);
+  box-shadow: 0 0 0 1px var(--focus-ring);
 }
 
 .form-input:focus {
   outline: none;
-  border-color: var(--accent-indigo);
+  border-color: var(--focus-ring);
   background-color: rgb(var(--panel-15) / 0.85);
-  box-shadow: 0 0 0 1px rgb(var(--accent-indigo-rgb) / 0.5);
+  box-shadow: 0 0 0 1px var(--focus-ring);
 }
 
 .form-input::placeholder {
@@ -2405,15 +2486,15 @@ defineExpose({
   border: 1px solid rgb(var(--ink) / 0.14);
   background-color: rgb(var(--panel-10) / 0.6);
   color: var(--text-1);
-  font-size: 13px;
+  font-size: 14px;
   box-sizing: border-box;
   cursor: pointer;
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out);
 }
 
 .form-select:focus {
   outline: none;
-  border-color: var(--accent-indigo);
+  border-color: var(--focus-ring);
   background-color: rgb(var(--panel-15) / 0.85);
 }
 
@@ -2439,7 +2520,7 @@ defineExpose({
   font-size: 12px;
   color: rgb(var(--ink-soft) / 0.9);
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
 }
 
 .multi-select-option:hover {
@@ -2469,7 +2550,7 @@ defineExpose({
   color: var(--bg-base);
   background: linear-gradient(135deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
   background-size: 200% 100%;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
 }
 
 .submit-button:hover:not(:disabled) {
@@ -2489,13 +2570,13 @@ defineExpose({
   padding: 10px 18px;
   border-radius: 10px;
   border: 1px solid rgb(var(--ink) / 0.14);
-  background: linear-gradient(135deg, #e07152, #dc5d4c, #bd4a4a);
+  background: var(--danger);
   background-size: 200% 100%;
-  color: var(--bg-base);
+  color: var(--on-danger);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
 }
 
 .delete-button:hover:not(:disabled) {
@@ -2558,7 +2639,7 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s ease;
+  transition: color 0.2s var(--ease-out);
   line-height: 1;
   margin-left: 8px;
 }
@@ -2592,7 +2673,7 @@ defineExpose({
   border-radius: 10px;
   color: var(--text-1);
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
   font-size: 13px;
   gap: 12px;
 }
@@ -2619,7 +2700,7 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s ease;
+  transition: color 0.2s var(--ease-out);
   line-height: 1;
   margin-left: 8px;
 }
@@ -2653,7 +2734,7 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s ease;
+  transition: color 0.2s var(--ease-out);
   line-height: 1;
 }
 
@@ -2675,7 +2756,7 @@ defineExpose({
   color: rgb(var(--ink-soft) / 0.9);
   cursor: pointer;
   font-size: 13px;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 
 .add-child-button:hover,
@@ -2725,7 +2806,7 @@ defineExpose({
   font-size: 13px;
   gap: 12px;
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
 }
 
 .child-node-item:hover {
@@ -2770,7 +2851,7 @@ defineExpose({
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 
 .edit-child-button {
@@ -2803,6 +2884,7 @@ defineExpose({
 }
 
 .advanced-toggle-button {
+  padding: 0.6em 1.2em;
   background: transparent;
   border: none;
   color: var(--accent-indigo);
@@ -2812,7 +2894,7 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: color 0.2s ease;
+  transition: color 0.2s var(--ease-out);
 }
 
 .advanced-toggle-button:hover {
@@ -2832,8 +2914,12 @@ defineExpose({
 .modal-title {
   color: var(--text-1);
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
 }
 
 .modal-actions {
@@ -2852,7 +2938,7 @@ defineExpose({
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), transform 0.15s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
 .cancel-button {
@@ -2933,7 +3019,7 @@ defineExpose({
 :root[data-theme="light"] .form-input:focus,
 :root[data-theme="light"] .form-textarea:focus,
 :root[data-theme="light"] .form-select:focus {
-  border-color: var(--accent-indigo);
+  border-color: var(--focus-ring);
   background-color: #fff;
 }
 
@@ -2991,12 +3077,6 @@ defineExpose({
 :root[data-theme="light"] .submit-button,
 :root[data-theme="light"] .confirm-button {
   background-image: linear-gradient(135deg, #0f766e, #0369a1, #4338ca);
-  color: #fff;
-}
-
-:root[data-theme="light"] .delete-button {
-  background-image: linear-gradient(135deg, #c2410c, #b91c1c, #991b1b);
-  border-color: transparent;
   color: #fff;
 }
 

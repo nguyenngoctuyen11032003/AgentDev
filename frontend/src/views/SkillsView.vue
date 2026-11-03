@@ -1,5 +1,5 @@
 <template>
-  <div class="skills-view">
+  <div class="skills-view page">
     <header class="hero">
       <div class="hero-text">
         <p class="hero-kicker">{{ $t('skills.kicker') }}</p>
@@ -38,7 +38,7 @@
       <div v-for="n in 6" :key="n" class="skeleton"></div>
     </div>
 
-    <div v-else-if="!skills.length" class="empty">
+    <div v-else-if="!skills.length" class="empty-state">
       <span class="empty-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5" /><path d="M9 7h6M9 11h4" /></svg>
       </span>
@@ -52,11 +52,11 @@
 
     <template v-else>
       <ul v-if="filtered.length" class="skill-grid">
-        <li v-for="skill in filtered" :key="skill.name" class="skill-card" :class="{ invalid: !skill.valid }">
+        <li v-for="skill in filtered" :key="skill.name" class="skill-card" :class="{ invalid: !skill.valid }" @click="openEditor(skill.name)">
           <div class="skill-head">
             <span class="skill-mark" :style="{ '--hue': hueOf(skill.name) }" aria-hidden="true">{{ initialsOf(skill.name) }}</span>
             <span class="skill-name" :title="skill.name">{{ skill.name }}</span>
-            <span class="skill-actions">
+            <span class="skill-actions" @click.stop>
               <button
                 type="button"
                 class="icon-btn"
@@ -88,103 +88,99 @@
     </template>
 
     <!-- Add / edit -->
-    <div v-if="editor.open" class="overlay" @click.self="closeEditor">
-      <div class="dialog wide" role="dialog" aria-modal="true" :aria-label="editorTitle">
-        <h2 class="dialog-title">{{ editorTitle }}</h2>
-        <p class="dialog-hint">{{ $t('skills.editor_hint') }}</p>
+    <BaseDialog v-model="editor.open" :title="editorTitle" width="760px">
+      <p class="dialog-hint">{{ $t('skills.editor_hint') }}</p>
 
-        <div class="row">
-          <label class="field">
-            <span>{{ $t('skills.name_label') }}</span>
-            <input v-model.trim="editor.name" type="text" placeholder="cto-management" />
-          </label>
-          <label class="field grow">
-            <span>{{ $t('skills.description_label') }}</span>
-            <input v-model.trim="editor.description" type="text" :placeholder="$t('skills.description_placeholder')" />
-          </label>
-        </div>
-
-        <!-- div, not label: a label would forward clicks on its text to the upload button -->
-        <div class="field">
-          <span class="field-head">
-            <span id="skill-content-label">{{ $t('skills.content_label') }}</span>
-            <button type="button" class="link" @click="fileInput?.click()">{{ $t('skills.upload_md') }}</button>
-            <input ref="fileInput" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden @change="loadFile" />
-          </span>
-          <textarea
-            v-model="editor.content"
-            rows="16"
-            spellcheck="false"
-            :placeholder="$t('skills.content_placeholder')"
-            @dragover.prevent
-            aria-labelledby="skill-content-label"
-            @paste="onPaste"
-            @drop.prevent="dropFile"
-          ></textarea>
-        </div>
-
-        <p v-if="editor.error" class="error" role="alert">{{ editor.error }}</p>
-
-        <div class="dialog-actions">
-          <button type="button" class="btn ghost" @click="closeEditor">{{ $t('common.cancel') }}</button>
-          <button type="button" class="btn primary" :disabled="editor.saving || !editor.content.trim()" @click="save">
-            {{ editor.saving ? $t('skills.saving') : $t('skills.save') }}
-          </button>
-        </div>
+      <div class="row">
+        <label class="field">
+          <span>{{ $t('skills.name_label') }}</span>
+          <input v-model.trim="editor.name" type="text" placeholder="cto-management" />
+        </label>
+        <label class="field grow">
+          <span>{{ $t('skills.description_label') }}</span>
+          <input v-model.trim="editor.description" type="text" :placeholder="$t('skills.description_placeholder')" />
+        </label>
       </div>
-    </div>
+
+      <!-- div, not label: a label would forward clicks on its text to the upload button -->
+      <div class="field">
+        <span class="field-head">
+          <span id="skill-content-label">{{ $t('skills.content_label') }}</span>
+          <button type="button" class="link" @click="fileInput?.click()">{{ $t('skills.upload_md') }}</button>
+          <input ref="fileInput" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden @change="loadFile" />
+        </span>
+        <textarea
+          v-model="editor.content"
+          rows="16"
+          spellcheck="false"
+          :placeholder="$t('skills.content_placeholder')"
+          @dragover.prevent
+          aria-labelledby="skill-content-label"
+          @paste="onPaste"
+          @drop.prevent="dropFile"
+        ></textarea>
+      </div>
+
+      <p v-if="editor.error" class="error" role="alert">{{ editor.error }}</p>
+
+      <template #footer>
+        <button type="button" class="btn ghost" @click="closeEditor">{{ $t('common.cancel') }}</button>
+        <button type="button" class="btn primary" :disabled="editor.saving || !editor.content.trim()" @click="save">
+          {{ editor.saving ? $t('skills.saving') : $t('skills.save') }}
+        </button>
+      </template>
+    </BaseDialog>
 
     <!-- Import from ~/.claude/skills -->
-    <div v-if="importer.open" class="overlay" @click.self="!importer.saving && (importer.open = false)">
-      <div class="dialog wide" role="dialog" aria-modal="true" :aria-label="$t('skills.import_title')">
-        <h2 class="dialog-title">{{ $t('skills.import_title') }}</h2>
-        <div class="row">
-          <label class="field grow">
-            <span>{{ $t('skills.import_source') }}</span>
-            <input v-model.trim="importer.source" type="text" @keydown.enter="loadSource" />
-          </label>
-          <button type="button" class="btn ghost align-end" @click="loadSource">{{ $t('skills.import_reload') }}</button>
-        </div>
-
-        <p v-if="importer.error" class="error" role="alert">{{ importer.error }}</p>
-        <p v-else-if="!importer.loading && !importer.items.length" class="dialog-hint">{{ $t('skills.import_none') }}</p>
-
-        <div v-if="importer.items.length" class="import-bar">
-          <label class="check">
-            <input type="checkbox" :checked="allSelected" @change="toggleAll($event.target.checked)" />
-            {{ $t('skills.select_all', { count: importable.length }) }}
-          </label>
-          <label class="check">
-            <input v-model="importer.overwrite" type="checkbox" />
-            {{ $t('skills.overwrite') }}
-          </label>
-        </div>
-
-        <ul class="import-list">
-          <li v-for="item in importer.items" :key="item.name">
-            <label class="check" :class="{ disabled: !item.valid }">
-              <input v-model="importer.selected" type="checkbox" :value="item.name" :disabled="!item.valid" />
-              <span class="import-name">{{ item.name }}</span>
-              <span v-if="item.imported" class="badge">{{ $t('skills.already_imported') }}</span>
-              <span v-if="!item.valid" class="badge danger">{{ $t('skills.invalid') }}</span>
-            </label>
-            <p class="import-desc">{{ item.valid ? item.description : item.error }}</p>
-          </li>
-        </ul>
-
-        <div class="dialog-actions">
-          <button type="button" class="btn ghost" @click="importer.open = false">{{ $t('common.cancel') }}</button>
-          <button
-            type="button"
-            class="btn primary"
-            :disabled="importer.saving || !importer.selected.length"
-            @click="runImport"
-          >
-            {{ $t('skills.import_n', { count: importer.selected.length }) }}
-          </button>
-        </div>
+    <BaseDialog v-model="importer.open" :title="$t('skills.import_title')" width="760px" :close-on-backdrop="!importer.saving">
+      <div class="row">
+        <label class="field grow">
+          <span>{{ $t('skills.import_source') }}</span>
+          <input v-model.trim="importer.source" type="text" @keydown.enter="loadSource" />
+        </label>
+        <button type="button" class="btn ghost align-end" :disabled="importer.loading" @click="loadSource">{{ $t('skills.import_reload') }}</button>
       </div>
-    </div>
+
+      <p v-if="importer.loading" class="loading-note" role="status"><span class="spinner" aria-hidden="true"></span>{{ $t('skills.import_loading') }}</p>
+      <p v-else-if="importer.error" class="error" role="alert">{{ importer.error }}</p>
+      <p v-else-if="!importer.items.length" class="dialog-hint">{{ $t('skills.import_none') }}</p>
+
+      <div v-if="importer.items.length" class="import-bar">
+        <label class="check">
+          <input type="checkbox" :checked="allSelected" @change="toggleAll($event.target.checked)" />
+          {{ $t('skills.select_all', { count: importable.length }) }}
+        </label>
+        <label class="check">
+          <input v-model="importer.overwrite" type="checkbox" />
+          {{ $t('skills.overwrite') }}
+        </label>
+      </div>
+
+      <ul class="import-list">
+        <li v-for="item in importer.items" :key="item.name">
+          <label class="check" :class="{ disabled: !item.valid }">
+            <input v-model="importer.selected" type="checkbox" :value="item.name" :disabled="!item.valid" />
+            <span class="import-name">{{ item.name }}</span>
+            <span v-if="item.imported" class="badge">{{ $t('skills.already_imported') }}</span>
+            <span v-if="!item.valid" class="badge danger">{{ $t('skills.invalid') }}</span>
+          </label>
+          <p class="import-desc">{{ item.valid ? item.description : item.error }}</p>
+        </li>
+      </ul>
+
+      <template #footer>
+        <button type="button" class="btn ghost" @click="importer.open = false">{{ $t('common.cancel') }}</button>
+        <button
+          type="button"
+          class="btn primary"
+          :disabled="importer.saving || !importer.selected.length"
+          @click="runImport"
+        >
+          <span v-if="importer.saving" class="spinner" aria-hidden="true"></span>
+          {{ $t('skills.import_n', { count: importer.selected.length }) }}
+        </button>
+      </template>
+    </BaseDialog>
   </div>
 </template>
 
@@ -200,6 +196,7 @@ import {
   importSkills,
   updateSkill
 } from '@/api/client'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast'
 
@@ -429,57 +426,40 @@ onMounted(load)
 
 <style scoped>
 .skills-view {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 48px 32px 80px;
-  color: var(--text-1);
+  padding-bottom: 72px;
+  color: var(--fg);
   font-family: 'Inter', system-ui, sans-serif;
   --line: rgb(var(--ink) / 0.09);
-  --muted: var(--text-muted-4);
+  --muted: var(--fg-muted);
 }
 
 /* ---- header (shared look with the Connections page) ---- */
 .hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 28px; }
-.hero-kicker { margin: 0 0 8px; font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-sky); }
+.hero-kicker { margin: 0 0 8px; font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
 .hero-title { margin: 0 0 10px; font-size: 32px; line-height: 1.15; font-weight: 750; letter-spacing: -0.03em; color: var(--text-strong); }
 .hero-sub { margin: 0; max-width: 64ch; font-size: 15px; line-height: 1.65; color: var(--muted); }
 .hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
-/* ---- buttons ---- */
-.btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  min-height: 40px; padding: 0 16px; border-radius: 10px; border: 0;
-  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-  color: var(--text-1); background: rgb(var(--ink) / 0.05); box-shadow: inset 0 0 0 1px var(--line);
-  transition: background-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
-}
-.btn:hover:not(:disabled) { background: rgb(var(--ink) / 0.09); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn.primary { color: #05141f; background: var(--accent-sky); box-shadow: none; }
-.btn.primary:hover:not(:disabled) { background: var(--accent-sky); filter: brightness(1.06); }
-:root[data-theme='light'] .btn.primary { color: #fff; }
-.btn.ghost { background: transparent; }
+/* ---- buttons: global .btn (ui.css); only local helpers here ---- */
 .btn.align-end { align-self: flex-end; }
-.btn:focus-visible, .icon-btn:focus-visible, .search:focus-within { outline: 2px solid var(--accent-sky); outline-offset: 2px; }
-.link { background: none; border: none; color: var(--accent-sky); cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 0; margin-left: auto; }
+.icon-btn:focus-visible, .search:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.link { background: none; border: none; border-radius: var(--radius-sm); color: var(--accent); cursor: pointer; font-size: 12.5px; font-weight: 600; min-height: 40px; padding: 0 4px; margin-left: auto; }
 
 /* ---- toolbar ---- */
 .toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .search {
   display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; height: 42px; padding: 0 14px;
-  border-radius: 11px; background: var(--surface-1); box-shadow: inset 0 0 0 1px var(--line); color: var(--muted);
+  border-radius: 11px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--muted);
 }
-.search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text-1); font: inherit; font-size: 14.5px; }
+.search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14.5px; }
 .count { font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* ---- grid ---- */
 .skill-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .skill-card {
   display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 18px;
-  border-radius: 14px; background: var(--surface-1); box-shadow: inset 0 0 0 1px var(--line);
-  transition: box-shadow 0.15s ease;
+  border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line);
+  cursor: pointer; transition: box-shadow 0.15s ease;
 }
 .skill-card:hover { box-shadow: inset 0 0 0 1px rgb(var(--accent-sky-rgb) / 0.4); }
 .skill-card.invalid { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 55%, transparent); }
@@ -493,10 +473,11 @@ onMounted(load)
 .skill-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; color: var(--text-strong); }
 .skill-actions { display: flex; flex: none; gap: 4px; }
 .icon-btn {
-  display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 9px;
+  position: relative; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 10px;
   color: var(--muted); background: transparent; cursor: pointer; transition: color 0.15s ease, background-color 0.15s ease;
 }
-.icon-btn:hover { color: var(--text-1); background: rgb(var(--ink) / 0.07); }
+.icon-btn::after { content: ''; position: absolute; inset: -4px; } /* 44px hit area */
+.icon-btn:hover { color: var(--fg); background: rgb(var(--ink) / 0.07); }
 .icon-btn.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .skill-desc { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .skill-foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
@@ -506,54 +487,51 @@ onMounted(load)
 .badge.danger { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 
 /* ---- empty + loading ---- */
-.skeleton { height: 128px; border-radius: 14px; background: linear-gradient(90deg, var(--surface-1), var(--surface-3), var(--surface-1)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
-@keyframes shimmer { to { background-position: -200% 0; } }
-.empty { display: flex; flex-direction: column; align-items: center; padding: 48px 20px; text-align: center; border: 1px dashed var(--line-4); border-radius: 16px; background: var(--surface-1); }
-.empty-icon { display: grid; place-items: center; width: 56px; height: 56px; margin-bottom: 14px; border-radius: 16px; color: var(--accent-sky); background: rgb(var(--accent-sky-rgb) / 0.12); }
-.empty-title { margin: 0 0 6px; font-size: 15px; font-weight: 650; }
-.empty-desc { margin: 0 0 18px; max-width: 46ch; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.skeleton { height: 128px; border-radius: 14px; }
+.empty-icon { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; color: var(--accent); background: rgb(var(--accent-sky-rgb) / 0.12); }
+.empty-title { font-weight: 650; }
+.empty-desc { max-width: 46ch; line-height: 1.6; }
 .empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 
-.overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
-.dialog {
-  width: 100%; max-width: 560px; max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box;
-  padding: 22px; border-radius: 16px; background: var(--surface-1); border: 1px solid var(--line-4);
-}
-.dialog.wide { max-width: 760px; }
-.dialog-title { margin: 0 0 6px; font-size: 18px; }
-.dialog-hint { margin: 0 0 14px; font-size: 13px; color: var(--text-muted-4); line-height: 1.5; }
-.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.dialog-hint { margin: 0 0 14px; font-size: 13px; color: var(--fg-muted); line-height: 1.5; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-muted-4); }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--fg-muted); }
 .field.grow { flex: 1; min-width: 220px; }
 .field-head { display: flex; align-items: center; gap: 8px; }
-.field input, .field textarea {
-  padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line-4); background: var(--surface-2);
-  color: var(--text-1); font-size: 13.5px;
+.field input, .field input:focus-visible, .field textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+.field textarea {
+  min-height: 40px; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--surface-2);
+  color: var(--fg); font-size: 13.5px;
 }
 .field textarea { font-family: ui-monospace, 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.5; resize: vertical; }
 .error { color: var(--danger); font-size: 13px; margin: 10px 0 0; }
 
-.import-bar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--line-4); }
+.import-bar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--border-strong); }
 .import-list { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow: auto; }
-.import-list li { padding: 8px 2px; border-bottom: 1px solid var(--line-4); }
-.check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
+.import-list li { padding: 8px 2px; border-bottom: 1px solid var(--border-strong); }
+.check { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 13.5px; cursor: pointer; }
+.loading-note { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 13px; color: var(--muted); }
+.spinner { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .check.disabled { opacity: 0.6; cursor: not-allowed; }
 .import-name { font-family: ui-monospace, 'JetBrains Mono', monospace; }
-.import-desc { margin: 3px 0 0 24px; font-size: 12.5px; color: var(--text-muted-4); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.import-desc { margin: 3px 0 0 24px; font-size: 12.5px; color: var(--fg-muted); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 @media (max-width: 860px) {
   .skill-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 600px) {
-  .skills-view { padding: 32px 16px 64px; }
+@media (max-width: 720px) {
+  .skills-view { padding-bottom: 56px; }
   .hero-title { font-size: 27px; }
+}
+
+@media (max-width: 600px) {
   .toolbar { flex-wrap: wrap; }
   .search { flex-basis: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton { animation: none; }
+  .spinner { animation: none; }
 }
 </style>

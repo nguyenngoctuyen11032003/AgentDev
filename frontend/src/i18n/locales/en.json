@@ -100,7 +100,11 @@
     "copied": "Copied",
     "failed_to_copy": "Failed to copy code: ",
     "failed_to_fetch": "Failed to fetch tutorial markdown",
-    "failed_to_load": "Failed to load tutorial:"
+    "failed_to_load": "Failed to load tutorial:",
+    "loading": "Loading the guide",
+    "error_title": "Could not load the guide",
+    "error_desc": "Check your connection and try again.",
+    "retry": "Retry"
   },
   "home": {
     "eyebrow": "Multi-agent platform · no code",
@@ -268,7 +272,18 @@
     "log_batch_completed": "Batch processing finished: {succeeded} tasks succeeded, {failed} tasks failed",
     "log_task_started": "[ID {id}, row {row}] started",
     "log_task_completed": "[ID {id}, row {row}] completed in {duration} ms, {tokens} tokens used",
-    "log_task_failed": "[ID {id}, row {row}] failed. Error: {error}"
+    "log_task_failed": "[ID {id}, row {row}] failed. Error: {error}",
+    "copy_logs": "Copy",
+    "clear_logs": "Clear log",
+    "logs_copied": "Log copied.",
+    "logs_copy_failed": "Could not copy the log.",
+    "remove_input_file": "Remove selected file",
+    "input_file_hint": "Supports .xlsx or .csv files",
+    "column_guide_title": "Input file format",
+    "progress_detail": "{done}/{total} rows · {failed} failed",
+    "hint_pick_workflow": "Select a workflow to enable Launch.",
+    "hint_pick_file": "Select an input file (.xlsx or .csv) to enable Launch.",
+    "hint_connecting": "Connecting to the server..."
   },
   "launch": {
     "plan": {
@@ -1808,6 +1823,7 @@
     "import_title": "Import skills from a folder",
     "import_source": "Source folder",
     "import_reload": "Reload",
+    "import_loading": "Reading the skill list...",
     "import_none": "No skills found in this folder.",
     "import_missing": "Folder not found: {path}",
     "select_all": "Select all ({count})",
@@ -2119,7 +2135,10 @@
         "problem": "These nodes have no incoming edge and belong to no team, so they never run:"
       }
     },
-    "job_lost": "Lost track of this run (the server may have restarted). Please run it again."
+    "job_lost": "Lost track of this run (the server may have restarted). Please run it again.",
+    "scenario_skipped": "Incomplete, will be skipped",
+    "run_hint_empty": "Enter a request for at least one scenario to run.",
+    "progress_label": "Evaluation progress"
   },
   "schema_desc_text": {
     "h11aw3kw": "This agent's job: its scope, working rules and what a good result looks like. The agent follows it on every task. The team lead reads the first line to decide whom to delegate to, so keep that line short and name the specialty.",

@@ -295,6 +295,13 @@
             :id="`${modalId}-${field.name}`"
             :value="inputValue"
             class="form-input custom-select-input"
+            role="combobox"
+            aria-haspopup="listbox"
+            :aria-expanded="showDropdown && !isReadOnly"
+            :aria-controls="listboxId"
+            :aria-activedescendant="showDropdown && activeIndex >= 0 ? optionDomId(activeIndex) : undefined"
+            :aria-disabled="isReadOnly || undefined"
+            @keydown="onSelectKeydown"
             readonly
             :class="{'input-readonly': isReadOnly}"
             :placeholder="$t('dynamic_form_field.type_to_filter')"
@@ -303,7 +310,10 @@
           <Teleport to="body">
             <div
               v-if="showDropdown && !isReadOnly"
+              :id="listboxId"
               class="custom-select-dropdown"
+              role="listbox"
+              :aria-labelledby="`${modalId}-${field.name}-label`"
               data-local-scroll
               :style="dropdownStyle"
               @mousedown.prevent
@@ -313,17 +323,26 @@
             >
               <div
                 v-if="!field.required"
+                :id="optionDomId(0)"
+                role="option"
                 class="custom-select-option"
-                :class="{ 'option-selected': formData[field.name] === null }"
+                :class="{ 'option-selected': formData[field.name] === null, 'option-active': activeIndex === 0 }"
+                :aria-selected="formData[field.name] === null"
                 @mousedown.stop="selectOption(null)"
               >
                 {{ $t('dynamic_form_field.none') }}
               </div>
               <div
-                v-for="option in filteredOptions"
+                v-for="(option, optionIndex) in filteredOptions"
+                :id="optionDomId(optionIndex + (field.required ? 0 : 1))"
                 :key="typeof option === 'string' ? option : option.value"
+                role="option"
                 class="custom-select-option"
-                :class="{ 'option-selected': formData[field.name] === (typeof option === 'string' ? option : option.value) }"
+                :class="{
+                  'option-selected': formData[field.name] === (typeof option === 'string' ? option : option.value),
+                  'option-active': activeIndex === optionIndex + (field.required ? 0 : 1)
+                }"
+                :aria-selected="formData[field.name] === (typeof option === 'string' ? option : option.value)"
                 :title="optionDescription(option)"
                 @mousedown.stop="selectOption(typeof option === 'string' ? option : option.value)"
               >
@@ -334,7 +353,7 @@
               </div>
             </div>
           </Teleport>
-          <div class="custom-select-arrow" :class="{ 'arrow-open': showDropdown }">
+          <div class="custom-select-arrow" :class="{ 'arrow-open': showDropdown }" aria-hidden="true">
             ▼
           </div>
         </div>
@@ -807,6 +826,9 @@ const internalFormData = computed(() => props.formData)
 
 // Custom select filtering state
 const showDropdown = ref(false)
+const activeIndex = ref(-1)
+const listboxId = `select-list-${Math.random().toString(36).slice(2, 9)}`
+const optionDomId = (index) => `${listboxId}-opt-${index}`
 const filterText = ref('')
 const selectWrapper = ref(null)
 const dropdownRect = reactive({
@@ -829,7 +851,7 @@ const dropdownStyle = computed(() => ({
   top: `${dropdownRect.top + 4}px`,
   left: `${dropdownRect.left}px`,
   width: `${dropdownRect.width}px`,
-  zIndex: 10000
+  zIndex: 'calc(var(--z-modal) + 60)'
 }))
 
 const toggleDropdown = () => {
@@ -837,12 +859,64 @@ const toggleDropdown = () => {
   if (!showDropdown.value) {
     updateDropdownPosition()
     showDropdown.value = true
+    activeIndex.value = selectedOptionIndex()
     // Add escape listener
     window.addEventListener('scroll', closeOnScroll, true)
     window.addEventListener('mousedown', handleOutsideClick)
   } else {
     closeDropdown()
   }
+}
+
+// Flat list the keyboard walks: the optional "none" row first, then the filtered options
+const optionValueOf = (option) => (typeof option === 'string' ? option : option.value)
+const selectableValues = () => {
+  const values = filteredOptions.value.map(optionValueOf)
+  return props.field.required ? values : [null, ...values]
+}
+const selectedOptionIndex = () => {
+  const index = selectableValues().findIndex((value) => value === props.formData[props.field.name])
+  return index >= 0 ? index : 0
+}
+
+const onSelectKeydown = (event) => {
+  if (props.isReadOnly) return
+  const count = selectableValues().length
+  const key = event.key
+  if (key === 'Escape' && showDropdown.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    closeDropdown()
+    return
+  }
+  if (key === 'ArrowDown' || key === 'ArrowUp') {
+    event.preventDefault()
+    if (!showDropdown.value) {
+      toggleDropdown()
+      return
+    }
+    if (!count) return
+    const step = key === 'ArrowDown' ? 1 : -1
+    activeIndex.value = (activeIndex.value + step + count) % count
+    document.getElementById(optionDomId(activeIndex.value))?.scrollIntoView({ block: 'nearest' })
+    return
+  }
+  if ((key === 'Home' || key === 'End') && showDropdown.value && count) {
+    event.preventDefault()
+    activeIndex.value = key === 'Home' ? 0 : count - 1
+    document.getElementById(optionDomId(activeIndex.value))?.scrollIntoView({ block: 'nearest' })
+    return
+  }
+  if (key === 'Enter' || key === ' ') {
+    event.preventDefault()
+    if (!showDropdown.value) {
+      toggleDropdown()
+    } else if (activeIndex.value >= 0 && activeIndex.value < count) {
+      selectOption(selectableValues()[activeIndex.value])
+    }
+    return
+  }
+  if (key === 'Tab' && showDropdown.value) closeDropdown()
 }
 
 const closeDropdown = () => {
@@ -1023,7 +1097,7 @@ const getSelectedLabel = () => {
   margin-bottom: 6px;
   color: var(--text-1);
   font-weight: 500;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .form-group-inline {
@@ -1061,7 +1135,7 @@ const getSelectedLabel = () => {
   cursor: default;
   color: rgb(var(--ink-soft) / 0.7);
   background-color: transparent;
-  transition: border-color 0.2s ease, color 0.2s ease;
+  transition: border-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 
 .help-icon:hover {
@@ -1073,8 +1147,7 @@ const getSelectedLabel = () => {
 .form-select,
 .form-textarea,
 .multi-select-options input[type='checkbox'] {
-  font-family: 'Inter', sans-serif;
-}
+  }
 
 .form-input {
   width: 100%;
@@ -1083,9 +1156,9 @@ const getSelectedLabel = () => {
   border: 1px solid rgb(var(--ink) / 0.14);
   background-color: rgb(var(--panel-10) / 0.6);
   color: var(--text-1);
-  font-size: 13px;
+  font-size: 14px;
   box-sizing: border-box;
-  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
 .form-textarea {
@@ -1095,26 +1168,26 @@ const getSelectedLabel = () => {
   border: 1px solid rgb(var(--ink) / 0.14);
   background-color: rgb(var(--panel-10) / 0.6);
   color: var(--text-1);
-  font-size: 13px;
+  font-size: 14px;
   box-sizing: border-box;
   min-height: 80px;
   resize: vertical;
   overscroll-behavior: contain;
-  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
 .form-textarea:focus {
   outline: none;
-  border-color: var(--accent-indigo);
+  border-color: var(--focus-ring);
   background-color: rgb(var(--panel-15) / 0.85);
-  box-shadow: 0 0 0 1px rgb(var(--accent-indigo-rgb) / 0.5);
+  box-shadow: 0 0 0 1px var(--focus-ring);
 }
 
 .form-input:focus {
   outline: none;
-  border-color: var(--accent-indigo);
+  border-color: var(--focus-ring);
   background-color: rgb(var(--panel-15) / 0.85);
-  box-shadow: 0 0 0 1px rgb(var(--accent-indigo-rgb) / 0.5);
+  box-shadow: 0 0 0 1px var(--focus-ring);
 }
 
 .form-input::placeholder {
@@ -1128,15 +1201,15 @@ const getSelectedLabel = () => {
   border: 1px solid rgb(var(--ink) / 0.14);
   background-color: rgb(var(--panel-10) / 0.6);
   color: var(--text-1);
-  font-size: 13px;
+  font-size: 14px;
   box-sizing: border-box;
   cursor: pointer;
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out);
 }
 
 .form-select:focus {
   outline: none;
-  border-color: var(--accent-indigo);
+  border-color: var(--focus-ring);
   background-color: rgb(var(--panel-15) / 0.85);
 }
 
@@ -1173,10 +1246,10 @@ const getSelectedLabel = () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgb(var(--ink) / 0.14);
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  background-color: var(--control-off);
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
   border-radius: 24px;
-  border: 1px solid rgb(var(--ink) / 0.14);
+  border: 1px solid var(--control-off);
 }
 
 .switch-slider:before {
@@ -1186,19 +1259,20 @@ const getSelectedLabel = () => {
   width: 18px;
   left: 2px;
   bottom: 2px;
-  background-color: white;
-  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+  background-color: #fff;
+  box-shadow: 0 1px 2px rgb(var(--shade) / 0.3);
+  transition: transform 0.2s var(--ease-out);
   border-radius: 50%;
   will-change: transform;
 }
 
 input:checked + .switch-slider {
   background-color: var(--accent-indigo);
-  border-color: #4facfe;
+  border-color: var(--accent-indigo-2);
 }
 
-input:focus + .switch-slider {
-  box-shadow: 0 0 1px #4facfe;
+input:focus-visible + .switch-slider {
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 input:checked + .switch-slider:before {
@@ -1227,7 +1301,7 @@ input:checked + .switch-slider:before {
   font-size: 12px;
   color: rgb(var(--ink-soft) / 0.9);
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
 }
 
 .multi-select-option:hover {
@@ -1299,7 +1373,7 @@ input:checked + .switch-slider:before {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s ease;
+  transition: color 0.2s var(--ease-out);
   line-height: 1;
   margin-left: 8px;
 }
@@ -1333,7 +1407,7 @@ input:checked + .switch-slider:before {
   border-radius: 10px;
   color: var(--text-1);
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
   font-size: 13px;
   gap: 12px;
 }
@@ -1360,7 +1434,7 @@ input:checked + .switch-slider:before {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s ease;
+  transition: color 0.2s var(--ease-out);
   line-height: 1;
   margin-left: 8px;
 }
@@ -1394,7 +1468,7 @@ input:checked + .switch-slider:before {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s ease;
+  transition: color 0.2s var(--ease-out);
   line-height: 1;
 }
 
@@ -1416,7 +1490,7 @@ input:checked + .switch-slider:before {
   color: rgb(var(--ink-soft) / 0.9);
   cursor: pointer;
   font-size: 13px;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 
 .add-child-button:hover,
@@ -1466,7 +1540,7 @@ input:checked + .switch-slider:before {
   font-size: 13px;
   gap: 12px;
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
 }
 
 .child-node-item:hover {
@@ -1511,7 +1585,7 @@ input:checked + .switch-slider:before {
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 
 .edit-child-button {
@@ -1551,7 +1625,11 @@ input:checked + .switch-slider:before {
 }
 
 .custom-select-input:focus {
-  cursor: text;
+  cursor: pointer;
+}
+
+.custom-select-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .custom-select-arrow {
@@ -1562,7 +1640,7 @@ input:checked + .switch-slider:before {
   color: rgb(var(--ink-soft) / 0.7);
   font-size: 12px;
   pointer-events: none;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s var(--ease-out);
 }
 
 .custom-select-arrow.arrow-open {
@@ -1571,7 +1649,7 @@ input:checked + .switch-slider:before {
 
 :global(.custom-select-dropdown) {
   position: fixed;
-  z-index: 10000;
+  z-index: calc(var(--z-modal) + 60);
   max-height: 200px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1586,12 +1664,17 @@ input:checked + .switch-slider:before {
   padding: 10px 14px;
   cursor: pointer;
   color: var(--text-1);
-  font-size: 13px;
-  transition: background-color 0.2s ease;
+  font-size: 14px;
+  transition: background-color 0.2s var(--ease-out);
 }
 
 :global(.custom-select-option:hover) {
   background-color: rgb(var(--ink) / 0.1);
+}
+
+:global(.custom-select-option.option-active) {
+  background-color: rgb(var(--ink) / 0.1);
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
 }
 
 :global(.custom-select-option.option-selected) {
@@ -1635,7 +1718,7 @@ input:checked + .switch-slider:before {
 :root[data-theme="light"] .form-input:focus,
 :root[data-theme="light"] .form-textarea:focus,
 :root[data-theme="light"] .form-select:focus {
-  border-color: var(--accent-indigo);
+  border-color: var(--focus-ring);
   background-color: #fff;
 }
 
@@ -1651,21 +1734,6 @@ input:checked + .switch-slider:before {
   border-color: var(--line-4);
   color: var(--text-soft-1);
   box-shadow: none;
-}
-
-/* Switch: white knob on a pale track was nearly invisible */
-:root[data-theme="light"] .switch-slider {
-  background-color: #cbd5e1;
-  border-color: #8592a5;
-}
-
-:root[data-theme="light"] .switch-slider:before {
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.3);
-}
-
-:root[data-theme="light"] input:checked + .switch-slider {
-  background-color: var(--accent-indigo);
-  border-color: var(--accent-indigo-2);
 }
 
 :root[data-theme="light"] .custom-select-arrow {
@@ -1722,7 +1790,8 @@ input:checked + .switch-slider:before {
   box-shadow: 0 10px 30px -8px rgb(15 23 42 / 0.22);
 }
 
-:global(:root[data-theme="light"] .custom-select-option:hover) {
+:global(:root[data-theme="light"] .custom-select-option:hover),
+:global(:root[data-theme="light"] .custom-select-option.option-active) {
   background-color: var(--surface-4);
 }
 

@@ -8,6 +8,23 @@ const MAX_VISIBLE = 4
 export const toasts = reactive([])
 let nextId = 1
 
+// Hover or keyboard focus pauses the auto-dismiss timer so a message can be read in full.
+export function pauseToast(id) {
+  const item = toasts.find((toast) => toast.id === id)
+  if (!item || !item.timer) return
+  clearTimeout(item.timer)
+  item.timer = null
+  item.remaining = Math.max(1000, item.deadline - Date.now())
+}
+
+export function resumeToast(id) {
+  const item = toasts.find((toast) => toast.id === id)
+  if (!item || item.timer || !item.remaining) return
+  item.deadline = Date.now() + item.remaining
+  item.timer = setTimeout(() => dismissToast(id), item.remaining)
+  item.remaining = 0
+}
+
 export function dismissToast(id) {
   const index = toasts.findIndex((toast) => toast.id === id)
   if (index === -1) return
@@ -36,6 +53,8 @@ function show(type, title, { detail = '', items = [], duration, action = null } 
     detail,
     items,
     action,
+    remaining: 0,
+    deadline: ms > 0 ? Date.now() + ms : 0,
     timer: ms > 0 ? setTimeout(() => dismissToast(id), ms) : null
   })
   while (toasts.length > MAX_VISIBLE) dismissToast(toasts[0].id)

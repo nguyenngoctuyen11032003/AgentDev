@@ -114,7 +114,7 @@ function choose(character) {
 
 .preview-warn {
   font-size: 12px;
-  color: #d97706;
+  color: var(--warn-soft-1);
 }
 
 .mascot-grid {

@@ -58,16 +58,16 @@ const gradientId = `gem-${Math.random().toString(36).slice(2, 8)}`
 
 <style scoped>
 .provider-logo {
-  --brand: var(--text-muted-4);
+  --logo-c: var(--text-muted-4);
   display: inline-grid;
   flex: none;
   place-items: center;
   width: var(--size);
   height: var(--size);
   border-radius: calc(var(--size) * 0.28);
-  color: var(--brand);
-  background: color-mix(in srgb, var(--brand) 14%, var(--surface-1));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 28%, transparent);
+  color: var(--logo-c);
+  background: color-mix(in srgb, var(--logo-c) 14%, var(--surface-1));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--logo-c) 28%, transparent);
 }
 
 .provider-logo.is-bare {
@@ -81,16 +81,16 @@ const gradientId = `gem-${Math.random().toString(36).slice(2, 8)}`
 }
 
 .is-anthropic {
-  --brand: #d97757;
+  --logo-c: var(--brand);
 }
 
 /* Monochrome mark: white on dark theme, near-black on light. */
 .is-openai {
-  --brand: var(--text-strong);
+  --logo-c: var(--text-strong);
 }
 
 .is-gemini {
-  --brand: #5684d1;
+  --logo-c: #5684d1; /* Gemini mark colour */
 }
 
 .logo-initial {

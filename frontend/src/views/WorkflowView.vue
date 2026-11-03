@@ -89,96 +89,100 @@
           <div
             v-if="contextMenuVisible"
             class="context-menu"
+            role="menu"
+            :aria-label="$t('workflow_view.more_actions')"
             :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
             @click.stop
           >
             <!-- Pane context menu -->
             <template v-if="contextMenuType === 'pane'">
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.createNode" placement="right">
-                <div
-                  class="context-menu-item"
+                <button
+                  type="button" role="menuitem" class="context-menu-item"
                   @click.stop="() => { hideContextMenu(); openCreateNodeModal(); }"
                 >
                   {{ $t('workflow_view.create_node') }}
-                </div>
+                </button>
               </RichTooltip>
-              <div
+              <button
                 v-else
-                class="context-menu-item"
+                type="button" role="menuitem" class="context-menu-item"
                 @click.stop="() => { hideContextMenu(); openCreateNodeModal(); }"
               >
                 {{ $t('workflow_view.create_node') }}
-              </div>
+              </button>
             </template>
 
             <!-- Node context menu -->
             <template v-else-if="contextMenuType === 'node'">
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.copyNode" placement="right">
-                <div
-                  class="context-menu-item"
+                <button
+                  type="button" role="menuitem" class="context-menu-item"
                   @click.stop="() => { hideContextMenu(); onCopyNodeFromContext(); }"
                 >
                   {{ $t('workflow_view.copy_node') }}
-                </div>
+                </button>
               </RichTooltip>
-              <div
+              <button
                 v-else
-                class="context-menu-item"
+                type="button" role="menuitem" class="context-menu-item"
                 @click.stop="() => { hideContextMenu(); onCopyNodeFromContext(); }"
               >
                 {{ $t('workflow_view.copy_node') }}
-              </div>
+              </button>
               <!-- One click: "Backend Developer" -> "Backend Developer 2", added to the same teams -->
-              <div
-                class="context-menu-item"
+              <button
+                type="button" role="menuitem" class="context-menu-item"
                 :title="$t('workflow_view.duplicate_node_hint')"
                 @click.stop="() => { hideContextMenu(); onDuplicateNodeFromContext(); }"
               >
                 {{ $t('workflow_view.duplicate_node') }}
-              </div>
+              </button>
               <!-- Build a roster fast: N numbered copies at once, all joining the original's teams -->
-              <div
+              <button
                 v-if="contextNodeIsAgent"
+                type="button"
+                role="menuitem"
                 class="context-menu-item"
                 :title="$t('workflow_view.duplicate_many_hint')"
                 @click.stop="() => { const id = contextNodeId; hideContextMenu(); openDuplicateManyModal(id); }"
               >
                 {{ $t('workflow_view.duplicate_many') }}
-              </div>
+              </button>
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.deleteNode" placement="right">
-                <div
-                  class="context-menu-item"
+                <button
+                  type="button" role="menuitem" class="context-menu-item context-menu-item-danger"
                   @click.stop="() => { hideContextMenu(); onDeleteNodeFromContext(); }"
                 >
                   {{ $t('workflow_view.delete_node') }}
-                </div>
+                </button>
               </RichTooltip>
-              <div
+              <button
                 v-else
-                class="context-menu-item"
+                type="button" role="menuitem" class="context-menu-item context-menu-item-danger"
                 @click.stop="() => { hideContextMenu(); onDeleteNodeFromContext(); }"
               >
                 {{ $t('workflow_view.delete_node') }}
-              </div>
+              </button>
             </template>
 
             <!-- Edge context menu -->
             <template v-else-if="contextMenuType === 'edge'">
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.deleteEdge" placement="right">
-                <div
-                  class="context-menu-item"
+                <button
+                  type="button" role="menuitem" class="context-menu-item context-menu-item-danger"
                   @click.stop="() => { hideContextMenu(); onDeleteEdgeFromContext(); }"
                 >
                   {{ $t('workflow_view.delete_edge') }}
-                </div>
+                </button>
               </RichTooltip>
-              <div
+              <button
                 v-else
-                class="context-menu-item"
+                type="button" role="menuitem" class="context-menu-item context-menu-item-danger"
                 @click.stop="() => { hideContextMenu(); onDeleteEdgeFromContext(); }"
               >
                 {{ $t('workflow_view.delete_edge') }}
-              </div>
+              </button>
             </template>
           </div>
         </transition>
@@ -216,12 +220,12 @@
         <button v-else @click="openCreateEdgeModal" class="glass-button">
           <span>{{ $t('workflow_view.create_edge') }}</span>
         </button>
-        <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.configureGraph" placement="bottom">
+        <RichTooltip v-if="!compactBar && shouldShowTooltip" :content="helpContent.contextMenu.configureGraph" placement="bottom">
           <button @click="openConfigureGraphModal" class="glass-button">
             <span>{{ $t('workflow_view.configure_graph') }}</span>
           </button>
         </RichTooltip>
-        <button v-else @click="openConfigureGraphModal" class="glass-button">
+        <button v-else-if="!compactBar" @click="openConfigureGraphModal" class="glass-button">
           <span>{{ $t('workflow_view.configure_graph') }}</span>
         </button>
         <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.launch" placement="bottom">
@@ -233,6 +237,7 @@
           <span>{{ $t('workflow_view.launch') }}</span>
         </button>
         <button
+          v-if="!compactBar"
           type="button"
           class="glass-button"
           :title="$t('workflow_view.try_in_lab_hint')"
@@ -252,6 +257,7 @@
             class="menu-trigger"
             :class="{ 'menu-trigger-active': showMenu }"
             :aria-expanded="showMenu"
+            aria-haspopup="menu"
             :aria-label="$t('workflow_view.more_actions')"
             :title="$t('workflow_view.more_actions')"
             @click.stop="showMenu = menuHovered || !showMenu"
@@ -261,24 +267,28 @@
             </svg>
           </button>
           <transition name="fade">
-            <div v-if="showMenu" class="menu-dropdown">
+            <div v-if="showMenu" class="menu-dropdown" role="menu">
+              <template v-if="compactBar">
+                <button type="button" role="menuitem" class="menu-item" @click="showMenu = false; openConfigureGraphModal()">{{ $t('workflow_view.configure_graph') }}</button>
+                <button type="button" role="menuitem" class="menu-item" :title="$t('workflow_view.try_in_lab_hint')" :disabled="labNavigating" @click="showMenu = false; goToLab()">{{ $t('workflow_view.try_in_lab') }}</button>
+              </template>
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.renameWorkflow" placement="left">
-                <div @click="openRenameWorkflowModal" class="menu-item">{{ $t('workflow_view.rename_workflow') }}</div>
+                <button type="button" role="menuitem" @click="openRenameWorkflowModal" class="menu-item">{{ $t('workflow_view.rename_workflow') }}</button>
               </RichTooltip>
               <div v-else @click="openRenameWorkflowModal" class="menu-item">{{ $t('workflow_view.rename_workflow') }}</div>
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.copyWorkflow" placement="left">
-                <div @click="openCopyWorkflowModal" class="menu-item">{{ $t('workflow_view.copy_workflow') }}</div>
+                <button type="button" role="menuitem" @click="openCopyWorkflowModal" class="menu-item">{{ $t('workflow_view.copy_workflow') }}</button>
               </RichTooltip>
               <div v-else @click="openCopyWorkflowModal" class="menu-item">{{ $t('workflow_view.copy_workflow') }}</div>
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.manageVariables" placement="left">
-                <div @click="openManageVarsModal" class="menu-item">{{ $t('workflow_view.manage_variables') }}</div>
+                <button type="button" role="menuitem" @click="openManageVarsModal" class="menu-item">{{ $t('workflow_view.manage_variables') }}</button>
               </RichTooltip>
               <div v-else @click="openManageVarsModal" class="menu-item">{{ $t('workflow_view.manage_variables') }}</div>
               <RichTooltip v-if="shouldShowTooltip" :content="helpContent.contextMenu.manageMemories" placement="left">
-                <div @click="openManageMemoriesModal" class="menu-item">{{ $t('workflow_view.manage_memories') }}</div>
+                <button type="button" role="menuitem" @click="openManageMemoriesModal" class="menu-item">{{ $t('workflow_view.manage_memories') }}</button>
               </RichTooltip>
               <div v-else @click="openManageMemoriesModal" class="menu-item">{{ $t('workflow_view.manage_memories') }}</div>
-              <div @click="handleDeleteWorkflow" class="menu-item menu-item-danger">{{ $t('workflow_view.delete_workflow') }}</div>
+              <button type="button" role="menuitem" @click="handleDeleteWorkflow" class="menu-item menu-item-danger">{{ $t('workflow_view.delete_workflow') }}</button>
             </div>
           </transition>
         </div>
@@ -306,109 +316,87 @@
   />
 
   <!-- Rename Workflow Modal -->
-  <div v-if="showRenameModal" class="modal-overlay" @click.self="closeRenameModal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title">{{ $t('workflow_view.rename_workflow') }}</h3>
-        <button @click="closeRenameModal" class="close-button">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label for="rename-workflow-name" class="form-label">{{ $t('workflow_view.workflow_name') }}</label>
-          <input
-            id="rename-workflow-name"
-            v-model="renameWorkflowName"
-            type="text"
-            class="form-input"
-            :placeholder="$t('workflow_view.enter_new_name')"
-            @keyup.enter="handleRenameSubmit"
-          />
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button @click="closeRenameModal" class="cancel-button">{{ $t('common.cancel') }}</button>
-        <button @click="handleRenameSubmit" class="submit-button" :disabled="!renameWorkflowName.trim()">{{ $t('common.submit') }}</button>
-      </div>
+  <BaseDialog :model-value="showRenameModal" :title="$t('workflow_view.rename_workflow')" width="500px" @close="closeRenameModal">
+    <div class="form-group">
+      <label for="rename-workflow-name" class="form-label">{{ $t('workflow_view.workflow_name') }}</label>
+      <input
+        id="rename-workflow-name"
+        v-model="renameWorkflowName"
+        type="text"
+        class="form-input"
+        :placeholder="$t('workflow_view.enter_new_name')"
+        @keyup.enter="handleRenameSubmit"
+      />
     </div>
-  </div>
+    <template #footer>
+      <button type="button" @click="closeRenameModal" class="cancel-button">{{ $t('common.cancel') }}</button>
+      <button type="button" @click="handleRenameSubmit" class="submit-button" :disabled="!renameWorkflowName.trim()">{{ $t('common.submit') }}</button>
+    </template>
+  </BaseDialog>
 
   <!-- Copy Workflow Modal -->
-  <div v-if="showCopyModal" class="modal-overlay" @click.self="closeCopyModal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title">{{ $t('workflow_view.copy_workflow') }}</h3>
-        <button @click="closeCopyModal" class="close-button">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label for="copy-workflow-name" class="form-label">{{ $t('workflow_view.workflow_name') }}</label>
-          <input
-            id="copy-workflow-name"
-            v-model="copyWorkflowName"
-            type="text"
-            class="form-input"
-            :placeholder="$t('workflow_view.enter_new_name')"
-            @keyup.enter="handleCopySubmit"
-          />
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button @click="closeCopyModal" class="cancel-button">{{ $t('common.cancel') }}</button>
-        <button @click="handleCopySubmit" class="submit-button" :disabled="!copyWorkflowName.trim()">{{ $t('common.submit') }}</button>
-      </div>
+  <BaseDialog :model-value="showCopyModal" :title="$t('workflow_view.copy_workflow')" width="500px" @close="closeCopyModal">
+    <div class="form-group">
+      <label for="copy-workflow-name" class="form-label">{{ $t('workflow_view.workflow_name') }}</label>
+      <input
+        id="copy-workflow-name"
+        v-model="copyWorkflowName"
+        type="text"
+        class="form-input"
+        :placeholder="$t('workflow_view.enter_new_name')"
+        @keyup.enter="handleCopySubmit"
+      />
     </div>
-  </div>
+    <template #footer>
+      <button type="button" @click="closeCopyModal" class="cancel-button">{{ $t('common.cancel') }}</button>
+      <button type="button" @click="handleCopySubmit" class="submit-button" :disabled="!copyWorkflowName.trim()">{{ $t('common.submit') }}</button>
+    </template>
+  </BaseDialog>
 
   <!-- Duplicate node xN Modal -->
-  <div v-if="showDuplicateManyModal" class="modal-overlay" @click.self="closeDuplicateManyModal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title">{{ $t('workflow_view.duplicate_many_title', { name: duplicateManyNodeId }) }}</h3>
-        <button @click="closeDuplicateManyModal" class="close-button" :aria-label="$t('common.cancel')">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label for="duplicate-many-count" class="form-label">{{ $t('workflow_view.duplicate_many_count') }}</label>
-          <input
-            id="duplicate-many-count"
-            v-model.number="duplicateManyCount"
-            type="number"
-            min="1"
-            :max="DUPLICATE_MANY_MAX"
-            step="1"
-            class="form-input"
-            @keyup.enter="handleDuplicateManySubmit"
-          />
-          <p class="duplicate-many-help">{{ duplicateManyPreview }}</p>
-          <p v-if="duplicateManyLeads.length" class="duplicate-many-help">
-            {{ $t('workflow_view.duplicate_many_team_note', { leads: duplicateManyLeads.join(', ') }) }}
-          </p>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button @click="closeDuplicateManyModal" class="cancel-button">{{ $t('common.cancel') }}</button>
-        <button
-          @click="handleDuplicateManySubmit"
-          class="submit-button"
-          :disabled="!duplicateManyValid || duplicateManyBusy"
-        >
-          {{ $t('workflow_view.duplicate_many_submit', { count: duplicateManyValid ? duplicateManyCount : 0 }) }}
-        </button>
-      </div>
+  <BaseDialog
+    :model-value="showDuplicateManyModal"
+    :title="$t('workflow_view.duplicate_many_title', { name: duplicateManyNodeId })"
+    width="500px"
+    @close="closeDuplicateManyModal"
+  >
+    <div class="form-group">
+      <label for="duplicate-many-count" class="form-label">{{ $t('workflow_view.duplicate_many_count') }}</label>
+      <input
+        id="duplicate-many-count"
+        v-model.number="duplicateManyCount"
+        type="number"
+        min="1"
+        :max="DUPLICATE_MANY_MAX"
+        step="1"
+        class="form-input"
+        :class="{ 'form-input-invalid': !duplicateManyValid }"
+        :aria-invalid="!duplicateManyValid"
+        aria-describedby="duplicate-many-help"
+        @keyup.enter="handleDuplicateManySubmit"
+      />
+      <p
+        id="duplicate-many-help"
+        class="duplicate-many-help"
+        :class="{ 'duplicate-many-error': !duplicateManyValid }"
+        :role="duplicateManyValid ? undefined : 'alert'"
+      >{{ duplicateManyPreview }}</p>
+      <p v-if="duplicateManyLeads.length" class="duplicate-many-help">
+        {{ $t('workflow_view.duplicate_many_team_note', { leads: duplicateManyLeads.join(', ') }) }}
+      </p>
     </div>
-  </div>
+    <template #footer>
+      <button type="button" @click="closeDuplicateManyModal" class="cancel-button">{{ $t('common.cancel') }}</button>
+      <button
+        type="button"
+        @click="handleDuplicateManySubmit"
+        class="submit-button"
+        :disabled="!duplicateManyValid || duplicateManyBusy"
+      >
+        {{ $t('workflow_view.duplicate_many_submit', { count: duplicateManyValid ? duplicateManyCount : 0 }) }}
+      </button>
+    </template>
+  </BaseDialog>
 </template>
 
 <script setup>
@@ -426,6 +414,7 @@ import WorkflowEdge from '@/components/workflow/WorkflowEdge.vue'
 import StartNode from '@/components/workflow/StartNode.vue'
 import FormGenerator from '@/components/form/FormGenerator.vue'
 import RichTooltip from '@/components/common/RichTooltip.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import yaml from 'js-yaml'
 import { buildOrgChart, computeTeamLinks, layoutOrgTree } from '@/utils/teamLinks.js'
 import { duplicateNodeInGraph } from '@/utils/nodeDuplicate.js'
@@ -527,6 +516,10 @@ const yamlLoadError = ref(null)
 
 const showDynamicFormGenerator = ref(false)
 const showMenu = ref(false)
+// Below 1100px the secondary actions (Configure graph, Try in Lab) move into the more-actions menu
+const compactBarQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 1100px)') : null
+const compactBar = ref(!!compactBarQuery?.matches)
+const onCompactBarChange = (e) => { compactBar.value = e.matches }
 // Hover already opens the menu, so a mouse click on the trigger must not toggle it closed again.
 const menuHovered = ref(false)
 const formGeneratorBreadcrumbs = ref([])
@@ -617,6 +610,20 @@ const contextMenuType = ref('pane') // 'pane' | 'node' | 'edge'
 const contextNodeId = ref(null)
 const contextEdgeInfo = ref(null) // { from, to }
 
+// One shared placement: keep the menu fully inside the canvas (estimated size, items are ~36px tall)
+const CONTEXT_MENU_WIDTH = 224
+const CONTEXT_MENU_ITEM_HEIGHT = 36
+const placeContextMenu = (event, type) => {
+  const rect = vueflowContainerRef.value.getBoundingClientRect()
+  const items = type === 'node' ? (contextNodeIsAgent.value ? 5 : 4) : 1
+  const menuH = items * CONTEXT_MENU_ITEM_HEIGHT + 12
+  const margin = 8
+  const maxX = Math.max(margin, rect.width - CONTEXT_MENU_WIDTH - margin)
+  const maxY = Math.max(margin, rect.height - menuH - margin)
+  contextMenuX.value = Math.min(Math.max(event.clientX - rect.left, margin), maxX)
+  contextMenuY.value = Math.min(Math.max(event.clientY - rect.top, margin), maxY)
+}
+
 const hideContextMenu = () => {
   contextMenuVisible.value = false
 }
@@ -650,9 +657,7 @@ const onContainerContextMenu = (event) => {
   }
 
   // Store menu position relative to container (for UI)
-  const rect = vueflowContainerRef.value.getBoundingClientRect()
-  contextMenuX.value = event.clientX - rect.left
-  contextMenuY.value = event.clientY - rect.top
+  placeContextMenu(event, 'pane')
   contextMenuType.value = 'pane'
   contextNodeId.value = null
   contextEdgeInfo.value = null
@@ -684,12 +689,9 @@ const onNodeContextMenu = (params) => {
     return
   }
 
-  const rect = vueflowContainerRef.value.getBoundingClientRect()
-  contextMenuX.value = mouseEvent.clientX - rect.left
-  contextMenuY.value = mouseEvent.clientY - rect.top
-
-  contextMenuType.value = 'node'
   contextNodeId.value = node.id
+  placeContextMenu(mouseEvent, 'node')
+  contextMenuType.value = 'node'
   contextEdgeInfo.value = null
   pendingNodePosition.value = null
   contextMenuVisible.value = true
@@ -712,10 +714,7 @@ const onEdgeContextMenu = (params) => {
     return
   }
 
-  const rect = vueflowContainerRef.value.getBoundingClientRect()
-  contextMenuX.value = mouseEvent.clientX - rect.left
-  contextMenuY.value = mouseEvent.clientY - rect.top
-
+  placeContextMenu(mouseEvent, 'edge')
   contextMenuType.value = 'edge'
   contextNodeId.value = null
   contextEdgeInfo.value = { from: fromId, to: toId }
@@ -809,7 +808,7 @@ const onDuplicateNodeFromContext = async () => {
   // Stand the copy just below the original instead of wherever the auto layout puts new nodes.
   const copy = vueFlowNodeById(result.newId)
   if (copy && original?.position) {
-    copy.position = { x: original.position.x, y: original.position.y + 170 }
+    copy.position = { x: original.position.x, y: original.position.y + 190 }
   }
   await saveVueFlowGraph()
   toast.success(result.leads.length
@@ -1083,8 +1082,16 @@ watch(
   { immediate: false }
 )
 
+const onGlobalKeydown = (event) => {
+  if (event.key !== 'Escape') return
+  if (contextMenuVisible.value) contextMenuVisible.value = false
+  if (showMenu.value) showMenu.value = false
+}
+
 onMounted(async () => {
   window.addEventListener('click', onGlobalClick)
+  window.addEventListener('keydown', onGlobalKeydown)
+  compactBarQuery?.addEventListener('change', onCompactBarChange)
   await initializeWorkflow(props.workflowName)
 })
 
@@ -1092,6 +1099,8 @@ onBeforeUnmount(() => {
   clearTimeout(fitFallback)
   pendingFit = false
   window.removeEventListener('click', onGlobalClick)
+  window.removeEventListener('keydown', onGlobalKeydown)
+  compactBarQuery?.removeEventListener('change', onCompactBarChange)
   dimStartNodeTimers.forEach(clearTimeout)
   dimStartNodeTimers = []
 })
@@ -1365,7 +1374,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
         const positions = new Map()
         const levelKeys = Array.from(buckets.keys()).sort((a, b) => a - b)
         const spacingX = 280
-        const spacingY = 120
+        const spacingY = 190
         const startX = 50
         const startY = 50
 
@@ -2337,17 +2346,18 @@ const handleCopySubmit = async () => {
 .workflow-view {
   width: 100%;
   height: calc(100vh - 55px);
+  height: calc(100dvh - 55px);
   display: flex;
   flex-direction: column;
   background-color: var(--bg-base);
   color: var(--text-1);
-  font-family: 'Inter', sans-serif;
   position: relative;
+  isolation: isolate;
   overflow: hidden;
 }
 
 .workflow-bg {
-  position: fixed;
+  position: absolute;
   top: -150px;
   left: 0;
   right: 0;
@@ -2361,6 +2371,10 @@ const handleCopySubmit = async () => {
   opacity: 0.15;
   z-index: 0;
   pointer-events: none;
+}
+
+:root[data-theme="light"] .workflow-bg {
+  opacity: 0.08;
 }
 
 .content {
@@ -2390,12 +2404,12 @@ const handleCopySubmit = async () => {
   background: transparent;
   color: rgb(var(--ink) / 0.6);
   cursor: pointer;
-  transition: color 0.2s ease;
+  transition: color 0.2s var(--ease-out);
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  outline: none;
+  border-radius: 8px;
 }
 
 .back-button:hover {
@@ -2404,25 +2418,25 @@ const handleCopySubmit = async () => {
   border-color: transparent;
 }
 
-.back-button:focus,
-.back-button:focus-visible {
-  outline: none;
-  border-color: transparent;
-}
-
 .workflow-name {
   color: var(--text-1);
   font-size: 18px;
   font-weight: 600;
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 4px 16px;
   padding: 0 20px;
-  height: 50px;
+  min-height: 50px;
   background-color: rgb(var(--ink) / 0.02);
   border-top: 1px solid rgb(var(--ink) / 0.1);
   flex-shrink: 0;
@@ -2434,20 +2448,20 @@ const handleCopySubmit = async () => {
 .tab-buttons {
   display: flex;
   gap: 4px;
-  height: 100%;
+  align-self: stretch;
+  min-height: 50px;
 }
 
 .tab {
   padding: 0 20px;
-  height: 100%;
   border: none;
   background: transparent;
   cursor: pointer;
   font-size: 14px;
-  font-family: 'Inter', sans-serif;
+  font-family: inherit;
   color: var(--text-muted-4);
   font-weight: 500;
-  transition: color 0.2s ease;
+  transition: color 0.2s var(--ease-out);
   position: relative;
 }
 
@@ -2455,39 +2469,51 @@ const handleCopySubmit = async () => {
   color: var(--text-1);
 }
 
+/* Active tab: solid text + a 2px indicator (no gradient text) */
 .tab.active {
-  background: linear-gradient(
-    135deg,
-    var(--accent-mint),
-    var(--accent-sky),
-    var(--accent-indigo)
-  );
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 500;
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.tab.active::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
 }
 
 .editor-actions {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   align-items: center;
-  height: 100%;
+  justify-content: flex-end;
+  min-width: 0;
+  min-height: 50px;
+  padding: 6px 0;
+  box-sizing: border-box;
 }
 
 /* Glass Button - Matching WorkflowList entries */
-  .glass-button {
+.glass-button {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
+  min-height: 36px;
   background-color: rgb(var(--ink) / 0.03);
   border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 12px;
   cursor: pointer;
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.3s var(--ease-out), border-color 0.3s var(--ease-out), color 0.3s var(--ease-out);
   color: var(--text-1);
   font-size: 14px;
+  font-family: inherit;
+  white-space: nowrap;
   position: relative;
   z-index: 1;
 }
@@ -2497,13 +2523,16 @@ const handleCopySubmit = async () => {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
+  min-height: 36px;
   border: none;
   border-radius: 12px;
   cursor: pointer;
-  transition: transform 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+  transition: transform 0.3s var(--ease-out), box-shadow 0.3s var(--ease-out), filter 0.3s var(--ease-out);
   color: var(--bg-base);
   font-size: 14px;
   font-weight: 600;
+  font-family: inherit;
+  white-space: nowrap;
   /* Opaque gradient: no backdrop-filter needed (it only cost a blur per frame) */
   background: linear-gradient(
     135deg,
@@ -2534,7 +2563,12 @@ const handleCopySubmit = async () => {
 .launch-button-primary:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 15px rgb(var(--shade) / 0.2);
-  opacity: 0.9;
+  filter: brightness(1.08);
+}
+
+.launch-button-primary:active {
+  transform: translateY(0);
+  filter: brightness(0.96);
 }
 
 @keyframes gradientFade {
@@ -2542,9 +2576,20 @@ const handleCopySubmit = async () => {
   50% { opacity: 1; }
 }
 
-.glass-button:hover {
-  background-color: rgb(var(--ink) / 0.05);
-  border-color: rgb(var(--ink) / 0.05);
+.glass-button:hover:not(:disabled) {
+  background-color: rgb(var(--ink) / 0.07);
+  border-color: rgb(var(--ink) / 0.18);
+}
+
+.glass-button:active:not(:disabled) {
+  background-color: rgb(var(--ink) / 0.1);
+}
+
+.glass-button:disabled,
+.launch-button-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 @keyframes gradientShift {
@@ -2565,24 +2610,25 @@ const handleCopySubmit = async () => {
     var(--accent-sky),
     var(--accent-indigo)
   );
-  -webkit-mask: 
-     linear-gradient(var(--text-1) 0 0) content-box, 
+  -webkit-mask:
+     linear-gradient(var(--text-1) 0 0) content-box,
      linear-gradient(var(--text-1) 0 0);
-  mask: 
-     linear-gradient(var(--text-1) 0 0) content-box, 
+  mask:
+     linear-gradient(var(--text-1) 0 0) content-box,
      linear-gradient(var(--text-1) 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.3s var(--ease-out);
   background-size: 200% 100%;
   animation: gradientShift 6s ease-in-out infinite;
   /* The blurred ring is invisible until hover; do not tick its animation until then */
   animation-play-state: paused;
   filter: blur(4px);
+  pointer-events: none;
 }
 
-.glass-button:hover::before {
+.glass-button:hover:not(:disabled)::before {
   opacity: 1;
   animation-play-state: running;
 }
@@ -2614,7 +2660,9 @@ const handleCopySubmit = async () => {
 .menu-container {
   position: relative;
   z-index: 3;
-  height: 100%;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
 }
 
 .menu-trigger {
@@ -2623,14 +2671,29 @@ const handleCopySubmit = async () => {
   background: transparent;
   font: inherit;
   width: 40px;
-  height: 100%;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 12px;
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
   color: rgb(var(--ink) / 0.7);
+}
+
+.menu-trigger:hover,
+.menu-trigger-active {
+  background-color: rgb(var(--ink) / 0.08);
+  color: var(--text-1);
+}
+
+.menu-trigger:active {
+  background-color: rgb(var(--ink) / 0.12);
+}
+
+.menu-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .menu-dropdown {
@@ -2643,38 +2706,68 @@ const handleCopySubmit = async () => {
   padding: 8px;
   min-width: 180px;
   box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
-  z-index: 3;
+  z-index: var(--z-dropdown);
 }
 
 .menu-item {
+  display: block;
+  width: 100%;
+  min-height: 36px;
   padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
   color: rgb(var(--ink) / 0.8);
   font-size: 14px;
   cursor: pointer;
   border-radius: 8px;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 
-.menu-item:hover {
+.menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
   background-color: rgb(var(--ink) / 0.1);
   color: var(--text-1);
 }
 
-.menu-item-danger,
-.menu-item-danger:hover {
+.menu-item-danger {
   color: var(--danger);
+}
+
+.menu-item-danger:hover,
+.menu-item-danger:focus-visible {
+  color: var(--danger);
+  background-color: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 /* Transitions */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
 }
 
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-  transform: translateY(-10px);
+  transform: translateY(6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-enter-active,
+  .fade-leave-active {
+    transition: opacity 0.1s linear;
+  }
+
+  .fade-enter-from,
+  .fade-leave-to {
+    transform: none;
+  }
 }
 
 .content {
@@ -2692,8 +2785,8 @@ const handleCopySubmit = async () => {
 
 .yaml-error {
   padding: 12px 20px;
-  background-color: rgba(255, 68, 68, 0.1);
-  border-bottom: 1px solid rgba(255, 68, 68, 0.3);
+  background-color: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   color: var(--danger-3);
   font-size: 14px;
   margin: 0;
@@ -2703,7 +2796,7 @@ const handleCopySubmit = async () => {
   flex: 1;
   padding: 20px;
   border: none;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-family: 'Cascadia Code', Consolas, 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 14px;
   line-height: 1.5;
   resize: none;
@@ -2712,12 +2805,9 @@ const handleCopySubmit = async () => {
   color: var(--text-soft-4);
 }
 
-.yaml-textarea::-webkit-scrollbar {
-  display: none;
-}
-
+/* Error state via inset shadow so the text does not shift (a border would resize the box) */
 .yaml-error-border {
-  border: 2px solid var(--danger-4) !important;
+  box-shadow: inset 0 0 0 2px var(--danger-4);
 }
 
 .vueflow-container {
@@ -2738,103 +2828,46 @@ const handleCopySubmit = async () => {
 .context-menu {
   position: absolute;
   min-width: 160px;
+  max-width: 224px;
   background: rgb(var(--panel-40) / 0.98);
   border-radius: 10px;
   padding: 6px;
   box-shadow: 0 10px 30px rgb(var(--shade) / 0.6);
   border: 1px solid rgb(var(--ink) / 0.1);
-  z-index: 5;
+  z-index: var(--z-dropdown);
 }
 
 .context-menu-item {
+  display: block;
+  width: 100%;
+  min-height: 36px;
   padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
   color: rgb(var(--ink) / 0.85);
-  font-size: 13px;
+  font-size: 14px;
   border-radius: 8px;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
 }
 
-.context-menu-item:hover {
+.context-menu-item:hover,
+.context-menu-item:focus-visible {
   background-color: rgb(var(--ink) / 0.1);
   color: var(--text-1);
 }
 
-/* Modal Styles - Matching FormGenerator modal-content */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgb(var(--shade) / 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+.context-menu-item-danger,
+.context-menu-item-danger:hover,
+.context-menu-item-danger:focus-visible {
+  color: var(--danger);
 }
 
-.modal-content {
-  display: flex;
-  flex-direction: column;
-  width: 90%;
-  max-width: 500px;
-  max-height: 90vh;
-  background-color: rgb(var(--panel-33) / 0.98);
-  border-radius: 16px;
-  border: 1px solid rgb(var(--ink) / 0.08);
-  box-shadow: 0 20px 40px rgb(var(--shade) / 0.6);
-  overflow: hidden;
-}
-
-.modal-header {
-  flex-shrink: 0;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  padding: 0 20px;
-  background-color: transparent;
-  border-bottom: 1px solid rgb(var(--ink) / 0.04);
-}
-
-.modal-title {
-  color: var(--text-1);
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0;
-  flex: 1;
-}
-
-.close-button {
-  margin-left: auto;
-  background: transparent;
-  border: none;
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: rgb(var(--ink) / 0.6);
-  transition: color 0.2s ease;
-}
-
-.close-button:hover {
-  color: var(--text-1);
-}
-
-.modal-body {
-  flex: 1;
-  padding: 20px;
-  max-height: none;
-  overflow-y: auto;
-  border-top: 1px solid rgb(var(--ink) / 0.04);
-  border-bottom: 1px solid rgb(var(--ink) / 0.04);
-  scrollbar-width: none;
-}
-
-.modal-body::-webkit-scrollbar {
-  display: none;
+.context-menu-item-danger:hover,
+.context-menu-item-danger:focus-visible {
+  background-color: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 .form-group {
@@ -2844,7 +2877,7 @@ const handleCopySubmit = async () => {
 .form-label {
   display: block;
   color: var(--text-1);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   margin-bottom: 8px;
 }
@@ -2852,51 +2885,54 @@ const handleCopySubmit = async () => {
 .duplicate-many-help {
   margin: 8px 0 0;
   color: var(--text-2, rgb(var(--ink) / 0.65));
-  font-size: 12px;
+  font-size: var(--fs-xs);
   line-height: 1.45;
 }
 
+.duplicate-many-error {
+  color: var(--danger);
+}
+
 .form-input {
-  width: 90%;
+  width: 100%;
+  box-sizing: border-box;
   padding: 12px 16px;
   background-color: rgb(var(--ink) / 0.05);
   border: 1px solid rgb(var(--ink) / 0.1);
   border-radius: 8px;
   color: var(--text-1);
   font-size: 14px;
-  font-family: 'Inter', sans-serif;
+  font-family: inherit;
   outline: none;
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
 .form-input:focus {
-  border-color: rgb(var(--accent-mint-rgb) / 0.5);
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 1px var(--focus-ring);
   background-color: rgb(var(--ink) / 0.08);
+}
+
+.form-input-invalid,
+.form-input-invalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
 }
 
 .form-input::placeholder {
   color: rgb(var(--ink) / 0.4);
 }
 
-.modal-footer {
-  flex-shrink: 0;
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 16px 20px;
-  background-color: transparent;
-  border-top: 1px solid rgb(var(--ink) / 0.04);
-}
-
 .cancel-button,
 .submit-button {
   padding: 8px 16px;
+  min-height: 36px;
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
-  font-family: 'Inter', sans-serif;
+  transition: background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), color 0.2s var(--ease-out), transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
+  font-family: inherit;
 }
 
 .cancel-button {
@@ -2921,6 +2957,7 @@ const handleCopySubmit = async () => {
 .submit-button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgb(var(--shade) / 0.2);
+  filter: brightness(1.08);
 }
 
 .submit-button:disabled {
@@ -2929,22 +2966,34 @@ const handleCopySubmit = async () => {
   transform: none;
 }
 
+/* Below 1100px secondary actions live in the more-actions menu (see compactBar); only very narrow widths wrap */
+@media (max-width: 1100px) {
+  .tabs {
+    padding: 0 12px;
+  }
+
+  .glass-button,
+  .launch-button-primary {
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .editor-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+}
+
 /* ---------- Light theme: legible text and visible edges on white ---------- */
 /* Inactive tabs: #64748b sat at ~4.4:1 on the tinted bar */
 :root[data-theme="light"] .tab {
   color: var(--text-soft-1);
 }
 
-:root[data-theme="light"] .tab:hover {
-  color: var(--text-1);
-}
-
-/* Active tab gradient text: the mint stop (#0f9d7a) is only ~3.4:1 on white */
+:root[data-theme="light"] .tab:hover,
 :root[data-theme="light"] .tab.active {
-  background: linear-gradient(135deg, #047857, #0369a1, #4338ca);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--text-1);
 }
 
 /* Primary buttons: near-white text on the mint stop was ~3.3:1; use darker stops */
@@ -2973,7 +3022,12 @@ const handleCopySubmit = async () => {
 }
 
 :root[data-theme="light"] .form-input:focus {
-  border-color: rgb(var(--accent-mint-rgb) / 0.7);
+  border-color: var(--focus-ring);
+}
+
+:root[data-theme="light"] .form-input-invalid,
+:root[data-theme="light"] .form-input-invalid:focus {
+  border-color: var(--danger);
 }
 
 :root[data-theme="light"] .form-input::placeholder {

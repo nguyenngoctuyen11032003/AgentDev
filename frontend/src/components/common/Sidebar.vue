@@ -1,5 +1,5 @@
 <template>
-    <div class="sidebar" :class="{ 'is-hidden': isHidden }" @mouseenter="isHidden = false">
+    <div class="sidebar" :class="{ 'is-hidden': isHidden }" :inert="isHidden" @mouseenter="isHidden = false" @focusin="isHidden = false">
         <router-link to="/" class="sidebar-brand" aria-label="AgentDev">
             <img src="/media/logo.svg?v=2" alt="" class="sidebar-brand-logo" width="28" height="28" />
             <span class="sidebar-brand-name">AgentDev</span>
@@ -23,7 +23,7 @@
             </router-link>
         </div>
     </div>
-    <div class="sidebar-hit-area" v-if="isHidden" @mouseenter="isHidden = false"></div>
+    <div class="sidebar-hit-area" v-if="isHidden" @mouseenter="isHidden = false" @click="isHidden = false"></div>
 </template>
 
 <script setup>
@@ -32,6 +32,10 @@ import { RouterLink, useRoute } from 'vue-router'
 import { ref, onUnmounted, watch, nextTick } from 'vue'
 
 const isHidden = ref(false)
+
+// An inert (hidden) bar cannot take focus, so Tab itself brings it back for keyboard users.
+const revealOnTab = (e) => { if (e.key === 'Tab' && isHidden.value) isHidden.value = false }
+document.addEventListener('keydown', revealOnTab)
 
 watch(isHidden, (val) => {
     if (val) {
@@ -106,6 +110,7 @@ watch(() => route.path, () => {
 }, { immediate: true }) // immediate: true runs this once on mount
 
 onUnmounted(() => {
+    document.removeEventListener('keydown', revealOnTab)
     toggleScrollListener(false);
     document.body.classList.remove('nav-hidden');
 })
@@ -122,17 +127,19 @@ onUnmounted(() => {
     height: 55px;
     position: sticky;
     top: 0;
-    z-index: 100;
+    z-index: var(--z-sticky);
     border-bottom: 1px solid var(--line-5);
     justify-content: center;
-    transition: margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    margin-top: 0;
+    transition: transform 0.3s var(--ease-out);
     transform: translateY(0);
 }
 
 .sidebar.is-hidden {
-    margin-top: -55px;
     transform: translateY(-100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sidebar { transition: none; }
 }
 
 .sidebar-hit-area {
@@ -140,8 +147,8 @@ onUnmounted(() => {
     top: 0;
     left: 0;
     width: 100%;
-    height: 25px;
-    z-index: 99;
+    height: 40px;
+    z-index: calc(var(--z-sticky) - 1);
 }
 
 .sidebar-actions {
@@ -178,14 +185,10 @@ onUnmounted(() => {
 }
 
 .sidebar-brand-name {
-    font-family: 'Inter', sans-serif;
     font-size: 16px;
     font-weight: 700;
     letter-spacing: -0.02em;
-    background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky), var(--accent-indigo));
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text-strong);
 }
 
 @media (max-width: 720px) {
@@ -205,15 +208,23 @@ onUnmounted(() => {
 
 .sidebar-nav a {
     text-decoration: none;
-    color: var(--text-muted-4);
+    color: var(--fg-muted);
     font-weight: 500;
     font-size: 14px;
-    font-family: 'Inter', sans-serif;
-    transition: color 0.2s ease;
+    padding: 6px 0;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease;
 }
 
 .sidebar-nav a:hover {
-    color: var(--text-1);
+    color: var(--fg);
+}
+
+.sidebar-brand:focus-visible,
+.sidebar-nav a:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 4px;
+    border-radius: 4px;
 }
 
 /* Small screens: one scrollable row between the logo and the settings button, never wrapping */
@@ -238,26 +249,10 @@ onUnmounted(() => {
     }
 }
 
+/* Active page: solid text plus a 2px accent underline (aria-current is set by the router) */
 .sidebar-nav a.router-link-active {
-    background: linear-gradient(
-    90deg,
-    var(--accent-mint),
-    var(--accent-sky),
-    var(--accent-indigo)
-    );
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-/* Light theme: the token gradient starts at #0f9d7a (~3.2:1 on the light bg),
-   too faint for 14-16px text. Use a deeper gradient that clears 4.5:1 end to end. */
-:root[data-theme="light"] .sidebar-brand-name,
-:root[data-theme="light"] .sidebar-nav a.router-link-active {
-    background: linear-gradient(90deg, #047857, #0369a1, #4338ca);
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text-strong);
+    border-bottom-color: var(--accent);
 }
 
 :root[data-theme="light"] .sidebar {
@@ -271,8 +266,7 @@ onUnmounted(() => {
   height: 34px;
   padding: 0 12px;
   border-radius: 9px;
-  color: var(--text-muted-4);
-  font-family: 'Inter', sans-serif;
+  color: var(--fg-muted);
   font-size: 14px;
   font-weight: 500;
   text-decoration: none;
@@ -280,7 +274,7 @@ onUnmounted(() => {
 }
 
 .settings-nav-btn:hover {
-  color: var(--text-1);
+  color: var(--fg);
   background: rgb(var(--ink) / 0.06);
 }
 
@@ -290,11 +284,11 @@ onUnmounted(() => {
 }
 
 .settings-nav-btn.router-link-active svg {
-  color: var(--accent-sky);
+  color: var(--accent);
 }
 
 .settings-nav-btn:focus-visible {
-  outline: 2px solid var(--accent-sky);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 

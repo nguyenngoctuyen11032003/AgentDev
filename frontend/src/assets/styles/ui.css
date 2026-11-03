@@ -1,0 +1,191 @@
+/* =========================================================
+   Shared UI primitives (see components/ui/*). Built on the
+   semantic tokens in main.css. Class names are global.
+   ========================================================= */
+
+/* ---- Button ---- */
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.18s var(--ease-out), border-color 0.18s var(--ease-out),
+    color 0.18s var(--ease-out), transform 0.12s var(--ease-out);
+}
+.btn:hover { background: var(--border); color: var(--fg); }
+.btn:active { transform: translateY(1px); }
+.btn svg { flex: none; width: 16px; height: 16px; }
+
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { background: var(--accent); color: var(--on-accent); filter: brightness(1.08); }
+.btn.secondary { background: transparent; border-color: var(--border-strong); color: var(--fg); }
+.btn.secondary:hover { background: var(--surface-raised); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--fg-muted); }
+.btn.ghost:hover { background: var(--surface-raised); color: var(--fg); }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: var(--on-danger); }
+.btn.danger:hover { background: var(--danger); color: var(--on-danger); filter: brightness(1.08); }
+
+/* sm keeps the 40px floor; compactness comes from padding/radius only */
+.btn.sm { padding: 0 var(--space-3); font-size: 13px; border-radius: var(--radius-sm); }
+
+.btn.icon-only { width: var(--control-h); padding: 0; }
+.btn.icon-only::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+.btn.loading { cursor: progress; pointer-events: none; }
+
+.btn-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ui-spin 0.7s linear infinite; /* only while loading */
+}
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+
+/* ---- Form field ---- */
+.field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.field-label { font-size: 13px; font-weight: 500; color: var(--fg-muted); }
+.field-hint { margin: 0; font-size: 12px; color: var(--fg-muted); }
+.field-error { margin: 0; font-size: 12px; color: var(--danger); }
+
+.input,
+.select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  transition: border-color 0.18s var(--ease-out), background-color 0.18s var(--ease-out);
+}
+textarea.input { padding: var(--space-3); line-height: 1.5; resize: vertical; min-height: 96px; }
+.input::placeholder { color: var(--fg-subtle); }
+.input:hover:not(:disabled),
+.select:hover:not(:disabled) { border-color: var(--fg-subtle); }
+.input[aria-invalid='true'] { border-color: var(--danger); }
+.input:disabled,
+.select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.select-wrap { position: relative; display: block; color: var(--fg-muted); }
+.select-wrap .select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+.select-wrap.has-icon .select { padding-left: 38px; }
+.select-wrap .select-chevron,
+.select-wrap .select-icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+.select-wrap .select-chevron { right: 12px; }
+.select-wrap .select-icon { left: 12px; }
+.select-wrap .select-icon svg { width: 16px; height: 16px; }
+
+/* ---- Switch ---- */
+.switch-row { display: inline-flex; align-items: center; gap: var(--space-3); color: var(--fg); font-size: 14px; }
+.switch-row .switch-text { cursor: pointer; }
+.ui-switch {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--control-off);
+  cursor: pointer;
+  transition: background-color 0.18s var(--ease-out);
+}
+.ui-switch::after { content: ''; position: absolute; inset: -9px -2px; } /* 44px hit area */
+.ui-switch[aria-checked='true'] { background: var(--accent); }
+.ui-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+  transition: transform 0.18s var(--ease-out);
+}
+.ui-switch[aria-checked='true'] .ui-switch-thumb { transform: translateX(18px); }
+.ui-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- Empty state ---- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-7) var(--space-5);
+  text-align: center;
+  color: var(--fg-muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+.empty-state > :is(h2, h3, strong) { margin: 0; font-size: 16px; font-weight: 600; color: var(--fg); }
+.empty-state > p { margin: 0; max-width: 52ch; font-size: 14px; text-wrap: pretty; }
+
+/* ---- Skeleton ---- */
+.skeleton {
+  display: block;
+  background: linear-gradient(90deg, var(--surface-raised) 25%, var(--border) 50%, var(--surface-raised) 75%);
+  background-size: 200% 100%;
+  border-radius: var(--radius-sm);
+  animation: ui-shimmer 1.4s var(--ease-out) 6; /* finite: settles instead of looping forever */
+}
+@keyframes ui-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--surface-raised); }
+  .btn-spinner { animation: none; border-right-color: currentColor; opacity: 0.6; }
+}
+
+/* ---- Shared scrollbar (replaces per-component ::-webkit-scrollbar blocks) ---- */
+.scroll-y { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.scroll-y::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-y::-webkit-scrollbar-track { background: transparent; }
+.scroll-y::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+.scroll-y::-webkit-scrollbar-thumb:hover { background: var(--fg-subtle); background-clip: content-box; }
+
+/* ---- Page shell ---- */
+.page { box-sizing: border-box; width: 100%; max-width: 1120px; margin: 0 auto; padding: 48px 32px; }
+@media (max-width: 640px) { .page { padding: 28px 16px; } }

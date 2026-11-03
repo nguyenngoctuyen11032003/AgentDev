@@ -23,10 +23,10 @@
           </div>
 
           <footer class="confirm-foot">
-            <button ref="cancelEl" type="button" class="btn btn-ghost" @click="answer(false)">
+            <button ref="cancelEl" type="button" class="btn secondary" @click="answer(false)">
               {{ request.cancelText || t('confirm.cancel') }}
             </button>
-            <button ref="okEl" type="button" class="btn" :class="request.tone === 'danger' ? 'btn-danger' : 'btn-primary'" @click="answer(true)">
+            <button ref="okEl" type="button" class="btn" :class="request.tone === 'danger' ? 'danger' : 'primary'" @click="answer(true)">
               {{ request.confirmText || t('confirm.ok') }}
             </button>
           </footer>
@@ -84,16 +84,15 @@ watch(request, async (current, previous) => {
 .confirm-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 9500;
+  z-index: var(--z-modal);
   display: grid;
   place-items: center;
   padding: 24px 16px;
-  background: rgb(8 8 10 / 0.6);
-  backdrop-filter: blur(4px);
+  background: var(--backdrop-color);
 }
 
 .confirm {
-  --tone: var(--accent-sky);
+  --tone: var(--accent);
   box-sizing: border-box;
   display: grid;
   grid-template-columns: auto 1fr;
@@ -101,10 +100,9 @@ watch(request, async (current, previous) => {
   width: min(440px, 100%);
   padding: 22px 22px 18px;
   border-radius: 14px;
-  border: 1px solid var(--line-4);
-  background: var(--surface-1);
-  color: var(--text-1);
-  font-family: 'Inter', system-ui, sans-serif;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
   box-shadow: 0 24px 64px -20px rgb(0 0 0 / 0.7);
 }
 
@@ -140,7 +138,7 @@ watch(request, async (current, previous) => {
   margin: 6px 0 0;
   font-size: 13.5px;
   line-height: 1.55;
-  color: var(--text-muted-4);
+  color: var(--fg-muted);
   overflow-wrap: anywhere;
 }
 
@@ -152,52 +150,9 @@ watch(request, async (current, previous) => {
   margin-top: 18px;
 }
 
-.btn {
+/* buttons: global .btn (ui.css) */
+.confirm-foot .btn {
   min-width: 84px;
-  padding: 9px 18px;
-  border-radius: 10px;
-  border: 1px solid var(--line-4);
-  background: var(--surface-3);
-  color: var(--text-1);
-  font: inherit;
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.15s, filter 0.15s, background-color 0.15s;
-}
-
-.btn-ghost {
-  background: transparent;
-}
-
-.btn-ghost:hover {
-  border-color: var(--accent-sky);
-}
-
-.btn-primary {
-  border-color: transparent;
-  color: #0b1220;
-  background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky));
-}
-
-:root[data-theme='light'] .btn-primary {
-  color: #fff;
-}
-
-.btn-danger {
-  border-color: transparent;
-  color: #fff;
-  background: var(--danger);
-}
-
-.btn-primary:hover,
-.btn-danger:hover {
-  filter: brightness(1.08);
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent-sky);
-  outline-offset: 2px;
 }
 
 .confirm-enter-active,
@@ -207,7 +162,7 @@ watch(request, async (current, previous) => {
 
 .confirm-enter-active .confirm,
 .confirm-leave-active .confirm {
-  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 0.2s var(--ease-out);
 }
 
 .confirm-enter-from,
