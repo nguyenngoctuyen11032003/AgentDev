@@ -696,6 +696,7 @@ import KanbanView from '@/components/launch/KanbanView.vue'
 import DashboardView from '@/components/launch/DashboardView.vue'
 import ReviewView from '@/components/launch/ReviewView.vue'
 import { createRunTracker } from '@/utils/runTracker.js'
+import { localizeErrorText } from '@/utils/errorTranslate.js'
 import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast.js'
 import { configStore } from '@/stores/configStore.js'
@@ -866,7 +867,7 @@ const formatErrorDetail = (detail) => {
 
 // Build a localized error message, appending backend detail when available
 const errorWithDetail = (key, detail, params = {}) => {
-  const text = formatErrorDetail(detail)
+  const text = localizeErrorText(formatErrorDetail(detail))
   return text
     ? t(`${key}_detail`, { ...params, detail: text })
     : t(key, params)
@@ -3694,9 +3695,10 @@ const processMessage = async (msg) => {
     const names = Array.isArray(msg.data?.attachments) ? msg.data.attachments : []
     const parts = [text.trim(), names.length ? t('launch.attachments_line', { names: names.join(', ') }) : '']
     addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'), at)
-    // The first message of a run is the task, later ones are replies to the agents
-    if (runTracker.state.task && !runTracker.state.outcome) runTracker.inputSent(text)
-    else runTracker.begin(text, names)
+    // The first message of a run is the task, later ones are replies to the agents; a message
+    // after a finished run opens the next turn of the session (kept with the earlier ones)
+    if (runTracker.state.task && !runTracker.state.outcome) runTracker.inputSent(text, at ?? undefined)
+    else runTracker.begin(text, names, at ?? undefined)
     return
   }
 

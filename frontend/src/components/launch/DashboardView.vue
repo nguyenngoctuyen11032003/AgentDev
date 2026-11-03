@@ -24,6 +24,7 @@
           <span v-if="currentStep" class="pill is-neutral">
             {{ $t('launch.dashboard.now_at', { n: currentStep.index, name: currentStep.id }) }}
           </span>
+          <span v-if="multiTurn && currentTurn" class="pill is-turn">{{ $t('launch.dashboard.turn_of', { n: currentTurn.number, total: turns.length }) }}</span>
           <span v-if="tracker.startedAt" class="pill is-neutral">{{ $t('launch.dashboard.started', { time: clock(tracker.startedAt) }) }}</span>
         </div>
       </div>
@@ -36,6 +37,41 @@
         <strong class="kpi-value">{{ kpi.value }}</strong>
         <span class="kpi-sub">{{ kpi.sub }}</span>
       </article>
+    </section>
+
+    <!-- Turns of this session, newest first; the current one is marked -->
+    <section v-if="multiTurn" class="card block">
+      <header class="block-head">
+        <h3>{{ $t('launch.dashboard.turns') }}</h3>
+        <span class="muted">{{ $t('launch.dashboard.turns_sub', { n: turns.length }) }}</span>
+      </header>
+      <div class="table-wrap">
+        <table class="agents turns">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>{{ $t('launch.dashboard.col_request') }}</th>
+              <th>{{ $t('launch.dashboard.col_status') }}</th>
+              <th class="num">{{ $t('launch.dashboard.col_tasks') }}</th>
+              <th class="num">{{ $t('launch.dashboard.col_tokens') }}</th>
+              <th>{{ $t('launch.dashboard.col_time') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in turnRows" :key="row.turn.number" :class="{ 'is-current': row.turn.current }">
+              <td class="idx">{{ row.turn.number }}</td>
+              <td class="turn-ask">
+                <span :title="row.turn.task?.text || ''">{{ row.turn.task?.text || '—' }}</span>
+                <small v-if="row.turn.current" class="turn-now">{{ $t('launch.dashboard.turn_now') }}</small>
+              </td>
+              <td><span class="pill" :class="`is-${row.tone}`"><span class="dot" aria-hidden="true"></span>{{ stateLabel(row.tone) }}</span></td>
+              <td class="num">{{ row.tasks ? `${row.tasksDone}/${row.tasks}` : '—' }}</td>
+              <td class="num" :title="row.cost !== null ? formatCost(row.cost) : ''">{{ row.tokens ? row.tokens.toLocaleString() : '—' }}</td>
+              <td>{{ row.turn.startedAt ? formatSpan(row.span) : '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <!-- Pipeline -->
@@ -62,19 +98,19 @@
       <section class="card block">
         <header class="block-head">
           <h3>{{ $t('launch.dashboard.timeline') }}</h3>
-          <span class="muted">{{ tracker.startedAt ? formatSpan(span) : '' }}</span>
+          <span class="muted">{{ session.startedAt ? formatSpan(span) : '' }}</span>
         </header>
-        <div v-if="tracker.startedAt && steps.length" class="gantt">
+        <div v-if="session.startedAt && steps.length" class="gantt">
           <div v-for="step in shownSteps" :key="step.id" class="gantt-row" :style="{ '--dept': step.color }">
             <span class="gantt-label" :title="step.id"><b>{{ step.index }}</b>{{ step.id }}</span>
             <span class="gantt-track">
               <span
                 v-for="run in runsOf(step.id)"
-                :key="run.index"
+                :key="`${run.turn}-${run.index}`"
                 class="gantt-bar"
-                :class="{ 'is-live': !run.endedAt }"
+                :class="{ 'is-live': !run.endedAt, 'is-past': multiTurn && run.turn !== currentTurn?.number }"
                 :style="barStyle(run)"
-                :title="`${step.id} · ${$t('launch.board.run', { n: run.index })} · ${formatSpan((run.endedAt || now) - run.startedAt)}`"
+                :title="`${step.id} · ${multiTurn ? `${$t('launch.board.turn', { n: run.turn })} · ` : ''}${$t('launch.board.run', { n: run.index })} · ${formatSpan((run.endedAt || now) - run.startedAt)}`"
               ></span>
             </span>
           </div>
@@ -87,7 +123,7 @@
       <section class="card block">
         <header class="block-head">
           <h3>{{ $t('launch.dashboard.activity') }}</h3>
-          <span class="muted">{{ $t('launch.dashboard.events', { n: tracker.events.length }) }}</span>
+          <span class="muted">{{ $t('launch.dashboard.events', { n: session.events.length }) }}</span>
         </header>
         <ol v-if="feed.length" class="feed">
           <li v-for="event in feed" :key="event.id" class="feed-item" :class="`is-${event.kind}`">
@@ -203,7 +239,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { formatCost, formatSpan, stepDuration, stepStatus, usageTotals } from '@/utils/runTracker.js'
+import { combineTurns, formatCost, formatSpan, sessionTurns, stepDuration, stepStatus, turnSpan, usageTotals } from '@/utils/runTracker.js'
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
 import { buildOrgChart, computeTeamLinks } from '@/utils/teamLinks.js'
 
@@ -229,7 +265,33 @@ const now = ref(Date.now())
 const filter = ref('')
 
 const steps = computed(() => buildSteps(props.graph, props.spriteMap))
-const nodeOf = (id) => props.tracker.nodes[id]
+
+// The figures cover every turn of the session (a follow-up message is a new turn); the
+// hero and the turn list point out the current one
+const turns = computed(() => sessionTurns(props.tracker))
+const multiTurn = computed(() => turns.value.length > 1)
+const session = computed(() => combineTurns(turns.value))
+const currentTurn = computed(() => turns.value[turns.value.length - 1] || null)
+// Working time: the pauses between turns do not count
+const workTime = computed(() => turns.value.reduce((sum, turn) => sum + turnSpan(turn, now.value), 0))
+const turnRows = computed(() =>
+  [...turns.value].reverse().map((turn) => {
+    const runs = Object.values(turn.nodes || {}).flatMap((node) => node.runs)
+    const delegated = runs.filter((run) => run.delegatedBy)
+    const cost = usageTotals(turn.tokenUsage)
+    return {
+      turn,
+      tone: turn.outcome || (isLive.value && turn.current ? 'working' : 'idle'),
+      tasks: delegated.length,
+      tasksDone: delegated.filter((run) => run.endedAt).length,
+      tokens: cost.tokens,
+      cost: cost.cost,
+      span: turnSpan(turn, now.value)
+    }
+  })
+)
+
+const nodeOf = (id) => session.value.nodes[id]
 const runsOf = (id) => nodeOf(id)?.runs || []
 const statusOf = (id) => stepStatus(nodeOf(id))
 const durationOf = (id) => stepDuration(nodeOf(id), now.value)
@@ -240,7 +302,7 @@ const doneCount = computed(() => steps.value.filter((s) => statusOf(s.id) === 'd
 // the step lists show the people who took part (not twelve empty rows)
 const teamMode = computed(() => computeTeamLinks(props.graph?.nodes, props.graph?.edges).length > 0)
 const delegatedRuns = computed(() =>
-  Object.values(props.tracker.nodes).flatMap((node) => node.runs.filter((run) => run.delegatedBy))
+  Object.values(session.value.nodes).flatMap((node) => node.runs.filter((run) => run.delegatedBy))
 )
 const teamTasksDone = computed(() => delegatedRuns.value.filter((run) => run.endedAt).length)
 const involved = computed(() => steps.value.filter((s) => runsOf(s.id).length || statusOf(s.id) === 'waiting'))
@@ -248,7 +310,7 @@ const shownSteps = computed(() => (teamMode.value && involved.value.length ? inv
 const idleCount = computed(() => steps.value.length - shownSteps.value.length)
 
 const progress = computed(() => {
-  if (props.tracker.outcome === 'completed') return 100
+  if (session.value.outcome === 'completed') return 100
   if (teamMode.value) {
     const total = delegatedRuns.value.length
     return total ? Math.round((teamTasksDone.value / total) * 100) : 0
@@ -261,7 +323,7 @@ const isLive = computed(() => props.status === 'Running...' || props.status === 
 const runTone = computed(() => {
   if (props.status === 'Waiting for input...') return 'waiting'
   if (isLive.value) return 'working'
-  return props.tracker.outcome || 'idle'
+  return session.value.outcome || 'idle'
 })
 
 const currentStep = computed(() => {
@@ -270,18 +332,18 @@ const currentStep = computed(() => {
 })
 
 const span = computed(() => {
-  if (!props.tracker.startedAt) return 0
-  return Math.max(1000, (props.tracker.endedAt || now.value) - props.tracker.startedAt)
+  if (!session.value.startedAt) return 0
+  return Math.max(1000, (session.value.endedAt || now.value) - session.value.startedAt)
 })
 
-const allRuns = computed(() => Object.values(props.tracker.nodes).flatMap((node) => node.runs))
+const allRuns = computed(() => Object.values(session.value.nodes).flatMap((node) => node.runs))
 const totals = computed(() => ({
   models: allRuns.value.reduce((sum, run) => sum + run.models, 0),
   tools: allRuns.value.reduce((sum, run) => sum + run.tools.length, 0),
   runs: allRuns.value.length
 }))
 
-const usage = computed(() => usageTotals(props.tracker.tokenUsage))
+const usage = computed(() => usageTotals(session.value.tokenUsage))
 const totalTokens = computed(() => usage.value.tokens)
 
 const kpis = computed(() => {
@@ -305,8 +367,10 @@ const kpis = computed(() => {
     {
       key: 'time',
       label: t('launch.dashboard.kpi_time'),
-      value: props.tracker.startedAt ? formatSpan(span.value) : '—',
-      sub: props.tracker.endedAt ? t('launch.dashboard.kpi_time_done') : isLive.value ? t('launch.dashboard.kpi_time_live') : '—'
+      value: session.value.startedAt ? formatSpan(workTime.value) : '—',
+      sub: multiTurn.value
+        ? t('launch.dashboard.kpi_time_turns', { n: turns.value.length, time: formatSpan(turnSpan(currentTurn.value, now.value)) })
+        : session.value.endedAt ? t('launch.dashboard.kpi_time_done') : isLive.value ? t('launch.dashboard.kpi_time_live') : '—'
     },
     {
       key: 'active',
@@ -334,7 +398,7 @@ const kpis = computed(() => {
       value: totalTokens.value ? totalTokens.value.toLocaleString() : '—',
       sub: usage.value.cost !== null
         ? t('launch.dashboard.kpi_cost', { cost: formatCost(usage.value.cost) })
-        : props.tracker.outcome ? t('launch.dashboard.kpi_no_cost') : t('launch.dashboard.kpi_usage_later')
+        : session.value.outcome ? t('launch.dashboard.kpi_no_cost') : t('launch.dashboard.kpi_usage_later')
     }
   ]
 })
@@ -357,7 +421,7 @@ const handoffStats = computed(() => {
     if (!stats.has(id)) stats.set(id, { assigned: 0, reported: 0 })
     stats.get(id)[key] += 1
   }
-  for (const event of props.tracker.events) {
+  for (const event of session.value.events) {
     if (event.kind !== 'handoff') continue
     if (org.value.get(event.target)?.parent === event.nodeId) bump(event.target, 'assigned')
     else if (org.value.get(event.nodeId)?.parent === event.target) bump(event.nodeId, 'reported')
@@ -388,14 +452,14 @@ const agentRows = computed(() => {
 })
 
 const barStyle = (run) => {
-  const start = props.tracker.startedAt || run.startedAt
+  const start = session.value.startedAt || run.startedAt
   const left = ((run.startedAt - start) / span.value) * 100
   const width = (((run.endedAt || now.value) - run.startedAt) / span.value) * 100
   return { left: `${Math.max(0, Math.min(99.5, left))}%`, width: `${Math.max(0.6, Math.min(100 - left, width))}%` }
 }
 
 // ---------------------------------------------------------------- activity feed
-const feed = computed(() => props.tracker.events.slice(-FEED_LIMIT).reverse())
+const feed = computed(() => session.value.events.slice(-FEED_LIMIT).reverse())
 
 const ICONS = { task: '✎', start: '▶', end: '✓', tool: '⚙', handoff: '→', waiting: '?', input: '↩', completed: '★', cancelled: '■', error: '!' }
 const eventIcon = (kind) => ICONS[kind] || '•'
@@ -902,6 +966,28 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .agents tr:last-child td { border-bottom: 0; }
+.turns .idx { color: var(--accent-indigo); }
+.turns tr.is-current td { background: color-mix(in srgb, var(--accent-indigo) 8%, transparent); }
+.turns tr.is-current .idx { box-shadow: inset 3px 0 0 var(--accent-indigo); }
+.turn-ask { max-width: 420px; }
+.turn-ask span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.turn-now {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--accent-indigo) 16%, transparent);
+  color: var(--accent-indigo);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+.pill.is-turn { --tone: var(--accent-indigo); }
+.gantt-bar.is-past { opacity: 0.4; }
 .agents tbody tr:hover td { background: rgb(var(--ink) / 0.025); }
 .agents .num { text-align: right; font-variant-numeric: tabular-nums; }
 .agents .idx { width: 28px; color: var(--dept); font-weight: 700; font-variant-numeric: tabular-nums; }

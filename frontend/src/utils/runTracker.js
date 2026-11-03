@@ -2,9 +2,14 @@
 // dashboard both read from here. It is fed by the same WebSocket events that drive the
 // chat and the office (node start/end, model and tool calls, handoffs, human input),
 // including the replay of a saved session, so reopening a run rebuilds the board.
+// A session can hold several turns (a follow-up message runs the team again): `state` is
+// always the current turn, and the finished turns before it are kept in `state.turns`, so
+// the board and the dashboard can show the whole session. Only a new session resets it.
 import { reactive } from 'vue'
 
 const MAX_EVENTS = 300
+// Only the latest turns of a long session are kept, so memory stays bounded
+const MAX_TURNS = 20
 const TECHNICAL_SUMMARY = /^Workflow (finished|completed) with \d+/i
 const OUTPUT_PREVIEW = 600
 
@@ -32,7 +37,9 @@ export function createRunTracker() {
     tokenUsage: null,
     nodes: {}, // node id -> { runs: [...], waiting, lastAt }
     events: [], // newest last: { id, at, kind, nodeId, target, text }
-    inputs: 0
+    inputs: 0,
+    turn: 0, // number of the current turn (1-based), 0 before the first task
+    turns: [] // earlier turns of this session, oldest first (same fields as above)
   })
   let seq = 0
 
@@ -74,6 +81,7 @@ export function createRunTracker() {
     node.pendingTask = ''
     node.runs.push({
       index: node.runs.length + 1,
+      turn: state.turn || 1,
       task, // what the lead asked for (team workflows)
       startedAt: time,
       endedAt: null,
@@ -155,8 +163,10 @@ export function createRunTracker() {
 
   const begin = (text, attachments = [], at) => {
     const time = toMs(at)
-    // A new task in a finished session starts a fresh board
-    if (state.outcome) reset()
+    // A new task in a finished session is its next turn: the finished one is kept
+    if (state.outcome) archiveTurn()
+    const previous = state.turns[state.turns.length - 1]
+    state.turn = (previous?.number || state.turns.length) + 1
     if (!state.startedAt) state.startedAt = time
     state.task = { text: preview(text), attachments: [...attachments], at: time }
     pushEvent('task', '', time, { text: preview(text).slice(0, 140) })
@@ -198,7 +208,23 @@ export function createRunTracker() {
     pushEvent(outcome, '', time, { text: state.summary.split('\n')[0].slice(0, 140) || state.error.slice(0, 140) })
   }
 
+  const TURN_FIELDS = ['startedAt', 'endedAt', 'outcome', 'task', 'summary', 'error', 'tokenUsage', 'nodes', 'events', 'inputs']
+  const archiveTurn = () => {
+    const done = { number: state.turn || state.turns.length + 1 }
+    for (const key of TURN_FIELDS) done[key] = state[key]
+    state.turns.push(done)
+    if (state.turns.length > MAX_TURNS) state.turns.splice(0, state.turns.length - MAX_TURNS)
+    clearTurn()
+  }
+
+  // A new session: every turn goes
   const reset = () => {
+    clearTurn()
+    state.turn = 0
+    state.turns = []
+  }
+
+  const clearTurn = () => {
     state.startedAt = null
     state.endedAt = null
     state.outcome = ''
@@ -215,6 +241,91 @@ export function createRunTracker() {
 }
 
 // ---------------------------------------------------------------- derived views
+
+/** Every turn of the session, oldest first; the last one is the current turn (live). */
+export function sessionTurns(state) {
+  const turns = (state?.turns || []).map((turn, i) => ({ ...turn, number: turn.number || i + 1, current: false }))
+  if (state && (state.task || state.startedAt || Object.keys(state.nodes || {}).length)) {
+    turns.push({
+      number: state.turn || turns.length + 1,
+      current: true,
+      startedAt: state.startedAt,
+      endedAt: state.endedAt,
+      outcome: state.outcome,
+      task: state.task,
+      summary: state.summary,
+      error: state.error,
+      tokenUsage: state.tokenUsage,
+      nodes: state.nodes,
+      events: state.events,
+      inputs: state.inputs
+    })
+  }
+  return turns
+}
+
+/** Working time of one turn (ms): from its task to its end, or to `now` while it runs. */
+export function turnSpan(turn, now = Date.now()) {
+  return turn?.startedAt ? Math.max(0, (turn.endedAt || now) - turn.startedAt) : 0
+}
+
+/**
+ * Several turns as one run record (same shape as the tracker state): the runs of a step
+ * follow each other across turns (renumbered, each keeps its `turn`), events are joined
+ * and token usage is added up; task, outcome and summary are those of the last turn.
+ */
+export function combineTurns(turns) {
+  const list = turns || []
+  if (list.length === 1) return { ...list[0], turns: [] }
+  const last = list[list.length - 1] || {}
+  const nodes = {}
+  const events = []
+  let inputs = 0
+  for (const turn of list) {
+    inputs += turn.inputs || 0
+    events.push(...(turn.events || []))
+    for (const [id, node] of Object.entries(turn.nodes || {})) {
+      if (!nodes[id]) nodes[id] = { runs: [], waiting: false, lastAt: null, pendingTask: '' }
+      const merged = nodes[id]
+      for (const run of node.runs) merged.runs.push({ ...run, turn: run.turn || turn.number, index: merged.runs.length + 1 })
+      if (turn === last) merged.waiting = node.waiting
+      if (node.lastAt && (!merged.lastAt || node.lastAt > merged.lastAt)) merged.lastAt = node.lastAt
+    }
+  }
+  return {
+    startedAt: list.find((turn) => turn.startedAt)?.startedAt || null,
+    endedAt: last.endedAt || null,
+    outcome: last.outcome || '',
+    task: last.task || null,
+    summary: last.summary || '',
+    error: last.error || '',
+    tokenUsage: combineUsage(list.map((turn) => turn.tokenUsage)),
+    nodes,
+    events,
+    inputs,
+    number: last.number || 0,
+    turns: []
+  }
+}
+
+// Token reports of several turns added up, in the shape usageTotals reads
+function combineUsage(reports) {
+  const present = reports.filter(Boolean)
+  if (present.length < 2) return present[0] || null
+  const total = { total_tokens: 0, input_tokens: 0, output_tokens: 0 }
+  const nodeUsages = {}
+  const calls = []
+  for (const usage of present) {
+    const sums = usage?.total_usage || usage?.total || usage?.totals || usage || {}
+    for (const key of Object.keys(total)) total[key] += Number.isFinite(sums[key]) ? sums[key] : 0
+    if (Array.isArray(usage?.call_history)) calls.push(...usage.call_history)
+    for (const [id, item] of Object.entries(usage?.node_usages || {})) {
+      const tokens = Number.isFinite(item?.total_tokens) ? item.total_tokens : 0
+      nodeUsages[id] = { total_tokens: (nodeUsages[id]?.total_tokens || 0) + tokens }
+    }
+  }
+  return { total_usage: total, call_history: calls, node_usages: nodeUsages }
+}
 
 /** Status of one workflow step: 'working' | 'waiting' | 'done' | 'error' | 'cancelled' | 'todo'. */
 export function stepStatus(node) {

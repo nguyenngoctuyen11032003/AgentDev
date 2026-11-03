@@ -14,10 +14,20 @@
           <template v-if="teamMode">{{ $t('launch.board.progress_team', { done: teamTasksDone, total: delegatedRuns.length, people: teamPeople }) }}</template>
           <template v-else>{{ $t('launch.board.progress', { done: doneCount, total: steps.length }) }}</template>
         </span>
-        <span v-if="tracker.startedAt" class="kb-time">
+        <span v-if="view.startedAt" class="kb-time">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
           {{ formatSpan(elapsed) }}
         </span>
+        <select
+          v-if="multiTurn"
+          v-model="turnFilter"
+          class="kb-turns"
+          :aria-label="$t('launch.board.turn_filter')"
+          :title="$t('launch.board.turn_filter')"
+        >
+          <option value="all">{{ $t('launch.board.turn_all', { n: turns.length }) }}</option>
+          <option v-for="turn in [...turns].reverse()" :key="turn.number" :value="turn.number">{{ turnLabel(turn) }}</option>
+        </select>
         <div class="seg" role="radiogroup" :aria-label="$t('launch.board.group_by')">
           <button
             v-for="mode in ['team', 'step']"
@@ -51,23 +61,28 @@
             <strong>{{ $t('launch.board.you') }}</strong>
             <span>{{ $t('launch.board.request') }}</span>
           </div>
-          <span class="state-chip" :class="tracker.task ? 'is-done' : 'is-todo'">
-            {{ tracker.task ? $t('launch.board.sent') : $t('launch.board.todo') }}
+          <span class="state-chip" :class="view.task ? 'is-done' : 'is-todo'">
+            {{ view.task ? $t('launch.board.sent') : $t('launch.board.todo') }}
           </span>
         </header>
         <div class="col-body">
-          <article v-if="tracker.task" class="card is-you">
+          <article
+            v-for="turn in requestTurns"
+            :key="`ask-${turn.number}`"
+            class="card is-you"
+            :class="{ 'is-past': showTurnTags && !turn.current }"
+          >
             <div class="card-meta">
-              <span class="card-kicker">{{ $t('launch.board.task') }}</span>
-              <time>{{ clock(tracker.task.at) }}</time>
+              <span class="card-kicker">{{ multiTurn ? turnLabel(turn) : $t('launch.board.task') }}</span>
+              <time>{{ clock(turn.task.at) }}</time>
             </div>
-            <p class="card-text clamp-8">{{ tracker.task.text || '—' }}</p>
-            <div v-if="tracker.task.attachments.length" class="chips">
-              <span v-for="name in tracker.task.attachments" :key="name" class="chip">📎 {{ name }}</span>
+            <p class="card-text" :class="turn.current || !showTurnTags ? 'clamp-8' : 'clamp-3'">{{ turn.task.text || '—' }}</p>
+            <div v-if="turn.task.attachments.length" class="chips">
+              <span v-for="name in turn.task.attachments" :key="name" class="chip">📎 {{ name }}</span>
             </div>
-            <div v-if="tracker.inputs" class="card-foot">{{ $t('launch.board.replies', { n: tracker.inputs }) }}</div>
+            <div v-if="turn.inputs" class="card-foot">{{ $t('launch.board.replies', { n: turn.inputs }) }}</div>
           </article>
-          <div v-else class="placeholder">{{ $t('launch.board.task_placeholder') }}</div>
+          <div v-if="!requestTurns.length" class="placeholder">{{ $t('launch.board.task_placeholder') }}</div>
         </div>
       </section>
 
@@ -152,7 +167,7 @@
 
           <!-- Next up: members that have not started yet -->
           <template v-if="column.queued.length">
-            <p class="section-label">{{ $t(teamMode && tracker.task ? 'launch.board.section_unassigned' : 'launch.board.section_queued') }} · {{ column.queued.length }}</p>
+            <p class="section-label">{{ $t(teamMode && view.task ? 'launch.board.section_unassigned' : 'launch.board.section_queued') }} · {{ column.queued.length }}</p>
             <article v-for="step in column.queued" :key="`q-${step.id}`" class="card is-todo is-compact">
               <div class="card-meta">
                 <span class="assignee">
@@ -183,6 +198,7 @@
                   <span class="avatar sm"><img v-if="task.step.sprite" :src="task.step.sprite" alt="" /><span v-else>{{ initialsOf(task.step.id) }}</span></span>
                   <b :title="task.step.id">{{ task.step.id }}</b>
                   <span class="step-tag">B{{ task.step.index }}<template v-if="task.run.index > 1"> · {{ $t('launch.board.run', { n: task.run.index }) }}</template></span>
+                  <span v-if="showTurnTags" class="turn-tag">{{ $t('launch.board.turn', { n: task.run.turn }) }}</span>
                 </span>
                 <time :title="clock(task.run.endedAt)">{{ formatSpan(task.run.endedAt - task.run.startedAt) }}</time>
               </div>
@@ -215,7 +231,7 @@
       </section>
 
       <!-- Outcome -->
-      <section class="col col-final" :class="`is-${tracker.outcome || 'todo'}`">
+      <section class="col col-final" :class="`is-${view.outcome || 'todo'}`">
         <header class="col-head">
           <span class="col-icon is-flag" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4h11l-1.5 4L16 12H5" /></svg>
@@ -227,21 +243,27 @@
           <span class="state-chip" :class="`is-${outcomeTone}`">{{ stateLabel(outcomeTone) }}</span>
         </header>
         <div class="col-body">
-          <article v-if="tracker.outcome" class="card" :class="`is-${tracker.outcome}`">
+          <article
+            v-for="turn in resultTurns"
+            :key="`result-${turn.number}`"
+            class="card"
+            :class="[`is-${turn.outcome}`, { 'is-past': showTurnTags && !turn.current }]"
+          >
             <div class="card-meta">
-              <span class="card-kicker">{{ stateLabel(tracker.outcome) }}</span>
-              <time>{{ clock(tracker.endedAt) }}</time>
+              <span class="card-kicker">{{ stateLabel(turn.outcome) }}<template v-if="multiTurn"> · {{ turnLabel(turn) }}</template></span>
+              <time>{{ clock(turn.endedAt) }}</time>
             </div>
-            <p v-if="tracker.summary || tracker.error" class="card-text clamp-10">{{ tracker.summary || tracker.error }}</p>
+            <p v-if="turn.summary || turn.error" class="card-text" :class="turn.current || !showTurnTags ? 'clamp-10' : 'clamp-3'">{{ turn.summary || turn.error }}</p>
             <div class="card-foot">
-              {{ $t('launch.board.total_time', { time: formatSpan(elapsed) }) }}
-              <template v-if="totalTokens"> · {{ $t('launch.board.tokens', { n: totalTokens.toLocaleString() }) }}</template>
+              {{ $t('launch.board.total_time', { time: formatSpan(turnSpan(turn, now)) }) }}
+              <template v-if="turnTokens(turn)"> · {{ $t('launch.board.tokens', { n: turnTokens(turn).toLocaleString() }) }}</template>
             </div>
-            <button v-if="tracker.outcome === 'completed'" type="button" class="review-btn" @click.stop="$emit('review')">
+            <!-- Review works on the latest turn -->
+            <button v-if="turn.current && turn.outcome === 'completed'" type="button" class="review-btn" @click.stop="$emit('review')">
               {{ $t('launch.board.go_review') }}
             </button>
           </article>
-          <div v-else class="placeholder">{{ $t('launch.board.result_placeholder') }}</div>
+          <div v-if="!resultTurns.length" class="placeholder">{{ $t('launch.board.result_placeholder') }}</div>
         </div>
       </section>
     </div>
@@ -251,7 +273,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { formatSpan, stepStatus, usageTotals } from '@/utils/runTracker.js'
+import { combineTurns, formatSpan, sessionTurns, stepStatus, turnSpan, usageTotals } from '@/utils/runTracker.js'
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
 import { computeTeamLinks } from '@/utils/teamLinks.js'
 
@@ -290,7 +312,32 @@ const memberFilter = reactive({})
 const now = ref(Date.now())
 
 const steps = computed(() => buildSteps(props.graph, props.spriteMap))
-const nodeOf = (id) => props.tracker.nodes[id]
+
+// ---------------------------------------------------------------- turns
+// Every turn of the session (a follow-up message is a new turn): the board shows them all,
+// newest first, or one picked in the header
+const turns = computed(() => sessionTurns(props.tracker))
+const multiTurn = computed(() => turns.value.length > 1)
+const turnFilter = ref('all') // 'all' | turn number
+const shownTurns = computed(() => {
+  if (turnFilter.value === 'all') return turns.value
+  const picked = turns.value.filter((turn) => turn.number === turnFilter.value)
+  return picked.length ? picked : turns.value
+})
+// A new session has other turns: back to all of them
+watch(turns, (list) => {
+  if (turnFilter.value !== 'all' && !list.some((turn) => turn.number === turnFilter.value)) turnFilter.value = 'all'
+})
+const view = computed(() => combineTurns(shownTurns.value))
+const newestFirst = computed(() => [...shownTurns.value].reverse())
+const requestTurns = computed(() => newestFirst.value.filter((turn) => turn.task))
+const resultTurns = computed(() => newestFirst.value.filter((turn) => turn.outcome))
+const showTurnTags = computed(() => multiTurn.value && shownTurns.value.length > 1)
+const turnLabel = (turn) =>
+  turn.current ? t('launch.board.turn_current', { n: turn.number }) : t('launch.board.turn', { n: turn.number })
+const turnTokens = (turn) => usageTotals(turn.tokenUsage).tokens
+
+const nodeOf = (id) => view.value.nodes[id]
 const statusOf = (id) => stepStatus(nodeOf(id))
 const doneCount = computed(() => steps.value.filter((s) => statusOf(s.id) === 'done').length)
 
@@ -299,32 +346,30 @@ const doneCount = computed(() => steps.value.filter((s) => statusOf(s.id) === 'd
 // "not assigned" rather than "next up".
 const teamMode = computed(() => computeTeamLinks(props.graph?.nodes, props.graph?.edges).length > 0)
 const delegatedRuns = computed(() =>
-  Object.values(props.tracker.nodes).flatMap((node) => node.runs.filter((run) => run.delegatedBy))
+  Object.values(view.value.nodes).flatMap((node) => node.runs.filter((run) => run.delegatedBy))
 )
 const teamTasksDone = computed(() => delegatedRuns.value.filter((run) => run.endedAt).length)
 const teamPeople = computed(() =>
-  Object.entries(props.tracker.nodes).filter(([, node]) => node.runs.length).length
+  Object.entries(view.value.nodes).filter(([, node]) => node.runs.length).length
 )
 const progress = computed(() => {
   if (teamMode.value) {
     const total = delegatedRuns.value.length
-    return total ? Math.round((teamTasksDone.value / total) * 100) : props.tracker.outcome ? 100 : 0
+    return total ? Math.round((teamTasksDone.value / total) * 100) : view.value.outcome ? 100 : 0
   }
   return steps.value.length ? Math.round((doneCount.value / steps.value.length) * 100) : 0
 })
 
 const isLive = computed(() => props.status === 'Running...' || props.status === 'Waiting for input...')
-const elapsed = computed(() =>
-  props.tracker.startedAt ? (props.tracker.endedAt || now.value) - props.tracker.startedAt : 0
-)
+// Working time of the shown turns (the pauses between turns do not count)
+const elapsed = computed(() => shownTurns.value.reduce((sum, turn) => sum + turnSpan(turn, now.value), 0))
 const runTone = computed(() => {
   if (props.status === 'Waiting for input...') return 'waiting'
   if (isLive.value) return 'working'
-  return props.tracker.outcome || 'idle'
+  return view.value.outcome || 'idle'
 })
-const outcomeTone = computed(() => props.tracker.outcome || (isLive.value ? 'working' : 'todo'))
+const outcomeTone = computed(() => view.value.outcome || (isLive.value ? 'working' : 'todo'))
 
-const totalTokens = computed(() => usageTotals(props.tracker.tokenUsage).tokens)
 
 // ---------------------------------------------------------------- task text
 // A hand-over usually opens with a heading or a summary line: that is the task title.
@@ -404,7 +449,7 @@ const columns = computed(() =>
       for (const run of runs) {
         if (!run.endedAt) continue
         const { title, body } = splitOutput(run.output)
-        done.push({ key: `${step.id}#${run.index}`, step, run, status: run.status, title: title || t('launch.board.no_output'), body })
+        done.push({ key: `${step.id}#${run.turn}.${run.index}`, step, run, status: run.status, title: title || t('launch.board.no_output'), body })
       }
     }
     done.sort((a, b) => b.run.endedAt - a.run.endedAt)
@@ -413,7 +458,7 @@ const columns = computed(() =>
     const doneMembers = statuses.filter((s) => s === 'done').length
     let status = statuses.reduce((best, s) => (statusRank[s] > statusRank[best] ? s : best), 'todo')
     if (status === 'done' && doneMembers < members.length) status = 'working'
-    if (!isLive.value && status === 'working') status = props.tracker.outcome || 'todo'
+    if (!isLive.value && status === 'working') status = view.value.outcome || 'todo'
 
     const indexes = members.map((m) => m.index)
     const sub = group.single
@@ -591,6 +636,30 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   background: var(--surface-1);
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
 }
+
+.kb-turns {
+  padding: 4px 8px;
+  border: 1px solid rgb(var(--ink) / 0.12);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.turn-tag {
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--accent-indigo) 14%, transparent);
+  color: var(--accent-indigo);
+  font-size: 10.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.card.is-past { opacity: 0.78; }
 
 .kb-follow {
   display: inline-flex;
