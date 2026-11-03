@@ -75,7 +75,7 @@ graph:
         skills:
           enabled: <bool> | false
           allow:
-          - name: <string> | [greeting-demo, python-scratchpad, rest-api-caller]
+          - name: <string> | [python-scratchpad, rest-api-caller]
         retry:
           enabled: <bool> | true
           max_attempts: <int> | 5
