@@ -32,6 +32,13 @@ def cli_env() -> Dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in _API_KEY_VARS}
 
 
+def new_process_group_kwargs() -> Dict[str, Any]:
+    """Popen kwargs that start a CLI in its own process group, so its tree can be killed alone."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def kill_process_tree(proc: subprocess.Popen) -> None:
     """Kill a CLI and everything it spawned (npm .cmd shims run the real CLI as a child)."""
     try:
@@ -45,7 +52,11 @@ def kill_process_tree(proc: subprocess.Popen) -> None:
         else:
             import signal
 
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            pgid = os.getpgid(proc.pid)
+            # Only a CLI started in its own group (new_process_group_kwargs) may be killed as a
+            # group: killing our own group would take the server down with it.
+            if pgid != os.getpgid(0):
+                os.killpg(pgid, signal.SIGKILL)
     except Exception:  # noqa: BLE001 - fall back to killing just the process
         pass
     try:
@@ -82,11 +93,7 @@ def run_capture(
     """
     if cancel_event is not None and cancel_event.is_set():
         raise _cancelled_error(cmd)
-    kwargs: Dict[str, Any] = {}
-    if os.name == "nt":
-        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        kwargs["start_new_session"] = True
+    kwargs = new_process_group_kwargs()
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,

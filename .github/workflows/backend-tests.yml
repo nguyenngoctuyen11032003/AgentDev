@@ -19,6 +19,7 @@ jobs:
   pytest:
     name: Backend pytest
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
@@ -48,4 +49,5 @@ jobs:
 
       # The suite is hermetic (tests/conftest.py): no signed-in accounts, storage or .env needed.
       - name: Run tests
-        run: uv run python -m pytest -q
+        # faulthandler prints every thread's stack if one test runs longer than 120s (a hang).
+        run: uv run python -m pytest -q -o faulthandler_timeout=120

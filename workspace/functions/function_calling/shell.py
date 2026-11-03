@@ -103,6 +103,8 @@ def _dangerous_target(target: str, root: Path, workdir: Path) -> bool:
     t = os.path.expandvars(os.path.expanduser(t))
     if "$" in t or "%" in t:
         return False  # unexpanded variable: can't tell, stay advisory
+    if os.name != "nt" and re.match(r"^[a-z]:[\\/]", t, re.I):
+        return True  # a Windows drive path is never inside a POSIX workspace (Path() reads it as relative)
     # Judge a glob by the folder it expands in ("C:\*" -> "C:\", "./*" -> ".").
     parts = re.split(r"[\\/]", t)
     for i, part in enumerate(parts):

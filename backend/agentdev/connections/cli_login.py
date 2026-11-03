@@ -21,7 +21,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional
 
-from agentdev.connections.cli_auth import cli_env, detect_cli, find_cli, kill_process_tree, VENDOR_CLI
+from agentdev.connections.cli_auth import (
+    VENDOR_CLI,
+    cli_env,
+    detect_cli,
+    find_cli,
+    kill_process_tree,
+    new_process_group_kwargs,
+)
 
 SESSION_TTL = 10 * 60  # seconds a login attempt may stay open
 START_WAIT = 15.0  # seconds to wait for the CLI to print its URL
@@ -140,6 +147,7 @@ class CliLoginManager:
                     text=True,
                     encoding="utf-8",
                     errors="replace",
+                    **new_process_group_kwargs(),
                 )
             except OSError as exc:
                 raise CliLoginError(f"Could not start `{binary}`: {type(exc).__name__}") from exc
