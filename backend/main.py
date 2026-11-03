@@ -1,4 +1,7 @@
 import argparse
+import sys
+import signal
+import os
 import logging
 
 from agentdev.paths import (
@@ -55,6 +58,40 @@ def _watchfiles_available() -> bool:
     import importlib.util
 
     return importlib.util.find_spec("watchfiles") is not None
+
+
+def patch_windows_reload(join_timeout: float = 10.0) -> None:
+    """Make ``--reload`` restarts finish on Windows.
+
+    uvicorn restarts a worker on Windows by sending CTRL_C_EVENT and then joining it with no timeout.
+    When the server runs without its own console (started from an IDE task, a background shell or a
+    service) the event never arrives, the join waits forever and the old worker keeps serving stale
+    code. After ``join_timeout`` seconds the old worker is terminated instead.
+    """
+    if sys.platform != "win32":
+        return
+    from uvicorn.supervisors import basereload
+
+    if getattr(basereload.BaseReload.restart, "_agentdev_patched", False):
+        return
+
+    def restart(self) -> None:
+        self.is_restarting = True
+        try:
+            os.kill(self.process.pid, signal.CTRL_C_EVENT)
+            sys.stdout.write(" ")
+            sys.stdout.flush()
+        except OSError:
+            pass
+        self.process.join(join_timeout)
+        if self.process.is_alive():
+            self.process.terminate()
+            self.process.join(join_timeout)
+        self.process = basereload.get_subprocess(config=self.config, target=self.target, sockets=self.sockets)
+        self.process.start()
+
+    restart._agentdev_patched = True
+    basereload.BaseReload.restart = restart
 
 
 def build_reload_kwargs(args: argparse.Namespace) -> dict:
@@ -154,6 +191,9 @@ def main():
             "`pip install uvicorn[standard]`) to enable exclude filtering."
         )
 
+    if args.reload:
+        patch_windows_reload()
+
     # Launch the server
     uvicorn.run(
         "agentdev.api.app:app",
@@ -162,6 +202,10 @@ def main():
         reload=args.reload,
         log_level=args.log_level,
         ws="wsproto",
+        # Open WebSockets (the Run page) never close on their own; without a limit a reload or
+        # Ctrl+C waits for them forever, so the old worker keeps serving stale code. Clients
+        # reconnect automatically after the restart.
+        timeout_graceful_shutdown=5,
         **build_reload_kwargs(args),
     )
 
