@@ -214,6 +214,7 @@ def test_question_turn_has_no_proposal(turn_env):
     assert out["proposal"] is None
     assert out["reply"] == "Quy trình tên gì?"
     assert out["quick_replies"] == ["Tổng đài", "Khác"]
+    assert out["validation_errors"] == []
     assert len(call.calls) == 1
 
 
@@ -228,7 +229,7 @@ def test_valid_create_proposal(turn_env):
     assert proposal["diff_summary"]["nodes_added"] == ["Frontend", "Bug Fixer"]
 
 
-def test_accounts_fail_is_a_warning_not_a_failure(turn_env, monkeypatch):
+def test_accounts_fail_does_not_fail_the_proposal(turn_env, monkeypatch):
     def no_account(data, env):
         raise RuntimeError("No signed-in account can run this agent")
 
@@ -236,8 +237,12 @@ def test_accounts_fail_is_a_warning_not_a_failure(turn_env, monkeypatch):
     call = FakeCall(_reply("ok", _proposal()))
     out = _turn(call)
     assert len(call.calls) == 1
-    assert out["proposal"] is not None
-    assert any(w.startswith("accounts:") for w in out["proposal"]["warnings"])
+    proposal = out["proposal"]
+    assert proposal is not None
+    assert proposal["warnings"] == []  # check results stay in ``checks``
+    accounts = next(c for c in proposal["checks"]["checks"] if c["id"] == "accounts")
+    assert accounts["status"] == "fail"
+    assert out["validation_errors"] == []
 
 
 def test_repair_loop_fixes_on_second_try(turn_env):
@@ -258,8 +263,8 @@ def test_repair_loop_gives_up_after_two_repairs(turn_env):
     out = _turn(call)
     assert len(call.calls) == 3
     assert out["proposal"] is None
-    assert "Ghost" in out["reply"]
-    assert out["reply"].startswith("vẫn sai")
+    assert out["reply"] == "vẫn sai"
+    assert len(out["validation_errors"]) == 1 and "Ghost" in out["validation_errors"][0]
 
 
 def test_create_name_taken_is_repaired(turn_env):
@@ -363,12 +368,60 @@ def test_timeout_and_provider_errors_map_to_codes(turn_env):
         assert info.value.code == code
 
 
-def test_history_trimmed(turn_env):
-    messages = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"} for i in range(30)]
+def _history(count, first_role="user"):
+    roles = ("user", "assistant") if first_role == "user" else ("assistant", "user")
+    messages = [{"role": roles[i % 2], "content": f"m{i}"} for i in range(count)]
     messages[-1]["role"] = "user"
+    return messages
+
+
+def test_history_trimmed(turn_env):
+    messages = _history(50)
     call = FakeCall(_reply())
     _turn(call, messages=messages)
-    assert call.calls[0][1] == [messages[0]] + messages[-12:]
+    assert call.calls[0][1] == [messages[0]] + messages[-24:]
+
+
+def test_history_under_limit_untouched(turn_env):
+    messages = _history(30)
+    call = FakeCall(_reply())
+    _turn(call, messages=messages)
+    assert call.calls[0][1] == messages
+
+
+def test_history_trim_keeps_first_user_message_after_greeting(turn_env):
+    messages = _history(50, first_role="assistant")
+    call = FakeCall(_reply())
+    _turn(call, messages=messages)
+    assert call.calls[0][1] == [messages[1]] + messages[-24:]
+
+
+def test_parse_json_after_prose_with_braces():
+    text = 'Tip: use {name} as a placeholder. ' + _reply("đây", quick=["A"]) + " Done."
+    out = wa.parse_model_output(text)
+    assert out["reply"] == "đây"
+    assert out["quick_replies"] == ["A"]
+
+
+def test_duplicate_request_id_in_flight_is_bad_request(turn_env):
+    started, release = threading.Event(), threading.Event()
+
+    def slow(system, messages):
+        started.set()
+        release.wait(5)
+        return _reply()
+
+    thread = threading.Thread(target=lambda: _turn(slow, request_id="dup"))
+    thread.start()
+    try:
+        assert started.wait(5)
+        with pytest.raises(wa.AssistantError) as info:
+            _turn(FakeCall(_reply()), request_id="dup")
+        assert info.value.code == "bad_request"
+    finally:
+        release.set()
+        thread.join(5)
+    assert _turn(FakeCall(_reply()), request_id="dup")["reply"] == "ok"  # free again once it ended
 
 
 def test_unknown_vendor_bad_request(turn_env):

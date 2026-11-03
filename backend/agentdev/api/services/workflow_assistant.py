@@ -24,7 +24,7 @@ import yaml
 
 from agentdev.api.services.workflow_assistant_prompt import build_system_prompt, load_context
 from agentdev.api.services.workflow_diff import diff_workflows, unrequested_changes
-from agentdev.api.services.workflow_lab import FAIL, WARN, SimpleConfig, static_check_data
+from agentdev.api.services.workflow_lab import FAIL, SimpleConfig, static_check_data
 from agentdev.api.services.workflow_storage import validate_workflow_filename
 from agentdev.api.settings import YAML_DIR
 from agentdev.runtime.node.agent import account_fallback
@@ -32,7 +32,8 @@ from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled, cli_c
 
 VENDOR_LABELS = {"anthropic": "Claude", "openai": "Codex"}
 MAX_REPAIRS = 2
-HISTORY_TAIL = 12  # messages kept after the first one
+HISTORY_LIMIT = 40  # (20 turns) longer histories are trimmed
+HISTORY_TAIL = 24  # messages kept, after the first user message, once trimmed
 CALL_TIMEOUT = 180
 MAX_QUICK_REPLIES = 4
 
@@ -161,19 +162,27 @@ _FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n\s*```", re.DOTALL)
 
 
 def _json_object(text: str) -> Optional[dict]:
-    candidates = [text.strip()]
-    candidates += [m.group(1) for m in _FENCE_RE.finditer(text)]
-    start, end = text.find("{"), text.rfind("}")
-    if 0 <= start < end:
-        candidates.append(text[start:end + 1])
-    for candidate in candidates:
+    """The reply object: the whole text, else a ```json fence, else the first object decoded from any
+    "{" in the text that has a ``reply`` key (or the first object decoded at all)."""
+    for candidate in [text.strip()] + [m.group(1) for m in _FENCE_RE.finditer(text)]:
         try:
             data = json.loads(candidate)
         except ValueError:
             continue
         if isinstance(data, dict):
             return data
-    return None
+    decoder = json.JSONDecoder()
+    first: Optional[dict] = None
+    for match in re.finditer(r"\{", text):
+        try:
+            data, _ = decoder.raw_decode(text, match.start())
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            if "reply" in data:
+                return data
+            first = first if first is not None else data
+    return first
 
 
 def parse_model_output(text: str) -> dict:
@@ -234,7 +243,8 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
         return None, [f"Invalid YAML: {exc}"]
 
     # 3. Static check. An ``accounts`` FAIL only means this machine has not bound a connection for a
-    # provider yet; that is not the model's fault, so it is a warning (the UI shows it), not a failure.
+    # provider yet; that is not the model's fault, so it does not fail the proposal. The UI shows it,
+    # like every WARN check, from ``proposal.checks``.
     report = static_check_data(data)
     errors = [f"{c['id']}: {c.get('detail') or 'failed'}" for c in report["checks"]
               if c["status"] == FAIL and c["id"] != "accounts"]
@@ -248,9 +258,8 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
         except yaml.YAMLError:
             old = None  # a broken saved file: diff as if every node were new
     diff = diff_workflows(old if isinstance(old, dict) else None, data)
+    # Removed/changed nodes the user never named (edit only).
     warnings = list(unrequested_changes(diff, last_user_text)) if kind == "edit" else []
-    warnings += [f"{c['id']}: {c.get('detail') or ''}".rstrip(": ") for c in report["checks"]
-                 if c["status"] == WARN or (c["status"] == FAIL and c["id"] == "accounts")]
     return {
         "kind": kind,
         "filename": filename,
@@ -285,10 +294,15 @@ def _clean_messages(messages: Any) -> List[dict]:
 
 
 def _trim_history(messages: List[dict]) -> List[dict]:
-    """Keep the first message (the user's original request) and the last ``HISTORY_TAIL`` ones."""
-    if len(messages) <= HISTORY_TAIL + 1:
+    """Past ``HISTORY_LIMIT`` messages, keep the first user message (the original request) and the
+    last ``HISTORY_TAIL`` ones."""
+    if len(messages) <= HISTORY_LIMIT:
         return list(messages)
-    return [messages[0]] + messages[-HISTORY_TAIL:]
+    tail = messages[-HISTORY_TAIL:]
+    first_index = next(i for i, m in enumerate(messages) if m["role"] == "user")
+    if first_index >= len(messages) - HISTORY_TAIL:
+        return tail
+    return [messages[first_index]] + tail
 
 
 def _read_workflow(workflow: str) -> str:
@@ -304,7 +318,9 @@ def _read_workflow(workflow: str) -> str:
 
 def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pending_yaml: Optional[str],
              request_id: str, call: Optional[ModelCall] = None) -> dict:
-    """One chat turn: ``{reply, quick_replies, proposal, model_used}``; raises ``AssistantError``.
+    """One chat turn: ``{reply, quick_replies, proposal, model_used, validation_errors}``; raises
+    ``AssistantError``. ``validation_errors`` lists what was still wrong when the repair loop gave up
+    (``proposal`` is then None); it is empty otherwise.
 
     ``call`` replaces the provider (tests); ``model_used`` is then None. Blocking: run it in a worker
     thread. ``cancel(request_id)`` from another thread stops it with code ``cancelled``."""
@@ -318,6 +334,8 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
         provider = next(p for p in list_providers() if p["vendor"] == vendor)
         if not provider["available"]:
             raise AssistantError("not_signed_in", f"{provider['label']} is not signed in")
+        # An empty model name is fine: the Claude/Codex CLI providers then omit ``--model`` and the CLI
+        # uses its own default.
         model_used = provider["model"] or ""
         call = _provider_call(provider["connection_id"], model_used)
 
@@ -327,6 +345,8 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
 
     event = threading.Event()
     with _cancel_lock:
+        if request_id in _cancel_events:
+            raise AssistantError("bad_request", f"Request {request_id} is already running")
         _cancel_events[request_id] = event
     try:
         errors: List[str] = []
@@ -334,18 +354,15 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
             text = _guarded_call(call, system, history, event)
             parsed = parse_model_output(text)
             if parsed["proposal"] is None:
-                return {**parsed, "model_used": model_used}
+                return {**parsed, "model_used": model_used, "validation_errors": []}
             proposal, errors = _check_proposal(parsed["proposal"], workflow, saved_text, last_user_text)
             if proposal is not None:
-                return {**parsed, "proposal": proposal, "model_used": model_used}
+                return {**parsed, "proposal": proposal, "model_used": model_used, "validation_errors": []}
             if attempt < MAX_REPAIRS:
                 history = history + [{"role": "assistant", "content": text},
                                      {"role": "user", "content": _repair_request(errors)}]
-        failure = "Could not produce a valid workflow proposal. Remaining errors:\n" + \
-            "\n".join(f"- {e}" for e in errors)
-        reply = f"{parsed['reply']}\n\n{failure}" if parsed["reply"].strip() else failure
-        return {"reply": reply, "quick_replies": parsed["quick_replies"], "proposal": None,
-                "model_used": model_used}
+        # Gave up: the UI shows its own (translated) header above ``validation_errors``.
+        return {**parsed, "proposal": None, "model_used": model_used, "validation_errors": errors}
     finally:
         with _cancel_lock:
             if _cancel_events.get(request_id) is event:
