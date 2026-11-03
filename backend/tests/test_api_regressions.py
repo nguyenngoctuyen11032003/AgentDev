@@ -68,3 +68,33 @@ def test_artifact_stream_with_non_ascii_name(monkeypatch, tmp_path):
     assert resp.status_code == 200
     assert resp.text == "hello"
     assert resp.headers["content-disposition"].startswith("attachment")
+
+
+def test_create_local_tool_rejects_cross_origin():
+    """A foreign website must not be able to write Python tool files (CSRF)."""
+    from agentdev.api.routes import tools as tools_route
+
+    app = FastAPI()
+    app.include_router(tools_route.router)
+    res = TestClient(app).post(
+        "/api/tools/local",
+        json={"filename": "evil", "content": "x = 1"},
+        headers={"origin": "https://evil.example"},
+    )
+    assert res.status_code == 403
+
+
+def test_batch_upload_over_limit_is_rejected(monkeypatch):
+    from agentdev.api.routes import batch as batch_route
+
+    monkeypatch.setattr(batch_route, "ensure_known_session", lambda session_id, require_connection=True: object())
+    monkeypatch.setattr(batch_route, "MAX_BATCH_UPLOAD_BYTES", 10)
+    monkeypatch.setattr(batch_route.BatchRunService, "_resolve_yaml_path", staticmethod(lambda name: name))
+    app = FastAPI()
+    app.include_router(batch_route.router)
+    res = TestClient(app).post(
+        "/api/workflows/batch",
+        data={"session_id": "s", "yaml_file": "x.yaml"},
+        files={"file": ("b.csv", b"task\n" + b"a" * 100, "text/csv")},
+    )
+    assert res.status_code == 413

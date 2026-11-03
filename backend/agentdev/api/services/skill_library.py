@@ -159,7 +159,7 @@ def get_skill(name: str) -> dict:
     if not skill_file.is_file():
         raise FileNotFoundError(name)
     entry = _entry_for(skill_dir).to_dict()
-    entry["content"] = skill_file.read_text(encoding="utf-8")
+    entry["content"] = skill_file.read_text(encoding="utf-8", errors="replace")
     return entry
 
 

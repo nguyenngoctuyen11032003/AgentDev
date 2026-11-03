@@ -65,7 +65,7 @@ def _persist_workflow_from_content(
 async def list_workflows():
     if not YAML_DIR.exists():
         return {"workflows": []}
-    return {"workflows": [file.name for file in YAML_DIR.glob("*.yaml")]}
+    return {"workflows": sorted(file.name for file in YAML_DIR.glob("*.y*ml") if file.suffix in (".yaml", ".yml"))}
 
 
 @router.get("/api/workflows/{filename}/args")

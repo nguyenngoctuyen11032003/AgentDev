@@ -13,6 +13,19 @@ from agentdev.api.state import ensure_known_session
 from agentdev.utils.exceptions import ValidationError, WorkflowExecutionError
 from agentdev.utils.structured_logger import get_server_logger, LogType
 
+_BACKGROUND_TASKS: set = set()
+
+
+def _spawn(coro):
+    """Keep a strong reference so the event loop cannot garbage-collect a running task."""
+    task = asyncio.create_task(coro)
+    if not hasattr(task, "add_done_callback"):
+        return task
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
+
 router = APIRouter()
 
 
@@ -31,7 +44,7 @@ async def execute_workflow(request: WorkflowRequest):
             content={"detail": RUN_IN_PROGRESS_MESSAGE, "code": RUN_IN_PROGRESS_CODE},
         )
     try:
-        asyncio.create_task(
+        _spawn(
             manager.workflow_run_service.start_workflow(
                 request.session_id,
                 request.yaml_file,

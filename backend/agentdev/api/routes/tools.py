@@ -1,9 +1,10 @@
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, constr
 
+from agentdev.connections.security import require_local_origin
 from agentdev.utils.function_catalog import get_function_catalog
 from agentdev.utils.function_manager import FUNCTION_CALLING_DIR
 
@@ -40,7 +41,7 @@ def list_local_tools():
     }
 
 
-@router.post("/api/tools/local")
+@router.post("/api/tools/local", dependencies=[Depends(require_local_origin)])
 def create_local_tool(payload: LocalToolCreateRequest):
     raw_name = payload.filename.strip()
     if not raw_name:

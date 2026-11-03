@@ -8,6 +8,20 @@ from agentdev.api.services.batch_run_service import BatchRunService
 from agentdev.api.state import ensure_known_session
 from agentdev.utils.exceptions import SecurityError, ValidationError
 
+MAX_BATCH_UPLOAD_BYTES = 10 * 1024 * 1024
+_BACKGROUND_TASKS: set = set()
+
+
+def _spawn(coro):
+    """Keep a strong reference so the event loop cannot garbage-collect a running task."""
+    task = asyncio.create_task(coro)
+    if not hasattr(task, "add_done_callback"):
+        return task
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
+
 router = APIRouter()
 
 MAX_PARALLEL = 50  # same upper bound as the Batch run page's settings
@@ -36,7 +50,9 @@ async def execute_batch(
         raise HTTPException(status_code=400, detail=str(exc))
 
     try:
-        content = await file.read()
+        content = await file.read(MAX_BATCH_UPLOAD_BYTES + 1)
+        if len(content) > MAX_BATCH_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Batch file is too large (max 10 MB)")
         tasks, file_base = parse_batch_file(content, file.filename or "batch.csv")
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -49,7 +65,7 @@ async def execute_batch(
             raise HTTPException(status_code=400, detail="log_level must be either DEBUG or INFO")
 
     service = BatchRunService()
-    asyncio.create_task(
+    _spawn(
         service.run_batch(
             session_id,
             yaml_file,
