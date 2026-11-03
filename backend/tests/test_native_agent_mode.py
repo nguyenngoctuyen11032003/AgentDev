@@ -105,6 +105,9 @@ def test_claude_native_argv_cwd_and_activity(workspace):
     assert _arg(argv, "--output-format") == "stream-json"
     assert "--strict-mcp-config" in argv and "--restricted" in argv
     assert _arg(argv, "--permission-prompts") == "none"
+    # The user's own ~/.claude setup (CLAUDE.md, skills, plugins, auto-memory, hooks) stays out; no --bare.
+    assert _arg(argv, "--setting-sources") == "project" and "--disable-slash-commands" in argv
+    assert _arg(argv, "--settings").endswith("agentdev_settings.json") and "--bare" not in argv
     assert "--allowedTools" not in argv and "--add-dir" not in argv
     assert not any("dangerously" in a for a in argv)
     assert "--json-schema" not in argv
@@ -172,6 +175,7 @@ def test_claude_native_retries_without_new_flags_on_old_cli(workspace):
     second = run.call_args_list[1].args[0]
     assert "--restricted" not in second and "--permission-prompts" not in second
     assert "--strict-mcp-config" in second and _arg(second, "--permission-mode") == "acceptEdits"
+    assert _arg(second, "--setting-sources") == "project" and "--disable-slash-commands" in second
     assert resp.message.content == "Fixed the bug."
 
 
@@ -222,6 +226,10 @@ def test_codex_native_read_only_without_commands(workspace):
     assert _arg(argv, "-C") == str(workspace) and kw["cwd"] == str(workspace)
     assert _arg(argv, "--sandbox") == "read-only"
     assert "mcp_servers={}" in argv and "web_search=disabled" in argv
+    # No user skill catalog / plugins / hooks / memories, no session files; config.toml (auth) still loads.
+    assert "skills.include_instructions=false" in argv and "--ephemeral" in argv
+    assert {"apps", "plugins", "hooks", "memories"} <= {argv[i + 1] for i, a in enumerate(argv) if a == "--disable"}
+    assert "--ignore-user-config" not in argv and "project_doc_max_bytes=0" not in argv
     assert "--output-schema" not in argv and argv[-1] == "-"
     assert not any("dangerously" in a or a == "--full-auto" for a in argv)
     assert kw["timeout"] == 1800

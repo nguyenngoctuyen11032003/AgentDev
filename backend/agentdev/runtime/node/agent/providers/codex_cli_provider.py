@@ -40,6 +40,17 @@ from agentdev.utils.token_tracker import TokenUsage
 
 logger = logging.getLogger(__name__)
 
+# Keep the user's own Codex setup out of AgentDev runs (verified on codex-cli 0.166): no skill catalog from
+# ~/.agents/skills / ~/.codex/skills (it alone cost ~8k input tokens and invited Codex to read those files),
+# no MCP servers, apps, plugins, hooks or memories, and no session files. Auth still comes from CODEX_HOME,
+# and config.toml stays loaded (it carries e.g. the Windows sandbox mode). Plain unquoted values: .cmd shims
+# go through cmd.exe, which mangles quotes.
+CODEX_ISOLATION_ARGS = (
+    "--ephemeral",
+    "-c", "skills.include_instructions=false", "-c", "mcp_servers={}",
+    "--disable", "apps", "--disable", "plugins", "--disable", "hooks", "--disable", "memories",
+)
+
 # Codex enforces --output-schema in OpenAI's strict mode: every object closed and fully
 # required, so tool arguments travel as a JSON-encoded string (parse_tool_reply decodes it).
 _ARGS_NOTE = (
@@ -160,7 +171,9 @@ class CodexCliProvider(ModelProvider):
             out_file = os.path.join(cwd, "last_message.txt")
             cmd = [
                 client.path, "exec", "--skip-git-repo-check", "--sandbox", "read-only",
-                "--color", "never", "--json", "-o", out_file,
+                "--color", "never", "--json", "-o", out_file, *CODEX_ISOLATION_ARGS,
+                # The temp working dir has no AGENTS.md of interest; never pick up one from a parent folder.
+                "-c", "project_doc_max_bytes=0",
             ]
             if tool_specs:
                 schema_file = os.path.join(cwd, "reply_schema.json")
@@ -213,7 +226,8 @@ class CodexCliProvider(ModelProvider):
         Shell commands are how Codex works, so the sandbox is the gate: ``workspace-write`` (edits and
         commands confined to the workspace, no network) only when commands are allowed (node setting AND
         server opt-in), otherwise ``read-only`` (Codex can inspect but not change the project). MCP servers,
-        web search and apps are switched off for the run. Never ``--dangerously-bypass-approvals-and-sandbox``.
+        web search, apps, plugins, hooks, memories and the user's skill catalog are switched off
+        for the run. Never ``--dangerously-bypass-approvals-and-sandbox``.
         """
         timeout = self.params.get("timeout", DEFAULT_NATIVE_TIMEOUT)
         sandbox = "workspace-write" if native.allow_commands else "read-only"
@@ -221,11 +235,9 @@ class CodexCliProvider(ModelProvider):
             out_file = os.path.join(staging, "last_message.txt")
             cmd = [
                 client.path, "exec", "--skip-git-repo-check", "-C", native.workspace, "--sandbox", sandbox,
-                "--color", "never", "--json", "-o", out_file,
-                # Plain (unquoted) TOML-ish values: .cmd shims go through cmd.exe, which mangles quotes.
-                "-c", "mcp_servers={}", "-c", "web_search=disabled",
-                "-c", "sandbox_workspace_write.network_access=false",
-                "--disable", "apps", "--disable", "plugins",
+                "--color", "never", "--json", "-o", out_file, *CODEX_ISOLATION_ARGS,
+                # The project's own AGENTS.md still applies; user-level skills/plugins/MCP do not.
+                "-c", "web_search=disabled", "-c", "sandbox_workspace_write.network_access=false",
             ]
             staged = stage_attachments(conversation, staging)
             absolutize_attachments(staged, staging)

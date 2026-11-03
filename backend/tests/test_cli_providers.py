@@ -46,6 +46,7 @@ def test_claude_success_and_stdin():
     assert p.extract_token_usage(resp.raw_response).total_tokens == 5
     # no tools: plain-text path, no schema, no tool protocol, no tool calls
     assert "--json-schema" not in args[0] and "Tool-calling protocol" not in kw["input"]
+    assert "--disable-slash-commands" in args[0] and "--bare" not in args[0]
     assert resp.message.tool_calls == []
 
 
@@ -87,9 +88,14 @@ def test_codex_success_reads_output_file_and_stdin():
             fh.write("answer")
         return _done()
 
-    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake):
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake) as run:
         resp = p.call_model(CliClient("codex"), _conv(), [])
     assert resp.message.content == "answer"
+    cmd = run.call_args.args[0]
+    # The user's skills / AGENTS.md / plugins / MCP servers stay out of the call.
+    for flag in ("skills.include_instructions=false", "project_doc_max_bytes=0", "mcp_servers={}", "--ephemeral"):
+        assert flag in cmd
+    assert "plugins" in cmd and "--ignore-user-config" not in cmd
 
 
 def test_codex_errors():

@@ -54,6 +54,11 @@ SYSTEM_PROMPT = (
 # Hardening flags of newer Claude Code releases; dropped (once) when an older CLI rejects them.
 _NATIVE_OPTIONAL_FLAGS = (("--restricted",), ("--permission-prompts", "none"))
 
+# Settings layered on native runs so they hold even when an older CLI drops --restricted: no auto-memory
+# section in the system prompt and no hooks (verified on Claude Code 2.1.317). A file, not inline JSON:
+# .cmd shims go through cmd.exe, which mangles the quotes of a JSON argv value.
+_NATIVE_SETTINGS = {"autoMemoryEnabled": False, "disableAllHooks": True}
+
 
 def _raise_claude_error(detail: str) -> None:
     detail = trim(detail)
@@ -104,7 +109,7 @@ class ClaudeCliProvider(ModelProvider):
             system_file = os.path.join(cwd, "agentdev_system.txt")
             with open(system_file, "w", encoding="utf-8") as fh:
                 fh.write(SYSTEM_PROMPT)
-            cmd += ["--system-prompt-file", system_file, "--setting-sources", "project"]
+            cmd += ["--system-prompt-file", system_file, "--setting-sources", "project", "--disable-slash-commands"]
             if tool_specs:
                 # Claude Code's own tools stay disabled; AgentDev tools are offered through the prompt and the
                 # model answers with {text, tool_calls} JSON. --json-schema makes that reply machine-parseable.
@@ -160,7 +165,9 @@ class ClaudeCliProvider(ModelProvider):
         """Full Claude Code agent with cwd = project workspace and only the file tools (+ Bash on opt-in).
 
         ``--restricted`` drops code-running tools not named in ``--tools`` and ignores user/project settings
-        (hooks, extra permissions); ``--strict-mcp-config`` without ``--mcp-config`` loads no MCP server;
+        (hooks, extra permissions); ``--setting-sources project`` + ``--disable-slash-commands`` + the
+        settings file keep that true (no user CLAUDE.md, skills, plugins, auto-memory, hooks) even when an
+        older CLI rejects ``--restricted``; ``--strict-mcp-config`` without ``--mcp-config`` loads no MCP server;
         ``acceptEdits`` auto-approves file edits inside the working directories and ``--permission-prompts
         none`` denies anything else that would need a person. Never ``--dangerously-skip-permissions``.
         """
@@ -170,9 +177,14 @@ class ClaudeCliProvider(ModelProvider):
             # Attachments stay outside the user's project: staged in a temp folder exposed read-only via --add-dir.
             staged = stage_attachments(conversation, staging)
             has_files = absolutize_attachments(staged, staging)
+            settings_file = os.path.join(staging, "agentdev_settings.json")
+            with open(settings_file, "w", encoding="utf-8") as fh:
+                json.dump(_NATIVE_SETTINGS, fh)
             base = [
                 client.path, "-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
                 "--tools", ",".join(tools), "--strict-mcp-config",
+                # The user's own setup stays out: no ~/.claude settings, CLAUDE.md, plugins or skills.
+                "--setting-sources", "project", "--disable-slash-commands", "--settings", settings_file,
                 "--permission-mode", "acceptEdits", "--max-turns", str(int(native.max_turns)),
             ]
             if native.allow_commands:
