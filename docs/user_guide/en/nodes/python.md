@@ -77,9 +77,8 @@ nodes:
   - id: LLM Generator
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
-      api_key: ${API_KEY}
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       role: You need to generate executable Python code based on user input. The code should be wrapped in ```python ```.
 
   - id: Result Parser

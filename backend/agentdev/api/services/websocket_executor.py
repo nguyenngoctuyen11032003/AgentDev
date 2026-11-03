@@ -27,6 +27,7 @@ class WebSocketGraphExecutor(GraphExecutor):
         websocket_manager,
         session_store: WorkflowSessionStore,
         cancel_event=None,
+        workspace_root=None,
     ):
         self.session_id = session_id
         self.session_controller = session_controller
@@ -55,6 +56,7 @@ class WebSocketGraphExecutor(GraphExecutor):
             session_id=session_id,
             workspace_hook_factory=hook_factory,
             cancel_event=cancel_event,
+            workspace_root=workspace_root,
         )
 
     def _create_logger(self) -> WorkflowLogger:

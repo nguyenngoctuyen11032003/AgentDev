@@ -238,7 +238,7 @@
               <code>vars</code> - {{ $t('batch_run.manual_vars') }}
               <div class="manual-example">
                 <pre>{{
-JSON.stringify({"BASE_URL": "openai.com","API_KEY": "123"}, null, 2)
+JSON.stringify({"LANGUAGE": "vi", "MAX_ITERATIONS": "3"}, null, 2)
 }}</pre>
               </div>
             </div>
@@ -1535,7 +1535,7 @@ watch(viewMode, async (mode) => {
   border-top-left-radius: 2px;
   padding: 0 16px;
   position: relative;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
 }
 
 .dialogue-right .message-bubble {
@@ -1613,7 +1613,7 @@ watch(viewMode, async (mode) => {
 /* Fade-slide-in animation for entries */
 .loading-entry-enter-active,
 .loading-entry-leave-active {
-  transition: all 0.22s ease-out;
+  transition: opacity 0.22s ease-out, transform 0.22s ease-out;
 }
 
 .loading-entry-enter-from,
@@ -1704,7 +1704,7 @@ watch(viewMode, async (mode) => {
   color: var(--text-1);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
 
 .artifact-download-button:hover:not(:disabled) {
@@ -1737,7 +1737,7 @@ watch(viewMode, async (mode) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
   padding: 0;
   outline: none;
   position: relative;
@@ -1803,7 +1803,7 @@ watch(viewMode, async (mode) => {
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
 }
 
 .attachment-button:hover:not(:disabled) {
@@ -2170,7 +2170,7 @@ watch(viewMode, async (mode) => {
   color: rgb(var(--ink) / 0.6);
   font-size: 13px;
   text-align: center;
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
   font-weight: 500;
 }
 

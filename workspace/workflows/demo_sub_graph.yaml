@@ -12,7 +12,6 @@ graph:
     type: agent
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-sonnet-5-5
       role: 'You are a literary writer, skilled at generating a complete **prose** piece based on a word or phrase input by the user.
 
@@ -35,7 +34,6 @@ graph:
           type: agent
           config:
             provider: anthropic
-            api_key: ${ANTHROPIC_API_KEY}
             name: claude-sonnet-5-5
             role: 'You are an editor, skilled at providing article revision suggestions.
 
@@ -51,7 +49,6 @@ graph:
   - id: C
     type: agent
     config:
-      api_key: ${ANTHROPIC_API_KEY}
       provider: anthropic
       name: claude-sonnet-5-5
       role: 'You are a writer, skilled at revising articles.

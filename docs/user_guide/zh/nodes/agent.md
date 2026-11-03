@@ -1,22 +1,35 @@
 # Agent 节点
 
-Agent 节点是 AgentDev 平台中最核心的节点类型，用于调用大语言模型 (LLM) 完成文本生成、对话、推理等任务。它支持多种模型提供商（OpenAI、Gemini、Anthropic Claude 等），并可配置工具调用、思维链、记忆等高级功能。
+Agent 节点是 AgentDev 平台中最核心的节点类型，用于调用大语言模型 (LLM) 完成文本生成、对话、推理等任务。它运行在 Web 控制台 Connections（连接）页面创建的已登录账号（Claude、ChatGPT、Gemini）上，并可配置工具调用、思维链、记忆等高级功能。
 
 ## 配置项
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| `provider` | string | 是 | `openai` | 模型提供商名称，如 `openai`、`gemini`、`anthropic` |
-| `name` | string | 是 | - | 模型名称，如 `gpt-4o`、`gemini-2.0-flash-001`、`claude-opus-5-5` |
+| `connection` | string | 否 | 默认连接 | Connections 页面中的账号连接 ID（节点表单字段 "Account connection"，默认连接会被预先选中）。省略时在运行时自动绑定（见下文） |
+| `provider` | string | 否 | - | 旧工作流保留的厂商提示（`anthropic`、`openai`、`gemini`），仅在缺少 `connection` 时用于挑选账号 |
+| `name` | string | 是 | - | 模型名称，如 `claude-opus-5-5`、`gpt-6.1-sol`、`gemini-2.5-flash`。未在任何地方设置的 `${MODEL_NAME}` 类占位符会回退为该账号的默认模型 |
 | `role` | text | 否 | - | 系统提示词 (System Prompt) |
-| `base_url` | string | 否 | 提供商默认 | API 端点 URL，支持 `${VAR}` 占位符 |
-| `api_key` | string | 否 | - | API 密钥，建议使用环境变量 `${API_KEY}` |
 | `params` | dict | 否 | `{}` | 模型调用参数（temperature、top_p 等） |
 | `tooling` | object | 否 | - | 工具调用配置，详见 [Tooling 模块](../modules/tooling/README.md) |
 | `thinking` | object | 否 | - | 思维链配置，如 chain-of-thought、reflection |
 | `memories` | list | 否 | `[]` | 记忆绑定配置，详见 [Memory 模块](../modules/memory.md) |
 | `skills` | object | 否 | - | Agent Skills 发现配置，以及内置的技能激活/文件读取工具 |
 | `retry` | object | 否 | - | 自动重试策略配置 |
+
+不再使用 API 密钥：`api_key` 与 `base_url` 字段已移除，旧 YAML 中若存在会被忽略。
+
+### 账号连接
+
+在 Web 控制台的 Connections（连接）页面登录账号：
+
+| 账号 | 提供商 | 登录方式 |
+|------|--------|----------|
+| Claude | `claude_cli` | 本地 `claude` CLI（Claude Code 登录） |
+| ChatGPT | `codex_cli` | 本地 `codex` CLI（`codex login`，使用 ChatGPT 登录；以 API key 登录的 Codex 会被拒绝） |
+| Gemini | `gemini` | Google 账号登录（服务端需设置 `GOOGLE_OAUTH_CLIENT_ID`、`GOOGLE_OAUTH_CLIENT_SECRET`、`PUBLIC_BASE_URL`） |
+
+运行时，未设置 `connection` 的节点会自动绑定到默认连接（除非在 Connections 页面修改，否则为 Claude）；否则绑定到与 `provider` 厂商提示相同厂商的已登录账号（`anthropic` → Claude，`openai` → Codex，`gemini` → Google）；再否则绑定到任一已登录账号（模型会切换为该账号的默认模型）。若没有任何已登录账号，运行会失败，并提示前往 Connections 页面。
 
 ### 重试策略配置 (retry)
 
@@ -61,10 +74,8 @@ nodes:
   - id: Writer
     type: agent
     config:
-      provider: openai
-      base_url: ${BASE_URL}
-      api_key: ${API_KEY}
-      name: gpt-4o
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       role: |
         你是一位专业的技术文档撰写者，请用清晰简洁的语言回答问题。
       params:
@@ -79,9 +90,8 @@ nodes:
   - id: Assistant
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
-      api_key: ${API_KEY}
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       tooling:
         type: function  # 工具类型：function, mcp_remote, mcp_local
         config:
@@ -98,9 +108,8 @@ nodes:
   - id: MCP Agent
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
-      api_key: ${API_KEY}
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       tooling:
         type: mcp_remote
         config:
@@ -117,9 +126,8 @@ nodes:
   - id: Local MCP Agent
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
-      api_key: ${API_KEY}
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       tooling:
         type: mcp_local
         config:
@@ -133,31 +141,29 @@ nodes:
 
 ### Gemini 多模态配置
 
+需要先在 Connections（连接）页面使用 Google 账号登录 Gemini。
+
 ```yaml
 nodes:
   - id: Vision Agent
     type: agent
     config:
-      provider: gemini
-      base_url: https://generativelanguage.googleapis.com
-      api_key: ${GEMINI_API_KEY}
+      connection: <your-gemini-connection-id>
       name: gemini-2.5-flash-image
       role: 你需要根据用户的输入，生成相应的图像内容。
 ```
 
-### 使用 Claude (Anthropic)
+### 使用 Claude 与 ChatGPT（CLI 账号）
 
-`anthropic` 提供商通过官方 `anthropic` Python SDK 调用 Claude 模型（Messages API，内部使用流式传输，长输出不会超时）。
+Claude 账号通过本地 `claude` CLI（`claude_cli` 提供商）运行，ChatGPT 账号通过本地 `codex` CLI（`codex_cli` 提供商）运行。两者都支持工具调用（函数工具、MCP 工具、Skills）；Codex 会强制使用 JSON 回复格式（schema）来返回工具调用。
 
 ```yaml
 nodes:
   - id: Claude Agent
     type: agent
     config:
-      provider: anthropic
+      connection: <your-claude-connection-id>
       name: claude-opus-5-5          # 也可用：claude-sonnet-5-5、claude-haiku-5-5、claude-fable-5-1
-      api_key: ${ANTHROPIC_API_KEY}  # 不要复用 ${API_KEY}/${BASE_URL}（它们是 OpenAI 的配置）
-      # base_url: ${ANTHROPIC_BASE_URL}  # 可选；省略则使用官方端点
       role: 你是一个乐于助人的助手。
       tooling:
         - type: function
@@ -166,35 +172,12 @@ nodes:
             tools:
               - name: get_weather
       params:
-        effort: medium
-        max_tokens: 16000
+        timeout: 300
 ```
 
-- `api_key`：优先使用节点配置，否则读取环境变量 `ANTHROPIC_API_KEY`。`base_url`：优先使用节点配置，否则使用 `ANTHROPIC_BASE_URL` 或官方端点。
-- 支持：文本、系统提示词、工具调用（函数工具、MCP 工具、Skills）、并行工具调用、图片输入（png/jpeg/gif/webp）、PDF 输入、文本文件附件（以文本内联）、自适应思考 (adaptive thinking)、提示缓存（默认开启）、Token 用量统计（含缓存读/写 Token）。
-- 可运行示例见 `workspace/workflows/demo_claude.yaml`。
-
-| 参数 | 说明 |
-|------|------|
-| `max_tokens` | 最大输出 Token 数（默认 `64000`） |
-| `effort` | `low` / `medium` / `high` / `xhigh` / `max`（映射为 `output_config.effort`） |
-| `thinking` | 思考配置字典，原样透传；设为 `false` 或 `"off"` 则不发送 |
-| `thinking_display` | `summarized` 或 `omitted` |
-| `prompt_caching` | 是否启用提示缓存（布尔值，默认 `true`） |
-| `tool_choice` | `auto` / `none` / `required`，或原生 Anthropic `tool_choice` 字典 |
-| `stop_sequences` | 自定义停止序列列表 |
-| `timeout` | 请求超时（秒） |
-| `fallbacks` | 服务端拒答回退。使用官方端点时，`claude-opus-5-5`、`claude-fable-5-1`、`claude-opus-5`、`claude-sonnet-5-5` 默认为 `"default"`；设为 `false` 可关闭 |
-| `metadata` | 请求元数据字典 |
-| `inference_geo` | 推理地域 |
-| `extra_headers` | 额外 HTTP 请求头 |
-| `temperature` / `top_p` / `top_k` | 当前 Claude 模型不接受这些参数，会被丢弃并给出警告；设置 `allow_sampling_params: true` 可保留 |
-
-**限制**
-
-- 仅输出文本：不支持图片/音频/视频生成。
-- 音频/视频输入不会原生发送，而是以文本描述的形式提供给模型。
-- Anthropic 没有 embedding 模型：记忆模块的 `embedding` 仍需使用 `openai` 或 `local`。
+- 凭据来自已登录的 CLI 账号，无需在 YAML 或 `.env` 中配置任何密钥。
+- `params.timeout`：CLI 调用超时（秒，默认 `300`）。
+- 可运行示例见 `workspace/workflows/demo_claude.yaml`（其中使用 `provider: anthropic` 厂商提示，运行时会自动绑定到已登录的 Claude 账号）。
 
 ### 配置重试策略
 
@@ -203,9 +186,8 @@ nodes:
   - id: Robust Agent
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
-      api_key: ${API_KEY}
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       retry:  # retry 默认启用，可以自己配置
         enabled: true
         max_attempts: 3
@@ -220,9 +202,8 @@ nodes:
   - id: Skilled Agent
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
-      api_key: ${API_KEY}
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       skills:
         enabled: true
         allow:

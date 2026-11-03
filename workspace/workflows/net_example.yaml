@@ -16,7 +16,6 @@ graph:
       type: agent
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         input_mode: messages
         name: claude-sonnet-5-5
         role: |
@@ -29,7 +28,6 @@ graph:
       type: agent
       config:
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
         input_mode: messages
         name: claude-sonnet-5-5
         role: |
@@ -51,7 +49,6 @@ graph:
         role: |
           你是一位编辑，擅长对文章进行整合和润色。
           请根据输入的文章与修改建议，对文章进行润色和修改，直接输出修改后的文章。
-        api_key: ${ANTHROPIC_API_KEY}
         params:
           max_tokens: 4000
         tooling: []
@@ -69,7 +66,6 @@ graph:
         role: |
           你是一位诗人，擅长根据用户输入的一个词句生成一首古体诗。
           用户会输入一个词语或一个短句，你需要据此生成一首古体诗，每句五字还是七字由你决定。
-        api_key: ${ANTHROPIC_API_KEY}
         params:
           temperature: 0.1
           max_tokens: 4000

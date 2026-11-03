@@ -1,6 +1,10 @@
 import i18n from '@/i18n'
+import { notifyWorkflowChanged } from '@/utils/workflowSync.js'
 
 const apiUrl = (path) => path
+
+// Workflow reads must always reflect the latest save (another tab may have just edited it)
+const FRESH = { cache: 'no-store' }
 
 const t = (key, params = {}) => i18n.global.t(key, params)
 
@@ -121,6 +125,7 @@ export async function postYaml(filename, content) {
 
       // If status is missing, content validation failed and detail contains the error
       if (data.status) {
+        notifyWorkflowChanged(fullFilename)
         return {
           success: true,
           message: t('common.api_success.yaml_saved')
@@ -160,6 +165,7 @@ export async function updateYaml(filename, content) {
     const data = await response.json().catch(() => ({}))
 
     if (response.ok) {
+      notifyWorkflowChanged(data?.filename || yamlFilename)
       return {
         success: true,
         filename: data?.filename || yamlFilename,
@@ -192,6 +198,7 @@ export async function postYamlNameChange(filename, newFilename) {
     const data = await response.json().catch(() => ({}))
 
     if (response.ok) {
+      notifyWorkflowChanged(data?.filename || yamlNewFilename, { kind: 'rename', previous: yamlFilename })
       return {
         success: true,
         filename: data?.filename || yamlNewFilename,
@@ -224,6 +231,7 @@ export async function postYamlCopy(filename, newFilename) {
     const data = await response.json().catch(() => ({}))
 
     if (response.ok) {
+      notifyWorkflowChanged(data?.filename || yamlNewFilename, { kind: 'copy' })
       return {
         success: true,
         filename: data?.filename || yamlNewFilename,
@@ -241,7 +249,7 @@ export async function postYamlCopy(filename, newFilename) {
 // Load the YAML file list from the API with names and descriptions
 export async function fetchWorkflowsWithDesc() {
   try {
-    const response = await fetch(apiUrl('/api/workflows'))
+    const response = await fetch(apiUrl('/api/workflows'), FRESH)
     if (!response.ok) {
       throw await responseError('errors.api.load_workflows_failed', response)
     }
@@ -251,7 +259,7 @@ export async function fetchWorkflowsWithDesc() {
     const filesWithDesc = await Promise.all(
       data.workflows.map(async (filename) => {
         try {
-          const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(filename)}/desc`))
+          const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(filename)}/desc`), FRESH)
           const fileData = await response.json()
           return {
             name: filename,
@@ -282,7 +290,7 @@ export async function fetchWorkflowsWithDesc() {
 // Fetch YAML file content
 export async function fetchWorkflowYAML(filename) {
   try {
-    const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(filename)}/get`))
+    const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(filename)}/get`), FRESH)
     if (!response.ok) {
       throw await responseError('errors.api.load_workflow_failed', response)
     }
@@ -298,7 +306,7 @@ export async function fetchWorkflowYAML(filename) {
 export async function fetchYaml(filename) {
   try {
     const yamlFilename = addYamlSuffix(filename)
-    const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(yamlFilename)}/get`))
+    const response = await fetch(apiUrl(`/api/workflows/${encodeURIComponent(yamlFilename)}/get`), FRESH)
 
     const data = await response.json().catch(() => ({}))
 
@@ -319,7 +327,7 @@ export async function fetchYaml(filename) {
 // Fetch the VueFlow graph
 export async function fetchVueGraph(key) {
   try {
-    const response = await fetch(apiUrl(`/api/vuegraphs/${encodeURIComponent(key)}`))
+    const response = await fetch(apiUrl(`/api/vuegraphs/${encodeURIComponent(key)}`), FRESH)
     const data = await response.json().catch(() => ({}))
 
     if (response.ok) {
@@ -354,6 +362,7 @@ export async function postVuegraphs({ filename, content }) {
     const data = await response.json().catch(() => ({}))
 
     if (response.ok) {
+      notifyWorkflowChanged(filename, { kind: 'graph' })
       return {
         success: true,
         message: t('common.api_success.graph_saved')
@@ -543,95 +552,95 @@ export async function postFile(sessionId, file) {
 }
 
 // ---------------------------------------------------------------------------
-// Project (whole folder) uploads
+// Saved workflow sessions (sidebar history; survives reloads and server restarts)
 // ---------------------------------------------------------------------------
 
-// Keep each multipart request small enough for the backend form parser and
-// slow connections; a project is sent as many of these batches.
-const PROJECT_BATCH_MAX_FILES = 50
-const PROJECT_BATCH_MAX_BYTES = 8 * 1024 * 1024
-
-const splitIntoBatches = (entries) => {
-  const batches = []
-  let current = []
-  let currentBytes = 0
-  for (const entry of entries) {
-    const size = entry.file?.size || 0
-    if (current.length && (current.length >= PROJECT_BATCH_MAX_FILES || currentBytes + size > PROJECT_BATCH_MAX_BYTES)) {
-      batches.push(current)
-      current = []
-      currentBytes = 0
-    }
-    current.push(entry)
-    currentBytes += size
+async function sessionsRequest(path, options = {}) {
+  const response = await fetch(apiUrl(`/api/sessions${path}`), {
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  })
+  if (!response.ok) {
+    throw await responseError('errors.api.sessions_failed', response)
   }
-  if (current.length) batches.push(current)
-  return batches
+  return response.json()
 }
 
+export const fetchSessions = async () => (await sessionsRequest('')).sessions || []
+
+export const renameSession = (sessionId, title) =>
+  sessionsRequest(`/${encodeURIComponent(sessionId)}`, { method: 'PATCH', body: JSON.stringify({ title }) })
+
+/** What a finished run delivered (task, each agent's hand-over, changed files, summary) and its review. */
+export const fetchSessionDigest = (sessionId) =>
+  sessionsRequest(`/${encodeURIComponent(sessionId)}/digest`)
+
+/** Save the user's verdict: { verdict: 'approved' | 'rework' | 'pending', rating, tags, feedback, rework_session_id } */
+export const saveSessionReview = (sessionId, review) =>
+  sessionsRequest(`/${encodeURIComponent(sessionId)}/review`, { method: 'PUT', body: JSON.stringify(review) })
+
+// Only a draft (not launched yet) can switch workflow; a launched session keeps its own
+export const updateSessionWorkflow = (sessionId, yamlFile) =>
+  sessionsRequest(`/${encodeURIComponent(sessionId)}`, { method: 'PATCH', body: JSON.stringify({ yaml_file: yamlFile }) })
+
 /**
- * Upload a whole project folder, keeping its structure.
- *
- * @param {string} sessionId
- * @param {string} projectName  top-level folder name
- * @param {{file: File, path: string}[]} entries  path is relative to the project root
- * @param {(progress: {uploadedFiles: number, totalFiles: number}) => void} [onProgress]
+ * Bring a project into a new session from its latest state in an earlier session,
+ * so "new session in this project" needs no folder pick or re-upload.
  */
-export async function uploadProject(sessionId, projectName, entries, onProgress) {
+export async function cloneProjectIntoSession(sessionId, { sourceSessionId, projectId, yamlFile = null }) {
   try {
-    if (!sessionId) {
-      throw new Error(t('errors.api.missing_session_id'))
-    }
-    if (!entries?.length) {
-      throw new Error(t('errors.api.empty_project'))
-    }
-    const base = `/api/uploads/${encodeURIComponent(sessionId)}/projects`
-
-    const createResponse = await fetch(apiUrl(base), {
+    const response = await fetch(apiUrl(`/api/uploads/${encodeURIComponent(sessionId)}/projects/clone`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: projectName })
+      body: JSON.stringify({ source_session_id: sourceSessionId, project_id: projectId, yaml_file: yamlFile })
     })
-    const created = await createResponse.json().catch(() => ({}))
-    if (!createResponse.ok || !created?.project_id) {
-      return failureResult('errors.api.project_upload_failed', createResponse, created)
-    }
-    const projectUrl = `${base}/${encodeURIComponent(created.project_id)}`
-
-    let uploadedFiles = 0
-    let failedFiles = 0
-    const failedPaths = []
-    onProgress?.({ uploadedFiles, totalFiles: entries.length })
-    for (const batch of splitIntoBatches(entries)) {
-      const formData = new FormData()
-      for (const { file, path } of batch) {
-        formData.append('files', file, file.name)
-        formData.append('paths', path)
-      }
-      const response = await fetch(apiUrl(`${projectUrl}/files`), { method: 'POST', body: formData })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        return failureResult('errors.api.project_upload_failed', response, data)
-      }
-      // The backend skips single files it cannot write and reports them here.
-      failedFiles += data?.failed || 0
-      failedPaths.push(...(data?.failed_paths || []))
-      uploadedFiles += batch.length
-      onProgress?.({ uploadedFiles, totalFiles: entries.length })
-    }
-
-    const finalizeResponse = await fetch(apiUrl(`${projectUrl}/finalize`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}'
-    })
-    const data = await finalizeResponse.json().catch(() => ({}))
-    if (!finalizeResponse.ok) {
-      return failureResult('errors.api.project_upload_failed', finalizeResponse, data)
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      return failureResult('errors.api.project_upload_failed', response, data)
     }
     return {
       success: true,
-      message: t('common.api_success.project_uploaded'),
+      kind: 'project',
+      name: data?.name,
+      attachmentId: data?.attachment_id,
+      mimeType: data?.mime_type,
+      size: data?.total_size,
+      fileCount: data?.file_count,
+      workspacePath: data?.workspace_path
+    }
+  } catch (error) {
+    console.error('Error cloning project:', error)
+    return { success: false, message: error?.message || t('errors.api.network') }
+  }
+}
+
+/** Folders on this machine for the in-app "Open folder" picker (no path: home folders and drives). */
+export async function browseLocalFolders(path = '') {
+  const query = path ? `?path=${encodeURIComponent(path)}` : ''
+  const response = await fetch(apiUrl(`/api/local-folders${query}`))
+  if (!response.ok) {
+    throw await responseError('errors.api.local_folders_failed', response)
+  }
+  return response.json()
+}
+
+/**
+ * Open a folder on this machine in place, like "Open Folder" in VS Code: nothing is
+ * uploaded, the agents read and edit the real project.
+ */
+export async function openLocalProject(sessionId, path, { yamlFile = null } = {}) {
+  try {
+    const response = await fetch(apiUrl(`/api/uploads/${encodeURIComponent(sessionId)}/projects/open-local`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, yaml_file: yamlFile })
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      return failureResult('errors.api.project_open_failed', response, data)
+    }
+    return {
+      success: true,
       kind: 'project',
       name: data?.name,
       attachmentId: data?.attachment_id,
@@ -639,17 +648,17 @@ export async function uploadProject(sessionId, projectName, entries, onProgress)
       size: data?.total_size,
       fileCount: data?.file_count,
       workspacePath: data?.workspace_path,
-      failedFiles,
-      failedPaths
+      localPath: data?.local_path,
+      skipped: data?.skipped || 0
     }
   } catch (error) {
-    console.error('Error uploading project:', error)
-    return {
-      success: false,
-      message: error?.message || t('errors.api.network')
-    }
+    console.error('Error opening project folder:', error)
+    return { success: false, message: error?.message || t('errors.api.network') }
   }
 }
+
+export const deleteSession = (sessionId) =>
+  sessionsRequest(`/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
 
 // ---------------------------------------------------------------------------
 // Provider connections (credentials registered once, referenced by nodes)
@@ -672,13 +681,21 @@ export const fetchConnectionVendors = () =>
 export const fetchConnections = () =>
   connectionsRequest('', {}, 'errors.api.connections_failed')
 
-export const createConnection = ({ vendor, label, apiKey, baseUrl = '', authType = 'api_key' }) =>
+// Account connections only (CLI sign-in); Google sign-in goes through the OAuth flow.
+export const createConnection = ({ vendor, label, authType = 'cli' }) =>
   connectionsRequest(
     '',
     {
       method: 'POST',
-      body: JSON.stringify({ vendor, label, api_key: apiKey, base_url: baseUrl, auth_type: authType })
+      body: JSON.stringify({ vendor, label, auth_type: authType })
     },
+    'errors.api.connections_failed'
+  )
+
+export const setDefaultConnection = (id) =>
+  connectionsRequest(
+    '/default',
+    { method: 'PUT', body: JSON.stringify({ connection_id: id }) },
     'errors.api.connections_failed'
   )
 
@@ -704,8 +721,8 @@ export const startGoogleOAuth = (label) =>
 export const pollGoogleOAuth = (state) =>
   connectionsRequest(`/oauth/google/poll?state=${encodeURIComponent(state)}`, {}, 'errors.api.connections_failed')
 
-export const startCliLogin = (vendor) =>
-  connectionsRequest('/cli-login/start', { method: 'POST', body: JSON.stringify({ vendor }) }, 'errors.api.connections_failed')
+export const startCliLogin = (vendor, method = null) =>
+  connectionsRequest('/cli-login/start', { method: 'POST', body: JSON.stringify({ vendor, method }) }, 'errors.api.connections_failed')
 
 export const pollCliLogin = (sessionId) =>
   connectionsRequest(`/cli-login/${encodeURIComponent(sessionId)}`, {}, 'errors.api.connections_failed')
@@ -719,6 +736,12 @@ export const submitCliLoginCode = (sessionId, code) =>
 
 export const cancelCliLogin = (sessionId) =>
   connectionsRequest(`/cli-login/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }, 'errors.api.connections_failed')
+
+export const fetchConnectionModels = (id) =>
+  connectionsRequest(`/${encodeURIComponent(id)}/models`, {}, 'errors.api.connections_failed')
+
+export const fetchConnectionAccount = (id) =>
+  connectionsRequest(`/${encodeURIComponent(id)}/account`, {}, 'errors.api.connections_failed')
 
 export const testConnection = (id) =>
   connectionsRequest(`/${encodeURIComponent(id)}/test`, { method: 'POST' }, 'errors.api.connections_failed')

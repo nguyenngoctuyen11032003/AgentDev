@@ -15,9 +15,8 @@ nodes:
   - id: Thoughtful Agent
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
-      api_key: ${API_KEY}
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       thinking:
         type: reflection
         config:

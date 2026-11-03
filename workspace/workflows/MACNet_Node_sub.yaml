@@ -47,7 +47,6 @@ graph:
           You will start with the "main" file, then go to the ones that are imported by that file, and so on.
           This new program should combine the advantages obtained from the competition between different teams and eliminate all weaknesses.
           Please bear in mind that even if some parts of the improved code may similar to the previous program, do not omit them. Instead, clearly write out each line of the improved code. Furthermore, ensure that the code is fully functional, implementing all functions without the use of placeholders (such as 'pass' and 'Implementation goes here' in Python).
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling: null
         thinking: null

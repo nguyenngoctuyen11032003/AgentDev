@@ -12,8 +12,7 @@ Every workflow file follows the `DesignConfig` root with only three keys: `versi
 ```yaml
 version: 0.4.0
 vars:
-  BASE_URL: https://api.example.com/v1
-  API_KEY: ${API_KEY}
+  MODEL_NAME: claude-opus-5-5
 graph:
   id: paper_gen
   description: Article generation and refinement
@@ -29,12 +28,8 @@ graph:
     - id: Article Writer
       type: agent
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
-        name: gpt-4o
-        params:
-          temperature: 0.1
+        # connection: <your-connection-id>   # optional; omitted here, so the default connection is used
+        name: ${MODEL_NAME}
     - id: Human Reviewer
       type: human
       config:
@@ -57,9 +52,10 @@ graph:
 **Environment Variables & `.env` File**
 
 The system supports referencing variables in YAML configurations using `${VAR}` syntax. These variables can be used in any string field within the configuration. Common use cases include:
-- **API keys**: `api_key: ${API_KEY}`
-- **Service URLs**: `base_url: ${BASE_URL}`
-- **Model names**: `name: ${MODEL_NAME}`
+- **Model names**: `name: ${MODEL_NAME}` (if `MODEL_NAME` is set nowhere, the account's default model is used)
+- **Paths, prompts and other node settings**
+
+Model credentials are never placed in variables: agents use the accounts signed in on the Connections page.
 
 The system automatically loads the `.env` file from the project root (if present) when parsing configurations. Variable resolution follows this priority order:
 
@@ -85,7 +81,7 @@ Further reading: `docs/user_guide/en/field_specs.md` (field catalog), `docs/user
 ## 3. Node Type Cheatsheet
 | Type | Description                                                                                                                                                                  | Key fields | Detailed Docs |
 | --- |------------------------------------------------------------------------------------------------------------------------------------------------------------------------------| --- | --- |
-| `agent` | Runs an LLM-backed agent with optional tools, memories, and thinking phases.                                                                                                 | `provider`, `model`, `prompt_template`, `tooling`, `thinking`, `memories` | [agent.md](nodes/agent.md) |
+| `agent` | Runs an LLM-backed agent with optional tools, memories, and thinking phases.                                                                                                 | `connection`, `name`, `prompt_template`, `tooling`, `thinking`, `memories` | [agent.md](nodes/agent.md) |
 | `python` | Executes Python scripts/commands sharing the `code_workspace/`.                                                                                                              | `entry_script`, `inline_code`, `timeout`, `env` | [python.md](nodes/python.md) |
 | `human` | Pauses in the Web UI awaiting human input.                                                                                                                                   | `prompt`, `timeout`, `attachments` | [human.md](nodes/human.md) |
 | `subgraph` | Embeds a child DAG to reuse complex flows.                                                                                                                                   | `graph_path` or inline `graph` | [subgraph.md](nodes/subgraph.md) |
@@ -97,17 +93,16 @@ Further reading: `docs/user_guide/en/field_specs.md` (field catalog), `docs/user
 Fetch the full schema via `POST /api/config/schema` or inspect the dataclasses inside `backend/agentdev/entity/configs/`.
 
 ## 4. Providers & Agent Settings
-- When a node omits `provider`, the engine uses `globals.default_provider` (e.g., `openai`).
-- Fields such as `model`, `api_key`, and `base_url` accept `${VAR}` placeholders for environment portability.
-- When combining multiple providers, define `globals` in the workflow root (`{ default_provider: ..., retry: {...} }`) if supported by the dataclass.
+- There are no API keys. Agents run on accounts signed in on the web console's Connections page: Claude via the local `claude` CLI (`claude_cli`), ChatGPT via the local `codex` CLI (`codex_cli`, ChatGPT sign-in only), Gemini via Google sign-in (`gemini`).
+- Set `connection: <connection id>` on each agent node (form field "Account connection"; the default connection is preselected). `api_key` and `base_url` no longer exist and are ignored in old YAML.
+- `provider` is optional and only a vendor hint for older workflows. A node without `connection` is bound at run time to the default connection (Claude unless changed), else to a signed-in account of the same vendor (`anthropic` → Claude, `openai` → Codex, `gemini` → Google), else to any signed-in account (model switched to that account's default). With no account signed in, the run fails with a message pointing to the Connections page.
+- `name` accepts `${VAR}` placeholders; a placeholder that is set nowhere falls back to the account's default model.
 
-### 4.1 Gemini Provider Config Example
+### 4.1 Gemini Config Example
 ```yaml
 model:
-  provider: gemini
-  base_url: https://generativelanguage.googleapis.com
-  api_key: ${GEMINI_API_KEY}
-  name: gemini-2.0-flash-001
+  connection: <your-gemini-connection-id>
+  name: gemini-2.5-flash
   input_mode: messages
   params:
     response_modalities: ["text", "image"]
@@ -115,19 +110,17 @@ model:
       - category: HARM_CATEGORY_SEXUAL
         threshold: BLOCK_LOWER
 ```
-The Gemini Provider supports multi-modal input (images/video/audio are automatically converted to Parts) and supports `function_calling_config` to control tool execution behavior.
+The Gemini Provider (Google sign-in) supports multi-modal input (images/video/audio are automatically converted to Parts) and supports `function_calling_config` to control tool execution behavior. Google sign-in requires `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and `PUBLIC_BASE_URL` on the server (OAuth client settings, not API keys).
 
-### 4.2 Anthropic Claude Provider Config Example
+### 4.2 Claude / ChatGPT (CLI) Config Example
 ```yaml
 model:
-  provider: anthropic
-  api_key: ${ANTHROPIC_API_KEY}   # not ${API_KEY}; base_url optional (${ANTHROPIC_BASE_URL})
+  connection: <your-claude-connection-id>
   name: claude-opus-5-5
   params:
-    effort: medium
-    max_tokens: 16000
+    timeout: 300
 ```
-The Anthropic provider supports tool use, image/PDF input, adaptive thinking and prompt caching; output is text only. See [Agent node: Using Claude](nodes/agent.md#using-claude-anthropic) for all `params`.
+The `claude_cli` and `codex_cli` providers both support tools (function calling); Codex enforces a JSON reply schema. See [Agent node: Using Claude and ChatGPT](nodes/agent.md#using-claude-and-chatgpt-cli-accounts).
 
 ## 5. Edges & Conditions
 - Basic edge:

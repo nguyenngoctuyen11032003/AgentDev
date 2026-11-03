@@ -51,9 +51,8 @@ nodes:
   - id: Article Writer
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
-      api_key: ${API_KEY}
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       role: 你是一位专业作家，根据用户要求撰写文章。
 
   - id: Human Reviewer
@@ -83,8 +82,8 @@ nodes:
   - id: Draft Generator
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
+      connection: <your-connection-id>
+      name: claude-opus-5-5
 
   - id: Content Review
     type: human

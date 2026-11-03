@@ -54,14 +54,10 @@ class GeminiProvider(ModelProvider):
             self._strip_api_key_header(client)
             return client
 
-        if self.api_key:
-            client_kwargs["api_key"] = self.api_key
-
-        http_options = self._build_http_options(base_url)
-        if http_options:
-            client_kwargs["http_options"] = http_options
-
-        return genai.Client(**client_kwargs)
+        # Only Google sign-in is supported: there is no API-key mode any more.
+        raise ValueError(
+            "Gemini runs only with a Google account sign-in. Connect Google Gemini on the Connections page."
+        )
 
     @staticmethod
     def _strip_api_key_header(client: Any) -> None:
@@ -636,14 +632,6 @@ class GeminiProvider(ModelProvider):
             )
 
         return genai_types.GenerateContentConfig(**config_kwargs)
-
-    def _build_http_options(self, base_url: str) -> Optional[genai_types.HttpOptions]:
-        if not base_url:
-            return None
-        try:
-            return genai_types.HttpOptions(base_url=base_url, timeout=4 * 60 * 1000)  # 4 min
-        except Exception:
-            return None
 
     def _coerce_image_config(self, image_config: Any) -> Any:
         if isinstance(image_config, genai_types.ImageConfig):

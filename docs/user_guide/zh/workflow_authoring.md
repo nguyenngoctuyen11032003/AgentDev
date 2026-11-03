@@ -12,8 +12,7 @@
 ```yaml
 version: 0.4.0
 vars:
-  BASE_URL: https://api.example.com/v1
-  API_KEY: ${API_KEY}
+  MODEL_NAME: claude-opus-5-5
 graph:
   id: paper_gen
   description: 文章生成与润色
@@ -29,12 +28,8 @@ graph:
     - id: Article Writer
       type: agent
       config:
-        provider: openai
-        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
-        name: gpt-4o
-        params:
-          temperature: 0.1
+        # connection: <your-connection-id>   # 可选；此处省略，因此使用默认连接
+        name: ${MODEL_NAME}
     - id: Human Reviewer
       type: human
       config:
@@ -57,9 +52,10 @@ graph:
 **环境变量与 `.env` 文件**
 
 系统支持在 YAML 配置中使用 `${VAR}` 语法引用变量。这些变量可用于配置中的任意字符串字段，常见用途包括：
-- **API 密钥**：`api_key: ${API_KEY}`
-- **服务地址**：`base_url: ${BASE_URL}`
-- **模型名称**：`name: ${MODEL_NAME}`
+- **模型名称**：`name: ${MODEL_NAME}`（若 `MODEL_NAME` 未在任何地方设置，则使用账号的默认模型）
+- **路径、提示词及其他节点设置**
+
+模型凭据不会放在变量中：Agent 使用在 Connections（连接）页面登录的账号。
 
 系统在解析配置时会自动加载项目根目录下的 `.env` 文件（若存在）。变量解析的优先级如下：
 
@@ -85,7 +81,7 @@ graph:
 ## 3. 节点类型速览
 | 类型 | 描述                                       | 关键字段 | 详细文档 |
 | --- |------------------------------------------| --- | --- |
-| `agent` | 调用 LLM，支持工具、记忆、thinking                  | `provider`, `model`, `prompt_template`, `tooling`, `thinking`, `memories` | [agent.md](nodes/agent.md) |
+| `agent` | 调用 LLM，支持工具、记忆、thinking                  | `connection`, `name`, `prompt_template`, `tooling`, `thinking`, `memories` | [agent.md](nodes/agent.md) |
 | `python` | 执行 Python 代码（脚本或指令），共享 `code_workspace/` | `entry_script`, `inline_code`, `timeout`, `env` | [python.md](nodes/python.md) |
 | `human` | 在 Web UI 阻塞等待人工输入                        | `prompt`, `timeout`, `attachments` | [human.md](nodes/human.md) |
 | `subgraph` | 嵌入子 DAG，复用复杂流程                           | `graph_path` 或内联 `graph` | [subgraph.md](nodes/subgraph.md) |
@@ -97,17 +93,16 @@ graph:
 
 
 ## 4. Provider 与 Agent 设置
-- `provider` 字段缺省时，使用 `globals.default_provider`（如 `openai`）。
-- `model`、`api_key`、`base_url` 等字段支持 `${VAR}` 占位，便于跨环境复用。
-- 对接多个 Provider 时，可在 workflow 层设置 `globals`: `{ default_provider: ..., retry: {...} }`（若 dataclass 支持）。
+- 不再使用 API 密钥。Agent 运行在 Web 控制台 Connections（连接）页面登录的账号上：Claude 通过本地 `claude` CLI（`claude_cli`），ChatGPT 通过本地 `codex` CLI（`codex_cli`，仅支持 ChatGPT 登录），Gemini 通过 Google 账号登录（`gemini`）。
+- 在每个 Agent 节点上设置 `connection: <connection id>`（表单字段 "Account connection"，默认连接会被预先选中）。`api_key` 与 `base_url` 字段已移除，旧 YAML 中会被忽略。
+- `provider` 为可选字段，仅作为旧工作流的厂商提示。未设置 `connection` 的节点在运行时会绑定到默认连接（未修改时为 Claude）；否则绑定到同厂商的已登录账号（`anthropic` → Claude，`openai` → Codex，`gemini` → Google）；再否则绑定到任一已登录账号（模型切换为该账号的默认模型）。若没有任何已登录账号，运行会失败，并提示前往 Connections 页面。
+- `name` 支持 `${VAR}` 占位；未在任何地方设置的占位符会回退为账号的默认模型。
 
-### 4.1 Gemini Provider 配置示例
+### 4.1 Gemini 配置示例
 ```yaml
 model:
-  provider: gemini
-  base_url: https://generativelanguage.googleapis.com
-  api_key: ${GEMINI_API_KEY}
-  name: gemini-2.0-flash-001
+  connection: <your-gemini-connection-id>
+  name: gemini-2.5-flash
   input_mode: messages
   params:
     response_modalities: ["text", "image"]
@@ -115,19 +110,17 @@ model:
       - category: HARM_CATEGORY_SEXUAL
         threshold: BLOCK_LOWER
 ```
-Gemini Provider 支持多模态输入（图片/视频/音频会自动转换为 Part），并支持 `function_calling_config` 来控制工具调用行为。
+Gemini Provider（Google 账号登录）支持多模态输入（图片/视频/音频会自动转换为 Part），并支持 `function_calling_config` 来控制工具调用行为。Google 登录需要在服务端设置 `GOOGLE_OAUTH_CLIENT_ID`、`GOOGLE_OAUTH_CLIENT_SECRET` 和 `PUBLIC_BASE_URL`（OAuth 客户端配置，不是 API 密钥）。
 
-### 4.2 Anthropic Claude Provider 配置示例
+### 4.2 Claude / ChatGPT（CLI）配置示例
 ```yaml
 model:
-  provider: anthropic
-  api_key: ${ANTHROPIC_API_KEY}   # 不要使用 ${API_KEY}；base_url 可选（${ANTHROPIC_BASE_URL}）
+  connection: <your-claude-connection-id>
   name: claude-opus-5-5
   params:
-    effort: medium
-    max_tokens: 16000
+    timeout: 300
 ```
-Anthropic Provider 支持工具调用、图片/PDF 输入、自适应思考与提示缓存；仅输出文本。完整 `params` 说明见 [Agent 节点：使用 Claude](nodes/agent.md#使用-claude-anthropic)。
+`claude_cli` 与 `codex_cli` 提供商都支持工具（函数调用）；Codex 会强制使用 JSON 回复格式（schema）。详见 [Agent 节点：使用 Claude 与 ChatGPT](nodes/agent.md#使用-claude-与-chatgptcli-账号)。
 
 ## 5. 边与条件
 - 基本边：

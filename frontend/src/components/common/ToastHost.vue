@@ -1,5 +1,5 @@
 <script setup>
-import { toasts, dismissToast } from '@/utils/toast'
+import { toasts, dismissToast, runToastAction } from '@/utils/toast'
 
 const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
 </script>
@@ -21,6 +21,14 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
           <ul v-if="item.items?.length" class="toast-items">
             <li v-for="line in item.items" :key="line">{{ line }}</li>
           </ul>
+          <button
+            v-if="item.action"
+            type="button"
+            class="toast-action"
+            @click="runToastAction(item.id)"
+          >
+            {{ item.action.label }}
+          </button>
         </div>
         <button
           type="button"
@@ -115,6 +123,27 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
   line-height: 1.5;
   color: var(--text-muted-6);
   overflow-wrap: anywhere;
+}
+
+.toast-action {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--toast-accent);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: rgb(var(--ink) / 0.08);
+}
+
+.toast-action:focus-visible {
+  outline: 2px solid var(--toast-accent);
+  outline-offset: 2px;
 }
 
 .toast-close {

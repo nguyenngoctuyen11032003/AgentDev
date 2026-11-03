@@ -199,6 +199,7 @@ import { fetchConfigSchema, postYaml, fetchWorkflowYAML, updateYaml } from '@/ap
 import { configStore } from '@/stores/configStore.js'
 import DynamicFormField from './DynamicFormField.vue'
 import InlineConfigRenderer from './InlineConfigRenderer.vue'
+import { confirmDialog } from '@/utils/confirm'
 import {
   isListField,
   hasChildRoutes,
@@ -398,7 +399,7 @@ const hasAdvancedField = (fields, fieldFilter = null, parentContext = null) => {
     fieldsToCheck = nonInlineFields.filter(field => allowed.has(field.name))
   }
 
-  return fieldsToCheck.some(field => Boolean(field?.advance))
+  return fieldsToCheck.some(field => Boolean(field?.advance) && !field?.hidden)
 }
 
 
@@ -692,6 +693,11 @@ const createModalState = (
   modalState.inlineDisplayFields = markRaw(computeInlineDisplayFields(modalState))
 
   schemaFields.forEach(field => {
+    // Hidden fields (e.g. the vendor hint set by the account connection) are never pre-filled;
+    // values already in the YAML are still loaded below and kept.
+    if (field.hidden) {
+      return
+    }
     if (field.childNode) {
       modalState.formData[field.name] = isListField(field) ? [] : null
       return
@@ -1430,7 +1436,12 @@ const deleteEntry = async (modalId) => {
     : collectionField === 'edges'
       ? t('form_generator.entity_edge')
       : t('form_generator.entity_entry')
-  const confirmed = window.confirm(t('form_generator.confirm_delete', { entity: entityLabel }))
+  const confirmed = await confirmDialog({
+    title: t('form_generator.confirm_delete', { entity: entityLabel }),
+    message: t('form_generator.confirm_delete_detail'),
+    confirmText: t('confirm.delete'),
+    tone: 'danger'
+  })
   if (!confirmed) {
     return
   }

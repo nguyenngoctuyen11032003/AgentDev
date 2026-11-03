@@ -62,9 +62,12 @@ Install everything at once with `make install`, or step by step:
     ```bash
     cp .env.example .env
     ```
-*   **Model Keys**: Set `API_KEY` and `BASE_URL` in `.env` for your LLM provider.
-*   **Claude (optional)**: Set `ANTHROPIC_API_KEY` (optionally `ANTHROPIC_BASE_URL`) and use `provider: anthropic` with `api_key: ${ANTHROPIC_API_KEY}` in Claude nodes (see `workspace/workflows/demo_claude.yaml`).
-*   **YAML placeholders**: Use `${VAR}`（e.g., `${API_KEY}`）in configuration files to reference these variables.
+*   **No API keys**: Agents run only on accounts you sign in to on the web console's **Connections** page:
+    *   **Claude** via the local `claude` CLI (Claude Code login).
+    *   **ChatGPT** via the local `codex` CLI (`codex login` with ChatGPT sign-in; a Codex logged in with an API key is rejected).
+    *   **Gemini** via Google sign-in. This needs `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and `PUBLIC_BASE_URL` set on the server (OAuth client settings, not API keys).
+*   **Agent nodes**: Pick an account in the node form ("Account connection"), which writes `connection: <connection id>` to the YAML. Nodes without `connection` are bound automatically at run time to the default connection (Claude unless changed on the Connections page), or to another signed-in account (see `workspace/workflows/demo_claude.yaml`).
+*   **YAML placeholders**: Use `${VAR}` (e.g., `${MODEL_NAME}`) in configuration files to reference these variables.
 
 ### ⚡️ Run the Application
 
@@ -147,7 +150,7 @@ Alternatively, you can run the entire application using Docker Compose. This met
 
 1.  **Prerequisites**:
     *   [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed.
-    *   Ensure you have a `.env` file in the project root for your API keys.
+    *   Ensure you have a `.env` file in the project root (copied from `.env.example`). Model accounts are signed in on the Connections page, not in `.env`.
 
 2.  **Build and Run**:
     ```bash
@@ -184,7 +187,7 @@ result = run_workflow(
     yaml_file="workspace/workflows/demo.yaml",
     task_prompt="Summarize the attached document in one sentence.",
     attachments=["/path/to/document.pdf"],
-    variables={"API_KEY": "sk-xxxx"} # Override .env variables if needed
+    variables={"MODEL_NAME": "claude-opus-5-5"} # Override workflow vars / .env variables if needed
 )
 
 if result.final_message:

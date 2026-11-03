@@ -73,9 +73,8 @@ nodes:
   - id: LLM Generator
     type: agent
     config:
-      provider: openai
-      name: gpt-4o
-      api_key: ${API_KEY}
+      connection: <your-connection-id>
+      name: claude-opus-5-5
       role: 你需要根据用户的输入，生成可执行的 Python 代码。代码应当包裹在 ```python ``` 之间。
 
   - id: Result Parser

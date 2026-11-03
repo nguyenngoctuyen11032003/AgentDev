@@ -1,0 +1,93 @@
+graph:
+  id: software_engineer
+  description: ''
+  log_level: INFO
+  is_majority_voting: false
+  nodes:
+    - id: CTO
+      type: human
+      config:
+        description: ''
+      description: ''
+      mascot: 13
+      context_window: 0
+      log_output: true
+    - id: software engineer
+      type: agent
+      config:
+        name: claude-sonnet-5-5
+        role: ''
+        connection: anthropic-claude-t-i-kho-n
+        provider: openai
+        params: {}
+        tooling: []
+        thinking: null
+        memories: []
+        skills: null
+        retry: null
+      description: ''
+      mascot: 4
+      context_window: 0
+      log_output: true
+    - id: Test
+      type: agent
+      config:
+        name: claude-sonnet-5-5
+        role: ''
+        connection: anthropic-claude-t-i-kho-n
+        provider: openai
+        params: {}
+        tooling: []
+        thinking: null
+        memories: []
+        skills: null
+        retry: null
+      description: ''
+      mascot: 7
+      context_window: 0
+      log_output: true
+  edges:
+    - from: CTO
+      to: software engineer
+      trigger: true
+      condition:
+        type: function
+        config:
+          name: 'true'
+      carry_data: true
+      keep_message: false
+      clear_context: false
+      clear_kept_context: false
+      process: null
+      dynamic: null
+    - from: software engineer
+      to: Test
+      trigger: true
+      condition:
+        type: function
+        config:
+          name: 'true'
+      carry_data: true
+      keep_message: false
+      clear_context: false
+      clear_kept_context: false
+      process: null
+      dynamic: null
+    - from: Test
+      to: CTO
+      trigger: true
+      condition:
+        type: function
+        config:
+          name: 'true'
+      carry_data: true
+      keep_message: false
+      clear_context: false
+      clear_kept_context: false
+      process: null
+      dynamic: null
+  memory: []
+  initial_instruction: ''
+  start:
+    - CTO
+  end: []

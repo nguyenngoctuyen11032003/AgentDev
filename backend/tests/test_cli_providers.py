@@ -286,3 +286,89 @@ def test_flatten_without_preamble_is_legacy_plain_text():
     ]
     out = flatten_conversation(conv)
     assert "Tool: res" in out and "[Assistant tool call]" not in out and "Tool-calling protocol" not in out
+
+
+def _weather_spec():
+    return ToolSpec(
+        name="get_weather",
+        description="Weather for a city",
+        parameters={"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]},
+    )
+
+
+def test_codex_tool_call_uses_strict_output_schema():
+    p = CodexCliProvider(_cfg())
+    seen = {}
+
+    def fake(cmd, **kw):
+        schema_path = cmd[cmd.index("--output-schema") + 1]
+        with open(schema_path, encoding="utf-8") as fh:
+            seen["schema"] = json.load(fh)
+        seen["prompt"] = kw["input"]
+        reply = {"text": "", "tool_calls": [{"name": "get_weather", "arguments": '{"city": "Hà Nội"}'}]}
+        with open(cmd[cmd.index("-o") + 1], "w", encoding="utf-8") as fh:
+            json.dump(reply, fh, ensure_ascii=False)
+        events = '{"type":"turn.completed","usage":{"input_tokens":40,"cached_input_tokens":8,"output_tokens":6}}'
+        return _done(out=events)
+
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake):
+        resp = p.call_model(CliClient("codex"), _conv(), [], tool_specs=[_weather_spec()])
+
+    schema = seen["schema"]
+    assert schema["additionalProperties"] is False and schema["required"] == ["text", "tool_calls"]
+    item = schema["properties"]["tool_calls"]["items"]
+    assert item["additionalProperties"] is False and item["properties"]["name"]["enum"] == ["get_weather"]
+    assert "Tool-calling protocol" in seen["prompt"] and "get_weather" in seen["prompt"]
+    (call,) = resp.message.tool_calls
+    assert call.function_name == "get_weather" and json.loads(call.arguments) == {"city": "Hà Nội"}
+    assert p.extract_token_usage(resp.raw_response).total_tokens == 46
+
+
+def test_codex_final_answer_with_tools_and_event_fallback():
+    p = CodexCliProvider(_cfg())
+
+    def fake(cmd, **kw):
+        # -o file left empty: the answer is taken from the --json event stream
+        events = "\n".join([
+            '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"text\\": \\"Trời nắng\\", \\"tool_calls\\": []}"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2}}',
+        ])
+        return _done(out=events)
+
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake):
+        resp = p.call_model(CliClient("codex"), _conv(), [], tool_specs=[_weather_spec()])
+    assert resp.message.content == "Trời nắng" and resp.message.tool_calls == []
+
+
+def test_codex_without_tools_passes_no_schema():
+    p = CodexCliProvider(_cfg())
+
+    def fake(cmd, **kw):
+        assert "--output-schema" not in cmd and "Tool-calling protocol" not in kw["input"]
+        with open(cmd[cmd.index("-o") + 1], "w", encoding="utf-8") as fh:
+            fh.write("plain")
+        return _done()
+
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake):
+        resp = p.call_model(CliClient("codex"), _conv(), [])
+    assert resp.message.content == "plain"
+
+
+def test_double_wrapped_reply_is_unwrapped():
+    from agentdev.runtime.node.agent.providers._cli_common import parse_tool_reply
+
+    spec = _weather_spec()
+    text, calls = parse_tool_reply({"text": '{"text": "Trời nắng", "tool_calls": []}'}, "", [spec])
+    assert text == "Trời nắng" and calls == []
+    text, calls = parse_tool_reply({"text": '{"text": "", "tool_calls": [{"name": "get_weather", "arguments": {"city": "Huế"}}]}'}, "", [spec])
+    assert [c.function_name for c in calls] == ["get_weather"]
+    # a normal answer that merely contains braces is left alone
+    text, _ = parse_tool_reply({"text": "{x} là ký hiệu tập hợp"}, "", [spec])
+    assert text == "{x} là ký hiệu tập hợp"
+
+
+def test_tool_preamble_says_tools_are_only_reachable_via_json():
+    from agentdev.runtime.node.agent.providers._cli_common import build_tool_preamble
+
+    text = build_tool_preamble([_weather_spec()], schema_enforced=True)
+    assert "NOT exposed to you as native functions" in text and "never tell the user a listed tool is unavailable" in text

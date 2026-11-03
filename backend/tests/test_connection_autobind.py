@@ -1,4 +1,4 @@
-import copy
+import json
 
 import pytest
 
@@ -12,12 +12,13 @@ from agentdev.entity.configs import ConfigError
 def store(tmp_path, monkeypatch):
     s = ConnectionStore(tmp_path / "c.json")
     monkeypatch.setattr(store_module, "_store", s)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # Model lookups read the CLI's own caches; keep them out of the tests
+    monkeypatch.setattr("agentdev.connections.autobind._default_model", lambda conn: None)
     return s
 
 
-def _doc(tooling=False, key="${ANTHROPIC_API_KEY}"):
-    cfg = {"name": "claude-sonnet-5-5", "provider": "anthropic", "api_key": key, "base_url": "${BASE_URL}"}
+def _doc(provider="anthropic", name="claude-sonnet-5-5", tooling=False, **extra):
+    cfg = {"name": name, "provider": provider, "api_key": "${ANTHROPIC_API_KEY}", "base_url": "${BASE_URL}", **extra}
     if tooling:
         cfg["tooling"] = [{"type": "function", "config": {"tools": [{"name": "x"}]}}]
     return {"vars": {}, "graph": {"nodes": [{"id": "a", "type": "agent", "config": cfg}]}}
@@ -27,51 +28,80 @@ def _cfg(doc):
     return doc["graph"]["nodes"][0]["config"]
 
 
-def test_unresolved_placeholder_binds_to_saved_connection(store):
-    conn = store.create(vendor="anthropic", label="Main", secret="sk-ant-1234567890")
+def test_legacy_node_binds_to_same_vendor_account_and_drops_keys(store):
+    codex = store.create(vendor="openai", label="Codex", auth_type="cli")
+    claude = store.create(vendor="anthropic", label="Claude", auth_type="cli")
+    store.set_default(codex.id)  # an explicit default still wins
     doc = _doc()
+    bind_default_connections(doc, {"ANTHROPIC_API_KEY": "set-in-env"})
+    assert _cfg(doc)["connection"] == codex.id
+    assert "api_key" not in _cfg(doc) and "base_url" not in _cfg(doc)
+
+    store.set_default(claude.id)
+    doc = _doc(provider="openai", name="gpt-6.1-sol")
     bind_default_connections(doc, {})
-    assert _cfg(doc)["connection"] == conn.id and "api_key" not in _cfg(doc) and "base_url" not in _cfg(doc)
+    assert _cfg(doc)["connection"] == claude.id
 
 
-def test_working_env_variable_is_left_alone(store):
-    store.create(vendor="anthropic", label="Main", secret="sk-ant-1234567890")
+def test_env_key_no_longer_keeps_a_node_on_api_key(store):
+    claude = store.create(vendor="anthropic", label="Claude", auth_type="cli")
     doc = _doc()
-    bind_default_connections(doc, {"ANTHROPIC_API_KEY": "from-env"})
-    assert "connection" not in _cfg(doc) and _cfg(doc)["api_key"] == "${ANTHROPIC_API_KEY}"
+    bind_default_connections(doc, {"ANTHROPIC_API_KEY": "sk-from-env", "BASE_URL": "https://x"})
+    assert _cfg(doc)["connection"] == claude.id and "api_key" not in _cfg(doc)
 
 
-def test_workflow_vars_count_as_resolved(store):
-    doc = _doc()
-    doc["vars"] = {"ANTHROPIC_API_KEY": "x"}
+def test_other_vendor_account_swaps_model(store):
+    claude = store.create(vendor="anthropic", label="Claude", auth_type="cli")
+    doc = _doc(provider="openai", name="gpt-4o")
     bind_default_connections(doc, {})
-    assert "connection" not in _cfg(doc)
+    assert _cfg(doc)["connection"] == claude.id
+    assert _cfg(doc)["name"].startswith("claude-")
 
 
-def test_explicit_connection_and_literal_keys_untouched(store):
-    store.create(vendor="anthropic", label="Main", secret="sk-ant-1234567890")
-    doc = _doc(key="sk-literal-key")
-    before = copy.deepcopy(doc)
+def test_explicit_connection_kept_and_legacy_keys_dropped(store):
+    store.create(vendor="anthropic", label="Claude", auth_type="cli")
+    doc = _doc(connection="mine")
     bind_default_connections(doc, {})
-    assert doc == before
+    assert _cfg(doc)["connection"] == "mine" and "api_key" not in _cfg(doc)
 
 
-def test_no_connection_gives_friendly_error(store):
+def test_unset_model_placeholder_uses_account_default(store):
+    store.create(vendor="anthropic", label="Claude", auth_type="cli")
+    doc = _doc(name="${MODEL_NAME}")
+    bind_default_connections(doc, {})
+    assert _cfg(doc)["name"] == "claude-fable-5-1"  # first model of the catalog fallback
+
+    doc = _doc(name="${MODEL_NAME}")
+    doc["vars"] = {"MODEL_NAME": "claude-haiku-5-5"}
+    bind_default_connections(doc, {})
+    assert _cfg(doc)["name"] == "${MODEL_NAME}"  # set in vars: resolved later as usual
+
+
+def test_no_account_gives_friendly_error(store):
     with pytest.raises(ConfigError, match="Connections page"):
         bind_default_connections(_doc(), {})
 
 
-def test_claude_cli_connection_serves_tool_nodes(store):
-    cli = store.create(vendor="anthropic", label="CLI", secret="", auth_type="cli")
-    doc = _doc(tooling=True)
+def test_legacy_api_key_connection_is_never_used(store, tmp_path):
+    (tmp_path / "c.json").write_text(
+        json.dumps({"version": 1, "connections": [{"id": "old", "vendor": "anthropic", "label": "Old key",
+                                                   "auth_type": "api_key", "secret": "${X_API_KEY}"}]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="Connections page"):
+        bind_default_connections(_doc(), {})
+
+
+def test_tool_nodes_run_on_claude_and_codex(store):
+    codex = store.create(vendor="openai", label="Codex", auth_type="cli")
+    doc = _doc(provider="openai", name="gpt-6.1-sol", tooling=True)
     bind_default_connections(doc, {})
-    assert _cfg(doc)["connection"] == cli.id
+    assert _cfg(doc)["connection"] == codex.id
 
 
-def test_codex_cli_connection_cannot_serve_tool_nodes(store):
-    store.create(vendor="openai", label="CLI", secret="", auth_type="cli")
-    doc = {"vars": {}, "graph": {"nodes": [{"id": "a", "type": "agent", "config": {
-        "name": "gpt-4o", "provider": "openai", "api_key": "${API_KEY}",
-        "tooling": [{"type": "function", "config": {"tools": [{"name": "x"}]}}]}}]}}
-    with pytest.raises(ConfigError, match="tools"):
-        bind_default_connections(doc, {})
+def test_nodes_inside_inline_subgraphs_are_bound(store):
+    claude = store.create(vendor="anthropic", label="Claude", auth_type="cli")
+    inner = _doc()["graph"]
+    doc = {"graph": {"nodes": [{"id": "sg", "type": "subgraph", "config": {"type": "config", "config": inner}}]}}
+    bind_default_connections(doc, {})
+    assert inner["nodes"][0]["config"]["connection"] == claude.id

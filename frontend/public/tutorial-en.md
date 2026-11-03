@@ -40,7 +40,7 @@ The Graph itself does not perform specific tasks, but is responsible for organiz
 
 A **Variable** provides configurable global or local parameters for the Graph. Once defined, nodes (Agents) can directly reference these variables, enabling parameter sharing and decoupling configuration.
 
-It is recommended to manage common or sensitive configurations such as API Keys globally here.
+It is recommended to manage common or sensitive configurations such as the output language globally here. Model access comes from the account connection picked on each agent node (Connections page).
 
 Note that if the required environment variables are already defined in the outer `.env` file and you intend to use them directly, there is no need to configure them here again.
 If the variables are configured here, **these settings will take precedence** over those defined in the outer `.env` file.

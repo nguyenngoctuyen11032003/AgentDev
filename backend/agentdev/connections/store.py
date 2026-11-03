@@ -19,11 +19,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agentdev.connections.catalog import AUTH_API_KEY
+from agentdev.connections.catalog import AUTH_API_KEY, AUTH_CLI, AUTH_OAUTH
 from agentdev.connections.secret_box import SecretDecryptError, decrypt, encrypt
 from agentdev.paths import STORAGE_DIR
 
 CONNECTIONS_FILE = STORAGE_DIR / "connections.json"
+# Vendor whose connection agent nodes use until the user picks another default.
+DEFAULT_VENDOR = "anthropic"
 _ID_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -36,8 +38,8 @@ class Connection:
     id: str
     vendor: str
     label: str
-    auth_type: str = AUTH_API_KEY
-    secret: str = ""  # api key, or ${ENV_VAR} reference
+    auth_type: str = AUTH_CLI
+    secret: str = ""  # Google sign-in tokens (JSON, encrypted at rest); empty for CLI accounts
     base_url: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     # Stored blob kept only when it could not be decrypted, so later writes never wipe it.
@@ -60,9 +62,7 @@ class Connection:
                 return json.loads(self.secret).get("email") or "OAuth"
             except (ValueError, AttributeError):
                 return "OAuth"
-        if self.auth_type == "cli":
-            return ""
-        return mask_secret(self.secret)
+        return ""  # CLI accounts keep their own login; nothing secret to hint at
 
     def to_public(self) -> Dict[str, Any]:
         return {
@@ -75,16 +75,6 @@ class Connection:
             "createdAt": self.created_at,
         }
 
-
-def mask_secret(secret: str) -> str:
-    secret = (secret or "").strip()
-    if not secret:
-        return ""
-    if secret.startswith("${") and secret.endswith("}"):
-        return secret  # env reference, not a secret itself
-    if len(secret) < 20:
-        return "****"
-    return f"{secret[:4]}****{secret[-4:]}"
 
 
 def _safe_decrypt(stored: str) -> str:
@@ -107,15 +97,26 @@ def _slug(text: str) -> str:
     return _ID_RE.sub("-", text.lower()).strip("-") or "connection"
 
 
+def _pick_default(connections: Dict[str, Connection], default_id: Optional[str]) -> Optional[Connection]:
+    """The chosen default, else Claude (account sign-in first), else none."""
+    if default_id and default_id in connections:
+        return connections[default_id]
+    claude = [c for c in connections.values() if c.vendor == DEFAULT_VENDOR]
+    claude.sort(key=lambda c: c.auth_type != AUTH_CLI)
+    return claude[0] if claude else None
+
+
 class ConnectionStore:
     def __init__(self, path: Path | None = None):
         self._path = Path(path) if path else CONNECTIONS_FILE
         self._lock = threading.RLock()
+        self._default_id: Optional[str] = None  # refreshed by every _load
 
     # -- persistence -------------------------------------------------------
     def _load(self, strict: bool = False) -> Dict[str, Connection]:
         """Read the file. ``strict`` (used before writes) refuses to continue on a corrupt file
         so a failed read can never be turned into an overwrite that drops every connection."""
+        self._default_id = None
         try:
             text = self._path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -138,6 +139,8 @@ class ConnectionStore:
                 f"connections file is corrupt (copy kept as {backup.name}); fix or delete it"
             ) from exc
         items = raw.get("connections", []) if isinstance(raw, dict) else []
+        default_id = raw.get("default_connection") if isinstance(raw, dict) else None
+        self._default_id = default_id if isinstance(default_id, str) and default_id else None
         result: Dict[str, Connection] = {}
         for item in items:
             try:
@@ -145,6 +148,7 @@ class ConnectionStore:
                     id=item["id"],
                     vendor=item["vendor"],
                     label=item.get("label") or item["id"],
+                    # Entries without auth_type were API-key connections (no longer usable)
                     auth_type=item.get("auth_type", AUTH_API_KEY),
                     secret=_safe_decrypt(item.get("secret", "")),
                     raw_secret=item.get("secret", "") if _is_undecryptable(item.get("secret", "")) else "",
@@ -159,7 +163,11 @@ class ConnectionStore:
     def _save(self, connections: Dict[str, Connection]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(
-            {"version": 1, "connections": [c.to_storage() for c in connections.values()]},
+            {
+                "version": 1,
+                "default_connection": self._default_id if self._default_id in connections else None,
+                "connections": [c.to_storage() for c in connections.values()],
+            },
             ensure_ascii=False,
             indent=2,
         )
@@ -193,15 +201,15 @@ class ConnectionStore:
         *,
         vendor: str,
         label: str,
-        secret: str,
+        secret: str = "",
         base_url: str = "",
-        auth_type: str = AUTH_API_KEY,
+        auth_type: str = AUTH_CLI,
     ) -> Connection:
         label = (label or "").strip()
         if not label:
             raise ConnectionInputError("label is required")
-        if not (secret or "").strip() and auth_type == AUTH_API_KEY:
-            raise ConnectionInputError("credential is required")
+        if auth_type not in (AUTH_CLI, AUTH_OAUTH):
+            raise ConnectionInputError("connections sign in with an account; API keys are not supported")
         with self._lock:
             connections = self._load(strict=True)
             base = _slug(label)
@@ -228,6 +236,21 @@ class ConnectionStore:
             del connections[connection_id]
             self._save(connections)
             return True
+
+    def default_connection(self) -> Optional[Connection]:
+        """Connection used by agent nodes that do not name one."""
+        with self._lock:
+            connections = self._load()
+            return _pick_default(connections, self._default_id)
+
+    def set_default(self, connection_id: str) -> Connection:
+        with self._lock:
+            connections = self._load(strict=True)
+            if connection_id not in connections:
+                raise ConnectionInputError(f"Connection '{connection_id}' not found")
+            self._default_id = connection_id
+            self._save(connections)
+            return connections[connection_id]
 
 
 _store: ConnectionStore | None = None

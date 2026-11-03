@@ -18,10 +18,11 @@ export function dismissToast(id) {
 /**
  * @param {'success'|'info'|'warning'|'error'} type
  * @param {string} title
- * @param {{detail?: string, items?: string[], duration?: number}} [options]
+ * @param {{detail?: string, items?: string[], duration?: number, action?: {label: string, run: () => void}}} [options]
  *   duration 0 keeps the toast until the user closes it (default for errors).
+ *   action adds one button (e.g. "Open session"); clicking it also closes the toast.
  */
-function show(type, title, { detail = '', items = [], duration } = {}) {
+function show(type, title, { detail = '', items = [], duration, action = null } = {}) {
   // Same message again: refresh it instead of stacking duplicates.
   const existing = toasts.find((toast) => toast.type === type && toast.title === title && toast.detail === detail)
   if (existing) dismissToast(existing.id)
@@ -34,10 +35,18 @@ function show(type, title, { detail = '', items = [], duration } = {}) {
     title,
     detail,
     items,
+    action,
     timer: ms > 0 ? setTimeout(() => dismissToast(id), ms) : null
   })
   while (toasts.length > MAX_VISIBLE) dismissToast(toasts[0].id)
   return id
+}
+
+export function runToastAction(id) {
+  const item = toasts.find((toast) => toast.id === id)
+  const run = item?.action?.run
+  dismissToast(id)
+  run?.()
 }
 
 export const toast = {

@@ -93,12 +93,10 @@ tooling:
 
 | 函数 | 说明 |
 |------|------|
-| `web_search` | 使用 Serper.dev 执行网络搜索，支持分页和多语言 |
-| `read_webpage_content` | 使用 Jina Reader 读取网页内容，支持速率限制 |
+| `web_search` | `web_search(query, page, language, country)`：使用无需密钥的 `ddgs` 元搜索库执行网络搜索（第 1 页以 Bing 作为备用），支持分页和多语言 |
+| `read_webpage_content` | `read_webpage_content(url)`：直接下载网页并提取可读文本；拒绝访问本地/私有网络地址（localhost、127.0.0.1、192.168.x、::1、file://），重定向到这些地址同样会被拒绝 |
 
-**环境变量**：
-- `SERPER_DEV_API_KEY`：Serper.dev API 密钥
-- `JINA_API_KEY`：Jina API 密钥（可选，无密钥时自动限速 20 RPM）
+无需任何 API 密钥或环境变量。
 
 **示例 YAML**：[deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
 

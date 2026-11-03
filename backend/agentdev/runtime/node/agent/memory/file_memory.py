@@ -1,5 +1,8 @@
 """
-FileMemory: Memory system for vectorizing and retrieving file contents
+FileMemory: Memory system for indexing and retrieving file contents.
+
+Retrieval uses keyword (BM25) scoring by default; an optional local embedding
+model switches it to vector search.
 """
 import json
 import os
@@ -9,15 +12,13 @@ from pathlib import Path
 from typing import List, Dict, Any
 import time
 
-import faiss
-import numpy as np
-
 from agentdev.runtime.node.agent.memory.memory_base import (
     MemoryBase,
     MemoryContentSnapshot,
     MemoryItem,
     MemoryWritePayload,
 )
+from agentdev.runtime.node.agent.memory.keyword_search import rank_by_keywords
 from agentdev.entity.configs import MemoryStoreConfig, FileSourceConfig
 from agentdev.entity.configs.node.memory import FileMemoryConfig
 
@@ -113,8 +114,14 @@ class FileMemory(MemoryBase):
         Returns:
             List of MemoryItem with file chunks
         """
-        if self.count_memories() == 0:
+        if self.count_memories() == 0 or not query or not (query.text or "").strip():
             return []
+
+        if not self.embedding:
+            return self._retrieve_by_keywords(query.text, top_k, similarity_threshold)
+
+        import faiss
+        import numpy as np
 
         # Generate query embedding
         query_embedding = self.embedding.get_embedding(query.text)
@@ -140,7 +147,8 @@ class FileMemory(MemoryBase):
                 valid_items.append(item)
 
         if not memory_embeddings:
-            return []
+            # Index was built without vectors (keyword mode): stay useful.
+            return self._retrieve_by_keywords(query.text, top_k, similarity_threshold)
 
         memory_embeddings = np.array(memory_embeddings, dtype=np.float32)
 
@@ -160,6 +168,17 @@ class FileMemory(MemoryBase):
                 results.append(valid_items[idx])
 
         return results
+
+    def _retrieve_by_keywords(self, query_text: str, top_k: int, similarity_threshold: float) -> List[MemoryItem]:
+        """Keyless BM25 retrieval over indexed file chunks."""
+        ranked = rank_by_keywords(
+            query_text,
+            self.contents,
+            text_of=lambda item: item.content_summary,
+            top_k=top_k,
+            similarity_threshold=similarity_threshold,
+        )
+        return [item for item, _ in ranked]
 
     def update(self, payload: MemoryWritePayload) -> None:
         """
@@ -213,7 +232,7 @@ class FileMemory(MemoryBase):
 
         logger.info(f"Total chunks to index: {len(all_chunks)}")
 
-        # Generate embeddings for all chunks
+        # Create memory items (embeddings only when a model is configured)
         self.contents = self._build_embeddings(all_chunks)
 
         logger.info(f"Index built with {len(self.contents)} chunks")
@@ -412,7 +431,7 @@ class FileMemory(MemoryBase):
 
     def _build_embeddings(self, chunks: List[Dict]) -> List[MemoryItem]:
         """
-        Generate embeddings for chunks and create MemoryItems.
+        Create MemoryItems for chunks (with embeddings when a model is configured).
 
         Args:
             chunks: List of chunk dictionaries
@@ -426,16 +445,20 @@ class FileMemory(MemoryBase):
             content = chunk_dict["content"]
             metadata = chunk_dict["metadata"]
 
-            # Generate embedding
-            try:
-                embedding = self.embedding.get_embedding(content)
-                if isinstance(embedding, list):
+            # Optional embedding; without one the chunk is indexed for keyword search.
+            embedding_list = None
+            if self.embedding:
+                try:
+                    import faiss
+                    import numpy as np
+
+                    embedding = self.embedding.get_embedding(content)
                     embedding = np.array(embedding, dtype=np.float32).reshape(1, -1)
-                faiss.normalize_L2(embedding)
-                embedding_list = embedding.tolist()[0]
-            except Exception as e:
-                logger.error(f"Error generating embedding for chunk: {e}")
-                continue
+                    faiss.normalize_L2(embedding)
+                    embedding_list = embedding.tolist()[0]
+                except Exception as e:
+                    logger.error(f"Error generating embedding for chunk: {e}")
+                    continue
 
             # Create MemoryItem
             item_id = f"{metadata['file_hash']}_{metadata['chunk_index']}"

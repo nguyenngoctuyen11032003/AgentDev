@@ -16,7 +16,6 @@ graph:
     context_window: -1
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-sonnet-5-5
       input_mode: messages
       role: |
@@ -39,7 +38,6 @@ graph:
     description: Receives control instructions and actually calls function tools, returning Observations.
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-sonnet-5-5
       input_mode: messages
       role: |
@@ -73,7 +71,6 @@ graph:
     description: Cleans up ReAct formatting and outputs a user-readable final response.
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-sonnet-5-5
       input_mode: messages
       role: |

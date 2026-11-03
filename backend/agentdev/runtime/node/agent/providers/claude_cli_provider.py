@@ -18,6 +18,7 @@ from agentdev.runtime.node.agent.providers._cli_common import (
     flatten_conversation,
     parse_tool_reply,
     make_tempdir,
+    record_token_usage,
     run_cli,
     trim,
     validate_model_name,
@@ -80,6 +81,7 @@ class ClaudeCliProvider(ModelProvider):
         else:
             text = out.strip()
             data = {"result": text}
+        record_token_usage(self, data, "claude_cli")
         if tool_specs:
             text, tool_calls = parse_tool_reply(data.get("structured_output"), text, tool_specs)
             return ModelResponse(

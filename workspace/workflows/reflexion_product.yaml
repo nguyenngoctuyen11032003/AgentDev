@@ -15,7 +15,6 @@ graph:
     description: Normalize user tasks, extract goals and constraints.
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-haiku-5-5
       input_mode: messages
       role: |
@@ -31,7 +30,6 @@ graph:
     context_window: -1
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-haiku-5-5
       input_mode: messages
       role: |
@@ -55,7 +53,6 @@ graph:
     context_window: -1
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-sonnet-5-5
       input_mode: messages
       role: |

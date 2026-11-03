@@ -1445,13 +1445,14 @@ onBeforeUnmount(() => {
   --hud-border: rgba(255, 255, 255, 0.1);
   position: absolute;
   top: 0;
-  left: 50%;
+  /* centred in the space not covered by the chat panel (--office-inset-left is set by LaunchView) */
+  left: calc(var(--office-inset-left, 0px) + (100% - var(--office-inset-left, 0px)) / 2);
   transform: translateX(-50%);
   z-index: 7000;
   display: flex;
   flex-direction: column;
   align-items: center;
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - var(--office-inset-left, 0px) - 24px);
   pointer-events: none;
 }
 
@@ -1619,10 +1620,11 @@ onBeforeUnmount(() => {
 /* ---------- roster ---------- */
 .office-roster {
   position: absolute;
-  left: 12px;
+  left: calc(var(--office-inset-left, 0px) + 12px);
   bottom: 12px;
   z-index: 7000;
   width: 250px;
+  max-width: calc(100% - var(--office-inset-left, 0px) - 24px);
   max-height: calc(100% - 70px);
   display: flex;
   flex-direction: column-reverse;

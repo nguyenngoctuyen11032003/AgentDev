@@ -1,0 +1,955 @@
+<template>
+  <div class="dash">
+    <!-- Hero: what is running and how far it is -->
+    <section class="hero card">
+      <div class="ring" :style="{ '--p': progress }" role="img" :aria-label="$t('launch.dashboard.progress_aria', { p: progress })">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="ring-track" cx="60" cy="60" r="52" />
+          <circle class="ring-fill" cx="60" cy="60" r="52" :style="{ strokeDashoffset: ringOffset }" />
+        </svg>
+        <div class="ring-text">
+          <strong>{{ progress }}%</strong>
+          <span>{{ $t('launch.dashboard.done_of', { done: doneCount, total: steps.length }) }}</span>
+        </div>
+      </div>
+      <div class="hero-main">
+        <span class="eyebrow">{{ $t('launch.dashboard.title') }}</span>
+        <h2>{{ workflowName || $t('launch.board.no_workflow') }}</h2>
+        <p class="hero-task" :title="tracker.task?.text || ''">
+          {{ tracker.task?.text || $t('launch.dashboard.no_task') }}
+        </p>
+        <div class="hero-tags">
+          <span class="pill" :class="`is-${runTone}`"><span class="dot" aria-hidden="true"></span>{{ stateLabel(runTone) }}</span>
+          <span v-if="currentStep" class="pill is-neutral">
+            {{ $t('launch.dashboard.now_at', { n: currentStep.index, name: currentStep.id }) }}
+          </span>
+          <span v-if="tracker.startedAt" class="pill is-neutral">{{ $t('launch.dashboard.started', { time: clock(tracker.startedAt) }) }}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPIs -->
+    <section class="kpis">
+      <article v-for="kpi in kpis" :key="kpi.key" class="kpi card">
+        <span class="kpi-label">{{ kpi.label }}</span>
+        <strong class="kpi-value">{{ kpi.value }}</strong>
+        <span class="kpi-sub">{{ kpi.sub }}</span>
+      </article>
+    </section>
+
+    <!-- Pipeline -->
+    <section class="card block">
+      <header class="block-head">
+        <h3>{{ $t('launch.dashboard.pipeline') }}</h3>
+        <span class="muted">{{ $t('launch.dashboard.pipeline_sub') }}</span>
+      </header>
+      <ol v-if="steps.length" class="pipeline">
+        <li v-for="step in steps" :key="step.id" class="pipe-step" :class="`is-${statusOf(step.id)}`" :style="{ '--dept': step.color }">
+          <span class="pipe-node" :title="stateLabel(statusOf(step.id))">
+            <svg v-if="statusOf(step.id) === 'done'" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
+            <template v-else>{{ step.index }}</template>
+          </span>
+          <span class="pipe-name" :title="step.id">{{ step.id }}</span>
+          <span class="pipe-sub">{{ statusOf(step.id) === 'todo' ? deptLabel(step.dept) : formatSpan(durationOf(step.id)) }}</span>
+        </li>
+      </ol>
+      <p v-else class="empty">{{ $t('launch.board.empty') }}</p>
+    </section>
+
+    <div class="grid-2">
+      <!-- Timeline -->
+      <section class="card block">
+        <header class="block-head">
+          <h3>{{ $t('launch.dashboard.timeline') }}</h3>
+          <span class="muted">{{ tracker.startedAt ? formatSpan(span) : '' }}</span>
+        </header>
+        <div v-if="tracker.startedAt && steps.length" class="gantt">
+          <div v-for="step in steps" :key="step.id" class="gantt-row" :style="{ '--dept': step.color }">
+            <span class="gantt-label" :title="step.id"><b>{{ step.index }}</b>{{ step.id }}</span>
+            <span class="gantt-track">
+              <span
+                v-for="run in runsOf(step.id)"
+                :key="run.index"
+                class="gantt-bar"
+                :class="{ 'is-live': !run.endedAt }"
+                :style="barStyle(run)"
+                :title="`${step.id} · ${$t('launch.board.run', { n: run.index })} · ${formatSpan((run.endedAt || now) - run.startedAt)}`"
+              ></span>
+            </span>
+          </div>
+          <div class="gantt-axis"><span>0s</span><span>{{ formatSpan(span / 2) }}</span><span>{{ formatSpan(span) }}</span></div>
+        </div>
+        <p v-else class="empty">{{ $t('launch.dashboard.no_run') }}</p>
+      </section>
+
+      <!-- Activity feed -->
+      <section class="card block">
+        <header class="block-head">
+          <h3>{{ $t('launch.dashboard.activity') }}</h3>
+          <span class="muted">{{ $t('launch.dashboard.events', { n: tracker.events.length }) }}</span>
+        </header>
+        <ol v-if="feed.length" class="feed">
+          <li v-for="event in feed" :key="event.id" class="feed-item" :class="`is-${event.kind}`">
+            <span class="feed-icon" aria-hidden="true">{{ eventIcon(event.kind) }}</span>
+            <span class="feed-text">
+              <span v-html="eventText(event)"></span>
+              <small v-if="event.text && !['task', 'input'].includes(event.kind)">{{ event.text }}</small>
+            </span>
+            <time>{{ clock(event.at) }}</time>
+          </li>
+        </ol>
+        <p v-else class="empty">{{ $t('launch.dashboard.no_activity') }}</p>
+      </section>
+    </div>
+
+    <!-- Agents -->
+    <section class="card block">
+      <header class="block-head">
+        <h3>{{ $t('launch.dashboard.agents') }}</h3>
+        <span class="muted">{{ $t('launch.dashboard.agents_sub', { n: steps.length }) }}</span>
+      </header>
+      <div class="table-wrap">
+        <table class="agents">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>{{ $t('launch.dashboard.col_agent') }}</th>
+              <th>{{ $t('launch.dashboard.col_status') }}</th>
+              <th class="num">{{ $t('launch.dashboard.col_runs') }}</th>
+              <th class="num">{{ $t('launch.dashboard.col_models') }}</th>
+              <th class="num">{{ $t('launch.dashboard.col_tools') }}</th>
+              <th>{{ $t('launch.dashboard.col_time') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in agentRows" :key="row.step.id" :style="{ '--dept': row.step.color }">
+              <td class="idx">{{ row.step.index }}</td>
+              <td>
+                <span class="agent-cell">
+                  <span class="avatar" aria-hidden="true">
+                    <img v-if="row.step.sprite" :src="row.step.sprite" alt="" />
+                    <span v-else>{{ initialsOf(row.step.id) }}</span>
+                  </span>
+                  <span class="agent-name">
+                    <strong :title="row.step.id">{{ row.step.id }}</strong>
+                    <small>{{ deptLabel(row.step.dept) }}<template v-if="row.step.model"> · {{ row.step.model }}</template></small>
+                  </span>
+                </span>
+              </td>
+              <td><span class="pill" :class="`is-${row.status}`"><span class="dot" aria-hidden="true"></span>{{ stateLabel(row.status) }}</span></td>
+              <td class="num">{{ row.runs }}</td>
+              <td class="num">{{ row.models }}</td>
+              <td class="num">{{ row.tools }}</td>
+              <td>
+                <span class="share">
+                  <span class="share-track"><span class="share-fill" :style="{ width: `${row.share}%` }"></span></span>
+                  <span class="share-text">{{ row.runs ? formatSpan(row.duration) : '—' }}</span>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- All work -->
+    <section class="card block">
+      <header class="block-head">
+        <h3>{{ $t('launch.dashboard.all_work') }}</h3>
+        <span class="muted">{{ $t('launch.dashboard.sessions_count', { n: sessions.length }) }}</span>
+      </header>
+      <div class="work-stats">
+        <button
+          v-for="bucket in buckets"
+          :key="bucket.key"
+          type="button"
+          class="work-stat"
+          :class="[`is-${bucket.tone}`, { active: filter === bucket.key }]"
+          @click="filter = filter === bucket.key ? '' : bucket.key"
+        >
+          <strong>{{ bucket.count }}</strong>
+          <span>{{ bucket.label }}</span>
+        </button>
+      </div>
+      <ul v-if="recentSessions.length" class="work-list">
+        <li v-for="item in recentSessions" :key="item.session_id">
+          <button type="button" class="work-item" :class="{ current: item.session_id === currentSessionId }" @click="$emit('open-session', item)">
+            <span class="pill" :class="`is-${sessionTone(item.status)}`"><span class="dot" aria-hidden="true"></span>{{ sessionLabel(item.status) }}</span>
+            <span class="work-title" :title="item.title">{{ item.title || item.yaml_file }}</span>
+            <span class="work-meta">{{ workMeta(item) }}</span>
+            <time>{{ ago(item.updated_at) }}</time>
+          </button>
+        </li>
+      </ul>
+      <p v-else class="empty">{{ $t('launch.dashboard.no_sessions') }}</p>
+    </section>
+  </div>
+</template>
+
+<script setup>
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { formatSpan, stepDuration, stepStatus } from '@/utils/runTracker.js'
+import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
+
+const props = defineProps({
+  graph: { type: Object, default: () => ({}) },
+  spriteMap: { type: Map, default: () => new Map() },
+  tracker: { type: Object, required: true },
+  status: { type: String, default: '' },
+  workflowName: { type: String, default: '' },
+  // every saved session (sidebar list) for the "all work" overview
+  sessions: { type: Array, default: () => [] },
+  currentSessionId: { type: String, default: '' },
+  visible: { type: Boolean, default: true }
+})
+defineEmits(['open-session'])
+
+const { t, te, locale } = useI18n()
+const RING_LENGTH = 2 * Math.PI * 52
+const FEED_LIMIT = 14
+const WORK_LIMIT = 8
+
+const now = ref(Date.now())
+const filter = ref('')
+
+const steps = computed(() => buildSteps(props.graph, props.spriteMap))
+const nodeOf = (id) => props.tracker.nodes[id]
+const runsOf = (id) => nodeOf(id)?.runs || []
+const statusOf = (id) => stepStatus(nodeOf(id))
+const durationOf = (id) => stepDuration(nodeOf(id), now.value)
+
+const doneCount = computed(() => steps.value.filter((s) => statusOf(s.id) === 'done').length)
+const progress = computed(() => {
+  if (props.tracker.outcome === 'completed') return 100
+  return steps.value.length ? Math.round((doneCount.value / steps.value.length) * 100) : 0
+})
+const ringOffset = computed(() => RING_LENGTH * (1 - progress.value / 100))
+
+const isLive = computed(() => props.status === 'Running...' || props.status === 'Waiting for input...')
+const runTone = computed(() => {
+  if (props.status === 'Waiting for input...') return 'waiting'
+  if (isLive.value) return 'working'
+  return props.tracker.outcome || 'idle'
+})
+
+const currentStep = computed(() => {
+  const live = steps.value.filter((s) => ['working', 'waiting'].includes(statusOf(s.id)))
+  return live[live.length - 1] || null
+})
+
+const span = computed(() => {
+  if (!props.tracker.startedAt) return 0
+  return Math.max(1000, (props.tracker.endedAt || now.value) - props.tracker.startedAt)
+})
+
+const allRuns = computed(() => Object.values(props.tracker.nodes).flatMap((node) => node.runs))
+const totals = computed(() => ({
+  models: allRuns.value.reduce((sum, run) => sum + run.models, 0),
+  tools: allRuns.value.reduce((sum, run) => sum + run.tools.length, 0),
+  runs: allRuns.value.length
+}))
+
+const totalTokens = computed(() => {
+  const usage = props.tracker.tokenUsage
+  const value = usage?.total_tokens ?? usage?.total?.total_tokens ?? usage?.totals?.total_tokens
+  return Number.isFinite(value) ? value : 0
+})
+
+const kpis = computed(() => {
+  const working = steps.value.filter((s) => statusOf(s.id) === 'working')
+  const waiting = steps.value.some((s) => statusOf(s.id) === 'waiting') || props.status === 'Waiting for input...'
+  return [
+    {
+      key: 'progress',
+      label: t('launch.dashboard.kpi_progress'),
+      value: `${doneCount.value}/${steps.value.length}`,
+      sub: t('launch.dashboard.kpi_progress_sub', { p: progress.value })
+    },
+    {
+      key: 'time',
+      label: t('launch.dashboard.kpi_time'),
+      value: props.tracker.startedAt ? formatSpan(span.value) : '—',
+      sub: props.tracker.endedAt ? t('launch.dashboard.kpi_time_done') : isLive.value ? t('launch.dashboard.kpi_time_live') : '—'
+    },
+    {
+      key: 'active',
+      label: t('launch.dashboard.kpi_active'),
+      value: waiting ? t('launch.dashboard.kpi_you') : String(working.length),
+      sub: waiting
+        ? t('launch.dashboard.kpi_waiting_sub')
+        : working.map((s) => s.id).join(', ') || t('launch.dashboard.kpi_none')
+    },
+    {
+      key: 'calls',
+      label: t('launch.dashboard.kpi_calls'),
+      value: String(totals.value.models),
+      sub: totalTokens.value
+        ? t('launch.board.tokens', { n: totalTokens.value.toLocaleString() })
+        : t('launch.dashboard.kpi_runs', { n: totals.value.runs })
+    },
+    {
+      key: 'tools',
+      label: t('launch.dashboard.kpi_tools'),
+      value: String(totals.value.tools),
+      sub: topTool.value ? t('launch.dashboard.kpi_top_tool', { name: topTool.value }) : t('launch.dashboard.kpi_none')
+    }
+  ]
+})
+
+const topTool = computed(() => {
+  const counts = new Map()
+  for (const run of allRuns.value) for (const name of run.tools) counts.set(name, (counts.get(name) || 0) + 1)
+  let best = ''
+  let max = 0
+  for (const [name, count] of counts) if (count > max) [best, max] = [name, count]
+  return best
+})
+
+const agentRows = computed(() => {
+  const rows = steps.value.map((step) => {
+    const runs = runsOf(step.id)
+    return {
+      step,
+      status: statusOf(step.id),
+      runs: runs.length,
+      models: runs.reduce((sum, run) => sum + run.models, 0),
+      tools: runs.reduce((sum, run) => sum + run.tools.length, 0),
+      duration: durationOf(step.id)
+    }
+  })
+  const longest = Math.max(1, ...rows.map((row) => row.duration))
+  return rows.map((row) => ({ ...row, share: Math.round((row.duration / longest) * 100) }))
+})
+
+const barStyle = (run) => {
+  const start = props.tracker.startedAt || run.startedAt
+  const left = ((run.startedAt - start) / span.value) * 100
+  const width = (((run.endedAt || now.value) - run.startedAt) / span.value) * 100
+  return { left: `${Math.max(0, Math.min(99.5, left))}%`, width: `${Math.max(0.6, Math.min(100 - left, width))}%` }
+}
+
+// ---------------------------------------------------------------- activity feed
+const feed = computed(() => props.tracker.events.slice(-FEED_LIMIT).reverse())
+
+const ICONS = { task: '✎', start: '▶', end: '✓', tool: '⚙', handoff: '→', waiting: '?', input: '↩', completed: '★', cancelled: '■', error: '!' }
+const eventIcon = (kind) => ICONS[kind] || '•'
+
+const escapeHtml = (text) =>
+  String(text ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch])
+
+const eventText = (event) => {
+  const name = `<b>${escapeHtml(event.nodeId)}</b>`
+  const target = `<b>${escapeHtml(event.target)}</b>`
+  switch (event.kind) {
+    case 'task': return t('launch.dashboard.ev_task', { text: escapeHtml(event.text) })
+    case 'start': return t('launch.dashboard.ev_start', { name })
+    case 'end': return t('launch.dashboard.ev_end', { name })
+    case 'tool': return t('launch.dashboard.ev_tool', { name, tool: `<code>${escapeHtml(event.text)}</code>` })
+    case 'handoff': return t('launch.dashboard.ev_handoff', { name, target })
+    case 'waiting': return event.nodeId ? t('launch.dashboard.ev_waiting', { name }) : t('launch.dashboard.ev_waiting_any')
+    case 'input': return t('launch.dashboard.ev_input', { text: escapeHtml(event.text) })
+    case 'completed': return t('launch.dashboard.ev_completed')
+    case 'cancelled': return t('launch.dashboard.ev_cancelled')
+    case 'error': return t('launch.dashboard.ev_error')
+    default: return escapeHtml(event.kind)
+  }
+}
+
+// ---------------------------------------------------------------- all sessions
+const SESSION_TONE = {
+  running: 'working',
+  waiting_for_input: 'waiting',
+  completed: 'completed',
+  error: 'error',
+  cancelled: 'cancelled',
+  idle: 'idle'
+}
+const sessionTone = (status) => SESSION_TONE[status] || 'idle'
+const sessionLabel = (status) => stateLabel(sessionTone(status) === 'idle' ? 'draft' : sessionTone(status))
+
+const buckets = computed(() => {
+  const count = (statuses) => props.sessions.filter((s) => statuses.includes(s.status)).length
+  return [
+    { key: 'active', tone: 'working', label: t('launch.dashboard.bucket_active'), count: count(['running', 'waiting_for_input']) },
+    { key: 'completed', tone: 'completed', label: t('launch.dashboard.bucket_done'), count: count(['completed']) },
+    { key: 'stopped', tone: 'error', label: t('launch.dashboard.bucket_stopped'), count: count(['error', 'cancelled']) },
+    { key: 'draft', tone: 'idle', label: t('launch.dashboard.bucket_draft'), count: count(['idle']) }
+  ]
+})
+
+const BUCKET_STATUSES = {
+  active: ['running', 'waiting_for_input'],
+  completed: ['completed'],
+  stopped: ['error', 'cancelled'],
+  draft: ['idle']
+}
+const recentSessions = computed(() =>
+  props.sessions
+    .filter((s) => !filter.value || BUCKET_STATUSES[filter.value].includes(s.status))
+    .slice(0, WORK_LIMIT)
+)
+
+const workMeta = (item) => {
+  const workflow = (item.yaml_file || '').replace(/\.ya?ml$/i, '')
+  const project = item.projects?.[0]?.name?.replace(/\/$/, '')
+  return [project, workflow].filter(Boolean).join(' · ')
+}
+
+// ---------------------------------------------------------------- formatting
+const stateLabel = (state) => {
+  const key = `launch.board.states.${state}`
+  return te(key) ? t(key) : state
+}
+const deptLabel = (dept) => {
+  const key = `launch.office.rooms.${dept}`
+  return te(key) ? t(key) : dept
+}
+const clockFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const clock = (ms) => (ms ? clockFormat.format(new Date(ms)) : '')
+
+const ago = (seconds) => {
+  if (!seconds) return ''
+  const diff = Math.round((seconds * 1000 - now.value) / 1000)
+  const rtf = new Intl.RelativeTimeFormat(locale.value, { numeric: 'auto' })
+  const abs = Math.abs(diff)
+  if (abs < 60) return rtf.format(diff, 'second')
+  if (abs < 3600) return rtf.format(Math.round(diff / 60), 'minute')
+  if (abs < 86400) return rtf.format(Math.round(diff / 3600), 'hour')
+  return rtf.format(Math.round(diff / 86400), 'day')
+}
+
+// Live clock while the run is going and the view is on screen
+let timer = null
+const syncTimer = () => {
+  const needed = props.visible && isLive.value
+  if (needed && !timer) {
+    now.value = Date.now()
+    timer = setInterval(() => { now.value = Date.now() }, 1000)
+  } else if (!needed && timer) {
+    clearInterval(timer)
+    timer = null
+  }
+  if (!needed) now.value = Date.now()
+}
+watch(() => [props.visible, isLive.value], syncTimer, { immediate: true })
+onBeforeUnmount(() => timer && clearInterval(timer))
+</script>
+
+<style scoped>
+.dash {
+  --ok: #22c55e;
+  --run: var(--accent-sky);
+  --wait: #f59e0b;
+  --err: var(--danger);
+  --muted: var(--text-muted-4);
+  --line: rgb(var(--ink) / 0.09);
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 16px 16px 24px calc(var(--inset-left, 0px) + 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--text-1);
+  font-family: 'Inter', system-ui, sans-serif;
+  scrollbar-width: thin;
+  transition: padding-left 0.25s ease;
+}
+
+.card {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 8px 24px -18px rgb(0 0 0 / 0.35);
+}
+
+.muted { color: var(--muted); font-size: 12px; }
+.empty { margin: 0; padding: 18px 4px; font-size: 13px; color: var(--muted); text-align: center; }
+
+/* ---------- pills ---------- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  color: var(--tone, var(--muted));
+  background: color-mix(in srgb, var(--tone, var(--muted)) 14%, transparent);
+}
+
+.pill.is-neutral { --tone: var(--text-muted-6); font-weight: 550; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.is-working { --tone: var(--run); }
+.is-waiting { --tone: var(--wait); }
+.is-done,
+.is-completed { --tone: var(--ok); }
+.is-error { --tone: var(--err); }
+.is-cancelled { --tone: var(--text-muted-6); }
+.is-todo,
+.is-idle { --tone: var(--muted); }
+
+.pill.is-working .dot,
+.pill.is-waiting .dot { animation: pulse 1.4s ease-in-out infinite; }
+
+@keyframes pulse {
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+
+/* ---------- hero ---------- */
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 18px 22px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent-sky) 12%, transparent), transparent 60%),
+    radial-gradient(90% 120% at 100% 100%, color-mix(in srgb, var(--accent-mint) 10%, transparent), transparent 60%),
+    var(--surface-1);
+}
+
+.ring {
+  position: relative;
+  flex: none;
+  width: 112px;
+  height: 112px;
+}
+
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 10; }
+.ring-track { stroke: rgb(var(--ink) / 0.08); }
+
+.ring-fill {
+  stroke: var(--accent-sky);
+  stroke-linecap: round;
+  stroke-dasharray: 326.73;
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.ring-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+}
+
+.ring-text strong { font-size: 24px; font-weight: 720; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ring-text span { font-size: 11px; color: var(--muted); }
+
+.hero-main { min-width: 0; flex: 1; }
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hero-main h2 { margin: 2px 0 4px; font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }
+
+.hero-task {
+  margin: 0 0 10px;
+  max-width: 80ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-soft-1, var(--text-1));
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.hero-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---------- KPIs ---------- */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.kpi-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.kpi-value { font-size: 24px; font-weight: 720; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+
+.kpi-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- blocks ---------- */
+.block { padding: 14px 16px 16px; min-width: 0; }
+
+.block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.block-head h3 { margin: 0; font-size: 14px; font-weight: 680; }
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+/* ---------- pipeline ---------- */
+.pipeline {
+  display: flex;
+  margin: 0;
+  padding: 4px 0 2px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.pipe-step {
+  --dept: var(--accent-sky);
+  position: relative;
+  flex: 1 0 104px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  text-align: center;
+}
+
+/* connector to the next step */
+.pipe-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: calc(50% + 17px);
+  right: calc(-50% + 17px);
+  height: 2px;
+  border-radius: 2px;
+  background: rgb(var(--ink) / 0.12);
+}
+
+.pipe-step.is-done:not(:last-child)::after { background: var(--ok); }
+
+.pipe-node {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  border: 2px solid rgb(var(--ink) / 0.15);
+  background: var(--surface-1);
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
+}
+
+.pipe-step.is-done .pipe-node { color: #fff; border-color: var(--ok); background: var(--ok); }
+.pipe-step.is-working .pipe-node { color: var(--run); border-color: var(--run); box-shadow: 0 0 0 5px color-mix(in srgb, var(--run) 18%, transparent); animation: glow 1.6s ease-in-out infinite; }
+.pipe-step.is-waiting .pipe-node { color: var(--wait); border-color: var(--wait); box-shadow: 0 0 0 5px color-mix(in srgb, var(--wait) 18%, transparent); }
+.pipe-step.is-error .pipe-node { color: #fff; border-color: var(--err); background: var(--err); }
+
+@keyframes glow {
+  50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--run) 6%, transparent); }
+}
+
+.pipe-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.pipe-sub { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- gantt ---------- */
+.gantt { display: flex; flex-direction: column; gap: 7px; }
+
+.gantt-row {
+  --dept: var(--accent-sky);
+  display: grid;
+  grid-template-columns: minmax(90px, 160px) 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.gantt-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.gantt-label b {
+  display: inline-block;
+  min-width: 18px;
+  margin-right: 6px;
+  color: var(--dept);
+  font-variant-numeric: tabular-nums;
+}
+
+.gantt-track {
+  position: relative;
+  height: 14px;
+  border-radius: 7px;
+  background: rgb(var(--ink) / 0.05);
+}
+
+.gantt-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 7px;
+  background: var(--dept);
+  opacity: 0.85;
+  transition: width 0.8s linear;
+}
+
+.gantt-bar.is-live {
+  background: linear-gradient(90deg, var(--dept), color-mix(in srgb, var(--dept) 45%, transparent));
+  opacity: 1;
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% { opacity: 0.65; }
+}
+
+.gantt-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-left: calc(min(160px, 30%) + 10px);
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- feed ---------- */
+.feed {
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.feed-item {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: start;
+  gap: 9px;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  animation: slide 0.25s ease-out;
+}
+
+.feed-item:last-child { border-bottom: 0; }
+
+@keyframes slide {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+
+.feed-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  font-size: 11px;
+  color: var(--tone, var(--muted));
+  background: color-mix(in srgb, var(--tone, var(--muted)) 13%, transparent);
+}
+
+.feed-item.is-start { --tone: var(--run); }
+.feed-item.is-end,
+.feed-item.is-completed { --tone: var(--ok); }
+.feed-item.is-waiting { --tone: var(--wait); }
+.feed-item.is-error { --tone: var(--err); }
+.feed-item.is-handoff,
+.feed-item.is-task,
+.feed-item.is-input { --tone: var(--accent-indigo); }
+
+.feed-text { min-width: 0; line-height: 1.45; }
+.feed-text :deep(b) { font-weight: 650; }
+.feed-text :deep(code) { font-size: 11.5px; padding: 0 4px; border-radius: 4px; background: rgb(var(--ink) / 0.07); }
+
+.feed-text small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.feed-item time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- agents table ---------- */
+.table-wrap { overflow-x: auto; }
+
+.agents {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.agents th {
+  padding: 0 10px 8px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.agents td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.agents tr:last-child td { border-bottom: 0; }
+.agents tbody tr:hover td { background: rgb(var(--ink) / 0.025); }
+.agents .num { text-align: right; font-variant-numeric: tabular-nums; }
+.agents .idx { width: 28px; color: var(--dept); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.agent-cell { display: flex; align-items: center; gap: 9px; min-width: 180px; }
+
+.avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--dept);
+  background: color-mix(in srgb, var(--dept) 14%, rgb(var(--ink) / 0.04));
+}
+
+.avatar img { width: 26px; height: 26px; object-fit: contain; image-rendering: pixelated; }
+
+.agent-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.agent-name strong { font-weight: 620; }
+.agent-name small { color: var(--muted); font-size: 11.5px; }
+
+.share { display: flex; align-items: center; gap: 8px; min-width: 140px; }
+.share-track { flex: 1; height: 6px; border-radius: 99px; background: rgb(var(--ink) / 0.07); overflow: hidden; }
+.share-fill { display: block; height: 100%; border-radius: inherit; background: var(--dept); transition: width 0.6s ease; }
+.share-text { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+
+/* ---------- all work ---------- */
+.work-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.work-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--tone, var(--muted)) 6%, transparent);
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.work-stat strong { font-size: 20px; font-weight: 720; color: var(--tone); font-variant-numeric: tabular-nums; }
+.work-stat span { font-size: 12px; color: var(--muted); }
+.work-stat:hover,
+.work-stat.active { border-color: color-mix(in srgb, var(--tone) 55%, transparent); background: color-mix(in srgb, var(--tone) 12%, transparent); }
+
+.work-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+
+.work-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.work-list li:last-child .work-item { border-bottom: 0; }
+.work-item:hover { background: rgb(var(--ink) / 0.03); }
+.work-item.current { background: color-mix(in srgb, var(--accent-sky) 8%, transparent); }
+
+.work-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+
+.work-meta {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.work-item time { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pill .dot,
+  .pipe-node,
+  .gantt-bar,
+  .feed-item { animation: none !important; transition: none; }
+}
+
+@media (max-width: 1100px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .dash { padding: 10px; }
+  .hero { flex-direction: column; align-items: flex-start; }
+  .work-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .work-item { grid-template-columns: auto minmax(0, 1fr); }
+  .work-meta,
+  .work-item time { display: none; }
+}
+</style>

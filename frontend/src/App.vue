@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Sidebar from '@/components/common/Sidebar.vue'
 import ToastHost from '@/components/common/ToastHost.vue'
+import ConfirmHost from '@/components/common/ConfirmHost.vue'
 
 const route = useRoute()
 
@@ -35,6 +36,7 @@ watch(locale, (value) => {
       </router-view>
     </main>
     <ToastHost />
+    <ConfirmHost />
   </div>
 </template>
 

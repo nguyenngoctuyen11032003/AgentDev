@@ -1,18 +1,12 @@
-"""Turn a connection id into the credentials a provider client needs."""
+"""Turn a connection id into what a provider needs to run a node with that account."""
 
 from __future__ import annotations
 
-import os
-import re
+import json
 from dataclasses import dataclass
 
-import json
-
 from agentdev.connections.catalog import AUTH_API_KEY, AUTH_CLI, AUTH_OAUTH, get_vendor
-from agentdev.connections.security import UnsafeConnectionInput, check_env_ref_destination, is_allowed_env_name, validate_base_url
 from agentdev.connections.store import get_store
-
-_ENV_REF = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
 class ConnectionResolutionError(ValueError):
@@ -22,17 +16,11 @@ class ConnectionResolutionError(ValueError):
 @dataclass(frozen=True)
 class ResolvedCredentials:
     vendor: str
-    api_key: str
-    base_url: str
-    provider: str = ""  # registered provider name to run the node with
-
-
-def expand_secret(secret: str) -> str:
-    """Resolve a ``${ENV_VAR}`` reference; plain values pass through."""
-    match = _ENV_REF.match((secret or "").strip())
-    if not match:
-        return (secret or "").strip()
-    return os.environ.get(match.group(1), "")
+    provider: str  # registered provider name to run the node with
+    # Google sign-in only: the OAuth access token, passed to the Gemini provider as
+    # "oauth-bearer:<token>". CLI accounts keep their own login, so this stays empty.
+    token: str = ""
+    base_url: str = ""
 
 
 def _resolve_oauth(conn) -> ResolvedCredentials:
@@ -50,7 +38,7 @@ def _resolve_oauth(conn) -> ResolvedCredentials:
     if updated:
         update_oauth_tokens(conn.id, updated)
     return ResolvedCredentials(
-        vendor=conn.vendor, api_key=OAUTH_BEARER_PREFIX + token, base_url=conn.base_url, provider=conn.vendor
+        vendor=conn.vendor, provider=conn.vendor, token=OAUTH_BEARER_PREFIX + token, base_url=conn.base_url
     )
 
 
@@ -58,31 +46,18 @@ def resolve_connection(connection_id: str) -> ResolvedCredentials:
     conn = get_store().get(connection_id)
     if conn is None:
         raise ConnectionResolutionError(
-            f"Connection '{connection_id}' not found. Create it on the Connections page."
+            f"Connection '{connection_id}' not found. Sign in to an account on the Connections page."
         )
     vendor = get_vendor(conn.vendor)
     if conn.auth_type == AUTH_CLI:
         if vendor is None or not vendor.cli_provider:
-            raise ConnectionResolutionError(f"Connection '{connection_id}': CLI sign-in is not available for '{conn.vendor}'.")
-        return ResolvedCredentials(vendor=conn.vendor, api_key="", base_url="", provider=vendor.cli_provider)
+            raise ConnectionResolutionError(f"Connection '{connection_id}': account sign-in is not available for '{conn.vendor}'.")
+        return ResolvedCredentials(vendor=conn.vendor, provider=vendor.cli_provider)
     if conn.auth_type == AUTH_OAUTH:
         return _resolve_oauth(conn)
-    if conn.auth_type != AUTH_API_KEY:
+    if conn.auth_type == AUTH_API_KEY:
         raise ConnectionResolutionError(
-            f"Connection '{connection_id}' uses unsupported auth type '{conn.auth_type}'."
+            f"Connection '{connection_id}' uses an API key, which is no longer supported. "
+            "Sign out of it and sign in with an account on the Connections page."
         )
-    env_match = _ENV_REF.match((conn.secret or "").strip())
-    try:
-        base_url = validate_base_url(conn.base_url)
-        if env_match:
-            if not is_allowed_env_name(env_match.group(1)):
-                raise UnsafeConnectionInput(f"Environment variable '{env_match.group(1)}' cannot be used as a credential")
-            check_env_ref_destination(base_url, vendor.default_base_url if vendor else "")
-    except UnsafeConnectionInput as exc:
-        raise ConnectionResolutionError(f"Connection '{connection_id}': {exc}") from exc
-    api_key = expand_secret(conn.secret)
-    if not api_key:
-        raise ConnectionResolutionError(
-            f"Connection '{connection_id}' has no usable credential (empty or unset env variable)."
-        )
-    return ResolvedCredentials(vendor=conn.vendor, api_key=api_key, base_url=conn.base_url, provider=conn.vendor)
+    raise ConnectionResolutionError(f"Connection '{connection_id}' uses unsupported auth type '{conn.auth_type}'.")

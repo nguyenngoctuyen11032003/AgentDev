@@ -10,7 +10,7 @@
 | [工作流编排](workflow_authoring.md) | YAML 结构、节点类型、Provider/边条件、设计模板导出、CLI 运行                   |
 | [图执行逻辑](execution_logic.md) | DAG/循环图执行策略、Tarjan 环路检测、超级节点构建、递归式环路执行                   |
 | [Dynamic 并行执行](dynamic_execution.md) | Map/Tree 模式、Split 拆分策略、并行处理与层级归约                          |
-| [Memory 模块](modules/memory.md) | Memory 列表架构、内置 `simple`/`file`/`blackboard` 行为、嵌入配置、排障 |
+| [Memory 模块](modules/memory.md) | Memory 列表架构、内置 `simple`/`file`/`blackboard` 行为、关键词（BM25）检索与可选本地嵌入、排障 |
 | [Thinking 模块](modules/thinking.md) | 思考增强机制、自我反思模式、扩展自定义思考模式 |
 | [Tooling 模块](modules/tooling/README.md) | Function / MCP 模式、上下文注入、内置函数清单、MCP 启动方式                   |
 | [节点类型详解](nodes/) | Agent、Python、Human、Subgraph、Passthrough、Literal、Loop Counter 等节点配置 |

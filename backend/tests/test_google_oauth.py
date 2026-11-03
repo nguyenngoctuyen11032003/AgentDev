@@ -137,6 +137,7 @@ def test_gemini_bearer_path():
     assert headers["Authorization"] == "Bearer tok123"
     assert "x-goog-api-key" not in headers
 
+    # API keys are not accepted: Gemini runs only with a Google sign-in
     p.api_key = "plain-key"
-    headers = p.create_client()._api_client._http_options.headers
-    assert headers["x-goog-api-key"] == "plain-key" and "Authorization" not in headers
+    with pytest.raises(ValueError, match="Google account sign-in"):
+        p.create_client()

@@ -6,7 +6,7 @@
 1. **Memory Store**：在 YAML `memory[]` 中声明，包含 `name`、`type` 和 `config`。`type` 由 `register_memory_store()` 注册，并映射到具体实现。
 2. **Memory Attachment**：在 Agent 节点（`AgentConfig.memories`）中引用 `MemoryAttachmentConfig`，指定读取/写入策略及检索阶段。
 3. **MemoryManager**：运行期根据 Attachment+Store 构建 Memory 实例，负责 `load()`、`retrieve()`、`update()`、`save()`。
-4. **Embedding**：`SimpleMemoryConfig`、`FileMemoryConfig` 可内嵌 `EmbeddingConfig`，由 `EmbeddingFactory` 创建 OpenAI 或本地向量模型。
+4. **检索**：`simple` 与 `file` 存储按关键词相关度（BM25，支持越南语/中日韩文本）检索，无需 embedding 或 API 密钥。可选的 `EmbeddingConfig` 可切换为使用本地模型的向量检索（`EmbeddingFactory` 仅支持 `provider: local`）。
 
 ## 2. Memory 配置示例
 ```yaml
@@ -15,10 +15,6 @@ memory:
     type: simple
     config:
       memory_path: shared/simple.json   # 相对路径 -> storage/memory/shared/simple.json
-      embedding:
-        provider: openai
-        model: text-embedding-3-small
-        api_key: ${API_KEY}
   - name: project_docs
     type: file
     config:
@@ -27,28 +23,22 @@ memory:
         - path: docs/
           file_types: [".md", ".mdx"]
           recursive: true
-      embedding:
-        provider: openai
-        model: text-embedding-3-small
+      # 可选：使用本地 sentence-transformers 模型进行向量检索
+      # embedding:
+      #   provider: local
+      #   params:
+      #     model_path: /path/to/sentence-transformers-model
 ```
 
-### Mem0 Memory 配置
-```yaml
-memory:
-  - name: agent_memory
-    type: mem0
-    config:
-      api_key: ${MEM0_API_KEY}
-      agent_id: my-agent
-```
+> [!NOTE]
+> Mem0 记忆已被移除。`type: mem0` 现在会报错并提示不再支持 Mem0；请改用 `simple`、`file` 或 `blackboard`。
 
 ## 3. 内置 Memory Store 对比
 | 类型 | 路径 | 特点 | 适用场景 |
 | --- | --- | --- | --- |
-| `simple` | `node/agent/memory/simple_memory.py` | 运行结束后可选择落盘（JSON）；使用向量搜索（FAISS）+语义重打分；支持读写 | 小规模对话记忆、快速原型 |
-| `file` | `node/agent/memory/file_memory.py` | 将指定文件/目录切片为向量索引，只读；自动检测文件变更并更新索引 | 知识库、文档问答 |
+| `simple` | `node/agent/memory/simple_memory.py` | 运行结束后可选择落盘（JSON）；使用 BM25 关键词检索（配置本地 embedding 时为 FAISS 向量搜索 + 语义重打分）；支持读写 | 小规模对话记忆、快速原型 |
+| `file` | `node/agent/memory/file_memory.py` | 将指定文件/目录切片建立索引（BM25 关键词检索，或配置本地 embedding 时使用向量），只读；自动检测文件变更并更新索引 | 知识库、文档问答 |
 | `blackboard` | `node/agent/memory/blackboard_memory.py` | 轻量附加日志，按时间/条数裁剪；不依赖向量检索 | 简易广播板、流水线调试 |
-| `mem0` | `node/agent/memory/mem0_memory.py` | 由 Mem0 云端托管；支持语义搜索 + 图关系；无需本地 embedding 或持久化。需安装 `mem0ai` 包。 | 生产级记忆、跨会话持久化、多 Agent 记忆共享 |
 
 > 所有内置 store 都会在 `register_memory_store()` 中注册，摘要可通过 `MemoryStoreConfig.field_specs()` 在 UI 中展示。
 
@@ -67,8 +57,8 @@ nodes:
   - id: answer
     type: agent
     config:
-      provider: openai
-      model: gpt-4o-mini
+      connection: <your-connection-id>
+      name: claude-haiku-5-5
       prompt_template: answer_user
       memories:
         - name: convo_cache
@@ -96,14 +86,14 @@ nodes:
 - **路径**：`SimpleMemoryConfig.memory_path`（可为 `auto`），缺省仅驻留内存。
 - **检索**：
   1. 以 prompt 构建查询文本并做裁剪。
-  2. 调用 Embedding 生成向量 → FAISS `IndexFlatIP` 检索 → 语义重打分（Jaccard/LCS）。
-- **写入**：`update()` 根据输入/输出生成 `MemoryContentSnapshot`，计算摘要哈希去重，再写入 embedding + snapshot + 附件元信息。
+  2. 按 BM25 关键词相关度对已存摘要排序；若配置了本地 `embedding`，则改为生成向量 → FAISS `IndexFlatIP` 检索 → 语义重打分（Jaccard/LCS）。
+- **写入**：`update()` 根据输入/输出生成 `MemoryContentSnapshot`，计算摘要哈希去重，再写入 snapshot + 附件元信息（仅在配置本地 embedding 时同时写入向量）。
 - **适配建议**：控制 `max_content_length` 避免爆 context；结合 `top_k`/`similarity_threshold` 防止无关内容。
 
 ### 5.2 FileMemory
 - **配置**：至少一个 `file_sources`（路径、后缀过滤、递归、编码）。`index_path` 必填，方便增量更新。
-- **索引流程**：扫描文件 → 切片（默认 500 字符、重叠 50）→ Embedding → 写入 JSON（包括 `file_metadata`）。
-- **检索**：同样使用 FAISS 余弦相似度，只读，不支持 `update()`。
+- **索引流程**：扫描文件 → 切片（默认 500 字符、重叠 50）→ Embedding（仅在配置本地 embedding 时）→ 写入 JSON（包括 `file_metadata`）。
+- **检索**：默认使用 BM25 关键词相关度；配置本地 embedding 时使用 FAISS 余弦相似度。只读，不支持 `update()`。
 - **维护**：`load()` 时校验文件哈希，必要时重建索引；建议将 `index_path` 放在持久卷。
 
 ### 5.3 BlackboardMemory
@@ -111,24 +101,15 @@ nodes:
 - **检索**：直接返回最近 `top_k` 条，按时间排序。
 - **写入**：`update()` 以 append 方式存储最新的输入/输出 snapshot（文本 + 块 + 附件信息），不生成向量，适合事件流或人工批注。
 
-### 5.4 Mem0Memory
-- **配置**：必须提供 `api_key`（从 [app.mem0.ai](https://app.mem0.ai) 获取）。可选参数 `user_id`、`agent_id`、`org_id`、`project_id` 用于记忆范围控制。
-- **实体范围**：`user_id` 和 `agent_id` 是独立的维度，可在 `add()` 和 `search()` 调用中同时使用。若同时配置，检索时使用 OR 过滤器（`{"OR": [{"user_id": ...}, {"agent_id": ...}]}`）在一次 API 调用中搜索两个范围。写入时两个 ID 同时包含。
-- **检索**：使用 Mem0 服务端语义搜索。通过 `MemoryAttachmentConfig` 中的 `top_k` 和 `similarity_threshold` 控制。
-- **写入**：`update()` 仅将用户输入（`role: "user"` 消息）发送至 Mem0。不包含 Agent 输出，以避免 LLM 响应中的内容被提取为噪声记忆。
-- **持久化**：完全由云端托管。`load()` 和 `save()` 为空操作（no-op）。记忆在不同运行和会话间自动持久化。
-- **依赖**：需安装 `mem0ai` 包（`pip install mem0ai`）。
-
 ## 6. EmbeddingConfig 提示
-- 字段：`provider`, `model`, `api_key`, `base_url`, `params`。
-- `provider=openai` 时使用 `openai.OpenAI` 客户端，可配置 `base_url` 以兼容兼容层。
+- Embedding 为可选项：未配置时，`simple` 与 `file` 存储使用 BM25 关键词检索。
+- 字段：`provider`, `model`, `params`。唯一支持的 provider 是 `local`，需提供 `params.model_path`，依赖 `sentence-transformers`。
 - `params` 支持 `use_chunking`, `chunk_strategy`, `max_length` 等自定义键。
-- `provider=local` 时需提供 `params.model_path`，依赖 `sentence-transformers`。
-- Anthropic Claude 没有 embedding 模型：Agent 可以使用 `provider: anthropic`，但 `embedding.provider` 仍需为 `openai`（或 OpenAI 兼容端点）或 `local`。
+- OpenAI embedding 已移除：旧的 `provider: openai` embedding 配置会被忽略并给出警告（改用关键词检索）。
 
 ## 7. 排错与最佳实践
 - **重复命名**：内存列表会校验 `memory[]` 名称唯一；重复时抛出 `ConfigError`。
-- **缺少 embedding**：`SimpleMemory`/`FileMemory` 若未提供 embedding，则仅能以追加方式工作（SimpleMemory）或抛出错误（FileMemory）。
+- **无需 embedding**：`SimpleMemory`/`FileMemory` 未配置 embedding 时使用 BM25 关键词检索；仅在需要向量检索时才添加 `local` embedding。
 - **权限**：确保 `memory_path`/`index_path` 所在目录可写；容器化部署应挂载卷。
 - **性能**：
   - 大型 FileMemory 建议离线构建索引并缓存。

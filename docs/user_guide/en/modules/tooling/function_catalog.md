@@ -93,12 +93,10 @@ Web search and webpage content retrieval.
 
 | Function | Description |
 |----------|-------------|
-| `web_search` | Perform web search using Serper.dev, supports pagination and multiple languages |
-| `read_webpage_content` | Read webpage content using Jina Reader, supports rate limiting |
+| `web_search` | `web_search(query, page, language, country)`: keyless web search using the `ddgs` metasearch library (Bing as fallback for page 1), supports pagination and multiple languages |
+| `read_webpage_content` | `read_webpage_content(url)`: downloads the page directly and extracts readable text; refuses local/private network addresses (localhost, 127.0.0.1, 192.168.x, ::1, file://), including via redirects |
 
-**Environment Variables**:
-- `SERPER_DEV_API_KEY`: Serper.dev API key
-- `JINA_API_KEY`: Jina API key (optional, auto rate-limited to 20 RPM without key)
+No API key or environment variable is needed.
 
 **Example YAML**: [deep_research_v1.yaml](../../../../../workspace/workflows/deep_research_v1.yaml)
 

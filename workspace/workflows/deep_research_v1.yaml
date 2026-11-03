@@ -43,7 +43,6 @@ graph:
           Result:
 
           Outline, including: report title, target audience, key points of each chapter, and key KPIs.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -141,7 +140,6 @@ graph:
           FINISHED
 
           The research report has been successfully completed and compiled. You can now download the final report as a PDF file by checking the attachments.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -227,7 +225,6 @@ graph:
           - In this chapter, I synthesized findings on market trends and competitive landscapes, supporting the analysis with numerical citations `[1][2][3]`.
           - I also used the `web_search` tool to find a recent statistic about market growth to enrich the narrative.
           - Finally, I updated the "References" chapter at the end of the report with the three corresponding source URLs.
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -294,7 +291,6 @@ graph:
           **Example 2: Approval (Finished)**
           Current chapter is will organized. Let's begin writing the next chapter.
           ROUTE: Planner
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function
@@ -333,7 +329,6 @@ graph:
 
           **Result:**
           Simply output: "Report Completed! Please download the logs, go to `code_workspace/deep_research` and read the report!"
-        api_key: ${ANTHROPIC_API_KEY}
         params: {}
         tooling:
           - type: function

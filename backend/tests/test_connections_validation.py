@@ -16,7 +16,7 @@ def store(tmp_path, monkeypatch):
 
 
 def agent(nid, conn=None):
-    cfg = {"connection": conn} if conn else {"api_key": "x"}
+    cfg = {"connection": conn} if conn else {"provider": "anthropic"}
     return {"id": nid, "type": "agent", "config": cfg}
 
 
@@ -29,12 +29,16 @@ def test_missing(store):
     assert [(p["nodeId"], p["problem"]) for p in r] == [("a", "missing")]
 
 
-def test_no_credential_and_ok(store, monkeypatch):
-    monkeypatch.delenv("NOPE_KEY", raising=False)
-    bad = store.create(vendor="openai", label="bad", secret="${NOPE_KEY}")
-    good = store.create(vendor="openai", label="good", secret="sk-realsecret-123456")
-    r = check_workflow_connections(doc(agent("a", bad.id), agent("b", good.id)))
-    assert len(r) == 1 and r[0]["problem"] == "no_credential"
+def test_api_key_connection_is_flagged_and_accounts_pass(store, tmp_path):
+    import json
+
+    (tmp_path / "c.json").write_text(
+        json.dumps({"connections": [{"id": "old", "vendor": "openai", "label": "old", "auth_type": "api_key", "secret": "sk-realsecret-123456"}]}),
+        encoding="utf-8",
+    )
+    good = store.create(vendor="openai", label="good", auth_type="cli")
+    r = check_workflow_connections(doc(agent("a", "old"), agent("b", good.id)))
+    assert len(r) == 1 and r[0]["problem"] == "unsupported_auth" and r[0]["nodeId"] == "a"
     assert "realsecret" not in str(r)
 
 

@@ -9,15 +9,6 @@ graph:
       type: simple
       config:
         memory_path: memory_test/improved_memory.json
-        embedding:
-          provider: openai
-          model: text-embedding-3-small
-          base_url: ${BASE_URL}
-          api_key: ${API_KEY}
-          params:
-            use_chunking: true
-            chunk_strategy: weighted
-            max_length: 1000
   start:
     - Writer
   nodes:
@@ -25,7 +16,6 @@ graph:
     type: agent
     config:
       provider: anthropic
-      api_key: ${ANTHROPIC_API_KEY}
       name: claude-sonnet-5-5
       role: 'You are a professional writer, skilled at creating high-quality articles based on topics input by the user.
 

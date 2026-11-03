@@ -57,9 +57,6 @@ graph:
           *   **DO NOT** describe impossible shapes (like "a hyper-realistic face"). Keep it structurally logical for code generation.
           *   Ensure the **Dimensions** are consistent (e.g., a door must fit a human, a tree must be taller than a house).
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         input_mode: messages
         tooling:
@@ -112,9 +109,6 @@ graph:
           3. [Details]: Create 'Anchor_Window' on the tower wall and attach a simple arched window geometry.
           4. [Lighting]: Setup a Sun light (Strength 5) and set Camera to view the tower.
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         input_mode: messages
         tooling:
@@ -214,9 +208,6 @@ graph:
           You must call tools to execute code; your final output is forbidden from containing code.
           When you consider the current step complete, briefly report: "Constructed [Object Name], applied procedural [Material Type], and adjusted viewport lighting to present details." You do not need to mention the next steps.
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         input_mode: messages
         tooling:
@@ -267,9 +258,6 @@ graph:
           DECISION: <APPROVE|REJECT>
           CRITIQUE: <Your feedback, can be skipped if APPROVE>
         provider: anthropic
-        api_key: ${ANTHROPIC_API_KEY}
-#        base_url: ${BASE_URL}
-        api_key: ${API_KEY}
         params: {}
         input_mode: messages
         tooling:
