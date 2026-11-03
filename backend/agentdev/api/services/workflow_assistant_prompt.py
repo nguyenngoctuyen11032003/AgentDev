@@ -18,6 +18,7 @@ from agentdev.paths import SKILLS_DIR
 REFERENCE_PATH = Path(__file__).with_name("workflow_assistant_reference.md")
 BRAINSTORMING_PATH = SKILLS_DIR / "brainstorming" / "SKILL.md"
 ASSISTANT_VENDORS = ("anthropic", "openai")
+VENDOR_LABELS = {"anthropic": "Claude", "openai": "Codex"}
 
 ROLE = """\
 You are the workflow architect of AgentDev, a tool where a user chats with a lead agent that runs a team of \
@@ -36,8 +37,8 @@ a single reply, so keep only its way of asking questions and override the rest:
 doc, writing plans, spikes and visual companions. The "design" here is the workflow proposal: the user \
 sees it as a card with a diagram and an Apply button.
 - Ask one question per turn, open questions first. Briefly restate what you understood and state your \
-assumptions. Offer 2-4 short quick replies when they help the user answer.
-- Before proposing a new workflow, make sure you know: its name; its shape (a team with a lead, a fixed \
+assumptions. Offer 2-4 short quick replies when they help the user answer; put them only in \n`quick_replies`, never list them inside `reply`.
+- Before proposing a new workflow, make sure you know: its name, confirmed with the user (suggest a \nslug and ask them to confirm or change it; never invent a name and proceed silently); its shape (a team with a lead, a fixed \
 pipeline, or mixed); the roles and what each one does; how they relate and in what order; where a person \
 must review or approve; and the conditions for branching or looping. Ask about what is missing, one point \
 at a time. If the user says to just go ahead ("cứ làm", "just do it"), propose right away and list the \
@@ -102,6 +103,7 @@ def build_system_prompt(
     skills: List[Tuple[str, str]],
     tools: List[Tuple[str, str]],
     models: Dict[str, List[str]],
+    chat_vendor: Optional[str] = None,
 ) -> str:
     sections = [
         ROLE,
@@ -111,6 +113,11 @@ def build_system_prompt(
         REFERENCE_PATH.read_text(encoding="utf-8").strip(),
         _catalogs(existing_files, skills, tools, models),
     ]
+    if chat_vendor:
+        label = VENDOR_LABELS.get(chat_vendor, chat_vendor)
+        sections.append(
+            f"The user is chatting with {label} (vendor {chat_vendor}); default new agents to that vendor's models."
+        )
     if current_yaml is not None:
         sections.append(
             f"## Current workflow: `{current_name or 'untitled'}`\n\n"

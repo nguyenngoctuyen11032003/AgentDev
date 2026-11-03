@@ -54,7 +54,7 @@ text becomes the node output, so edge conditions can test it (e.g. `any: [OK]`).
 `assistant`. Ignores its inputs.
 
 ### passthrough (forward input unchanged)
-`config: {}` or `{only_last_message: true}`. Use as an entry point that holds the user's brief, or as a
+`config: {}` (forwards only the last message); `{only_last_message: false}` forwards all inputs. Use as an entry point that holds the user's brief, or as a
 join/exit point.
 
 ### loop_counter (stops a loop)
