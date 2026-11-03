@@ -62,6 +62,10 @@ class WorkflowExecutionError(MACException):
             self.details["node_id"] = node_id
 
 
+class ModelCallError(WorkflowExecutionError):
+    """An agent's model call failed for good (after retries and account fallback)."""
+
+
 class WorkflowCancelledError(MACException):
     """Raised when a workflow execution is cancelled mid-flight."""
 

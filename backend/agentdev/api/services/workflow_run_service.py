@@ -348,7 +348,9 @@ class WorkflowRunService:
                 exchanges = self._user_exchanges(executor)
             answer = answer if isinstance(answer, str) else ""
             names = self._attachment_names(session_id, attachment_ids)
-            self.session_store.add_turn(session_id, make_turn(prompt, answer, names, exchanges, status=status))
+            turn = make_turn(prompt, answer, names, exchanges)
+            turn["status"] = status  # how the run ended: completed / cancelled / error
+            self.session_store.add_turn(session_id, turn)
         except Exception as exc:  # never let history break the run's own error/cancel handling
             self.logger.warning("Could not save turn for session %s: %s", session_id, exc)
 

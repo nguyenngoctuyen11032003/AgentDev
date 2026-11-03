@@ -372,3 +372,42 @@ def test_tool_preamble_says_tools_are_only_reachable_via_json():
 
     text = build_tool_preamble([_weather_spec()], schema_enforced=True)
     assert "NOT exposed to you as native functions" in text and "never tell the user a listed tool is unavailable" in text
+
+
+def test_cli_timeout_is_retried_by_the_default_retry_policy():
+    from agentdev.entity.configs.node.agent import AgentRetryConfig
+    from agentdev.runtime.node.agent.account_fallback import is_exhaustion_error, is_quota_error
+    from agentdev.runtime.node.agent.providers._cli_common import CliTimeoutError
+
+    p = ClaudeCliProvider(_cfg(timeout=7))
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=subprocess.TimeoutExpired("claude", 7)):
+        with pytest.raises(CliTimeoutError) as info:
+            p.call_model(CliClient("claude"), _conv(), [])
+    policy = AgentRetryConfig(path="retry")
+    assert isinstance(info.value, TimeoutError) and policy.should_retry(info.value)
+    assert not is_quota_error(info.value) and not is_exhaustion_error(info.value)
+    # Other CLI failures are still not retried.
+    assert not policy.should_retry(CliProviderError("`claude` CLI is not logged in"))
+
+
+def test_cli_timeout_gets_a_single_retry_not_the_full_policy():
+    """One CLI call that keeps timing out must not hold the user for max_attempts x timeout."""
+    from types import SimpleNamespace
+
+    from agentdev.entity.configs.node.agent import AgentRetryConfig
+    from agentdev.runtime.node.agent.providers._cli_common import CliTimeoutError
+    from agentdev.runtime.node.executor import agent_executor as ae
+
+    calls = {"n": 0}
+
+    def always_times_out():
+        calls["n"] += 1
+        raise CliTimeoutError("`claude` CLI timed out after 300s")
+
+    policy = AgentRetryConfig(path="retry", min_wait_seconds=0, max_wait_seconds=0)
+    assert policy.max_attempts > 2
+    fake_self = SimpleNamespace(log_manager=SimpleNamespace(warning=lambda *a, **k: None))
+    node = SimpleNamespace(id="CTO")
+    with pytest.raises(CliTimeoutError):
+        ae.AgentNodeExecutor._execute_with_retry(fake_self, node, policy, always_times_out)
+    assert calls["n"] == 1 + ae.MAX_CLI_TIMEOUT_RETRIES

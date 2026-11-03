@@ -53,17 +53,22 @@ from agentdev.runtime.node.agent.team import (
     TeamDelegation,
     get_team_state,
     is_delegated_call,
+    latest_user_message,
     resolve_members,
 )
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV, require_unsafe_code_execution
 from agentdev.utils.exceptions import (
-    ModelCallError,
     SecurityError,
     ValidationError,
     WorkflowCancelledError,
+    WorkflowExecutionError,
 )
 from agentdev.utils.workspace_paths import is_link, resolve_workspace_path, validate_path_component
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
+from agentdev.runtime.node.agent.providers._cli_common import CliTimeoutError
+
+# Extra attempts for a CLI call that ran into its timeout (see _execute_with_retry).
+MAX_CLI_TIMEOUT_RETRIES = 1
 
 
 # Guards lazy creation of the per-node state dicts below. Team leads run members from worker
@@ -76,6 +81,10 @@ AGENTDEV_INSTALL_ROOT = Path(__file__).resolve().parents[5]
 
 
 MAX_ERROR_REASON_CHARS = 300
+
+
+class ModelCallError(WorkflowExecutionError):
+    """An agent's model call failed for good (after retries and account fallback)."""
 
 
 def _short_error(exc: BaseException) -> str:
@@ -536,7 +545,19 @@ class AgentNodeExecutor(NodeExecutor):
             max=retry_config.max_wait_seconds,
         )
         # Quota errors are not retried on the same account: _invoke_provider switches account instead.
-        retry_condition = retry_if_exception(lambda exc: not is_quota_error(exc) and retry_config.should_retry(exc))
+        # A CLI call that hits its timeout already cost minutes: retry it once, not max_attempts times
+        # (5 x 300 s would leave the user waiting ~25 minutes for an error).
+        timeouts_seen = {"count": 0}
+
+        def _should_retry(exc: BaseException) -> bool:
+            if is_quota_error(exc) or not retry_config.should_retry(exc):
+                return False
+            if isinstance(exc, CliTimeoutError):
+                timeouts_seen["count"] += 1
+                return timeouts_seen["count"] <= MAX_CLI_TIMEOUT_RETRIES
+            return True
+
+        retry_condition = retry_if_exception(_should_retry)
 
         def _before_sleep(retry_state) -> None:
             exc = retry_state.outcome.exception()
@@ -1147,6 +1168,9 @@ class AgentNodeExecutor(NodeExecutor):
             self.log_manager.warning(f"[Node: {node.id}] Team members not found or not agents: {missing}", node_id=node.id)
         state = get_team_state(self.context.global_state)
         delegated = is_delegated_call()
+        if not delegated:
+            # The lead talking to the user sets the language members write user-facing text in.
+            state.set_user_language(latest_user_message(input_text))
         return TeamDelegation(
             lead_id=node.id,
             members=members,

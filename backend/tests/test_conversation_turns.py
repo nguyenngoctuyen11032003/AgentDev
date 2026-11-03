@@ -66,6 +66,52 @@ def test_transcript_caps_turn_count_and_size():
     assert len(huge) < 1200
 
 
+def test_long_answers_keep_start_and_end_and_latest_turn_gets_more_room():
+    answer = "START " + "x" * 20_000 + " END"
+    text = build_transcript([make_turn("old", answer), make_turn("new", answer)])
+    old, new = text.split("--- Turn 2 ---")
+    assert "START" in old and "END" in old and "chars omitted" in old
+    assert "START" in new and "END" in new
+    assert 3_500 < len(old) < 4_500 and 7_500 < len(new) < 8_500
+
+
+def test_questions_the_lead_asked_keep_a_whole_plan():
+    plan = "Plan: " + "step. " * 350  # ~2100 chars
+    text = build_transcript([make_turn("Build a shop", "ok", exchanges=[{"question": plan, "answer": "ok"}])])
+    assert plan.strip() in text
+
+
+def test_unfinished_turn_status_is_noted():
+    cancelled = {**make_turn("Build it", "half done"), "status": "cancelled"}
+    failed = {**make_turn("Build it", ""), "status": "error"}
+    done = {**make_turn("Build it", "done"), "status": "completed"}
+    assert "cancelled before it finished" in build_transcript([cancelled])
+    assert "ended with an error" in build_transcript([failed])
+    assert "before it finished" not in build_transcript([done])
+
+
+def test_make_turn_files_delegations_under_team():
+    exchanges = [
+        {"question": "Approve?", "answer": "ok"},
+        {"kind": "delegation", "member": "Dev", "task": "Build API", "report": "Built"},
+    ]
+    turn = make_turn("Build", "Done", exchanges=exchanges)
+    assert turn["exchanges"] == [{"question": "Approve?", "answer": "ok"}]
+    assert turn["team"] == [{"member": "Dev", "task": "Build API", "report": "Built"}]
+    assert "team" not in make_turn("a", "b")
+
+
+def test_team_digest_shown_for_the_last_two_turns_only():
+    turns = [
+        make_turn(f"ask {i}", f"answer {i}", team=[{"member": f"m{i}", "task": f"task {i}", "report": f"report {i}"}])
+        for i in range(3)
+    ]
+    text = build_transcript(turns)
+    assert "task 0" not in text and "- m1: task 1" in text and "- m2: task 2\n  Report: report 2" in text
+    many = make_turn("big", "done", team=[{"member": "Dev", "task": "t" * 2000, "report": "r" * 9000}] * 8)
+    assert len(build_transcript([many])) < 9_000
+
+
 # ---------------------------------------------------------------- session store
 
 
@@ -189,17 +235,26 @@ def test_follow_up_gives_the_lead_earlier_turns_but_not_members(run_service):
     _run(service, "Build a login API")
     first_cto = ScriptedProvider.seen["CTO"][0]
     assert not any(HEADER in text for text in first_cto)
-    assert store.get_session("chat-1").turns == [make_turn("Build a login API", "Login API is done in app/auth.py.")]
+    (first_turn,) = store.get_session("chat-1").turns
+    assert (first_turn["user"], first_turn["answer"], first_turn["status"]) == (
+        "Build a login API", "Login API is done in app/auth.py.", "completed"
+    )
+    # The turn remembers what the team did.
+    assert first_turn["team"] == [{"member": "Dev", "task": "Implement /login", "report": "Implemented /login"}]
 
     _run(service, "ok, now also add a logout button")
     follow_up = "\n".join(ScriptedProvider.seen["CTO"][2])
     assert "User: Build a login API" in follow_up
     assert "You answered: Login API is done in app/auth.py." in follow_up
     assert f"{NEW_MESSAGE_HEADER}\nok, now also add a logout button" in follow_up
+    assert "What the team did:\n- Dev: Implement /login\n  Report: Implemented /login" in follow_up
 
-    # Members are briefed by the lead only; the transcript is not forwarded to them.
+    # Members are briefed by the lead only; the transcript is not forwarded to them,
+    # but a member's own report from the earlier turn is repeated in its brief.
     dev_brief = "\n".join(ScriptedProvider.seen["Dev"][1])
     assert HEADER not in dev_brief and "Add a logout button" in dev_brief
+    assert "from earlier messages of this conversation" in dev_brief and "Implemented /login" in dev_brief
+    assert "documents (UI text, docs, messages) in English" in dev_brief
 
     session = store.get_session("chat-1")
     assert len(session.turns) == 2 and session.status == SessionStatus.COMPLETED
@@ -241,11 +296,6 @@ def test_execute_endpoint_returns_409_when_a_run_is_in_progress(run_service, mon
     assert response.json() == {"detail": "A run is already in progress in this session", "code": "run_in_progress"}
 
 
-def test_turn_status_defaults_to_completed_and_does_not_change_rendering():
-    assert make_turn("q", "a")["status"] == "completed"
-    assert build_transcript([make_turn("q", "a", status="cancelled")]) == build_transcript([make_turn("q", "a")])
-
-
 def _patch_run(monkeypatch, run, final_output):
     executor_cls = run_service_module.WebSocketGraphExecutor
     monkeypatch.setattr(executor_cls, "execute_graph_async", run)
@@ -265,7 +315,7 @@ def test_cancelled_run_saves_turn_with_status_and_partial_answer(run_service, mo
     asyncio.run(service.start_workflow("cx", "team.yaml", "Build a login API", socket))
     assert socket.sent[-1]["type"] == "workflow_cancelled"
     turns = store.get_session("cx").turns
-    assert turns == [make_turn("Build a login API", "half done", status="cancelled")]
+    assert turns == [{**make_turn("Build a login API", "half done"), "status": "cancelled"}]
     # A follow-up like "continue" gets that context.
     assert "User: Build a login API" in compose_follow_up_prompt(turns, "continue")
 
@@ -280,4 +330,4 @@ def test_failed_run_saves_turn_with_error_status(run_service, monkeypatch):
     socket = FakeSocketManager()
     asyncio.run(service.start_workflow("ex", "team.yaml", "Build a login API", socket))
     assert socket.sent[-1]["type"] == "error"
-    assert store.get_session("ex").turns == [make_turn("Build a login API", "", status="error")]
+    assert store.get_session("ex").turns == [{**make_turn("Build a login API", ""), "status": "error"}]

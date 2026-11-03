@@ -285,7 +285,7 @@
                   :class="{ 'is-clamped': !isQuestionExpanded }"
                 >{{ pendingQuestion.text }}</div>
                 <button
-                  v-if="pendingQuestion.text && pendingQuestion.text.length > 180"
+                  v-if="pendingQuestion.isLong"
                   type="button"
                   class="question-card-toggle"
                   @click="isQuestionExpanded = !isQuestionExpanded"
@@ -1132,6 +1132,8 @@ const settleNodeTurn = (nodeId, content = null, at = Date.now()) => {
     }
   }
   message.rev += 1
+  // An agent's answer landed in its bubble while you read further up
+  if (merged && !isNearBottom) hasUnseenMessages.value = true
   scheduleScrollToBottom()
   return merged
 }
@@ -1573,6 +1575,12 @@ const onVisibilityChange = () => {
 // WebSocket reference
 let ws = null
 let sessionId = null
+// Shows the "new messages" button: something arrived while the chat was scrolled up
+const hasUnseenMessages = ref(false)
+// Session being opened right now: a second click (double click) while it connects is a no-op
+let pendingOpenSessionId = null
+// Set when Stop was pressed here, so the server's confirmation adds no second notice
+let locallyCancelled = false
 
 const filteredWorkflowFiles = computed(() => {
   // If the file search box is untouched, return all workflows
@@ -1635,10 +1643,13 @@ const pendingQuestion = computed(() => {
     const message = list[i]
     if (message.type === 'dialogue' && message.isRight) break
     if (message.isQuestion) {
-      return { name: getDisplayName(message), text: String(message.text || '').trim() }
+      const text = String(message.text || '').trim()
+      // Clamped to three lines; longer ones get a "show more"
+      const isLong = text.length > 180 || text.split('\n').length > 3
+      return { name: getDisplayName(message), text, isLong }
     }
   }
-  return { name: '', text: '' }
+  return { name: '', text: '', isLong: false }
 })
 const isQuestionExpanded = ref(false)
 watch(pendingQuestion, (question, previous) => {
@@ -1716,6 +1727,7 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
   isConnectionReady.value = false
 
   if (!keepSession) {
+    locallyCancelled = false
     sessionId = null
     hasLaunched.value = false
     isWorkflowRunning.value = false
@@ -1927,7 +1939,8 @@ const buildDialogueContent = (message) => {
   return { text, htmlContent }
 }
 
-const addDialogue = (name, message) => {
+// `at`: when it happened (the WebSocket message's `ts`), else now
+const addDialogue = (name, message, at = null) => {
   const built = buildDialogueContent(message)
   if (!built) {
     return
@@ -1944,7 +1957,7 @@ const addDialogue = (name, message) => {
     htmlContent,
     avatar: avatar,
     isRight: isRight,
-    timestamp: Date.now(),
+    timestamp: at ?? Date.now(),
     rev: 0
   })
   // The user's own message always brings the view back to the bottom
@@ -1960,6 +1973,11 @@ const delegatedNodes = new Map()
 const eventTime = (at) => {
   const parsed = at ? Date.parse(at) : NaN
   return Number.isFinite(parsed) ? parsed : Date.now()
+}
+// The server's send time of a WebSocket message (top-level ISO `ts`) in ms, null without one
+const messageTime = (msg) => {
+  const parsed = typeof msg?.ts === 'string' ? Date.parse(msg.ts) : NaN
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 // What a delegate_task / delegate_parallel call hands over: [{ member, task }]
@@ -1987,11 +2005,11 @@ const touchWorkingTurns = () => {
 }
 
 // Add a notification (supports levels)
-const addChatNotification = (message, { type = 'notification' } = {}) => {
+const addChatNotification = (message, { type = 'notification', at = null } = {}) => {
   chatMessages.value.push({
     type,
     message,
-    timestamp: Date.now(),
+    timestamp: at ?? Date.now(),
     rev: 0
   })
   scheduleScrollToBottom()
@@ -2210,7 +2228,7 @@ const handleEnterKey = (e) => {
   if (e.shiftKey || e.altKey || e.isComposing || e.keyCode === 229) return
   e.preventDefault()
   // Check disabled state logically similar to button
-  if (isStopMode.value || loading.value || (isWorkflowRunning.value && !taskPrompt.value.trim()) || (!isWorkflowRunning.value && status.value !== 'Completed' && status.value !== 'Cancelled' && !isConnectionReady.value)) {
+  if (isStopMode.value || loading.value || (isWorkflowRunning.value && !hasComposerContent.value) || (!isWorkflowRunning.value && !isRunFinished.value && !isConnectionReady.value)) {
     return
   }
   // An empty message box never relaunches a finished run from the keyboard
@@ -2353,8 +2371,9 @@ const handleYAMLSelection = async (fileName) => {
 // Handle button clicks
 const handleButtonClick = () => {
   if (isWorkflowRunning.value) {
-    // If Send, send user input
-    sendHumanInput()
+    // Only an answer to a pending question can be sent while a run is live (or launching)
+    if (!isWaitingForInput.value) return
+    if (!sendHumanInput()) return
 
     status.value = "Running..."
     shouldGlow.value = false
@@ -2383,7 +2402,7 @@ const handleButtonClick = () => {
 // Send human input
 const sendHumanInput = () => {
   if (!ws) {
-    return
+    return false
   }
 
   const trimmedInput = taskPrompt.value.trim()
@@ -2393,7 +2412,7 @@ const sendHumanInput = () => {
   )
 
   if (!trimmedInput && attachmentIds.length === 0) {
-    return
+    return false
   }
 
   const message = {
@@ -2421,6 +2440,7 @@ const sendHumanInput = () => {
   }
 
   taskPrompt.value = ''
+  return true
 }
 
 // Establish a WebSocket connection
@@ -2509,6 +2529,7 @@ const establishWebSocketConnection = (options = {}) => {
       if (isReconnecting.value && !msg.data?.resumed) {
         // Nothing saved under that id (deleted or expired): continue as a new session
         isReconnecting.value = false
+        pendingOpenSessionId = null
         currentProjectName.value = ''
         const query = { ...route.query }
         delete query.session
@@ -2546,12 +2567,23 @@ const establishWebSocketConnection = (options = {}) => {
     if (!reconnectAttempts) toast.error(t('launch.errors.ws_connection'))
   }
 
-  socket.onclose = () => {
+  socket.onclose = (event) => {
     // Ignore close events from sockets that are no longer current (closed on purpose)
     if (ws !== socket) return
 
     const lostSession = sessionId
     status.value = 'Disconnected'
+    pendingOpenSessionId = null
+    // The same session was opened in another tab (the server keeps one socket per session,
+    // see websocket_manager.connect): reconnecting here would just take it back from that
+    // tab, and so on forever. Stay put and say so; picking the session again reopens it here.
+    if (event?.code === 1000 && String(event.reason || '').startsWith('Replaced')) {
+      isReconnecting.value = false
+      resetConnectionState({ closeSocket: true, keepSession: Boolean(lostSession) })
+      addChatNotification(t('launch.replaced_by_other_tab'), { type: 'warning' })
+      toast.info(t('launch.replaced_by_other_tab'))
+      return
+    }
     // Keep the chat on screen while the server is away (e.g. it restarted); the replay
     // on reconnect rebuilds it exactly.
     resetConnectionState({ closeSocket: false, keepSession: Boolean(lostSession) })
@@ -2588,6 +2620,7 @@ const scheduleReconnect = (lostSession) => {
 // Set while an automatic reconnect is in flight: the chat is cleared only once the server
 // answers (it then replays the whole session), so a failed retry leaves it on screen.
 const clearReplayedState = () => {
+  locallyCancelled = false
   chatMessages.value = []
   nodesLoadingMessagesMap.clear()
   activeNodes.value = []
@@ -2603,6 +2636,8 @@ const clearReplayedState = () => {
 const openSession = async (item) => {
   if (!item?.session_id) return
   if (item.session_id === activeSessionId.value && isConnectionReady.value) return
+  if (isReconnecting.value && pendingOpenSessionId === item.session_id) return
+  pendingOpenSessionId = item.session_id
   stashComposer()
   resetConnectionState()
   pendingProject = null
@@ -2620,6 +2655,7 @@ const openSession = async (item) => {
 const openDraft = async (file, { project = '', source = null } = {}) => {
   stashComposer()
   isReconnecting.value = false
+  pendingOpenSessionId = null
   resetConnectionState()
   currentProjectName.value = project
   pendingProject = source
@@ -3215,7 +3251,20 @@ const launchWorkflow = async () => {
   shouldGlow.value = false
   // A failed follow-up leaves a finished session as it was (not a draft "waiting for launch")
   const statusBefore = ['Completed', 'Cancelled', 'Error'].includes(status.value) ? status.value : 'Waiting for launch...'
+  // The run is live from the moment it is posted: the server may already stream its first
+  // events (a question, an error, even the end) before the POST returns, and those must win
+  // over what happens below. This also stops a second launch while this one is in flight.
   status.value = 'Launching...'
+  isWorkflowRunning.value = true
+  locallyCancelled = false
+  const trackerBefore = JSON.parse(JSON.stringify(runTracker.state))
+  runTracker.begin(trimmedPrompt, attachmentNames)
+  // A launch that did not happen puts everything back as it was
+  const undoLaunch = () => {
+    takeBackBubble()
+    Object.assign(runTracker.state, trackerBefore)
+    isWorkflowRunning.value = false
+  }
 
   // Show the message right away (before the server's "started" notice), like a chat does;
   // it is taken back if the launch fails
@@ -3246,27 +3295,35 @@ const launchWorkflow = async () => {
 
       await response.json().catch(() => null)
 
-      taskPrompt.value = ''
-      runTracker.begin(trimmedPrompt, attachmentNames)
+      // Only clear what was sent (not an answer typed meanwhile to an early question)
+      if (taskPrompt.value.trim() === trimmedPrompt) taskPrompt.value = ''
 
-      status.value = 'Running...'
-      isWorkflowRunning.value = true
+      // Events that arrived during the POST (question, error, end) already set the state
+      if (status.value === 'Launching...') status.value = 'Running...'
       hasLaunched.value = true
       // The project runs this workflow from now on (until the user picks another)
       if (currentProjectName.value) rememberProjectWorkflow(currentProjectName.value, selectedFile.value)
 
-      // Persist session id in URL for reconnection after refresh
-      router.push({
+      // Persist session id in URL for reconnection after refresh (no extra history entry)
+      router.replace({
         query: {
           ...route.query,
           workflow: selectedFile.value,
           session: sessionId
         }
       })
+    } else if (response.status === 409) {
+      // The server is still running a turn of this session (e.g. started from another tab):
+      // nothing was launched, so the run state stays as it was
+      const error = await response.json().catch(() => ({}))
+      console.warn('Launch rejected, a run is in progress:', error)
+      undoLaunch()
+      status.value = statusBefore
+      toast.warning(t('launch.run_in_progress'))
     } else {
       const error = await response.json().catch(() => ({}))
       console.error('Failed to launch workflow:', error)
-      takeBackBubble()
+      undoLaunch()
       status.value = 'Failed'
       toast.error(errorWithDetail('launch.errors.launch_failed', error.detail || error.error?.message || (response.status ? `HTTP ${response.status}` : '')))
       shouldGlow.value = true
@@ -3276,7 +3333,7 @@ const launchWorkflow = async () => {
     }
   } catch (error) {
     console.error('Error calling execute API:', error)
-    takeBackBubble()
+    undoLaunch()
     status.value = 'Error'
     toast.error(errorWithDetail('launch.errors.execute_failed', error))
     shouldGlow.value = true
@@ -3628,13 +3685,15 @@ const animateSpriteAlongEdge = (edge) => {
 // Time of the latest backend log event (ms): messages without their own time follow it
 let lastLogAt = 0
 const processMessage = async (msg) => {
+  // When the server sent it (null on older servers: the chat then stamps "now")
+  const at = messageTime(msg)
   if (msg.type === 'log' && msg.data?.timestamp) lastLogAt = eventTime(msg.data.timestamp)
   // What the user typed earlier; only arrives when a saved session is replayed
   if (msg.type === 'user_message') {
     const text = msg.data?.text || ''
     const names = Array.isArray(msg.data?.attachments) ? msg.data.attachments : []
     const parts = [text.trim(), names.length ? t('launch.attachments_line', { names: names.join(', ') }) : '']
-    addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'))
+    addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'), at)
     // The first message of a run is the task, later ones are replies to the agents
     if (runTracker.state.task && !runTracker.state.outcome) runTracker.inputSent(text)
     else runTracker.begin(text, names)
@@ -3665,6 +3724,7 @@ const processMessage = async (msg) => {
     }
 
     isReconnecting.value = false
+    pendingOpenSessionId = null
     currentProjectName.value = stripSlash(data.projects?.[0]?.name)
     hasLaunched.value = Boolean(data.status) && data.status !== 'idle'
     const composer = takeComposer(sessionId)
@@ -3733,22 +3793,50 @@ const processMessage = async (msg) => {
 
   // Prompt for human input
   if (msg.type === 'human_input_required') {
-    const fullMessage = [msg.data?.task_description, localizeInputHeaders(msg.data?.input)]
+    // A human step usually gets the previous agent's reply as its input: that reply is
+    // already the last bubble, so it is not shown a second time
+    const lastAgentBubble = (() => {
+      const list = chatMessages.value
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        if (list[i].type !== 'dialogue') continue
+        return list[i].isRight ? null : list[i].text ? list[i] : null
+      }
+      return null
+    })()
+    const rawInput = msg.data?.input
+    const localizedInput = localizeInputHeaders(rawInput)
+    const lastText = String(lastAgentBubble?.text || '').trim()
+    const repeatsLast = Boolean(lastText) &&
+      [rawInput, localizedInput].some((part) => typeof part === 'string' && part.trim() === lastText)
+    const fullMessage = [msg.data?.task_description, repeatsLast ? null : localizedInput]
       .filter((part) => part !== null && part !== undefined && String(part).trim())
       .join('\n\n')
     // The question closes the agent's current activity row and becomes its message;
     // work after the user's answer starts a fresh row below it.
     const askingNode = msg.data?.node_id
-    // No timestamp on this message: it follows the agent's last logged event (right for replays too)
-    if (!settleNodeTurn(askingNode, fullMessage || t('launch.input_required'), lastLogAt || Date.now())) {
-      addDialogue(askingNode || t('launch.unknown_node'), fullMessage || t('launch.input_required'))
+    // Without a server time it follows the agent's last logged event (right for replays too)
+    const askedAt = at || lastLogAt || Date.now()
+    let question = null
+    if (repeatsLast && !fullMessage) {
+      // Nothing new to say: the reply on screen is the question
+      settleNodeTurn(askingNode, null, askedAt)
+      question = lastAgentBubble
+    } else {
+      if (!settleNodeTurn(askingNode, fullMessage || t('launch.input_required'), askedAt)) {
+        addDialogue(askingNode || t('launch.unknown_node'), fullMessage || t('launch.input_required'), at)
+      }
+      question = chatMessages.value[chatMessages.value.length - 1]
     }
     // Shown as the lead's question, waiting for your answer
-    const question = chatMessages.value[chatMessages.value.length - 1]
     if (question?.type === 'dialogue' && !question.isRight) {
       question.isQuestion = true
       question.rev += 1
     }
+    // Ready to answer: the box takes the focus unless you are typing somewhere else
+    nextTick(() => {
+      const active = document.activeElement
+      if (!active || active === document.body) taskInputRef.value?.focus()
+    })
     officeRef.value?.waitingInput(msg.data?.node_id, msg.data?.task_description || msg.data?.input)
     runTracker.waitingInput(msg.data?.node_id)
 
@@ -3789,7 +3877,7 @@ const processMessage = async (msg) => {
           dataUri: null,
           loading: true,
           error: null,
-          timestamp: Date.now(),
+          timestamp: at ?? Date.now(),
           rev: 0
         })
 
@@ -3822,7 +3910,7 @@ const processMessage = async (msg) => {
   if (accountEvent === 'account_fallback' || accountEvent === 'account_exhausted') {
     const params = { from: msg.data.details.from || '', to: msg.data.details.to || '', model: msg.data.details.model || '' }
     const key = accountEvent === 'account_fallback' ? 'launch.account_fallback' : 'launch.account_exhausted'
-    addChatNotification(t(key, params), { type: accountEvent === 'account_fallback' ? 'warning' : 'error' })
+    addChatNotification(t(key, params), { type: accountEvent === 'account_fallback' ? 'warning' : 'error', at })
     toast[accountEvent === 'account_fallback' ? 'warning' : 'error'](t(key, params))
   }
 
@@ -3834,7 +3922,7 @@ const processMessage = async (msg) => {
     const fallbackKey = notificationType === 'warning' ? 'launch.unknown_warning' : 'launch.unknown_error'
     addChatNotification(
       detail ? withErrorHint(t(`launch.log_events.backend_${notificationType}`, { detail })) : t(fallbackKey),
-      { type: notificationType }
+      { type: notificationType, at }
     )
   }
 
@@ -3860,7 +3948,7 @@ const processMessage = async (msg) => {
         touchWorkingTurns()
         officeRef.value?.handoff(delegatedBy, nodeId, { visit: true })
         runTracker.handoff(delegatedBy, nodeId, msg.data.timestamp)
-        addChatNotification(t('launch.team.assigned', { lead: delegatedBy, member: nodeId }))
+        addChatNotification(t('launch.team.assigned', { lead: delegatedBy, member: nodeId }), { at })
       }
     }
 
@@ -3933,9 +4021,9 @@ const processMessage = async (msg) => {
         touchWorkingTurns()
         officeRef.value?.handoff(nodeId, delegatedBy, { visit: true })
         runTracker.handoff(nodeId, delegatedBy, msg.data.timestamp)
-        addChatNotification(t('launch.team.reported', { lead: delegatedBy, member: nodeId }))
+        addChatNotification(t('launch.team.reported', { lead: delegatedBy, member: nodeId }), { at })
       } else if (!settleNodeTurn(nodeId, msg.data.details?.output, eventAt)) {
-        addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output)
+        addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output, at)
       }
       if (nodeId) officeRef.value?.nodeEnd(nodeId, msg.data.details?.output)
       runTracker.nodeEnd(nodeId, msg.data.details?.output, msg.data.timestamp)
@@ -3953,7 +4041,7 @@ const processMessage = async (msg) => {
     }
 
     else if (msg.data.message) {
-      addChatNotification(localizeLogMessage(msg.data))
+      addChatNotification(localizeLogMessage(msg.data), { at })
     }
   }
 
@@ -3963,7 +4051,7 @@ const processMessage = async (msg) => {
     // WORKFLOW_END log line already said the run is over: only say it when nothing did.
     const endLine = t('launch.log_events.workflow_end')
     const last = chatMessages.value[chatMessages.value.length - 1]
-    if (!(last?.type === 'notification' && last.message === endLine)) addChatNotification(t('launch.workflow_completed'))
+    if (!(last?.type === 'notification' && last.message === endLine)) addChatNotification(t('launch.workflow_completed'), { at })
     runTracker.finish('completed', { summary: formatErrorDetail(msg.data?.summary), tokenUsage: msg.data?.token_usage })
     status.value = 'Completed'
     isWorkflowRunning.value = false
@@ -3972,7 +4060,9 @@ const processMessage = async (msg) => {
 
   // Workflow cancelled (e.g., from server-side cancellation)
   if (msg.type === 'workflow_cancelled') {
-    addChatNotification(formatErrorDetail(msg.data?.message) || t('launch.workflow_cancelled'))
+    // Stopped from here: the notice is already in the chat, the server only confirms it
+    if (!locallyCancelled) addChatNotification(formatErrorDetail(msg.data?.message) || t('launch.workflow_cancelled'), { at })
+    locallyCancelled = false
     if (runTracker.state.outcome !== 'cancelled') runTracker.finish('cancelled', { summary: formatErrorDetail(msg.data?.message) })
     status.value = 'Cancelled'
     isWorkflowRunning.value = false
@@ -3980,9 +4070,15 @@ const processMessage = async (msg) => {
   }
 
   // Handle direct error messages (e.g., workflow execution errors)
+  if (msg.type === 'error' && msg.data?.code === 'run_in_progress') {
+    // A follow-up was turned down because a run is still going: a notice, not a failure;
+    // the live run (and its state here) carries on
+    toast.warning(t('launch.run_in_progress'))
+    return
+  }
   if (msg.type === 'error') {
     const errorMessage = withErrorHint(errorWithDetail('launch.errors.workflow_error', msg.data?.message))
-    addChatNotification(errorMessage, { type: 'error' })
+    addChatNotification(errorMessage, { type: 'error', at })
     runTracker.finish('error', { error: formatErrorDetail(msg.data?.message) })
     status.value = 'Error'
     isWorkflowRunning.value = false
@@ -3990,11 +4086,12 @@ const processMessage = async (msg) => {
   }
 }
 
-// Cancel the currently running workflow
+// Cancel the currently running workflow (also while it waits for the user's answer)
 const cancelWorkflow = () => {
-  if (!isWorkflowRunning.value || !ws) {
+  if (!isRunActive.value || !ws) {
     return
   }
+  locallyCancelled = true
 
   // Send cancel request through WebSocket so the server stops the workflow
   try {
@@ -4017,11 +4114,13 @@ const cancelWorkflow = () => {
 
 // Download logs
 const downloadLogs = async () => {
-  if (!sessionIdToDownload) {
+  // A run that failed early may not have recorded its id for download yet
+  const target = sessionIdToDownload || sessionId
+  if (!target) {
     return
   }
   try {
-    await fetchLogsZip(sessionIdToDownload)
+    await fetchLogsZip(target)
   } catch (error) {
     console.error('Download failed:', error)
     toast.error(errorWithDetail('launch.errors.download_logs_failed', error))
@@ -4090,11 +4189,19 @@ const handleChatScroll = () => {
   const el = chatMessagesRef.value
   if (!el) return
   isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD
+  if (isNearBottom) hasUnseenMessages.value = false
+}
+
+// "New messages" button: back to the latest message, following the chat again from there
+const jumpToLatest = () => {
+  scheduleScrollToBottom(true)
+  taskInputRef.value?.focus({ preventScroll: true })
 }
 
 function scheduleScrollToBottom(force = false) {
   if (force) {
     isNearBottom = true
+    hasUnseenMessages.value = false
   }
   if (!isNearBottom || scrollRafId !== null) return
   scrollRafId = requestAnimationFrame(() => {
@@ -4109,9 +4216,13 @@ function scheduleScrollToBottom(force = false) {
 // Clearing / replacing the whole list (new session, reconnect) starts pinned to the bottom
 watch(
   () => chatMessages.value.length,
-  (length) => {
+  (length, previous) => {
     if (length === 0) {
       isNearBottom = true
+      hasUnseenMessages.value = false
+    } else if (length > (previous || 0) && !isNearBottom) {
+      // Reading further up: say something new came in instead of yanking the view down
+      hasUnseenMessages.value = true
     }
     scheduleScrollToBottom()
   },
@@ -4984,6 +5095,114 @@ watch(
 /* Input Area */
 .input-area {
   flex: 0 0 auto;
+  position: relative;
+}
+
+/* "New messages" pill: floats above the composer while the chat is scrolled up */
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background: rgb(32 32 34 / 0.96);
+  color: var(--text-1);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.28);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.jump-latest:hover {
+  border-color: rgb(var(--ink) / 0.28);
+}
+.jump-latest:focus-visible {
+  outline: 2px solid var(--accent-blue-1);
+  outline-offset: 2px;
+}
+.jump-latest-enter-active,
+.jump-latest-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.jump-latest-enter-from,
+.jump-latest-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 6px);
+}
+:root[data-theme="light"] .jump-latest {
+  background: var(--surface-1);
+  box-shadow: 0 2px 10px rgb(var(--shade) / 0.18);
+}
+
+/* The lead's open question, pinned right above the composer */
+.question-card {
+  margin-bottom: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgb(245 158 11 / 0.4);
+  background: rgb(245 158 11 / 0.08);
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.question-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #f59e0b;
+  margin-bottom: 4px;
+}
+.question-card-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: #f59e0b;
+  animation: question-pulse 1.6s ease-in-out infinite;
+}
+@keyframes question-pulse {
+  50% { opacity: 0.35; }
+}
+.question-card-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.question-card-text.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.question-card-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-blue-1);
+  font-size: 12px;
+  cursor: pointer;
+}
+.question-card-toggle:hover {
+  text-decoration: underline;
+}
+:root[data-theme="light"] .question-card-head {
+  color: #b45309;
+}
+@media (prefers-reduced-motion: reduce) {
+  .question-card-dot { animation: none; }
+  .jump-latest-enter-active,
+  .jump-latest-leave-active { transition-duration: 0.01ms; }
 }
 
 .input-shell {
