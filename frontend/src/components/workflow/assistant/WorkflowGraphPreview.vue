@@ -1,5 +1,5 @@
 <template>
-  <div class="graph-preview" role="img" :aria-label="ariaLabel">
+  <div ref="rootRef" class="graph-preview" role="img" :aria-label="ariaLabel">
     <VueFlow
       :id="flowId"
       :nodes="flowNodes"
@@ -49,9 +49,9 @@
 // Read-only picture of a proposed workflow graph. Nodes are laid out in layers: a BFS from
 // graph.start along YAML edges and lead -> member team links, one column per depth.
 // With a diff, new / changed nodes are tinted and removed nodes are drawn faded and struck out.
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { VueFlow, MarkerType } from '@vue-flow/core'
+import { VueFlow, MarkerType, useVueFlow } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@/assets/styles/vueflow.css'
 import WorkflowNode from '@/components/workflow/WorkflowNode.vue'
@@ -66,10 +66,30 @@ const props = defineProps({
 const { t } = useI18n()
 
 const GAP_X = 260
-const GAP_Y = 150
+// Agent cards with a description and team chips are ~120px tall.
+const GAP_Y = 190
 
 // Every preview needs its own Vue Flow store, apart from the canvas and from other cards.
 const flowId = `assistant-preview-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+
+const rootRef = ref(null)
+const { fitView } = useVueFlow(flowId)
+
+// Refit when the box changes size (panel dragged wider, window resized, narrow layout).
+let resizeObserver = null
+let frame = 0
+onMounted(() => {
+  if (typeof ResizeObserver !== 'function' || !rootRef.value) return
+  resizeObserver = new ResizeObserver(() => {
+    cancelAnimationFrame(frame)
+    frame = requestAnimationFrame(() => fitView())
+  })
+  resizeObserver.observe(rootRef.value)
+})
+onBeforeUnmount(() => {
+  cancelAnimationFrame(frame)
+  resizeObserver?.disconnect()
+})
 
 const yamlNodes = computed(() => (Array.isArray(props.graph?.nodes) ? props.graph.nodes : []).filter((n) => n?.id))
 const yamlEdges = computed(() =>

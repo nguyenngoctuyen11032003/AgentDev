@@ -2490,6 +2490,8 @@
       "discard": "Bỏ qua",
       "apply": "Áp dụng",
       "applying": "Đang áp dụng…"
-    }
+    },
+    "announce_reply": "Trợ lý đã trả lời.",
+    "announce_proposal": "Trợ lý đã có bản đề xuất để bạn xem."
   }
 }

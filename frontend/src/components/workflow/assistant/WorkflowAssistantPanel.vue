@@ -55,19 +55,18 @@
         <p class="empty-hint">
           {{ isCreate ? $t('workflow_assistant.empty_create_hint') : $t('workflow_assistant.empty_workflow_hint') }}
         </p>
-        <div v-if="isCreate" class="starters" role="list" :aria-label="$t('workflow_assistant.starters_label')">
+        <div v-if="isCreate" class="starters" role="group" :aria-label="$t('workflow_assistant.starters_label')">
           <button
             v-for="key in STARTER_KEYS"
             :key="key"
             type="button"
-            role="listitem"
             class="chip"
             @click="useStarter($t(key))"
           >{{ $t(key) }}</button>
         </div>
       </div>
 
-      <ol class="messages" aria-live="polite">
+      <ol class="messages">
         <li v-for="(m, index) in thread.messages" :key="m.id" :class="['msg', m.role, m.kind]">
           <!-- User -->
           <div v-if="m.role === 'user'" class="bubble">{{ m.content }}</div>
@@ -76,7 +75,7 @@
           <template v-else-if="m.role === 'assistant'">
             <!-- eslint-disable-next-line vue/no-v-html -- markdown-it with html: false escapes raw HTML -->
             <div v-if="m.content" class="reply markdown-body" v-html="render(m.content)"></div>
-            <div v-if="m.validationErrors?.length" class="notice error" role="alert">
+            <div v-if="m.validationErrors?.length" class="notice error" :role="alertRole(index)">
               <div class="notice-title">{{ $t('workflow_assistant.validation_failed') }}</div>
               <ul class="notice-list">
                 <li v-for="(err, i) in m.validationErrors" :key="i"><code>{{ err }}</code></li>
@@ -89,23 +88,24 @@
               :applied="!!m.applied"
               :active="m.proposal === thread.pendingProposal"
               :busy="thread.status !== 'idle'"
+              :applying="thread.status === 'applying'"
               @apply="emit('apply')"
               @discard="discardProposal"
             />
             <div
               v-if="m.quickReplies?.length && index === thread.messages.length - 1 && thread.status === 'idle'"
               class="quick-replies"
-              role="list"
+              role="group"
               :aria-label="$t('workflow_assistant.quick_replies_label')"
             >
-              <button v-for="q in m.quickReplies" :key="q" type="button" role="listitem" class="chip" @click="send(q)">
+              <button v-for="q in m.quickReplies" :key="q" type="button" class="chip" @click="send(q)">
                 {{ q }}
               </button>
             </div>
           </template>
 
           <!-- Local notices -->
-          <div v-else-if="m.kind === 'quota'" class="notice warn" role="alert">
+          <div v-else-if="m.kind === 'quota'" class="notice warn" :role="alertRole(index)">
             <div class="notice-title">{{ $t('workflow_assistant.quota_exhausted', { vendor: vendorLabel(m.vendor) }) }}</div>
             <div v-if="index === thread.messages.length - 1" class="notice-actions">
               <button
@@ -118,7 +118,7 @@
               >{{ $t('workflow_assistant.switch_to', { vendor: p.label }) }}</button>
             </div>
           </div>
-          <div v-else-if="m.kind === 'conflict'" class="notice warn" role="alert">
+          <div v-else-if="m.kind === 'conflict'" class="notice warn" :role="alertRole(index)">
             <div class="notice-title">{{ $t('workflow_assistant.conflict_notice', { file: m.filename }) }}</div>
             <div class="notice-actions">
               <button type="button" class="btn-small" :disabled="thread.status !== 'idle'" @click="send($t('workflow_assistant.redo_prompt'))">
@@ -126,7 +126,7 @@
               </button>
             </div>
           </div>
-          <div v-else class="notice error" role="alert">
+          <div v-else class="notice error" :role="alertRole(index)">
             <div class="notice-title">{{ errorTitle(m) }}</div>
             <details v-if="m.detail" class="notice-detail">
               <summary>{{ $t('workflow_assistant.error_detail') }}</summary>
@@ -136,12 +136,15 @@
         </li>
       </ol>
 
-      <div v-if="thread.status === 'sending'" class="waiting" role="status">
+      <div v-if="thread.status === 'sending'" class="waiting">
         <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
         <span class="waiting-text">{{ $t('workflow_assistant.thinking') }} <span class="elapsed">{{ elapsed }}s</span></span>
         <button type="button" class="btn-small" @click="stopWaiting">{{ $t('workflow_assistant.stop') }}</button>
       </div>
     </div>
+
+    <!-- Screen readers hear status changes only, not every message re-read -->
+    <div class="sr-only" role="status" aria-live="polite">{{ announcement }}</div>
 
     <form class="composer" @submit.prevent="submit">
       <textarea
@@ -269,6 +272,28 @@ const vendorLabel = (code) =>
   providers.value.find((p) => p.vendor === code)?.label || VENDOR_FALLBACK_LABELS[code] || code
 const otherProviders = (code) => providers.value.filter((p) => p.available && p.vendor !== code)
 
+// Only the newest notice is an alert; older ones would otherwise be announced again on re-render.
+const alertRole = (index) => (index === thread.value.messages.length - 1 ? 'alert' : undefined)
+
+// Short status line for screen readers (the message list itself is not a live region).
+const announcement = ref('')
+watch(
+  () => thread.value.status,
+  (status) => {
+    if (status === 'sending') announcement.value = t('workflow_assistant.thinking')
+  }
+)
+watch(
+  () => [thread.value, thread.value.messages.at(-1)],
+  ([current, last], [before, previous]) => {
+    // Switching to another thread is not a new reply.
+    if (current !== before || !last || last === previous || last.role !== 'assistant') return
+    announcement.value = last.proposal
+      ? t('workflow_assistant.announce_proposal')
+      : t('workflow_assistant.announce_reply')
+  }
+)
+
 const errorTitle = (m) => {
   const key = `workflow_assistant.errors.${m.code}`
   return m.code && te(key) ? t(key) : m.message || t('workflow_assistant.errors.request_failed')
@@ -277,6 +302,8 @@ const errorTitle = (m) => {
 // AI replies are markdown; html: false escapes any raw HTML in them.
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 const defaultLinkOpen = md.renderer.rules.link_open || ((tokens, i, options, env, self) => self.renderToken(tokens, i, options))
+// No remote images in replies (they would load from any URL the model writes): show the alt text.
+md.renderer.rules.image = (tokens, i) => md.utils.escapeHtml(tokens[i].content || '')
 md.renderer.rules.link_open = (tokens, i, options, env, self) => {
   tokens[i].attrSet('target', '_blank')
   tokens[i].attrSet('rel', 'noopener noreferrer')

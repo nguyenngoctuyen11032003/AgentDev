@@ -2490,6 +2490,8 @@
       "discard": "放弃",
       "apply": "应用",
       "applying": "正在应用…"
-    }
+    },
+    "announce_reply": "助手已回复。",
+    "announce_proposal": "助手已准备好方案，请查看。"
   }
 }

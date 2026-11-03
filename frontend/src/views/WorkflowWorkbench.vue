@@ -131,6 +131,11 @@ const handleSelect = (name) => {
 const openAssistant = (mode) => {
   assistant.setContext(mode, mode === 'workflow' ? selectedWorkflow.value : null)
   isAssistantOpen.value = true
+  // The list drawer would cover the empty state and its main buttons next to the panel.
+  if (mode === 'create' && isSidebarOpen.value) {
+    isSidebarOpen.value = false
+    window.dispatchEvent(new CustomEvent('workflow-sidebar-state', { detail: { open: false } }))
+  }
 }
 
 const closeAssistant = () => {
@@ -143,7 +148,22 @@ watch(selectedWorkflow, (name) => {
   if (isAssistantOpen.value) assistant.setContext(name ? 'workflow' : 'create', name || null)
 })
 
-const undoApply = async () => {
+// Success toast of an applied edit, with an Undo button for 10 seconds.
+function showUndoToast(name) {
+  toast.success(t('workflow_assistant.applied_edit', { name }), {
+    duration: 10000,
+    action: { label: t('workflow_assistant.undo'), run: () => undoApply(name) }
+  })
+}
+
+async function undoApply(name) {
+  // Same guard as Apply: an open node/edge form holds edits the reload would throw away.
+  // Clicking the action closed the toast, so offer Undo again.
+  if (workflowViewRef.value?.hasOpenForm?.()) {
+    toast.warning(t('workflow_assistant.close_form_first'))
+    showUndoToast(name)
+    return
+  }
   const result = await assistant.undoLast()
   if (result.ok) {
     toast.success(t('workflow_assistant.undone'))
@@ -177,10 +197,7 @@ const handleApply = async () => {
   }
   // YAML and layout are both saved by now: reload the canvas from them.
   if (name === selectedWorkflow.value) reloadKey.value += 1
-  toast.success(t('workflow_assistant.applied_edit', { name }), {
-    duration: 10000,
-    action: { label: t('workflow_assistant.undo'), run: undoApply }
-  })
+  showUndoToast(name)
 }
 
 const handleRefreshWorkflows = async () => {

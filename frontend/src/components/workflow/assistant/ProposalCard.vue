@@ -49,7 +49,7 @@
         {{ $t('workflow_assistant.proposal.discard') }}
       </button>
       <button type="button" class="btn-primary" :disabled="busy" @click="emit('apply')">
-        {{ busy ? $t('workflow_assistant.proposal.applying') : $t('workflow_assistant.proposal.apply') }}
+        {{ applying ? $t('workflow_assistant.proposal.applying') : $t('workflow_assistant.proposal.apply') }}
       </button>
     </footer>
   </article>
@@ -65,8 +65,10 @@ const props = defineProps({
   proposal: { type: Object, required: true },
   // A newer proposal replaced this one.
   superseded: { type: Boolean, default: false },
-  // Apply / a reply is in progress.
+  // Apply / a reply is in progress: the buttons are disabled.
   busy: { type: Boolean, default: false },
+  // This proposal is being written right now (label "Applying…").
+  applying: { type: Boolean, default: false },
   // This is the thread's pending proposal: Apply / Discard are offered.
   active: { type: Boolean, default: false },
   applied: { type: Boolean, default: false }

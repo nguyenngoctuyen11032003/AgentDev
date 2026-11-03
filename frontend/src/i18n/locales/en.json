@@ -2490,6 +2490,8 @@
       "discard": "Discard",
       "apply": "Apply",
       "applying": "Applying…"
-    }
+    },
+    "announce_reply": "The assistant replied.",
+    "announce_proposal": "The assistant has a proposal ready to review."
   }
 }
