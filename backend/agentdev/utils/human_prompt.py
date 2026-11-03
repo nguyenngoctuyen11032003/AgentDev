@@ -63,6 +63,39 @@ class CliPromptChannel:
         )
 
 
+AUTO_ANSWER = (
+    "[Automatic answer: no person is available in this run] Approved. Proceed with your recommended "
+    "option, state the assumption you made, and finish the task."
+)
+
+
+class AutoAnswerChannel:
+    """Non-interactive channel: approves and records each question (server runs without a chat, Lab)."""
+
+    def __init__(self, answer: str = AUTO_ANSWER, *, allow_human_nodes: bool = True) -> None:
+        self.answer = answer
+        # False for ordinary server runs: a Human node is a deliberate approval step, so it must not
+        # be approved silently when nobody is watching; the run fails with a clear message instead.
+        self.allow_human_nodes = allow_human_nodes
+        self.questions: List[Dict[str, str]] = []
+
+    def request(
+        self,
+        *,
+        node_id: str,
+        task: str,
+        inputs: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> PromptResult:
+        if not self.allow_human_nodes and (metadata or {}).get("node_type") == "human":
+            raise RuntimeError(
+                f"Node '{node_id}' needs a person to answer, but this run has no chat attached. "
+                "Run the workflow from the Run page to answer it."
+            )
+        self.questions.append({"node": node_id, "question": task})
+        return PromptResult(text=self.answer, blocks=[MessageBlock.text_block(self.answer)])
+
+
 class HumanPromptService:
     """Coordinates human feedback collection across nodes and tools."""
 

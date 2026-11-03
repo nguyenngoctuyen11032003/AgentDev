@@ -1,5 +1,6 @@
 ﻿"""Graph orchestration adapted to AgentDev design_0.4.0 workflows."""
 
+import os
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -21,6 +22,7 @@ from agentdev.utils.logger import WorkflowLogger
 from agentdev.utils.exceptions import ValidationError, WorkflowExecutionError, WorkflowCancelledError, SecurityError
 from agentdev.utils.structured_logger import get_server_logger
 from agentdev.utils.human_prompt import (
+    AutoAnswerChannel,
     CliPromptChannel,
     HumanPromptService,
     resolve_prompt_channel,
@@ -259,6 +261,8 @@ class GraphExecutor:
                 workspace_hook=self.runtime_context.workspace_hook,
                 human_prompt_service=prompt_service,
                 cancel_event=self._cancel_event,
+                delegate_runner=self._run_delegated_node,
+                graph_nodes=self.graph.nodes,
             )
         return self.__execution_context
     
@@ -277,7 +281,11 @@ class GraphExecutor:
 
         channel = resolve_prompt_channel(self.runtime_context.workspace_hook)
         if channel is None:
-            channel = CliPromptChannel()
+            channel = (
+                AutoAnswerChannel(allow_human_nodes=False)
+                if os.environ.get("AGENTDEV_NONINTERACTIVE") == "1"
+                else CliPromptChannel()
+            )
 
         self._human_prompt_service = HumanPromptService(
             log_manager=self.log_manager,
@@ -688,6 +696,39 @@ class GraphExecutor:
                 pseudo_link.condition_type = pseudo_condition.type
                 for output_msg in output_messages:
                     self._process_edge_output(pseudo_link, output_msg, node)
+
+    def _run_delegated_node(self, member_id: str, inputs: List[Message], lead_id: str) -> List[Message]:
+        """Run a team member on behalf of a lead agent (no edges involved).
+
+        Emits NODE_START / NODE_END tagged with ``delegated_by`` so the live views show the
+        member working, while the chat keeps only the lead's answers.
+        """
+        self._raise_if_cancelled()
+        node = self.graph.nodes.get(member_id)
+        if node is None:
+            raise ValueError(f"Team member '{member_id}' is not a node in this workflow")
+        self.log_manager.record_node_start(
+            member_id,
+            [message.to_dict(include_data=False) for message in inputs],
+            node.node_type,
+            {"input_count": len(inputs), "delegated_by": lead_id, "predecessors": [lead_id], "successors": [lead_id]},
+        )
+        outputs: List[Message] = []
+        try:
+            with self.log_manager.node_timer(member_id):
+                outputs = [self._ensure_source_output(raw, member_id) for raw in self._process_result(node, inputs)]
+        finally:
+            text = "\n\n".join(msg.text_content() for msg in outputs)
+            self.log_manager.record_node_end(member_id, text if node.log_output else "", {
+                "output_size": len(text),
+                "output_count": len(outputs),
+                "output_role": outputs[0].role.value if outputs else "none",
+                "output_source": member_id,
+                "delegated_by": lead_id,
+            })
+        for msg in outputs:
+            node.append_output(msg)
+        return outputs
 
     def _process_result(self, node: Node, input_payload: List[Message]) -> List[Message]:
         """Process a single input result using strategy pattern executors.

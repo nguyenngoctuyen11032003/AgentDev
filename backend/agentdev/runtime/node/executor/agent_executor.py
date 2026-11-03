@@ -10,7 +10,9 @@ Responsible for running agent nodes, including
 import asyncio
 import base64
 import json
+import threading
 import traceback
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -36,9 +38,75 @@ from agentdev.runtime.node.agent.memory.memory_base import (
 from agentdev.runtime.node.agent import ThinkingPayload
 from agentdev.runtime.node.agent import ModelProvider, ProviderRegistry, ModelResponse
 from agentdev.runtime.node.agent.skills import AgentSkillManager
-from agentdev.utils.exceptions import SecurityError, ValidationError
-from agentdev.utils.workspace_paths import resolve_workspace_path, validate_path_component
+from agentdev.runtime.node.agent.account_fallback import (
+    account_label,
+    default_model_for,
+    get_fallback_state,
+    is_exhaustion_error,
+    is_quota_error,
+    pick_fallback,
+)
+from agentdev.runtime.node.agent.providers._native import NativeRunContext
+from agentdev.runtime.node.agent.team import (
+    MODEL_ERROR_PREFIX,
+    TEAM_TOOL_SOURCE,
+    TeamDelegation,
+    get_team_state,
+    is_delegated_call,
+    latest_user_message,
+    resolve_members,
+)
+from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV, require_unsafe_code_execution
+from agentdev.utils.exceptions import (
+    ModelCallError,
+    SecurityError,
+    ValidationError,
+    WorkflowCancelledError,
+)
+from agentdev.utils.workspace_paths import is_link, resolve_workspace_path, validate_path_component
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
+
+
+# Guards lazy creation of the per-node state dicts below. Team leads run members from worker
+# threads (delegate_parallel), so two threads may reach a lazy getter at the same time.
+_NODE_STATE_LOCK = threading.Lock()
+
+# The AgentDev checkout (<repo>/backend/agentdev/runtime/node/executor/this file): native agents never
+# get it as their workspace unless the user opened it as the project folder.
+AGENTDEV_INSTALL_ROOT = Path(__file__).resolve().parents[5]
+
+
+MAX_ERROR_REASON_CHARS = 300
+
+
+def _short_error(exc: BaseException) -> str:
+    """One line describing a model failure, without prompts or other payloads."""
+    text = " ".join(str(exc).split()) or exc.__class__.__name__
+    return text if len(text) <= MAX_ERROR_REASON_CHARS else text[: MAX_ERROR_REASON_CHARS - 1] + "…"
+
+
+class _NodeToolContext(dict):
+    """Tool ``_context`` for one node: a view of ``global_state`` with this node's ``node_id``.
+
+    Writing ``global_state["node_id"]`` for the duration of a tool batch races when team members
+    run in parallel, so each batch gets its own overlay. Other keys written by a tool still reach
+    the shared ``global_state``.
+    """
+
+    def __init__(self, base: Dict[str, Any], node_id: str) -> None:
+        super().__init__(base)
+        dict.__setitem__(self, "node_id", node_id)
+        self._base = base
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        super().__setitem__(key, value)
+        if key != "node_id":
+            self._base[key] = value
+
+    def setdefault(self, key: str, default: Any = None) -> Any:
+        if key not in self:
+            self[key] = default
+        return self[key]
 
 
 class AgentNodeExecutor(NodeExecutor):
@@ -63,23 +131,18 @@ class AgentNodeExecutor(NodeExecutor):
             raise ValueError(f"Node {node.id} missing agent config")
         
         try:
-            self._current_node_id = node.id
             # Every agent runs on a signed-in account (see connections.autobind for older YAML).
             if not agent_config.connection:
                 raise ValueError(
                     f"Agent node '{node.id}' has no account connection. "
                     "Sign in on the Connections page and pick the connection on this node."
                 )
-            creds = resolve_connection(agent_config.connection)
-            agent_config.provider = creds.provider or creds.vendor
-            agent_config.api_key = creds.token
-            agent_config.base_url = creds.base_url or ""
-            provider_class = ProviderRegistry.get_provider(agent_config.provider)
-            if not provider_class:
-                raise ValueError(f"Provider '{agent_config.provider}' not found")
-
-            agent_config.token_tracker = self.context.get_token_tracker()
-            agent_config.node_id = node.id
+            # An account that ran out of quota earlier in this run is skipped straight away.
+            fallback_state = get_fallback_state(self.context.global_state)
+            replacement = fallback_state.replacement.get(agent_config.connection)
+            if replacement and agent_config.connection in fallback_state.exhausted:
+                self._switch_account(node, agent_config, replacement, notify=False)
+            provider_class = self._bind_account(node, agent_config)
 
             input_data = self._inputs_to_text(inputs)
             input_payload = self._build_thinking_payload_from_inputs(inputs, input_data)
@@ -87,6 +150,12 @@ class AgentNodeExecutor(NodeExecutor):
             input_mode = agent_config.input_mode or AgentInputMode.PROMPT
             external_tool_specs = self.tool_manager.get_tool_specs(agent_config.tooling)
             skill_manager = self._build_skill_manager(node, agent_config, external_tool_specs)
+            team = self._build_team(node, agent_config, input_data)
+            self._active_teams()[node.id] = team
+            # Native mode: the vendor CLI's own agent works in the project folder; no AgentDev tools/skills.
+            native = self._resolve_native_mode(node, agent_config, provider_class)
+            if native is not None:
+                external_tool_specs, skill_manager = [], None
 
             provider = provider_class(agent_config)
             client = provider.create_client()
@@ -97,6 +166,9 @@ class AgentNodeExecutor(NodeExecutor):
                 conversation = self._prepare_message_conversation(node, inputs, skill_manager)
             call_options = self._prepare_call_options(node)
             tool_specs = self._merge_skill_tool_specs(external_tool_specs, skill_manager)
+            if team is not None:
+                existing = {spec.name for spec in tool_specs}
+                tool_specs = tool_specs + [spec for spec in team.tool_specs() if spec.name not in existing]
 
             agent_invoker = self._build_agent_invoker(
                 provider,
@@ -134,6 +206,7 @@ class AgentNodeExecutor(NodeExecutor):
                 call_options,
                 tool_specs,
                 node,
+                native=native,
             )
 
             if response_obj.has_tool_calls():
@@ -178,19 +251,30 @@ class AgentNodeExecutor(NodeExecutor):
                 source=node.id,
             )]
             
-        except SecurityError:
+        except (SecurityError, WorkflowCancelledError):
             raise
         except Exception as e:
+            # Reached only after retries and account fallback (_invoke_provider) gave up.
+            # An error is never passed on as if it were the agent's answer.
             traceback.print_exc()
-            error_msg = f"[Node: {node.id}] Error calling model: {str(e)}"
-            self.log_manager.error(error_msg)
-            return [self._build_message(
-                role=MessageRole.ASSISTANT,
-                content=f"Error calling model {node.model_name}: {str(e)}\n\nOriginal input: {input_data[:200]}...",
-                source=node.id,
-            )]
+            reason = _short_error(e)
+            self.log_manager.error(f"[Node: {node.id}] Error calling model: {reason}", node_id=node.id)
+            if is_delegated_call():
+                # The lead gets a short, structured failure it can act on (retry, reassign, report).
+                return [self._build_message(
+                    role=MessageRole.ASSISTANT,
+                    content=f"{MODEL_ERROR_PREFIX} {node.id} could not finish the task: the model call failed ({reason}).",
+                    source=node.id,
+                    metadata={"model_error": True, "error": reason},
+                )]
+            raise ModelCallError(
+                f"Agent '{node.id}' could not get an answer from its model ({node.model_name}): {reason}",
+                node_id=node.id,
+                details={"model": node.model_name},
+            ) from e
         finally:
-            self._current_node_id = None
+            self._active_teams().pop(node.id, None)
+            self._provider_overrides().pop(node.id, None)
     
     def _prepare_prompt_messages(
         self,
@@ -274,16 +358,19 @@ class AgentNodeExecutor(NodeExecutor):
         if node.role:
             parts.append(node.role)
 
+        team = self._active_teams().get(node.id)
+        if team is not None:
+            parts.append(team.system_prompt_section())
+
         if skill_manager is not None:
             skills_xml = skill_manager.build_available_skills_xml()
             if skills_xml:
                 parts.append(
                     "\n".join(
                         [
-                            "You have access to Agent Skills.",
-                            "Use `activate_skill` to load the full SKILL.md instructions for a relevant skill before following it.",
-                            "Use `read_skill_file` to read supporting files from that skill directory when the instructions reference them.",
-                            "Do not assume a skill's contents until you load it.",
+                            "Agent Skills: when one clearly fits the task, load it with `activate_skill` before following it "
+                            "(and `read_skill_file` for files it references). Do not assume a skill's contents before loading "
+                            "it; skip skills for greetings and simple questions.",
                             skills_xml,
                         ]
                     )
@@ -301,9 +388,24 @@ class AgentNodeExecutor(NodeExecutor):
                     ).strip()
                 )
 
+        rules = self._response_rules_section()
+        if rules:
+            parts.append(rules)
+
         if not parts:
             return None
         return "\n\n".join(part for part in parts if part)
+
+    @staticmethod
+    def _response_rules_section() -> str:
+        """Answer-quality rules for agents that talk to a person.
+
+        Members briefed by a lead get MEMBER_PROTOCOL in their brief instead: they report to the
+        lead, so the user-facing rules (language of the user's message, length) do not apply.
+        """
+        from agentdev.runtime.node.agent.team import USER_RESPONSE_RULES, is_delegated_call
+
+        return "" if is_delegated_call() else USER_RESPONSE_RULES
 
     def _merge_skill_tool_specs(
         self,
@@ -363,27 +465,41 @@ class AgentNodeExecutor(NodeExecutor):
         call_options: Dict[str, Any],
         tool_specs: List[ToolSpec] | None,
         node: Node,
+        *,
+        native: NativeRunContext | None = None,
     ) -> ModelResponse:
-        """Invoke provider with logging + token tracking."""
+        """Invoke provider with logging + token tracking.
+
+        ``native`` (main generation call of a native-mode node only) makes a CLI provider run its own
+        agent in the project folder; a fallback account whose provider lacks native support runs normally.
+        """
+        # Token usage is attributed through provider.config.node_id (see _bind_account), not a shared
+        # "current node" attribute on the tracker, which parallel team members would overwrite.
         self._ensure_not_cancelled()
-        if self.context.token_tracker:
-            self.context.token_tracker.current_node_id = node.id
 
         agent_config = node.as_config(AgentConfig)
         retry_policy = self._resolve_retry_policy(node, agent_config)
 
         def _call_provider() -> ModelResponse:
-            return provider.call_model(
-                client,
+            active_provider, active_client = self._provider_overrides().get(node.id, (provider, client))
+            extra = {"native": native} if native is not None and getattr(active_provider, "supports_native_mode", False) else {}
+            return active_provider.call_model(
+                active_client,
                 conversation=conversation,
                 timeline=timeline,
                 tool_specs=tool_specs or None,
                 **call_options,
+                **extra,
             )
 
         last_input = ''.join(msg.text_content() for msg in conversation) if conversation else ""
         self._record_model_call(node, last_input, None, CallStage.BEFORE)
-        response = self._execute_with_retry(node, retry_policy, _call_provider)
+        try:
+            response = self._execute_with_retry(node, retry_policy, _call_provider)
+        except Exception as exc:
+            if not is_exhaustion_error(exc) or not self._fail_over(node, agent_config, exc):
+                raise
+            response = self._execute_with_retry(node, retry_policy, _call_provider)
         self.log_manager.debug(response.str_raw_response())
         self._record_model_call(node, last_input, response, CallStage.AFTER)
         return response
@@ -420,7 +536,8 @@ class AgentNodeExecutor(NodeExecutor):
             min=retry_config.min_wait_seconds,
             max=retry_config.max_wait_seconds,
         )
-        retry_condition = retry_if_exception(lambda exc: retry_config.should_retry(exc))
+        # Quota errors are not retried on the same account: _invoke_provider switches account instead.
+        retry_condition = retry_if_exception(lambda exc: not is_quota_error(exc) and retry_config.should_retry(exc))
 
         def _before_sleep(retry_state) -> None:
             exc = retry_state.outcome.exception()
@@ -643,12 +760,7 @@ class AgentNodeExecutor(NodeExecutor):
         spec_map = {spec.name: spec for spec in tool_specs}
         configs = model.tooling if model else []
 
-        context_state = self.context.global_state
-        previous_node_id = context_state.get("node_id") if context_state is not None else None
-        if context_state is not None:
-            context_state["node_id"] = node.id
-
-        try:
+        with self._node_tool_context(node) as tool_context:
             for tool_call in tool_calls:
                 self._ensure_not_cancelled()
                 tool_name = tool_call.function_name
@@ -665,6 +777,10 @@ class AgentNodeExecutor(NodeExecutor):
                         tool_config = configs[idx]
                     # Use original name if prefixed
                     execution_name = spec.metadata.get("original_name", tool_name)
+
+                if spec and spec.metadata.get("source") == TEAM_TOOL_SOURCE:
+                    messages.append(self._run_team_tool(node, tool_call, tool_name, arguments, events))
+                    continue
 
                 if spec and spec.metadata.get("source") == "agent_skill_internal":
                     try:
@@ -805,7 +921,7 @@ class AgentNodeExecutor(NodeExecutor):
                                 execution_name,
                                 arguments,
                                 tool_config,
-                                tool_context=self.context.global_state,
+                                tool_context=tool_context,
                             )
                         )
 
@@ -854,14 +970,238 @@ class AgentNodeExecutor(NodeExecutor):
                     )
 
                 messages.append(tool_message)
-        finally:
-            if context_state is not None:
-                if previous_node_id is None:
-                    context_state.pop("node_id", None)
-                else:
-                    context_state["node_id"] = previous_node_id
 
         return messages, events
+
+    @contextmanager
+    def _node_tool_context(self, node: Node):
+        """Per-batch tool ``_context``: ``global_state`` plus this node's ``node_id``, without mutating it."""
+        state = self.context.global_state
+        yield _NodeToolContext(state, node.id) if state is not None else None
+
+    def _provider_overrides(self) -> Dict[str, tuple]:
+        overrides = getattr(self, "_overrides_by_node", None)
+        if overrides is None:
+            with _NODE_STATE_LOCK:
+                overrides = getattr(self, "_overrides_by_node", None)
+                if overrides is None:
+                    overrides = {}
+                    self._overrides_by_node = overrides
+        return overrides
+
+    def _bind_account(self, node: Node, agent_config: AgentConfig):
+        creds = resolve_connection(agent_config.connection)
+        agent_config.provider = creds.provider or creds.vendor
+        agent_config.api_key = creds.token
+        agent_config.base_url = creds.base_url or ""
+        provider_class = ProviderRegistry.get_provider(agent_config.provider)
+        if not provider_class:
+            raise ValueError(f"Provider '{agent_config.provider}' not found")
+        agent_config.token_tracker = self.context.get_token_tracker()
+        agent_config.node_id = node.id
+        return provider_class
+
+    def _resolve_native_mode(self, node: Node, agent_config: AgentConfig, provider_class: Any) -> NativeRunContext | None:
+        """Native agent mode for this call, or None to run normally (AgentDev tools through the prompt).
+
+        Team leads always run normally: they need the AgentDev team tools (delegate, ask_user), which the
+        native CLI agent cannot call. Shell commands need both ``allow_commands`` and the server opt-in.
+        """
+        cfg = getattr(agent_config, "native_mode", None)
+        if cfg is None or not cfg.enabled:
+            return None
+        if agent_config.team is not None and agent_config.team.enabled:
+            self.log_manager.warning(
+                f"[Node: {node.id}] native_mode is ignored on a team lead; the lead runs in normal mode.",
+                node_id=node.id,
+            )
+            return None
+        if not getattr(provider_class, "supports_native_mode", False):
+            self.log_manager.warning(
+                f"[Node: {node.id}] native_mode needs a Claude or Codex CLI account; running in normal mode.",
+                node_id=node.id,
+            )
+            return None
+        workspace = self._native_workspace_root()
+        allow_commands = False
+        if cfg.allow_commands:
+            try:
+                require_unsafe_code_execution("Shell commands for native agents")
+                allow_commands = True
+            except SecurityError:
+                self.log_manager.info(
+                    f"[Node: {node.id}] native agent runs without shell commands "
+                    f"({UNSAFE_CODE_EXECUTION_ENV} is not enabled on the server).",
+                    node_id=node.id,
+                )
+
+        def on_tool(stage: str, name: str, success: Any, result: Any, details: Dict[str, Any]) -> None:
+            self.log_manager.record_tool_call(
+                node.id, name, success, result, {**details, "native": True},
+                CallStage.BEFORE if stage == "before" else CallStage.AFTER,
+            )
+
+        return NativeRunContext(
+            workspace=str(workspace),
+            allow_commands=allow_commands,
+            max_turns=cfg.max_turns,
+            on_tool=on_tool,
+        )
+
+    def _native_workspace_root(self) -> Path:
+        """The run's project workspace: the folder the user opened, else the session's ``code_workspace``.
+
+        The AgentDev installation itself is refused unless the user explicitly opened it as the project.
+        """
+        state = self.context.global_state or {}
+        raw = state.get("python_workspace_root")
+        if not raw:
+            raise SecurityError("Native agent mode needs a project workspace, but this run has none")
+        root = Path(raw).resolve()
+        if not root.is_dir():
+            raise SecurityError(f"Project workspace not found: {root}")
+        graph_dir = state.get("graph_directory")
+        default_root = Path(graph_dir, "code_workspace").resolve() if graph_dir else None
+        opened_by_user = default_root is None or root != default_root
+        install_root = AGENTDEV_INSTALL_ROOT
+        if not opened_by_user and (root == install_root or install_root.is_relative_to(root)):
+            raise SecurityError("Native agent mode refuses to work on the AgentDev installation folder")
+        return root
+
+    def _switch_account(self, node: Node, agent_config: AgentConfig, conn_id: str, *, notify: bool) -> None:
+        from agentdev.connections.store import get_store
+
+        conn = get_store().get(conn_id)
+        previous = agent_config.connection
+        agent_config.connection = conn_id
+        if conn is not None:
+            previous_vendor = getattr(get_store().get(previous or ""), "vendor", None)
+            if conn.vendor != previous_vendor:
+                # The model name belongs to the old vendor; use the new account's default model.
+                agent_config.name = default_model_for(conn) or agent_config.name
+        if notify:
+            self.log_manager.warning(
+                f"[Node: {node.id}] Account '{account_label(previous or '')}' reached its usage limit; "
+                f"continuing on '{account_label(conn_id)}' ({agent_config.name}).",
+                node_id=node.id,
+                details={
+                    "event": "account_fallback",
+                    "from": account_label(previous or ""),
+                    "to": account_label(conn_id),
+                    "model": agent_config.name,
+                },
+            )
+
+    def _fail_over(self, node: Node, agent_config: AgentConfig | None, exc: BaseException) -> bool:
+        """Move this node to another signed-in account after a quota error. False when none is left."""
+        if agent_config is None or not agent_config.connection:
+            return False
+        state = get_fallback_state(self.context.global_state)
+        exhausted_id = agent_config.connection
+        state.exhausted.add(exhausted_id)
+        fallback = pick_fallback(
+            exhausted_id,
+            needs_tools=bool(agent_config.tooling) or agent_config.team is not None,
+            exhausted=state.exhausted,
+        )
+        if fallback is None:
+            self.log_manager.error(
+                f"[Node: {node.id}] Account '{account_label(exhausted_id)}' reached its usage limit and no other "
+                f"signed-in account is available. Sign in to another account on the Connections page.",
+                node_id=node.id,
+                details={"event": "account_exhausted", "from": account_label(exhausted_id)},
+            )
+            return False
+        state.replacement[exhausted_id] = fallback.id
+        for key, value in list(state.replacement.items()):
+            if value == exhausted_id:
+                state.replacement[key] = fallback.id
+        self._switch_account(node, agent_config, fallback.id, notify=True)
+        provider_class = self._bind_account(node, agent_config)
+        provider = provider_class(agent_config)
+        self._provider_overrides()[node.id] = (provider, provider.create_client())
+        return True
+
+    def _active_teams(self) -> Dict[str, TeamDelegation | None]:
+        # One executor instance serves every agent node, and a lead's execute() runs its members
+        # inside it, so per-node state is keyed by node id instead of a single attribute.
+        teams = getattr(self, "_teams_by_node", None)
+        if teams is None:
+            with _NODE_STATE_LOCK:
+                teams = getattr(self, "_teams_by_node", None)
+                if teams is None:
+                    teams = {}
+                    self._teams_by_node = teams
+        return teams
+
+    def _build_team(self, node: Node, agent_config: AgentConfig, input_text: str = "") -> TeamDelegation | None:
+        team_config = agent_config.team
+        if not team_config or not team_config.enabled:
+            return None
+        runner = self.context.delegate_runner
+        if runner is None:
+            self.log_manager.warning(f"[Node: {node.id}] Team lead configured but no delegate runner is available")
+            return None
+        members = resolve_members(node.id, team_config.members, self.context.graph_nodes or {})
+        missing = [m for m in team_config.members if m not in {mem.node_id for mem in members}]
+        if missing:
+            self.log_manager.warning(f"[Node: {node.id}] Team members not found or not agents: {missing}", node_id=node.id)
+        state = get_team_state(self.context.global_state)
+        delegated = is_delegated_call()
+        if not delegated:
+            # The lead talking to the user sets the language members write user-facing text in.
+            state.set_user_language(latest_user_message(input_text))
+        return TeamDelegation(
+            lead_id=node.id,
+            members=members,
+            runner=runner,
+            # A sub-lead (a lead briefed by another lead) reports to that lead and never asks the user.
+            prompt_service=None if delegated else self.context.get_human_prompt_service(),
+            state=state,
+            delegated=delegated,
+            max_delegations=team_config.max_delegations,
+            max_review_rounds=team_config.max_review_rounds,
+            plan_approval=team_config.plan_approval,
+            max_parallel=team_config.max_parallel,
+        )
+
+    def _run_team_tool(
+        self,
+        node: Node,
+        tool_call: ToolCallPayload,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        events: List[Any],
+    ) -> Message:
+        team = self._active_teams().get(node.id)
+        self.log_manager.record_tool_call(node.id, tool_name, None, None, {"arguments": arguments}, CallStage.BEFORE)
+        try:
+            if team is None:
+                raise ValueError("This agent does not lead a team")
+            with self.log_manager.tool_timer(node.id, tool_name):
+                result = team.execute(tool_name, arguments)
+        except Exception as exc:
+            self.log_manager.record_tool_call(
+                node.id, tool_name, False, None, {"error": str(exc), "arguments": arguments}, CallStage.AFTER
+            )
+            events.append(
+                FunctionCallOutputEvent(
+                    call_id=tool_call.id or tool_call.function_name or "tool_call",
+                    function_name=tool_call.function_name,
+                    output_text=f"error: {exc}",
+                )
+            )
+            return Message(
+                role=MessageRole.TOOL,
+                content=f"Tool {tool_name} error: {exc}",
+                tool_call_id=tool_call.id,
+                metadata={"tool_name": tool_name, "source": node.id},
+            )
+        events.append(self._build_function_call_output_event(tool_call, result))
+        self.log_manager.record_tool_call(
+            node.id, tool_name, True, self._serialize_tool_result(result), {"arguments": arguments}, CallStage.AFTER
+        )
+        return self._build_tool_message(result, tool_call, node_id=node.id, tool_name=tool_name)
 
     def _build_skill_followup_message(
         self,
@@ -1134,7 +1474,7 @@ class AgentNodeExecutor(NodeExecutor):
             current = workspace_root
             for part in ("generated", node_id, filename):
                 current = current / part
-                if current.is_symlink():
+                if is_link(current):
                     raise SecurityError("Generated attachment paths must not contain symbolic links")
         except (ValidationError, OSError, RuntimeError) as exc:
             raise SecurityError(f"Invalid generated attachment path: {exc}") from exc

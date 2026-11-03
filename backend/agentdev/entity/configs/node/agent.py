@@ -25,7 +25,9 @@ from agentdev.entity.configs.base import (
     extend_path,
 )
 from .memory import MemoryAttachmentConfig
+from .native_mode import AgentNativeModeConfig
 from .skills import AgentSkillsConfig
+from .team import AgentTeamConfig
 from .thinking import ThinkingConfig
 from agentdev.entity.configs.node.tooling import ToolingConfig
 
@@ -50,6 +52,7 @@ DEFAULT_RETRYABLE_MESSAGE_SUBSTRINGS = [
     "rate limit",
     "temporarily unavailable",
     "timeout",
+    "timed out",
     "server disconnected",
     "connection reset",
 ]
@@ -335,6 +338,8 @@ class AgentConfig(BaseConfig):
     thinking: ThinkingConfig | None = None
     memories: List[MemoryAttachmentConfig] = field(default_factory=list)
     skills: AgentSkillsConfig | None = None
+    team: AgentTeamConfig | None = None
+    native_mode: AgentNativeModeConfig | None = None
 
     # Runtime attributes (attached dynamically)
     token_tracker: Any | None = field(default=None, init=False, repr=False)
@@ -405,6 +410,14 @@ class AgentConfig(BaseConfig):
         if "skills" in mapping and mapping["skills"] is not None:
             skills_cfg = AgentSkillsConfig.from_dict(mapping["skills"], path=extend_path(path, "skills"))
 
+        team_cfg = None
+        if "team" in mapping and mapping["team"] is not None:
+            team_cfg = AgentTeamConfig.from_dict(mapping["team"], path=extend_path(path, "team"))
+
+        native_cfg = None
+        if "native_mode" in mapping and mapping["native_mode"] is not None:
+            native_cfg = AgentNativeModeConfig.from_dict(mapping["native_mode"], path=extend_path(path, "native_mode"))
+
         return cls(
             provider=provider,
             name=model_name,
@@ -415,6 +428,8 @@ class AgentConfig(BaseConfig):
             thinking=thinking_cfg,
             memories=memories_cfg,
             skills=skills_cfg,
+            team=team_cfg,
+            native_mode=native_cfg,
             retry=retry_cfg,
             input_mode=input_mode,
             path=path,
@@ -502,9 +517,28 @@ class AgentConfig(BaseConfig):
             display_name="Agent Skills",
             type_hint="AgentSkillsConfig",
             required=False,
-            description="Agent Skills allowlist and built-in skill activation/file-read tools.",
+            description="Skills from the shared library this agent is equipped with (tick them in the form).",
             child=AgentSkillsConfig,
-            advance=True,
+            advance=False,
+        ),
+        "team": ConfigFieldSpec(
+            name="team",
+            display_name="Team lead",
+            type_hint="AgentTeamConfig",
+            required=False,
+            description="Make this agent the lead (CTO / PM / CEO): the user chats only with it and it delegates to the team.",
+            child=AgentTeamConfig,
+            advance=False,
+        ),
+        "native_mode": ConfigFieldSpec(
+            name="native_mode",
+            display_name="Native coding agent",
+            type_hint="AgentNativeModeConfig",
+            required=False,
+            description="Run this agent as a full Claude Code / Codex agent in the project folder (reads, searches "
+            "and edits files itself, optionally runs tests). For hands-on members; ignored on team leads.",
+            child=AgentNativeModeConfig,
+            advance=False,
         ),
         "retry": ConfigFieldSpec(
             name="retry",
