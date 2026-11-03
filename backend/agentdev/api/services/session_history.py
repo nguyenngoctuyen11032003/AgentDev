@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from agentdev.paths import STORAGE_DIR
 from agentdev.utils.exceptions import ValidationError
 from agentdev.utils.workspace_paths import validate_path_component
+from agentdev.utils.workspace_paths import is_link
 
 SESSIONS_DIR: Path = STORAGE_DIR / "sessions"
 
@@ -28,6 +29,8 @@ META_FILE = "meta.json"
 MESSAGES_FILE = "messages.jsonl"
 # The user's verdict on the delivered work; kept apart so meta rewrites never drop it
 REVIEW_FILE = "review.json"
+# Finished conversation turns (user message + final answer), fed to follow-up runs
+TURNS_FILE = "turns.json"
 TITLE_MAX_CHARS = 80
 
 
@@ -54,7 +57,7 @@ class SessionHistoryStore:
         except ValidationError:
             return None
         path = self.root / session_id
-        if path.is_symlink():
+        if is_link(path):
             return None
         if create:
             path.mkdir(parents=True, exist_ok=True)
@@ -119,6 +122,24 @@ class SessionHistoryStore:
         path = self._dir(session_id)
         return self._read_json(path / REVIEW_FILE) if path else None
 
+    def save_turns(self, session_id: str, turns: List[Dict[str, Any]]) -> None:
+        path = self._dir(session_id, create=True)
+        if path is None:
+            return
+        tmp = path / (TURNS_FILE + ".tmp")
+        try:
+            with self._lock:
+                tmp.write_text(json.dumps({"turns": turns}, ensure_ascii=False), encoding="utf-8")
+                os.replace(tmp, path / TURNS_FILE)
+        except OSError as exc:
+            self.logger.warning("Failed to save turns %s: %s", session_id, exc)
+
+    def load_turns(self, session_id: str) -> List[Dict[str, Any]]:
+        path = self._dir(session_id)
+        data = self._read_json(path / TURNS_FILE) if path else None
+        turns = (data or {}).get("turns")
+        return [t for t in turns if isinstance(t, dict)] if isinstance(turns, list) else []
+
     def delete(self, session_id: str) -> bool:
         path = self._dir(session_id)
         if path is None or not path.is_dir():
@@ -148,7 +169,7 @@ class SessionHistoryStore:
             return []
         items = []
         for child in self.root.iterdir():
-            if child.is_dir() and not child.is_symlink():
+            if child.is_dir() and not is_link(child):
                 meta = self._read_json(child / META_FILE)
                 if meta and meta.get("session_id") == child.name:
                     review = self._read_json(child / REVIEW_FILE)

@@ -19,6 +19,7 @@ from agentdev.api.routes import execute_sync, uploads, websocket
 from agentdev.api.services.attachment_service import AttachmentService
 from agentdev.api.services.websocket_manager import WebSocketManager
 from agentdev.utils.exceptions import ValidationError
+from conftest import make_link
 from agentdev.workflow.graph_context import GraphContext
 from agentdev.workflow.runtime.runtime_builder import RuntimeBuilder
 
@@ -98,7 +99,7 @@ def test_graph_rejects_existing_session_symlink(graph_config, tmp_path):
     outside = tmp_path / "functions"
     outside.mkdir()
     graph_config.output_root.mkdir()
-    (graph_config.output_root / graph_config.name).symlink_to(outside, target_is_directory=True)
+    make_link(graph_config.output_root / graph_config.name, outside, directory=True)
     with pytest.raises(ValidationError, match="escapes"):
         GraphContext(graph_config)
     assert list(outside.iterdir()) == []
@@ -112,7 +113,7 @@ def test_attachment_copy_rejects_escaping_symlinks(graph_config, tmp_path, build
     outside.mkdir()
     link = graph.directory / linked_part
     link.parent.mkdir(parents=True, exist_ok=True)
-    link.symlink_to(outside, target_is_directory=True)
+    make_link(link, outside, directory=True)
     source = tmp_path / "notes.txt"
     source.write_text("sample")
     with pytest.raises(ValidationError, match="escapes"):
@@ -124,7 +125,7 @@ def test_runtime_rejects_workspace_symlink_without_attachments(graph_config, tmp
     graph = GraphContext(graph_config)
     outside = tmp_path / "functions"
     outside.mkdir()
-    (graph.directory / "code_workspace").symlink_to(outside, target_is_directory=True)
+    make_link(graph.directory / "code_workspace", outside, directory=True)
     with pytest.raises(ValidationError, match="escapes"):
         RuntimeBuilder(graph).build(logger=Mock())
     assert list(outside.iterdir()) == []
@@ -262,7 +263,7 @@ def test_upload_endpoints_reject_escaping_symlinks(api, tmp_path, linked_part):
     outside.mkdir()
     link = tmp_path / "WareHouse/session_upload_test" / linked_part
     link.parent.mkdir(parents=True, exist_ok=True)
-    link.symlink_to(outside, target_is_directory=True)
+    make_link(link, outside, directory=True)
     with client.websocket_connect("/ws?session_id=upload_test") as ws:
         ws.receive_json()
         assert client.get("/api/uploads/upload_test").status_code == 400

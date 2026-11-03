@@ -1,6 +1,8 @@
 """Validate names and confine generated files to their workspace."""
 
+import os
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 from agentdev.utils.exceptions import ValidationError
@@ -18,6 +20,42 @@ def validate_path_component(name: str, *, field: str = "name") -> str:
             field=field,
         )
     return name
+
+
+def is_link(path: Path | str) -> bool:
+    """Return True for symbolic links *and* Windows directory junctions.
+
+    ``Path.is_symlink()`` is False for NTFS junctions, yet a junction redirects
+    a directory exactly like a symlink and can be created without any
+    privilege, so every "must not follow links" check has to treat it the same.
+    """
+    candidate = Path(path)
+    return candidate.is_symlink() or candidate.is_junction()
+
+
+def iter_tree_without_links(root: Path | str) -> Iterator[Path]:
+    """Yield every descendant of ``root`` that is not a link, in sorted order.
+
+    Links (symlinks and junctions) are skipped and never descended into, unlike
+    ``Path.rglob`` which walks through Windows junctions.
+    """
+    pending = [Path(root)]
+    while pending:
+        current = pending.pop()
+        try:
+            with os.scandir(current) as scanner:
+                entries = sorted(scanner, key=lambda entry: entry.name)
+        except OSError:
+            continue
+        subdirs = []
+        for entry in entries:
+            if entry.is_symlink() or entry.is_junction():
+                continue
+            path = Path(entry.path)
+            yield path
+            if entry.is_dir(follow_symlinks=False):
+                subdirs.append(path)
+        pending.extend(reversed(subdirs))
 
 
 def resolve_workspace_path(root: Path | str, *parts: str) -> Path:

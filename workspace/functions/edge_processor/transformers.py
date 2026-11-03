@@ -9,6 +9,7 @@ from functions.function_calling.file import FileToolContext
 from agentdev.utils.code_execution import require_unsafe_code_execution
 from agentdev.utils.exceptions import SecurityError, ValidationError
 from agentdev.utils.workspace_paths import validate_path_component
+from agentdev.utils.workspace_paths import is_link
 
 def uppercase_payload(data: str, _context: Dict[str, Any]) -> str:
     """Return an uppercase copy of the payload text."""
@@ -39,8 +40,8 @@ def code_save_and_run(data: str, _context: Dict[str, Any]) -> str:
     # Validate every target before deleting any existing workspace files.
     files_to_save = []
     attachments_root = workspace_root / "attachments"
-    if attachments_root.is_symlink():
-        raise SecurityError("The attachments directory must not be a symbolic link")
+    if is_link(attachments_root):
+        raise SecurityError("The attachments directory must not be a symbolic link or junction")
     attachments_root = attachments_root.resolve()
     for match in matches:
         filename = match.group("filename").strip()
@@ -73,8 +74,12 @@ def code_save_and_run(data: str, _context: Dict[str, Any]) -> str:
             if item.name == "attachments":
                  continue
             
-            if item.is_symlink():
-                item.unlink()
+            if is_link(item):
+                # Remove the link itself, never what it points to (a junction is removed with rmdir).
+                try:
+                    item.unlink()
+                except (IsADirectoryError, PermissionError):
+                    os.rmdir(item)
             elif attachments_root.exists() and item.samefile(attachments_root):
                 continue
             elif item.is_dir():

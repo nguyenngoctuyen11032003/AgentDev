@@ -15,6 +15,8 @@ from agentdev.entity.messages import MessageBlock, MessageBlockType
 from agentdev.utils.attachments import AttachmentStore, AttachmentRecord
 from agentdev.utils.exceptions import SecurityError, ValidationError
 from agentdev.utils.workspace_paths import (
+    is_link,
+    iter_tree_without_links,
     resolve_workspace_path,
     session_directory_name,
     validate_path_component,
@@ -188,7 +190,7 @@ class AttachmentService:
         if root is None:
             raise SecurityError("Attachment upload session does not exist")
         manifest = root / "attachments_manifest.json"
-        if manifest.is_symlink():
+        if is_link(manifest):
             raise SecurityError("Attachment manifest must not be a symbolic link")
         store = AttachmentStore(root)
         uploaded = {}
@@ -211,7 +213,7 @@ class AttachmentService:
                 if source is None:
                     raise SecurityError("Attachment must reference a registered upload in attachment_session_id")
                 resolved = source.resolve()
-                if source.is_symlink() or not resolved.is_relative_to(root) or not resolved.is_file():
+                if is_link(source) or not resolved.is_relative_to(root) or not resolved.is_file():
                     raise SecurityError("Attachment source must stay inside its upload session")
                 paths.append(str(resolved))
             except (OSError, RuntimeError, ValueError) as exc:
@@ -256,7 +258,7 @@ class AttachmentService:
         current = self.attachments_root
         for part in (session_dir_name, "code_workspace"):
             current = current / part
-            if current.is_symlink():
+            if is_link(current):
                 raise ValidationError("Upload session paths must not contain symbolic links", field="session_id")
         path = resolve_workspace_path(self.attachments_root, session_dir_name, "code_workspace")
         path.mkdir(parents=True, exist_ok=True)
@@ -264,7 +266,7 @@ class AttachmentService:
 
     def _projects_root(self, session_id: str) -> Path:
         root = self._session_workspace_path(session_id) / PROJECTS_DIRNAME
-        if root.is_symlink():
+        if is_link(root):
             raise ValidationError("Projects directory must not be a symbolic link", field="project_id")
         root.mkdir(parents=True, exist_ok=True)
         return root
@@ -273,7 +275,7 @@ class AttachmentService:
         validate_path_component(project_id, field="project_id")
         projects_root = self._projects_root(session_id)
         path = projects_root / project_id
-        if path.is_symlink() or not path.is_dir():
+        if is_link(path) or not path.is_dir():
             raise ValidationError("Unknown project upload", field="project_id")
         return path
 
@@ -291,8 +293,8 @@ class AttachmentService:
     @staticmethod
     def _project_usage(project_root: Path) -> tuple[int, int]:
         count = size = 0
-        for path in project_root.rglob("*"):
-            if path.is_file() and not path.is_symlink():
+        for path in iter_tree_without_links(project_root):
+            if path.is_file() and not is_link(path):
                 count += 1
                 size += path.stat().st_size
         return count, size
@@ -327,7 +329,7 @@ class AttachmentService:
             for ancestor in [target, *target.parents]:
                 if ancestor == project_root:
                     break
-                if ancestor.is_symlink():
+                if is_link(ancestor):
                     raise ValidationError("Project paths must not contain symbolic links", field="paths")
             written = 0
             replaced = 0
@@ -401,7 +403,7 @@ class AttachmentService:
         for ancestor in [source_dir, *source_dir.parents]:
             if ancestor == self.attachments_root:
                 break
-            if ancestor.is_symlink():
+            if is_link(ancestor):
                 raise ValidationError("Project paths must not contain symbolic links", field="project_id")
         if not source_dir.is_dir():
             raise ValidationError("The project no longer exists in that session", field="project_id")
@@ -411,8 +413,8 @@ class AttachmentService:
         target_root = _fs_path(self._project_root(target_session_id, created["project_id"]))
         resolved_source = source_root.resolve()
         file_count = total_size = 0
-        for path in source_root.rglob("*"):
-            if path.is_symlink() or not path.is_file():
+        for path in iter_tree_without_links(source_root):
+            if is_link(path) or not path.is_file():
                 continue
             relative = path.relative_to(source_root)
             if any(part in IGNORED_PROJECT_DIRS for part in relative.parts[:-1]):
@@ -450,8 +452,8 @@ class AttachmentService:
 
         tree_lines: List[str] = []
         truncated = False
-        for path in sorted(project_root.rglob("*"), key=lambda p: p.relative_to(project_root).as_posix().lower()):
-            if path.is_symlink():
+        for path in sorted(iter_tree_without_links(project_root), key=lambda p: p.relative_to(project_root).as_posix().lower()):
+            if is_link(path):
                 continue
             rel = path.relative_to(project_root)
             if len(tree_lines) >= _PROJECT_TREE_LINE_LIMIT:
@@ -621,7 +623,7 @@ class AttachmentService:
         current = self.attachments_root
         for part in (session_dir_name, "code_workspace", "attachments"):
             current = current / part
-            if current.is_symlink():
+            if is_link(current):
                 raise ValidationError("Upload session paths must not contain symbolic links", field="session_id")
         path = resolve_workspace_path(
             self.attachments_root, session_dir_name, "code_workspace", "attachments"
