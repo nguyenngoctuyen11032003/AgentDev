@@ -6,6 +6,7 @@ import logging
 import time
 import traceback
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import WebSocket, WebSocketException
@@ -39,6 +40,13 @@ def _encode_ws_message(message: Any) -> str:
     if isinstance(message, str):
         return message
     return json.dumps(message, default=_json_default)
+
+
+def _with_timestamp(message: Dict[str, Any]) -> Dict[str, Any]:
+    """Return ``message`` with a top-level ``ts`` (ISO 8601 UTC) unless it already has one."""
+    if not isinstance(message, dict) or message.get("ts"):
+        return message
+    return {**message, "ts": datetime.now(timezone.utc).isoformat()}
 
 
 class WebSocketManager:
@@ -99,8 +107,14 @@ class WebSocketManager:
             # Always start the GC loop (idempotent)
             self._start_gc()
 
+            # Replay goes to *this* socket only, and stops as soon as a newer socket
+            # replaces it (that one gets its own full replay) to avoid duplicated rows.
+            def still_current() -> bool:
+                return self.active_connections.get(session_id) is websocket
+
             # Send connection confirmation
-            await self._send_raw(
+            await self._send_to(
+                websocket,
                 session_id,
                 {"type": "connection", "data": {"session_id": session_id, "status": "connected", "resumed": True}},
             )
@@ -111,12 +125,14 @@ class WebSocketManager:
             if session:
                 messages_to_replay = list(session.message_buffer)
                 for msg in messages_to_replay:
-                    await self._send_raw(session_id, msg)
+                    if not still_current():
+                        return session_id
+                    await self._send_to(websocket, session_id, msg)
 
             # Send session state snapshot
             snapshot = self.session_store.get_session_snapshot(session_id)
-            if snapshot:
-                await self._send_raw(session_id, {"type": "session_resumed", "data": snapshot})
+            if snapshot and still_current():
+                await self._send_to(websocket, session_id, {"type": "session_resumed", "data": snapshot})
 
             return session_id
 
@@ -139,14 +155,21 @@ class WebSocketManager:
         )
         return session_id
 
-    def disconnect(self, session_id: str) -> None:
-        if session_id in self.active_connections:
-            del self.active_connections[session_id]
-        if session_id in self.connection_timestamps:
-            del self.connection_timestamps[session_id]
+    def disconnect(self, session_id: str, websocket: Optional[WebSocket] = None) -> None:
+        """Forget the socket of ``session_id``.
+
+        With ``websocket``, only when it is still the current one: a socket that was
+        replaced by a newer connection must not unregister its successor.
+        """
+        if websocket is not None and self.active_connections.get(session_id) is not websocket:
+            logging.info("Stale WebSocket disconnected (newer connection kept): %s", session_id)
+            return
+        self.active_connections.pop(session_id, None)
+        self.connection_timestamps.pop(session_id, None)
         logging.info("WebSocket disconnected (session preserved): %s", session_id)
 
     async def send_message(self, session_id: str, message: Dict[str, Any]) -> None:
+        message = _with_timestamp(message)
         encoded = _encode_ws_message(message)
         # Buffer business messages for reconnection replay (exclude transport messages)
         if message.get("type") not in ("connection", "pong"):
@@ -174,7 +197,7 @@ class WebSocketManager:
             for attachment_id in attachment_ids:
                 ref = (manifest.get(attachment_id) or {}).get("ref") or {}
                 names.append(ref.get("name") or attachment_id)
-        message = {"type": "user_message", "data": {"text": text or "", "attachments": names}}
+        message = _with_timestamp({"type": "user_message", "data": {"text": text or "", "attachments": names}})
         self.session_store.record_message(session_id, message, _encode_ws_message(message))
 
     async def _send_raw(self, session_id: str, message: Dict[str, Any]) -> None:
@@ -186,6 +209,14 @@ class WebSocketManager:
             except Exception as exc:
                 traceback.print_exc()
                 logging.error("Failed to send raw message to %s: %s", session_id, exc)
+
+    async def _send_to(self, websocket: WebSocket, session_id: str, message: Dict[str, Any]) -> None:
+        """Send a message to one specific socket without buffering (used for replay)."""
+        try:
+            await websocket.send_text(_encode_ws_message(message))
+        except Exception as exc:
+            traceback.print_exc()
+            logging.error("Failed to send replay message to %s: %s", session_id, exc)
 
     def send_message_sync(self, session_id: str, message: Dict[str, Any]) -> None:
         """Send a WebSocket message from any thread (including worker threads).

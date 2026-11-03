@@ -11,6 +11,10 @@ from agentdev.api.services.artifact_events import ArtifactEventQueue
 from agentdev.api.services.session_history import SessionHistoryStore, make_title
 
 
+# Older turns are never shown to a follow-up run, so there is no point keeping them
+MAX_STORED_TURNS = 50
+
+
 class SessionStatus(Enum):
     """Lifecycle states for a workflow session."""
 
@@ -62,6 +66,10 @@ class WorkflowSession:
 
     # Message buffer for reconnection replay
     message_buffer: list = field(default_factory=list)
+
+    # Finished turns of this conversation ({user, answer, attachments}); a follow-up
+    # run in the same session hands them to its start node.
+    turns: list = field(default_factory=list)
 
     MAX_BUFFER_SIZE: int = 1000
 
@@ -145,6 +153,7 @@ class WorkflowSessionStore:
             projects=list(meta.get("projects") or []),
         )
         session.message_buffer = self.history.load_messages(session_id, WorkflowSession.MAX_BUFFER_SIZE)
+        session.turns = self.history.load_turns(session_id)
         self._sessions[session_id] = session
         if interrupted:
             self._persist(session)
@@ -178,13 +187,15 @@ class WorkflowSessionStore:
         task_prompt: str,
         session_id: str,
         attachments: Optional[list[str]] = None,
+        title_hint: Optional[str] = None,
     ) -> WorkflowSession:
         session = WorkflowSession(
             session_id=session_id,
             yaml_file=yaml_file,
             task_prompt=task_prompt,
             task_attachments=list(attachments or []),
-            title=make_title(task_prompt, fallback=yaml_file),
+            # An attachments-only first message is titled by its file names, not the workflow file.
+            title=make_title(task_prompt or title_hint or "", fallback=yaml_file),
         )
         draft = self._sessions.get(session_id)
         if draft is not None:
@@ -192,6 +203,10 @@ class WorkflowSessionStore:
             session.projects = list(draft.projects)
             session.created_at = draft.created_at
             session.message_buffer = list(draft.message_buffer)
+            session.turns = list(draft.turns)
+            if draft.turns and draft.title:
+                # A follow-up message keeps the conversation's title
+                session.title = draft.title
         self._sessions[session_id] = session
         self._persist(session)
         self.logger.info("Created session %s for workflow %s", session_id, yaml_file)
@@ -220,6 +235,16 @@ class WorkflowSessionStore:
         """Save a changed session (e.g. a draft that switched workflow)."""
         session.updated_at = time.time()
         self._persist(session)
+
+    def add_turn(self, session_id: str, turn: Dict[str, Any]) -> None:
+        """Remember a finished turn (in memory and on disk) for later follow-ups."""
+        session = self._sessions.get(session_id)
+        if not session:
+            return
+        session.turns.append(turn)
+        del session.turns[:-MAX_STORED_TURNS]
+        if self.history is not None:
+            self.history.save_turns(session_id, list(session.turns))
 
     def get_session(self, session_id: str) -> Optional[WorkflowSession]:
         return self._sessions.get(session_id)
