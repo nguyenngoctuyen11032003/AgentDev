@@ -129,6 +129,7 @@
         :loading="loading && !yamlFiles.length"
         @close="showTemplatePicker = false"
         @blank="openBlankForm"
+        @ai="openAssistant"
         @created="handleTemplateCreated"
       />
     </Teleport>
@@ -173,7 +174,7 @@ const props = defineProps({
     default: true
   }
 })
-const emit = defineEmits(['select', 'loaded'])
+const emit = defineEmits(['select', 'loaded', 'open-assistant'])
 const yamlFiles = ref([])
 const loading = ref(false)
 const error = ref(null)
@@ -391,6 +392,12 @@ const openFormGenerator = () => {
 const openBlankForm = () => {
   showTemplatePicker.value = false
   showFormGenerator.value = true
+}
+
+// "Tạo bằng AI": the workbench opens the assistant panel in "new workflow" mode.
+const openAssistant = () => {
+  showTemplatePicker.value = false
+  emit('open-assistant')
 }
 
 const handleTemplateCreated = async (fileName) => {

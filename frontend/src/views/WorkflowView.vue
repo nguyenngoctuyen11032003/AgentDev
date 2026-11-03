@@ -515,6 +515,8 @@ const yamlParseError = ref(null)
 const yamlLoadError = ref(null)
 
 const showDynamicFormGenerator = ref(false)
+// The node/edge form is the only unsaved work on the canvas; the assistant's Apply waits for it.
+defineExpose({ hasOpenForm: () => showDynamicFormGenerator.value })
 const showMenu = ref(false)
 // Below 1100px the secondary actions (Configure graph, Try in Lab) move into the more-actions menu
 const compactBarQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 1100px)') : null
