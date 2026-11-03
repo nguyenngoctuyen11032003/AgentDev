@@ -1,5 +1,6 @@
 """Diff two workflow documents down to the field level."""
 
+import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -21,8 +22,15 @@ def _graph(doc: Optional[dict]) -> dict:
     return (doc or {}).get("graph") or {}
 
 
-def _edge_map(graph: dict) -> Dict[Tuple[Any, Any], dict]:
-    return {(e.get("from"), e.get("to")): e for e in graph.get("edges") or []}
+def _edge_map(graph: dict) -> Dict[Tuple[Any, Any, int], dict]:
+    """Key edges by (from, to, occurrence index among the same pair) so parallel edges stay distinct."""
+    seen: Dict[Tuple[Any, Any], int] = {}
+    result: Dict[Tuple[Any, Any, int], dict] = {}
+    for e in graph.get("edges") or []:
+        pair = (e.get("from"), e.get("to"))
+        result[pair + (seen.get(pair, 0),)] = e
+        seen[pair] = seen.get(pair, 0) + 1
+    return result
 
 
 def diff_workflows(old: Optional[dict], new: dict) -> dict:
@@ -52,15 +60,15 @@ def diff_workflows(old: Optional[dict], new: dict) -> dict:
         "nodes_added": [i for i in new_nodes if i not in old_nodes],
         "nodes_removed": [i for i in old_nodes if i not in new_nodes],
         "nodes_changed": nodes_changed,
-        "edges_added": [{"from": f, "to": t} for f, t in new_edges if (f, t) not in old_edges],
-        "edges_removed": [{"from": f, "to": t} for f, t in old_edges if (f, t) not in new_edges],
+        "edges_added": [{"from": k[0], "to": k[1]} for k in new_edges if k not in old_edges],
+        "edges_removed": [{"from": k[0], "to": k[1]} for k in old_edges if k not in new_edges],
         "edges_changed": edges_changed,
         "graph_fields_changed": _leaf_paths(old_rest, new_rest),
     }
 
 
 def _forms(text: str) -> List[str]:
-    low = text.lower()
+    low = unicodedata.normalize("NFC", text).lower()
     return [low, low.replace("_", " ").replace("-", " ")]
 
 

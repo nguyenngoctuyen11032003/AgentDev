@@ -81,5 +81,24 @@ def test_unrequested_ignores_added_nodes():
 
 def test_unrequested_removed_edge():
     diff = {"nodes_removed": [], "nodes_changed": [], "edges_removed": [{"from": "A", "to": "B"}]}
-    assert unrequested_changes(diff, "nối lại") == ["A", "B"]
+    assert unrequested_changes(diff, "đổi tên") == ["A", "B"]
     assert unrequested_changes(diff, "bỏ cạnh từ a") == []
+
+
+def test_diff_parallel_edges_are_distinct():
+    nodes = [_node("A"), _node("B")]
+    old = _doc(nodes, [{"from": "A", "to": "B"}, {"from": "A", "to": "B", "condition": "x"}])
+    dropped = _doc(nodes, [{"from": "A", "to": "B"}])
+    d = diff_workflows(old, dropped)
+    assert d["edges_removed"] == [{"from": "A", "to": "B"}]
+    assert d["edges_changed"] == []
+    edited = _doc(nodes, [{"from": "A", "to": "B"}, {"from": "A", "to": "B", "condition": "y"}])
+    d = diff_workflows(old, edited)
+    assert d["edges_changed"] == [{"from": "A", "to": "B", "fields": ["condition"]}]
+    assert d["edges_removed"] == [] and d["edges_added"] == []
+
+
+def test_unrequested_normalises_unicode():
+    import unicodedata
+    diff = {"nodes_removed": [unicodedata.normalize("NFD", "Kiểm thử")], "nodes_changed": [], "edges_removed": []}
+    assert unrequested_changes(diff, unicodedata.normalize("NFC", "xóa kiểm thử")) == []
