@@ -2509,7 +2509,7 @@
   },
   "workflow_assistant": {
     "title": "Workflow assistant",
-    "short_title": "AI assistant",
+    "short_title": "Workflow assistant",
     "open": "Open the workflow assistant",
     "close": "Close the assistant",
     "resize": "Resize the assistant panel",
@@ -2525,7 +2525,7 @@
     "starter_pipeline": "A content pipeline: draft, review, and send back for edits until approved",
     "starter_review": "A request that a person approves before the team starts work",
     "quick_replies_label": "Quick replies",
-    "validation_failed": "Couldn't produce a valid workflow",
+    "validation_failed": "Could not produce a valid workflow",
     "quota_exhausted": "{vendor} has run out of quota.",
     "switch_to": "Switch to {vendor}",
     "conflict_notice": "{file} was changed somewhere else after this proposal was made, so it was not saved.",
@@ -2571,7 +2571,7 @@
       "kind_create": "New",
       "kind_edit": "Edit",
       "applied": "Applied",
-      "superseded": "A newer version exists",
+      "superseded": "A newer proposal exists",
       "discarded": "Discarded",
       "no_changes": "No changes to the graph.",
       "nodes_added": "Nodes added",
@@ -2582,13 +2582,37 @@
       "edges_changed": "Edges changed",
       "graph_changed": "Workflow settings changed",
       "warnings": "Warnings",
-      "also_changes": "This also changes {id}",
+      "also_changes": "This also changes \"{id}\", which you did not mention",
       "show_yaml": "Show YAML",
       "discard": "Discard",
       "apply": "Apply",
-      "applying": "Applying…"
+      "applying": "Applying…",
+      "conflicted": "Not saved: the file changed",
+      "dangers": "High risk",
+      "confirm_danger": "I understand the risk — Apply",
+      "danger": {
+        "mcp_local": "{node} will run a command on your machine: {detail}",
+        "mcp_remote": "{node} calls out to the network: {detail}",
+        "code_execution": "{node} can run code",
+        "other": "{node} uses a risky tool: {detail}"
+      }
     },
     "announce_reply": "The assistant replied.",
-    "announce_proposal": "The assistant has a proposal ready to review."
+    "announce_proposal": "The assistant has a proposal ready to review.",
+    "sender_you": "You:",
+    "sender_assistant": "Assistant:",
+    "starter_explain": "Explain how this workflow runs: who does what, in what order",
+    "starter_add_step": "Add a quality check step before the end",
+    "starter_remove_step": "Which step could be removed? Propose removing it and reconnect the edges",
+    "undo_unavailable": "This change can no longer be undone (another change was applied after it).",
+    "applied_layout_warning": "The workflow was saved, but its canvas layout could not be updated. If nodes overlap, drag them apart.",
+    "checks": {
+      "accounts": "The agent nodes have no connection yet. After applying, pick a connection on each node (or sign in on the Connections page).",
+      "roles": "Some agents have no role description, so their results may be less accurate.",
+      "skills": "Some enabled skills are not in the skill library.",
+      "code_execution": "Some agents use code or command tools, but the server has them turned off, so those tools will not run.",
+      "unreachable": "Some nodes have no incoming edge and are in no team, so they will never run.",
+      "other": "This check did not pass. See the details below."
+    }
   }
 }

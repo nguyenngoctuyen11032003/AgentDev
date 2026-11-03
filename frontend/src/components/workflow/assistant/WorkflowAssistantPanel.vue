@@ -4,7 +4,7 @@
     :style="{ width: `${width}px` }"
     role="complementary"
     :aria-label="$t('workflow_assistant.title')"
-    @keydown.esc.stop="close"
+    @keydown.esc="onEscape"
   >
     <div
       class="resize-handle"
@@ -55,9 +55,9 @@
         <p class="empty-hint">
           {{ isCreate ? $t('workflow_assistant.empty_create_hint') : $t('workflow_assistant.empty_workflow_hint') }}
         </p>
-        <div v-if="isCreate" class="starters" role="group" :aria-label="$t('workflow_assistant.starters_label')">
+        <div class="starters" role="group" :aria-label="$t('workflow_assistant.starters_label')">
           <button
-            v-for="key in STARTER_KEYS"
+            v-for="key in starterKeys"
             :key="key"
             type="button"
             class="chip"
@@ -69,10 +69,11 @@
       <ol class="messages">
         <li v-for="(m, index) in thread.messages" :key="m.id" :class="['msg', m.role, m.kind]">
           <!-- User -->
-          <div v-if="m.role === 'user'" class="bubble">{{ m.content }}</div>
+          <div v-if="m.role === 'user'" class="bubble"><span class="sr-only">{{ `${$t('workflow_assistant.sender_you')} ` }}</span>{{ m.content }}</div>
 
           <!-- Assistant -->
           <template v-else-if="m.role === 'assistant'">
+            <span class="sr-only">{{ $t('workflow_assistant.sender_assistant') }}</span>
             <!-- eslint-disable-next-line vue/no-v-html -- markdown-it with html: false escapes raw HTML -->
             <div v-if="m.content" class="reply markdown-body" v-html="render(m.content)"></div>
             <div v-if="m.validationErrors?.length" class="notice error" :role="alertRole(index)">
@@ -85,12 +86,15 @@
               v-if="m.proposal"
               :proposal="m.proposal"
               :superseded="!!m.superseded"
+              :conflicted="!!m.conflicted"
               :applied="!!m.applied"
+              :can-undo="!!m.applied && m.id === undoMessageId"
               :active="m.proposal === thread.pendingProposal"
               :busy="thread.status !== 'idle'"
               :applying="thread.status === 'applying'"
               @apply="emit('apply')"
               @discard="discardProposal"
+              @undo="emit('undo', workflowKey(m.proposal.filename))"
             />
             <div
               v-if="m.quickReplies?.length && index === thread.messages.length - 1 && thread.status === 'idle'"
@@ -120,7 +124,8 @@
           </div>
           <div v-else-if="m.kind === 'conflict'" class="notice warn" :role="alertRole(index)">
             <div class="notice-title">{{ $t('workflow_assistant.conflict_notice', { file: m.filename }) }}</div>
-            <div class="notice-actions">
+            <!-- Only the newest notice: an older one would resend the redo out of context. -->
+            <div v-if="index === thread.messages.length - 1" class="notice-actions">
               <button type="button" class="btn-small" :disabled="thread.status !== 'idle'" @click="send($t('workflow_assistant.redo_prompt'))">
                 {{ $t('workflow_assistant.redo') }}
               </button>
@@ -192,8 +197,9 @@ import { RouterLink } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import ProposalCard from './ProposalCard.vue'
 import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
+import { workflowKey } from '@/utils/workflowSync.js'
 
-const emit = defineEmits(['close', 'apply'])
+const emit = defineEmits(['close', 'apply', 'undo'])
 const { t, te } = useI18n()
 
 const {
@@ -201,6 +207,7 @@ const {
   providers,
   vendor,
   currentThread: thread,
+  undoMessageId,
   refreshProviders,
   send,
   stop,
@@ -208,10 +215,15 @@ const {
   discardProposal
 } = useWorkflowAssistant()
 
-const STARTER_KEYS = [
+const CREATE_STARTER_KEYS = [
   'workflow_assistant.starter_team',
   'workflow_assistant.starter_pipeline',
   'workflow_assistant.starter_review'
+]
+const WORKFLOW_STARTER_KEYS = [
+  'workflow_assistant.starter_explain',
+  'workflow_assistant.starter_add_step',
+  'workflow_assistant.starter_remove_step'
 ]
 const VENDOR_FALLBACK_LABELS = { anthropic: 'Claude', openai: 'Codex' }
 
@@ -258,6 +270,7 @@ const startResize = (event) => {
 
 // ---------------------------------------------------------------- state
 const isCreate = computed(() => context.value.mode !== 'workflow')
+const starterKeys = computed(() => (isCreate.value ? CREATE_STARTER_KEYS : WORKFLOW_STARTER_KEYS))
 const contextLabel = computed(() =>
   isCreate.value
     ? t('workflow_assistant.context_create')
@@ -288,11 +301,26 @@ watch(
   ([current, last], [before, previous]) => {
     // Switching to another thread is not a new reply.
     if (current !== before || !last || last === previous || last.role !== 'assistant') return
-    announcement.value = last.proposal
-      ? t('workflow_assistant.announce_proposal')
-      : t('workflow_assistant.announce_reply')
+    const status = last.proposal ? t('workflow_assistant.announce_proposal') : t('workflow_assistant.announce_reply')
+    const text = replySnippet(last.content)
+    announcement.value = text ? `${status} ${text}` : status
   }
 )
+
+// The start of a reply as plain text, for the live region (markdown rendered, then tags dropped;
+// DOMParser documents load nothing).
+const ANNOUNCE_LIMIT = 200
+function replySnippet(content) {
+  if (!content) return ''
+  let text = ''
+  try {
+    text = new DOMParser().parseFromString(render(content), 'text/html').body.textContent || ''
+  } catch {
+    text = String(content)
+  }
+  text = text.replace(/\s+/g, ' ').trim()
+  return text.length > ANNOUNCE_LIMIT ? `${text.slice(0, ANNOUNCE_LIMIT - 1).trimEnd()}…` : text
+}
 
 const errorTitle = (m) => {
   const key = `workflow_assistant.errors.${m.code}`
@@ -375,6 +403,14 @@ const startNewConversation = () => {
 const close = () => {
   if (thread.value.status === 'sending') stop()
   emit('close')
+}
+
+// Esc closes the panel, but not while an IME (e.g. Vietnamese Telex) is composing: there Esc only
+// dismisses the candidate list.
+const onEscape = (event) => {
+  if (event.isComposing || event.keyCode === 229) return
+  event.stopPropagation()
+  close()
 }
 
 // ---------------------------------------------------------------- waiting timer, scrolling

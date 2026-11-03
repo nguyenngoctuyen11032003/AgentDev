@@ -2509,18 +2509,18 @@
   },
   "workflow_assistant": {
     "title": "工作流助手",
-    "short_title": "AI 助手",
+    "short_title": "工作流助手",
     "open": "打开工作流助手",
     "close": "关闭助手",
     "resize": "调整助手面板宽度",
     "new_conversation": "新对话",
-    "context_create": "新建",
+    "context_create": "新建工作流",
     "context_workflow": "工作流：{name}",
     "empty_create_title": "描述你需要的工作流",
     "empty_create_hint": "说明有哪些角色、谁把工作交给谁、每个人做什么。助手会追问缺少的信息，然后给出方案，你可以先预览再保存。",
-    "empty_workflow_title": "询问 {name}",
+    "empty_workflow_title": "关于 {name} 提问",
     "empty_workflow_hint": "询问这个工作流如何运行（谁做什么、何时分支或循环），或请它修改。点击“应用”之前不会保存任何内容。",
-    "starters_label": "开始的建议",
+    "starters_label": "起步建议",
     "starter_team": "一个软件团队：负责计划的组长，加上后端、前端和 QA 成员",
     "starter_pipeline": "内容流水线：起草、审核，不通过就退回修改直到通过",
     "starter_review": "一个需要人工审批后团队才开始的请求",
@@ -2528,7 +2528,7 @@
     "validation_failed": "未能生成有效的工作流",
     "quota_exhausted": "{vendor} 的配额已用完。",
     "switch_to": "切换到 {vendor}",
-    "conflict_notice": "{file} 在生成此方案后已在别处被修改，因此未保存。",
+    "conflict_notice": "{file} 在此方案生成后已在别处被修改，因此未保存。",
     "redo": "在最新版本上重做",
     "redo_prompt": "工作流文件在上一个方案之后发生了变化。请在当前版本上重新做同样的修改。",
     "error_detail": "详情",
@@ -2558,7 +2558,7 @@
       "request_failed": "助手请求失败。",
       "not_signed_in": "此模型没有已登录的账号。请在连接页面登录。",
       "timeout": "模型响应超时。请重试。",
-      "provider_error": "模型返回了错误。",
+      "provider_error": "模型服务返回错误。",
       "bad_request": "请求无效。"
     },
     "preview": {
@@ -2572,7 +2572,7 @@
       "kind_edit": "修改",
       "applied": "已应用",
       "superseded": "已有更新的版本",
-      "discarded": "已放弃",
+      "discarded": "已忽略",
       "no_changes": "图没有变化。",
       "nodes_added": "新增节点",
       "nodes_removed": "删除节点",
@@ -2582,13 +2582,37 @@
       "edges_changed": "修改连线",
       "graph_changed": "工作流设置变化",
       "warnings": "警告",
-      "also_changes": "这也会修改 {id}",
+      "also_changes": "此方案还修改了 {id}（你没有提到）",
       "show_yaml": "查看 YAML",
-      "discard": "放弃",
+      "discard": "忽略",
       "apply": "应用",
-      "applying": "正在应用…"
+      "applying": "正在应用…",
+      "conflicted": "未保存：文件已被修改",
+      "dangers": "高风险",
+      "confirm_danger": "我了解风险 — 应用",
+      "danger": {
+        "mcp_local": "{node} 会在你的电脑上运行命令：{detail}",
+        "mcp_remote": "{node} 会访问网络：{detail}",
+        "code_execution": "{node} 可以运行代码",
+        "other": "{node} 使用了有风险的工具：{detail}"
+      }
     },
     "announce_reply": "助手已回复。",
-    "announce_proposal": "助手已准备好方案，请查看。"
+    "announce_proposal": "助手已准备好方案，请查看。",
+    "sender_you": "你：",
+    "sender_assistant": "助手：",
+    "starter_explain": "解释这个工作流如何运行：谁做什么、按什么顺序",
+    "starter_add_step": "在结束前增加一个质量检查步骤",
+    "starter_remove_step": "哪个步骤可以去掉？请提出去掉它的方案并重新连好连线",
+    "undo_unavailable": "此修改已无法撤销（之后又应用了其他修改）。",
+    "applied_layout_warning": "工作流已保存，但画布布局未能更新。如果节点重叠，请拖动调整。",
+    "checks": {
+      "accounts": "智能体节点还没有绑定连接。应用后请在每个节点上选择连接（或在连接页面登录）。",
+      "roles": "部分智能体没有角色描述，结果可能不够准确。",
+      "skills": "部分已启用的技能不在技能库中。",
+      "code_execution": "部分智能体使用了运行代码或命令的工具，但服务器关闭了此权限，这些工具将无法运行。",
+      "unreachable": "部分节点没有指向它的连线，也不属于任何团队，因此永远不会运行。",
+      "other": "此项检查未通过，详情见下方。"
+    }
   }
 }

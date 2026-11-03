@@ -1,6 +1,15 @@
 <script setup>
 import { toasts, dismissToast, runToastAction, pauseToast, resumeToast } from '@/utils/toast'
 
+// Resume only once focus has left the toast (moving between its buttons is not leaving).
+const onFocusOut = (event, id) => {
+  const el = event.currentTarget
+  if (!el.contains(event.relatedTarget) && !el.matches(':hover')) resumeToast(id)
+}
+const onMouseLeave = (event, id) => {
+  if (!event.currentTarget.contains(document.activeElement)) resumeToast(id)
+}
+
 const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
 </script>
 
@@ -14,9 +23,9 @@ const ICONS = { success: '✓', info: 'i', warning: '!', error: '✕' }
         :class="`toast--${item.type}`"
         :role="item.type === 'error' ? 'alert' : 'status'"
         @mouseenter="pauseToast(item.id)"
-        @mouseleave="resumeToast(item.id)"
+        @mouseleave="onMouseLeave($event, item.id)"
         @focusin="pauseToast(item.id)"
-        @focusout="resumeToast(item.id)"
+        @focusout="onFocusOut($event, item.id)"
       >
         <span class="toast-icon" aria-hidden="true">{{ ICONS[item.type] }}</span>
         <div class="toast-body">
