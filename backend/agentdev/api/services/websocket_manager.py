@@ -104,6 +104,12 @@ class WebSocketManager:
             if session_id in self.active_connections:
                 old_ws = self.active_connections[session_id]
                 try:
+                    # Say it in a message too: proxies (e.g. the Vite dev proxy) can drop the close
+                    # reason, and a tab that sees a plain drop would reconnect and take it back.
+                    await old_ws.send_text(json.dumps({"type": "session_replaced", "data": {"session_id": session_id}}))
+                except Exception:
+                    pass
+                try:
                     await old_ws.close(code=1000, reason="Replaced by new connection")
                 except Exception:
                     pass

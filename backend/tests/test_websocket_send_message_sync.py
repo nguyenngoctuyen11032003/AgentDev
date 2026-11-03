@@ -290,8 +290,8 @@ class TestReconnectReplay:
 
         asyncio.run(run())
         assert ws1.closed
-        # The first socket stops right after it is replaced: no more replay, no session_resumed.
-        assert ws1.types() == ["connection", "log", "log"]
+        # The first socket stops right after it is replaced (it is told so first): no more replay.
+        assert ws1.types() == ["connection", "log", "log", "session_replaced"]
         # The new socket gets exactly one full replay; nothing leaks in from the old loop.
         assert ws2.types() == ["connection"] + ["log"] * 5 + ["session_resumed"]
         assert [_json.loads(m)["data"] for m in ws2.sent[1:6]] == [0, 1, 2, 3, 4]

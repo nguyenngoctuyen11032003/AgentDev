@@ -2662,6 +2662,12 @@ const establishWebSocketConnection = (options = {}) => {
     let msg
     try {
       msg = JSON.parse(event.data)
+      // Another tab took this session: remember it so the close that follows is not
+      // mistaken for a dropped connection (which would reconnect and take it back).
+      if (msg?.type === 'session_replaced') {
+        socket.__replaced = true
+        return
+      }
     } catch (parseError) {
       console.warn('Ignoring malformed WebSocket message:', parseError)
       return
@@ -2737,7 +2743,7 @@ const establishWebSocketConnection = (options = {}) => {
     // see websocket_manager.connect): reconnecting here would just take it back from that
     // tab, and so on forever. Stay put and say so; the banner's "open here" takes it back,
     // only when clicked.
-    if (event?.code === 1000 && String(event.reason || '').startsWith('Replaced')) {
+    if (socket.__replaced || (event?.code === 1000 && String(event.reason || '').startsWith('Replaced'))) {
       isReconnecting.value = false
       resetConnectionState({ closeSocket: true, keepSession: Boolean(lostSession) })
       replacedSessionId.value = lostSession || ''
