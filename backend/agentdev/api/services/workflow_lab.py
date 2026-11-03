@@ -58,15 +58,24 @@ def _tool_names(config: Dict[str, Any]) -> List[str]:
 
 
 def static_check(yaml_path: Path) -> Dict[str, Any]:
+    try:
+        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        checks: List[Dict[str, Any]] = []
+        _check(checks, "yaml", FAIL, str(exc))
+        return _summarise(checks)
+    return static_check_data(data)
+
+
+def static_check_data(data: Any) -> Dict[str, Any]:
+    """Same checks as ``static_check`` on an already-parsed workflow (e.g. YAML not yet saved)."""
     from agentdev.api.services import skill_library
     from agentdev.connections.autobind import bind_default_connections
     from agentdev.validation.check import check_config
 
     checks: List[Dict[str, Any]] = []
-    try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
-        _check(checks, "yaml", FAIL, str(exc))
+    if not isinstance(data, dict):
+        _check(checks, "structure", FAIL, "Workflow must be a mapping")
         return _summarise(checks)
 
     error = check_config(data)

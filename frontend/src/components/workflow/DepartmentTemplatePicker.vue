@@ -1,10 +1,20 @@
 <template>
   <BaseDialog :model-value="true" :title="$t('workflow_list.dept_title')" width="560px" @close="close">
     <div class="dept-body">
+      <div class="dept-start">
+        <!-- Describe the workflow in words and let the assistant build it -->
+        <button type="button" class="dept-ai" @click="emit('ai')">
+          <span class="dept-ai-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" /><path d="M8.5 11h.01M12 11h.01M15.5 11h.01" /></svg>
+          </span>
+          <span class="dept-card-name">{{ $t('workflow_assistant.create_with_ai') }}</span>
+          <span class="dept-card-desc">{{ $t('workflow_assistant.create_with_ai_desc') }}</span>
+        </button>
         <button type="button" class="dept-blank" @click="emit('blank')">
           <span class="dept-card-name">{{ $t('workflow_list.dept_blank') }}</span>
           <span class="dept-card-desc">{{ $t('workflow_list.dept_blank_desc') }}</span>
         </button>
+      </div>
 
         <div class="dept-section-label">{{ $t('workflow_list.dept_section') }}</div>
         <p v-if="loading" class="dept-empty">{{ $t('workflow_list.loading') }}</p>
@@ -69,7 +79,7 @@ const props = defineProps({
   // True while the workflow list is still loading: templates and taken names are not known yet.
   loading: { type: Boolean, default: false }
 })
-const emit = defineEmits(['close', 'blank', 'created'])
+const emit = defineEmits(['close', 'blank', 'ai', 'created'])
 const { t } = useI18n()
 
 const existing = computed(() => new Set(props.existingFiles.map((name) => String(name).toLowerCase())))
@@ -156,6 +166,46 @@ const create = async () => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 10px;
+}
+
+.dept-start {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+/* The AI card is the most prominent way in */
+.dept-ai {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgb(var(--accent-sky-rgb) / 0.55);
+  background: rgb(var(--accent-sky-rgb) / 0.1);
+  color: var(--text-1);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.dept-ai:hover {
+  background: rgb(var(--accent-sky-rgb) / 0.16);
+  border-color: var(--accent-sky);
+}
+
+.dept-ai-icon {
+  display: inline-flex;
+  color: var(--accent-sky);
+  margin-bottom: 2px;
+}
+
+.dept-ai:focus-visible,
+.dept-blank:focus-visible,
+.dept-card:focus-visible {
+  outline: 2px solid var(--accent-sky);
+  outline-offset: 2px;
 }
 
 .dept-blank,
