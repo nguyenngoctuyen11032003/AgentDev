@@ -44,7 +44,22 @@ fixed below.
 | (c) | 1 | n/a | n/a | n/a | n/a | n/a | A good Vietnamese explanation: CTO routing by request type, the big-project order, where the user approves, 3 review rounds |
 | (d) on `software_company_copy` | 1 | It proposed directly (the request is specific) | n/a | warn (the existing `code_execution`) | Yes | **None.** It added only a 5-line rule to `CTO.config.role` (QA after every FE change, also in briefs to PM) | `warnings = ["CTO"]`, the same noise as for Claude |
 
-(The Codex agent appends its rows below.)
+### Final runs (Codex-half agent, after fixes 1-4)
+
+These ran on commit c0c8632, with backend 8031 and Vite 5203. Workflows were named `*_codex`, (d) ran on
+`software_company_copy_codex` made with "Sao chép quy trình", and all of them were deleted afterwards.
+Screenshots are `t8c-*.png`. Details are in `.superpowers/sdd/2026-11-03-workflow-assistant-chat/task-8-codex-findings.md`.
+
+| Scenario | Turns | One question at a time? | Confirmed name? | checks.status | Opened on canvas? | Unrequested changes (d) | Notes |
+|---|---|---|---|---|---|---|---|
+| (a) | 4 | Yes. Restated its understanding, then asked: where does the order data come from (4 quick replies) → name → user approval before replying to the customer | **Yes.** It suggested `cham_soc_khach_hang` and the user changed it to `cham_soc_khach_hang_codex` | pass | Yes. `/workflows/cham_soc_khach_hang_codex`, lead plus 2 members, team links | n/a | Team with lead, `edges: []`, `max_parallel: 1`, `max_review_rounds: 3`, `plan_approval: false` (the user said the lead's approval is enough). Strong no-fabrication rules (no order system access, no invented policy or refunds). Descriptions in Vietnamese |
+| (b) | 4 | Yes. Restated the flow and asked the name → what to do after 3 failed rounds → where "đăng" goes | Yes (`viet_bien_tap_dang`, the user added `_codex`) | pass | Yes. 7 nodes, 12 edges | n/a | Brief (passthrough) → Writer → Editor (`^REVISE` / `^APPROVED`) + `loop_counter` (3) wired per the reference → human `User Approval` (`DUYET`) → Final Copy. There are no duplicate edge pairs: it routes APPROVED through a `Ready For Approval` passthrough because `Editor → User Approval` is already a `trigger: false` context edge. It did not mention the skill or internals. Roles in English, user-facing text in Vietnamese. On the main canvas, Writer and Editor overlap (layout, minor) |
+| (c) | 1 | n/a | n/a | n/a (no proposal) | n/a | n/a | A clear Vietnamese explanation of the CTO's 4 request types, the full web order, where the user approves (plan only; there is no forced approval before deploy), 3 review rounds, and max_parallel 2/3. It matches the YAML. No quick replies |
+| (d) on `software_company_copy_codex` | 1 | It proposed directly with no question | n/a | warn (only the existing `code_execution`) | Yes. The canvas reloaded with 25 nodes, and the saved file equals the proposal | **Mostly none.** `diff_summary`: `CTO.config.role` and `Project Manager.config.role` only. The file diff is +3 lines in CTO routing and 2 rewritten + 4 added lines in the PM's default order. But it **moved the UI/UX review after QA** without saying so, and the one-line reply does not say that QA Tester already existed | `warnings = ["CTO", "Project Manager"]` (the same noise as above). Suggested prompt fix: ask one question when the named node already exists, or when the request can be done in two reasonable ways, and name every step that was moved |
+
+Codex total for this pass: 10 user turns, no repair turns visible, and no quota errors (so the quota notice
+was not exercised). Process note: the two agents shared one scratchpad. A driver-script collision sent
+the (b) message twice into the Claude agent's browser session after c0c8632 was committed.
 
 ## Prompt / reference / service changes made
 
