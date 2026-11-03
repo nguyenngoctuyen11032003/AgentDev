@@ -2,17 +2,18 @@
   <div class="kanban">
     <header class="kb-bar">
       <div class="kb-title">
-        <span class="kb-eyebrow">{{ $t('launch.board.title') }}</span>
-        <h2>{{ workflowName || $t('launch.board.no_workflow') }}</h2>
+        <h2 :aria-label="`${$t('launch.board.title')}: ${workflowName || $t('launch.board.no_workflow')}`">{{ workflowName || $t('launch.board.no_workflow') }}</h2>
       </div>
       <div class="kb-meta">
-        <span class="pill" :class="`is-${runTone}`">
-          <span class="dot" aria-hidden="true"></span>{{ stateLabel(runTone) }}
+        <StatusPill :tone="runTone" :label="stateLabel(runTone)" />
+        <!-- Only the lead talked: nothing was delegated, so there is no progress to draw -->
+        <span v-if="steps.length && chatOnly" class="kb-progress is-chat" :title="$t('launch.board.progress_hint')">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+          {{ $t('launch.dashboard.chat_only') }}
         </span>
-        <span v-if="steps.length" class="kb-progress" :title="$t('launch.board.progress_hint')">
-          <span class="kb-progress-track"><span class="kb-progress-fill" :style="{ width: `${progress}%` }"></span></span>
-          <template v-if="teamMode && !delegatedRuns.length">{{ $t('launch.dashboard.chat_only') }}</template>
-          <template v-else-if="teamMode">{{ $t('launch.board.progress_team', { done: teamTasksDone, total: delegatedRuns.length, people: teamPeople }) }}</template>
+        <span v-else-if="steps.length" class="kb-progress" :title="$t('launch.board.progress_hint')">
+          <span class="kb-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progress"><span class="kb-progress-fill" :style="{ transform: `scaleX(${progress / 100})` }"></span></span>
+          <template v-if="teamMode">{{ $t('launch.board.progress_team', { done: teamTasksDone, total: delegatedRuns.length, people: teamPeople }) }}</template>
           <template v-else>{{ $t('launch.board.progress', { done: doneCount, total: steps.length }) }}</template>
         </span>
         <span v-if="view.startedAt" class="kb-time">
@@ -51,7 +52,18 @@
 
     <p v-if="!steps.length" class="kb-empty">{{ $t('launch.board.empty') }}</p>
 
-    <div v-else ref="scrollerEl" class="kb-columns">
+    <div v-else class="kb-board" :class="{ 'fade-start': !scrollState.atStart, 'fade-end': !scrollState.atEnd }">
+    <!-- Where you are on a board wider than the pane -->
+    <div v-if="!scrollState.atStart || !scrollState.atEnd" class="kb-scrollbar">
+      <span class="kb-range">{{ $t('launch.board.columns_range', { from: scrollState.first, to: scrollState.last, total: scrollState.total }) }}</span>
+      <button type="button" class="kb-nav" :disabled="scrollState.atStart" :aria-label="$t('launch.board.scroll_prev')" :title="$t('launch.board.scroll_prev')" @click="scrollColumns(-1)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+      </button>
+      <button type="button" class="kb-nav" :disabled="scrollState.atEnd" :aria-label="$t('launch.board.scroll_next')" :title="$t('launch.board.scroll_next')" @click="scrollColumns(1)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+      </button>
+    </div>
+    <div ref="scrollerEl" class="kb-columns" @scroll.passive="onColumnsScroll">
       <!-- Your request -->
       <section class="col col-task">
         <header class="col-head">
@@ -62,9 +74,7 @@
             <strong>{{ $t('launch.board.you') }}</strong>
             <span>{{ $t('launch.board.request') }}</span>
           </div>
-          <span class="state-chip" :class="view.task ? 'is-done' : 'is-todo'">
-            {{ view.task ? $t('launch.board.sent') : $t('launch.board.todo') }}
-          </span>
+          <StatusPill compact :tone="view.task ? 'done' : 'todo'" :label="view.task ? $t('launch.board.sent') : $t('launch.board.todo')" />
         </header>
         <div class="col-body">
           <article
@@ -79,7 +89,7 @@
             </div>
             <p class="card-text" :class="turn.current || !showTurnTags ? 'clamp-8' : 'clamp-3'">{{ turn.task.text || '—' }}</p>
             <div v-if="turn.task.attachments.length" class="chips">
-              <span v-for="(name, i) in turn.task.attachments" :key="`${i}-${name}`" class="chip">📎 {{ name }}</span>
+              <span v-for="(name, i) in turn.task.attachments" :key="`${i}-${name}`" class="chip"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 7" /></svg> {{ name }}</span>
             </div>
             <div v-if="turn.inputs" class="card-foot">{{ $t('launch.board.replies', { n: turn.inputs }) }}</div>
           </article>
@@ -102,10 +112,10 @@
             <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6" /></svg>
           </span>
           <div class="col-name">
-            <strong :title="column.title">{{ column.title }}</strong>
+            <strong :title="column.title"><span class="col-dot" aria-hidden="true"></span>{{ column.title }}</strong>
             <span>{{ column.sub }}</span>
           </div>
-          <span class="state-chip" :class="`is-${column.status}`">{{ stateLabel(column.status) }}</span>
+          <StatusPill compact :tone="column.status" :label="stateLabel(column.status)" />
         </header>
 
         <!-- Members: who is in this team and how each one is doing -->
@@ -117,6 +127,8 @@
             class="member"
             :class="[`is-${statusOf(member.id)}`, { active: memberFilter[column.key] === member.id }]"
             :title="`${$t('launch.board.step', { n: member.index })} · ${member.id} · ${stateLabel(statusOf(member.id))}`"
+            :aria-label="`${member.id} · ${stateLabel(statusOf(member.id))}`"
+            :aria-pressed="memberFilter[column.key] === member.id"
             @click="toggleMember(column.key, member.id)"
           >
             <span class="avatar">
@@ -134,7 +146,7 @@
         <div class="col-body">
           <!-- Working now / waiting for you -->
           <template v-if="column.active.length">
-            <p class="section-label">{{ $t('launch.board.section_active') }} · {{ column.active.length }}</p>
+            <p class="section-label">{{ $t('launch.board.section_active') }}<span class="section-count">{{ column.active.length }}</span></p>
             <article
               v-for="task in column.active"
               :key="task.key"
@@ -147,7 +159,10 @@
                   <b :title="task.step.id">{{ task.step.id }}</b>
                   <span class="step-tag">B{{ task.step.index }}</span>
                 </span>
-                <time v-if="task.run">{{ formatSpan(now - task.run.startedAt) }}</time>
+                <span class="meta-end">
+                  <time v-if="task.run">{{ formatSpan(now - task.run.startedAt) }}</time>
+                  <StatusPill compact :tone="task.status" :label="stateLabel(task.status)" />
+                </span>
               </div>
               <p v-if="task.run?.delegatedBy" class="card-from">{{ $t('launch.board.assigned_by', { lead: task.run.delegatedBy }) }}</p>
               <p class="card-title">{{ task.title }}</p>
@@ -160,7 +175,7 @@
               </p>
               <p v-else class="activity"><span class="spinner" aria-hidden="true"></span>{{ $t('launch.board.working') }}</p>
               <div v-if="task.run && (task.run.tools.length || task.run.models)" class="chips">
-                <span v-if="task.run.models" class="chip is-model">✦ {{ task.run.models }}</span>
+                <span v-if="task.run.models" class="chip is-model"><svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M12 2.5 14 10l7.5 2-7.5 2-2 7.5-2-7.5-7.5-2 7.5-2z" /></svg> {{ task.run.models }}</span>
                 <span v-for="[name, count] in toolCounts(task.run.tools)" :key="name" class="chip">{{ name }}<b v-if="count > 1"> ×{{ count }}</b></span>
               </div>
             </article>
@@ -168,7 +183,7 @@
 
           <!-- Next up: members that have not started yet -->
           <template v-if="column.queued.length">
-            <p class="section-label">{{ $t(teamMode && view.task ? 'launch.board.section_unassigned' : 'launch.board.section_queued') }} · {{ column.queued.length }}</p>
+            <p class="section-label">{{ $t(teamMode && view.task ? 'launch.board.section_unassigned' : 'launch.board.section_queued') }}<span class="section-count">{{ column.queued.length }}</span></p>
             <article v-for="step in column.queued" :key="`q-${step.id}`" class="card is-todo is-compact">
               <div class="card-meta">
                 <span class="assignee">
@@ -183,16 +198,18 @@
 
           <!-- Done: every hand-over, newest first -->
           <template v-if="column.done.length">
-            <p class="section-label">{{ $t('launch.board.section_done') }} · {{ column.done.length }}</p>
+            <p class="section-label">{{ $t('launch.board.section_done') }}<span class="section-count">{{ column.done.length }}</span></p>
             <article
               v-for="task in visibleDone(column)"
               :key="task.key"
               class="card"
               :class="[`is-${task.status}`, { 'is-open': opened.has(task.key) }]"
+              role="button"
               tabindex="0"
               :aria-expanded="opened.has(task.key)"
               @click="toggleOpen(task.key)"
               @keydown.enter.prevent="toggleOpen(task.key)"
+              @keydown.space.prevent="toggleOpen(task.key)"
             >
               <div class="card-meta">
                 <span class="assignee">
@@ -201,14 +218,17 @@
                   <span class="step-tag">B{{ task.step.index }}<template v-if="task.run.index > 1"> · {{ $t('launch.board.run', { n: task.run.index }) }}</template></span>
                   <span v-if="showTurnTags" class="turn-tag">{{ $t('launch.board.turn', { n: task.run.turn }) }}</span>
                 </span>
-                <time :title="clock(task.run.endedAt)">{{ formatSpan(task.run.endedAt - task.run.startedAt) }}</time>
+                <span class="meta-end">
+                  <StatusPill v-if="task.status !== 'done'" compact :tone="task.status" :label="stateLabel(task.status)" />
+                  <time :title="clock(task.run.endedAt)">{{ formatSpan(task.run.endedAt - task.run.startedAt) }}</time>
+                </span>
               </div>
               <p v-if="task.run.delegatedBy" class="card-from">{{ $t('launch.board.assigned_by', { lead: task.run.delegatedBy }) }}</p>
               <p v-if="task.run.task" class="card-ask clamp-2" :title="task.run.task">{{ $t('launch.board.asked', { task: task.run.task }) }}</p>
               <p class="card-title">{{ task.title }}</p>
               <p v-if="task.body" class="card-text" :class="opened.has(task.key) ? '' : 'clamp-3'">{{ task.body }}</p>
               <div v-if="task.run.tools.length || task.run.models" class="chips">
-                <span v-if="task.run.models" class="chip is-model">✦ {{ task.run.models }}</span>
+                <span v-if="task.run.models" class="chip is-model"><svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M12 2.5 14 10l7.5 2-7.5 2-2 7.5-2-7.5-7.5-2 7.5-2z" /></svg> {{ task.run.models }}</span>
                 <span v-for="[name, count] in toolCounts(task.run.tools)" :key="name" class="chip">{{ name }}<b v-if="count > 1"> ×{{ count }}</b></span>
                 <span v-if="extraTools(task.run.tools)" class="chip is-more">+{{ extraTools(task.run.tools) }}</span>
               </div>
@@ -241,7 +261,7 @@
             <strong>{{ $t('launch.board.result') }}</strong>
             <span>{{ $t('launch.board.result_sub') }}</span>
           </div>
-          <span class="state-chip" :class="`is-${outcomeTone}`">{{ stateLabel(outcomeTone) }}</span>
+          <StatusPill compact :tone="outcomeTone" :label="stateLabel(outcomeTone)" />
         </header>
         <div class="col-body">
           <article
@@ -268,6 +288,7 @@
         </div>
       </section>
     </div>
+    </div>
   </div>
 </template>
 
@@ -277,6 +298,7 @@ import { useI18n } from 'vue-i18n'
 import { combineTurns, formatSpan, sessionTurns, stepStatus, turnSpan, usageTotals } from '@/utils/runTracker.js'
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
 import { computeTeamLinks } from '@/utils/teamLinks.js'
+import StatusPill from './StatusPill.vue'
 
 const props = defineProps({
   graph: { type: Object, default: () => ({}) },
@@ -376,6 +398,9 @@ const progress = computed(() => {
   }
   return steps.value.length ? Math.round((doneCount.value / steps.value.length) * 100) : 0
 })
+
+// A team turn where the lead only replied: no bar (a full bar would claim work that never happened)
+const chatOnly = computed(() => teamMode.value && !delegatedRuns.value.length)
 
 const isLive = computed(() => props.status === 'Running...' || props.status === 'Waiting for input...')
 // Working time of the shown turns (the pauses between turns do not count)
@@ -546,6 +571,59 @@ watch(focusColumn, async (key) => {
   columnEls.get(key)?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
 })
 
+// ---------------------------------------------------------------- horizontal scroll affordance
+// Which columns are in view (1-based), and whether there is more board on either side
+const scrollState = reactive({ atStart: true, atEnd: true, first: 1, last: 1, total: 0 })
+let scrollFrame = 0
+const measureScroll = () => {
+  scrollFrame = 0
+  const el = scrollerEl.value
+  if (!el) return
+  const cols = [...el.children]
+  const left = el.scrollLeft
+  const right = left + el.clientWidth
+  let first = 0
+  let last = 0
+  cols.forEach((col, i) => {
+    const start = col.offsetLeft // .kb-columns is the offsetParent (position: relative)
+    const end = start + col.offsetWidth
+    // a column counts as "in view" once most of it shows
+    if (Math.min(end, right) - Math.max(start, left) > col.offsetWidth * 0.6) {
+      if (!first) first = i + 1
+      last = i + 1
+    }
+  })
+  scrollState.total = cols.length
+  scrollState.first = first || 1
+  scrollState.last = last || first || 1
+  scrollState.atStart = left <= 2
+  scrollState.atEnd = right >= el.scrollWidth - 2
+}
+const onColumnsScroll = () => {
+  if (!scrollFrame) scrollFrame = requestAnimationFrame(measureScroll)
+}
+const scrollColumns = (dir) => {
+  const el = scrollerEl.value
+  if (!el) return
+  const col = el.children[0]
+  const step = col ? col.offsetWidth + 12 : el.clientWidth * 0.8
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  el.scrollBy({ left: dir * step, behavior: reduce ? 'auto' : 'smooth' })
+}
+let scrollObserver = null
+watch(scrollerEl, (el, old) => {
+  if (old) scrollObserver?.unobserve(old)
+  if (!el) return
+  if (!scrollObserver && typeof ResizeObserver !== 'undefined') scrollObserver = new ResizeObserver(onColumnsScroll)
+  scrollObserver?.observe(el)
+  onColumnsScroll()
+})
+watch(() => [columns.value.length, props.visible], () => nextTick(onColumnsScroll))
+onBeforeUnmount(() => {
+  scrollObserver?.disconnect()
+  if (scrollFrame) cancelAnimationFrame(scrollFrame)
+})
+
 // Live clock for running durations; idle while hidden or finished
 let timer = null
 const syncTimer = () => {
@@ -565,19 +643,19 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 <style scoped>
 .kanban {
-  --kb-ok: #22c55e;
-  --kb-run: var(--accent-sky);
-  --kb-wait: #f59e0b;
+  --kb-ok: var(--success);
+  --kb-run: var(--accent);
+  --kb-wait: var(--warn);
   --kb-err: var(--danger);
-  --kb-muted: var(--text-muted-4);
-  --kb-line: rgb(var(--ink) / 0.09);
+  --kb-muted: var(--fg-muted);
+  --kb-line: var(--border);
   height: 100%;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   padding: 14px 16px 12px calc(var(--inset-left, 0px) + 34px);
-  color: var(--text-1);
-  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--fg);
+  font-family: inherit;
   transition: padding-left 0.25s ease;
 }
 
@@ -591,16 +669,8 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   padding: 2px 2px 12px;
 }
 
-.kb-eyebrow {
-  font-size: var(--fs-xs);
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--kb-muted);
-}
-
 .kb-title h2 {
-  margin: 2px 0 0;
+  margin: 0;
   font-size: 18px;
   font-weight: 680;
   letter-spacing: -0.015em;
@@ -635,9 +705,12 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky));
-  transition: width 0.5s ease;
+  background: var(--kb-run);
+  transform-origin: left center;
+  transition: transform 0.25s var(--ease-out);
 }
+
+.kb-progress.is-chat svg { flex: none; }
 
 .seg {
   display: inline-flex;
@@ -647,7 +720,8 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .seg button {
-  padding: 4px 11px;
+  min-height: 32px;
+  padding: 4px 12px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -659,17 +733,18 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .seg button.active {
-  color: var(--text-1);
-  background: var(--surface-1);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+  color: var(--fg);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .kb-turns {
+  min-height: 36px;
   padding: 4px 8px;
   border: 1px solid rgb(var(--ink) / 0.12);
   border-radius: 8px;
-  background: var(--surface-1);
-  color: var(--text-1);
+  background: var(--surface);
+  color: var(--fg);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -681,7 +756,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   border-radius: 99px;
   background: color-mix(in srgb, var(--accent-indigo) 14%, transparent);
   color: var(--accent-indigo);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
 }
@@ -692,30 +767,25 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 36px;
   cursor: pointer;
 }
 
-.kb-follow input { margin: 0; accent-color: var(--accent-sky); }
+.kb-follow input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.seg button:focus-visible,
+.kb-turns:focus-visible,
+.kb-follow input:focus-visible,
+.member:focus-visible,
+.more-btn:focus-visible,
+.review-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-.kb-empty { margin: auto; color: var(--kb-muted); font-size: 14px; }
+.meta-end { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.chip svg { vertical-align: -1px; }
 
-/* ---------- pills ---------- */
-.pill,
-.state-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: 99px;
-  font-size: 11.5px;
-  font-weight: 650;
-  white-space: nowrap;
-  color: var(--tone, var(--kb-muted));
-  background: color-mix(in srgb, var(--tone, var(--kb-muted)) 14%, transparent);
-}
+.kb-empty { margin: auto; max-width: 42ch; padding: 24px; text-align: center; line-height: 1.5; color: var(--kb-muted); font-size: 14px; }
 
-.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-
+/* ---------- tones (status pills live in StatusPill) ---------- */
+.is-you { --tone: var(--accent-indigo); }
 .is-working { --tone: var(--kb-run); }
 .is-waiting { --tone: var(--kb-wait); }
 .is-done,
@@ -725,15 +795,74 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 .is-todo,
 .is-idle { --tone: var(--kb-muted); }
 
-.pill.is-working .dot,
-.pill.is-waiting .dot { animation: pulse 1.4s ease-in-out infinite; }
-
 @keyframes pulse {
   50% { opacity: 0.35; transform: scale(0.8); }
 }
 
 /* ---------- columns ---------- */
+.kb-board {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Edge fades say "more board this way"; they never block clicks */
+.kb-board::before,
+.kb-board::after {
+  content: '';
+  position: absolute;
+  top: 38px; /* below the column range row, which shows whenever a fade does */
+  bottom: 10px;
+  z-index: 2;
+  width: 40px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s var(--ease-out);
+}
+.kb-board::before { left: 0; background: linear-gradient(to right, var(--kb-fade-bg, var(--bg)), transparent); }
+.kb-board::after { right: 0; background: linear-gradient(to left, var(--kb-fade-bg, var(--bg)), transparent); }
+.kb-board.fade-start::before,
+.kb-board.fade-end::after { opacity: 1; }
+
+.kb-scrollbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 36px;
+  margin: -4px 0 6px;
+  height: 36px;
+  font-size: 12px;
+  color: var(--kb-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.kb-range { margin-right: 6px; }
+
+.kb-nav {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--kb-line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), opacity 0.15s var(--ease-out);
+}
+.kb-nav::before { content: ''; position: absolute; inset: -4px -2px; }
+.kb-nav svg { width: 16px; height: 16px; }
+.kb-nav:hover:not(:disabled) { background: var(--surface-raised); }
+.kb-nav:disabled { opacity: 0.4; cursor: default; }
+.kb-nav:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
 .kb-columns {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -742,13 +871,15 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   overflow-y: hidden;
   padding: 2px 2px 10px;
   scroll-snap-type: x proximity;
+  scroll-padding-inline: 2px;
+  overscroll-behavior-x: contain;
   scrollbar-width: thin;
 }
 
 .col {
   --dept: var(--accent-sky);
   position: relative;
-  flex: 0 0 300px;
+  flex: 0 0 clamp(280px, calc((100% - 36px) / 4), 340px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -757,16 +888,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   background: rgb(var(--ink) / 0.025);
   scroll-snap-align: start;
   overflow: hidden;
-  transition: border-color 0.25s, box-shadow 0.25s;
-}
-
-.col::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto;
-  height: 3px;
-  background: var(--dept);
-  opacity: 0.6;
+  transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
 .col.is-working {
@@ -775,23 +897,18 @@ onBeforeUnmount(() => timer && clearInterval(timer))
     0 14px 34px -20px color-mix(in srgb, var(--kb-run) 70%, transparent);
 }
 
-.col.is-working::before {
-  opacity: 1;
-  background: linear-gradient(90deg, transparent, var(--kb-run), transparent);
-  background-size: 200% 100%;
-  animation: sweep 1.6s linear infinite;
-}
-
 .col.is-waiting { border-color: color-mix(in srgb, var(--kb-wait) 60%, transparent); }
 
-@keyframes sweep {
-  from { background-position: 200% 0; }
-  to { background-position: 0 0; }
+/* Department identity: one small dot beside the name (same color as the office room) */
+.col-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--dept);
 }
-
-.col-task::before { background: var(--accent-indigo); }
-.col-final::before { background: var(--kb-ok); }
-.col-final.is-error::before { background: var(--kb-err); }
 
 .col-head {
   display: flex;
@@ -809,13 +926,13 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   border-radius: 9px;
   font-size: 12.5px;
   font-weight: 700;
-  color: var(--dept);
-  background: color-mix(in srgb, var(--dept) 15%, transparent);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--dept) 24%, transparent);
   font-variant-numeric: tabular-nums;
 }
 
-.col-icon.is-you { color: var(--accent-indigo); background: color-mix(in srgb, var(--accent-indigo) 15%, transparent); }
-.col-icon.is-flag { color: var(--kb-ok); background: color-mix(in srgb, var(--kb-ok) 15%, transparent); }
+.col-icon.is-you { color: var(--accent-indigo); background: color-mix(in srgb, var(--accent-indigo) 16%, transparent); }
+.col-icon.is-flag { color: var(--kb-ok); background: color-mix(in srgb, var(--kb-ok) 16%, transparent); }
 
 .col-name {
   flex: 1;
@@ -837,7 +954,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--kb-muted);
 }
 
@@ -856,7 +973,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 .member {
   position: relative;
-  padding: 0;
+  padding: 5px;
   border: 0;
   border-radius: 11px;
   background: transparent;
@@ -864,13 +981,13 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .member .avatar {
-  box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 3.5px var(--tone, rgb(var(--ink) / 0.15));
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--tone, rgb(var(--ink) / 0.15));
   transition: transform 0.15s, opacity 0.2s;
 }
 
 .member.is-todo .avatar { opacity: 0.5; --tone: rgb(var(--ink) / 0.15); }
 .member:hover .avatar { transform: translateY(-1px); }
-.member.active .avatar { box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 4px var(--dept); }
+.member.active .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--dept); }
 
 .member-state {
   position: absolute;
@@ -879,7 +996,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  border: 2px solid var(--surface-1);
+  border: 2px solid var(--surface);
   background: var(--tone, transparent);
 }
 
@@ -891,7 +1008,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   align-items: center;
   gap: 6px;
   margin-left: auto;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--kb-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -922,12 +1039,12 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   overflow: hidden;
   font-size: var(--fs-xs);
   font-weight: 700;
-  color: var(--dept);
-  background: color-mix(in srgb, var(--dept) 14%, var(--surface-1));
+  color: var(--fg);
+  background: color-mix(in srgb, var(--dept) 22%, var(--surface));
 }
 
 .avatar img { width: 26px; height: 26px; object-fit: contain; image-rendering: pixelated; }
-.avatar.sm { width: 22px; height: 22px; border-radius: 7px; font-size: 9.5px; }
+.avatar.sm { width: 22px; height: 22px; border-radius: 7px; font-size: 12px; }
 .avatar.sm img { width: 19px; height: 19px; }
 
 /* ---------- body ---------- */
@@ -943,12 +1060,26 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .section-label {
-  margin: 4px 2px 0;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--kb-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 2px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.section-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  background: rgb(var(--ink) / 0.08);
 }
 
 .section-label:first-child { margin-top: 0; }
@@ -959,37 +1090,27 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 11px 10px 13px;
+  padding: 10px 12px;
   border-radius: 11px;
   border: 1px solid var(--kb-line);
-  background: var(--surface-1);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
-  animation: card-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  background: var(--surface);
+  animation: card-in 0.2s var(--ease-out);
+  transition: border-color 0.15s var(--ease-out);
 }
 
 .card[tabindex] { cursor: pointer; }
 .card[tabindex]:hover { border-color: color-mix(in srgb, var(--dept) 45%, var(--kb-line)); }
-.card:focus-visible { box-shadow: 0 0 0 2px var(--accent-sky); }
+.card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-.card::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 9px;
-  bottom: 9px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--tone, var(--kb-line));
-}
-
-.card.is-working { border-color: color-mix(in srgb, var(--kb-run) 40%, var(--kb-line)); }
+.card.is-working { border-color: color-mix(in srgb, var(--kb-run) 45%, var(--kb-line)); }
+.card.is-error { border-color: color-mix(in srgb, var(--kb-err) 50%, var(--kb-line)); }
 
 .card.is-waiting {
   border-color: color-mix(in srgb, var(--kb-wait) 50%, transparent);
-  background: color-mix(in srgb, var(--kb-wait) 7%, var(--surface-1));
+  background: color-mix(in srgb, var(--kb-wait) 7%, var(--surface));
 }
 
-.card.is-you::before { background: var(--accent-indigo); }
+.card.is-you { border-color: color-mix(in srgb, var(--accent-indigo) 40%, var(--kb-line)); }
 .card.is-compact { gap: 4px; padding-top: 8px; padding-bottom: 8px; background: transparent; box-shadow: none; border-style: dashed; }
 
 @keyframes card-in {
@@ -997,11 +1118,12 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .card-meta {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--kb-muted);
 }
 
@@ -1019,34 +1141,34 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 620;
-  color: var(--text-1);
+  color: var(--fg);
 }
 
 .step-tag {
   flex: none;
   padding: 1px 6px;
   border-radius: 5px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 650;
-  color: var(--dept);
-  background: color-mix(in srgb, var(--dept) 12%, transparent);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--dept) 20%, transparent);
 }
 
-.card-kicker { font-weight: 650; color: var(--tone, var(--text-1)); }
+.card-kicker { font-weight: 650; color: var(--tone, var(--fg)); }
 
 .card-title {
   margin: 0;
   font-size: 13px;
   font-weight: 620;
   line-height: 1.4;
-  color: var(--text-1);
+  color: var(--fg);
 }
 
 .card-ask {
   margin: 0 0 4px;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--text-muted-7);
+  color: var(--fg-muted);
   font-style: italic;
 }
 
@@ -1060,7 +1182,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   margin: 0;
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--text-soft-1, var(--text-1));
+  color: var(--fg-muted);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -1116,7 +1238,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   border-radius: 6px;
   font-size: var(--fs-xs);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  color: var(--text-soft-1, var(--text-1));
+  color: var(--fg-muted);
   background: rgb(var(--ink) / 0.06);
 }
 
@@ -1127,13 +1249,14 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 .card-foot {
   padding-top: 6px;
   border-top: 1px dashed var(--kb-line);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--kb-muted);
 }
 
 .more-btn,
 .review-btn {
-  padding: 7px 10px;
+  min-height: 40px;
+  padding: 7px 12px;
   border-radius: 9px;
   border: 1px dashed var(--kb-line);
   background: transparent;
@@ -1144,13 +1267,13 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   cursor: pointer;
 }
 
-.more-btn:hover { color: var(--text-1); border-color: var(--dept); }
+.more-btn:hover { color: var(--fg); border-color: var(--dept); }
 
 .review-btn {
   border-style: solid;
   border-color: transparent;
   color: var(--on-accent);
-  background: linear-gradient(90deg, var(--accent-mint), var(--accent-sky));
+  background: var(--accent);
 }
 
 .review-btn:hover { filter: brightness(1.06); }
@@ -1170,14 +1293,24 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 @media (prefers-reduced-motion: reduce) {
   .card,
-  .col.is-working::before,
-  .pill .dot,
   .member-state,
   .spinner { animation: none; }
+  .kb-progress-fill,
+  .kb-board::before,
+  .kb-board::after,
+  .col,
+  .card { transition: none; }
+}
+
+@media (pointer: coarse) {
+  .member { padding: 7px; }
+  .seg button,
+  .kb-turns,
+  .kb-follow { min-height: 44px; }
 }
 
 @media (max-width: 640px) {
-  .kanban { padding: 10px; }
-  .col { flex-basis: 86vw; }
+  .kanban { padding: 48px 10px 10px; }
+  .col { flex-basis: min(86vw, 320px); }
 }
 </style>

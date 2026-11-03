@@ -1,5 +1,13 @@
 <template>
-  <div ref="rootRef" class="office-view">
+  <div
+    ref="rootRef"
+    class="office-view dept-scope-dark"
+    :class="{ pannable: zoom > 1, panning: panState.active }"
+    @wheel="onWheel"
+    @pointerdown="onPanStart"
+  >
+    <!-- Part of the panel not covered by the chat overlay; the scene is fitted into it -->
+    <div ref="safeRef" class="office-safe-area" aria-hidden="true"></div>
     <div class="office-stage" :style="stageStyle">
       <img class="office-map" :src="OFFICE_IMAGE" alt="" draggable="false" />
 
@@ -148,7 +156,7 @@
     </div>
 
     <!-- HUD: pull-down drawer from the top edge, collapsible to a small tab -->
-    <div class="office-hud-dock" :class="{ collapsed: hudCollapsed }">
+    <div ref="hudRef" class="office-hud-dock" :class="{ collapsed: hudCollapsed }">
       <div class="office-hud-drawer" :aria-hidden="hudCollapsed">
         <div class="office-hud-clip">
           <div class="office-hud">
@@ -216,6 +224,20 @@
           <span class="roster-state" :class="`tag-${agent.state}`"><span class="tag-dot"></span></span>
         </li>
       </ul>
+    </div>
+
+    <!-- Zoom: the scene fits the panel by default; zoom in to read a room, drag to pan -->
+    <div class="office-zoom" role="group" :aria-label="t('launch.office.zoom_group')">
+      <button type="button" class="zoom-btn" :title="t('launch.office.zoom_out')" :aria-label="t('launch.office.zoom_out')" :disabled="zoom <= 1" @click="zoomBy(1 / 1.25)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14" /></svg>
+      </button>
+      <button type="button" class="zoom-btn zoom-fit" :title="t('launch.office.zoom_fit')" :aria-label="t('launch.office.zoom_fit')" :disabled="zoom === 1" @click="fitView">
+        <span class="zoom-level">{{ Math.round(zoom * 100) }}%</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" /></svg>
+      </button>
+      <button type="button" class="zoom-btn" :title="t('launch.office.zoom_in')" :aria-label="t('launch.office.zoom_in')" :disabled="zoom >= ZOOM_MAX" @click="zoomBy(1.25)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14" /></svg>
+      </button>
     </div>
 
     <div v-if="!agents.length" class="office-empty">
@@ -295,6 +317,8 @@ const hudCollapsed = ref(readHudPref())
 const toggleHud = () => {
   hudCollapsed.value = !hudCollapsed.value
   try { localStorage.setItem(HUD_KEY, hudCollapsed.value ? '1' : '0') } catch { /* storage unavailable */ }
+  // the free area under the HUD changes once the drawer has finished sliding
+  setTimeout(() => measure(), 360)
 }
 const waitingIds = ref(new Set())
 const hasRun = new Set()
@@ -317,6 +341,7 @@ const counts = computed(() => {
 const plaques = computed(() =>
   ROOMS.filter((r) => r.id !== 'corridor').map((r) => ({
     ...r,
+    color: DEPARTMENT_COLOR[r.id] || r.color,
     count: agents.value.filter((a) => a.seat?.dept === r.id).length,
   }))
 )
@@ -348,15 +373,83 @@ const stageStyle = computed(() => ({
 }))
 
 let resizeObserver = null
+const safeRef = ref(null)
+const hudRef = ref(null)
+const ZOOM_MAX = 3
+// zoom is a multiplier over the "fit" scale: 1 = the whole office fits the free area
+const zoom = ref(1)
+let fitScale = 1
+// Free area (px, relative to the root): right of the chat overlay, below the HUD, above the roster
+const area = { x: 0, y: 0, w: 1, h: 1 }
+
+const clampOffset = () => {
+  const w = OFFICE_WIDTH * scale.value
+  const h = OFFICE_HEIGHT * scale.value
+  offset.x = Math.round(w <= area.w ? area.x + (area.w - w) / 2 : Math.min(area.x, Math.max(area.x + area.w - w, offset.x)))
+  offset.y = Math.round(h <= area.h ? area.y + (area.h - h) / 2 : Math.min(area.y, Math.max(area.y + area.h - h, offset.y)))
+}
+
 const measure = () => {
   const el = rootRef.value
   if (!el) return
-  const { width, height } = el.getBoundingClientRect()
-  if (!width || !height) return
-  const k = Math.min(width / OFFICE_WIDTH, height / OFFICE_HEIGHT)
-  scale.value = k
-  offset.x = Math.round((width - OFFICE_WIDTH * k) / 2)
-  offset.y = Math.round((height - OFFICE_HEIGHT * k) / 2)
+  const root = el.getBoundingClientRect()
+  if (!root.width || !root.height) return
+  const safe = safeRef.value?.getBoundingClientRect()
+  const left = safe ? Math.max(0, safe.left - root.left) : 0
+  const hud = hudRef.value?.getBoundingClientRect()
+  const top = hud ? Math.max(12, hud.bottom - root.top + 8) : 12
+  const bottom = 60 // roster toggle + zoom controls
+  area.x = left + 12
+  area.y = top
+  area.w = Math.max(1, root.width - left - 24)
+  area.h = Math.max(1, root.height - top - bottom)
+  fitScale = Math.min(area.w / OFFICE_WIDTH, area.h / OFFICE_HEIGHT)
+  scale.value = fitScale * zoom.value
+  clampOffset()
+}
+
+// Zoom around a point of the root (defaults to the centre of the free area)
+const zoomTo = (next, cx = area.x + area.w / 2, cy = area.y + area.h / 2) => {
+  const z = Math.min(ZOOM_MAX, Math.max(1, next))
+  const prev = scale.value
+  zoom.value = z
+  scale.value = fitScale * z
+  const r = scale.value / prev
+  offset.x = cx - (cx - offset.x) * r
+  offset.y = cy - (cy - offset.y) * r
+  clampOffset()
+}
+const zoomBy = (factor) => zoomTo(zoom.value * factor)
+const fitView = () => zoomTo(1)
+
+// Ctrl/⌘ + wheel zooms (plain wheel keeps scrolling the page)
+const onWheel = (e) => {
+  if (!e.ctrlKey && !e.metaKey) return
+  e.preventDefault()
+  const root = rootRef.value.getBoundingClientRect()
+  zoomTo(zoom.value * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX - root.left, e.clientY - root.top)
+}
+
+// Drag to pan while zoomed in (not when starting on a control or a person)
+const panState = reactive({ active: false, x: 0, y: 0, ox: 0, oy: 0 })
+const onPanMove = (e) => {
+  offset.x = panState.ox + e.clientX - panState.x
+  offset.y = panState.oy + e.clientY - panState.y
+  clampOffset()
+}
+const onPanEnd = () => {
+  panState.active = false
+  window.removeEventListener('pointermove', onPanMove)
+  window.removeEventListener('pointerup', onPanEnd)
+  window.removeEventListener('pointercancel', onPanEnd)
+}
+const onPanStart = (e) => {
+  if (zoom.value <= 1 || e.button !== 0) return
+  if (e.target.closest?.('button, [role="button"], .office-roster, .office-hud-dock, .office-zoom')) return
+  Object.assign(panState, { active: true, x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y })
+  window.addEventListener('pointermove', onPanMove)
+  window.addEventListener('pointerup', onPanEnd)
+  window.addEventListener('pointercancel', onPanEnd)
 }
 
 const pointStyle = (x, y) => ({ left: `${x * scale.value}px`, top: `${y * scale.value}px` })
@@ -1086,6 +1179,7 @@ onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(measure)
     resizeObserver.observe(rootRef.value)
+    if (safeRef.value) resizeObserver.observe(safeRef.value)
   }
   if (props.visible) startLoop()
   else settleHidden()
@@ -1093,6 +1187,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopLoop()
+  onPanEnd()
   resizeObserver?.disconnect()
 })
 </script>
@@ -1108,11 +1203,66 @@ onBeforeUnmount(() => {
   font-family: inherit;
 }
 
+.office-view.pannable { cursor: grab; }
+.office-view.panning { cursor: grabbing; }
+
+.office-safe-area {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--office-inset-left, 0px);
+  right: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .office-stage {
   position: absolute;
   top: 0;
   left: 0;
 }
+
+/* ---------- zoom controls ---------- */
+.office-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: var(--z-backdrop);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 12px;
+  color: #eef1f6;
+  background: rgba(17, 20, 27, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), opacity 0.15s var(--ease-out);
+}
+
+.zoom-btn svg { width: 15px; height: 15px; flex: none; }
+.zoom-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.zoom-btn:disabled { opacity: 0.45; cursor: default; }
+.zoom-btn:focus-visible { outline: 2px solid #7cc7ff; outline-offset: -2px; }
+.zoom-level { min-width: 3.2em; text-align: right; }
 
 /* The map and sprites come at 4x/8x resolution: let the browser downsample smoothly
    instead of dropping pixels, which keeps the pixel art crisp at any window size. */
@@ -1138,7 +1288,7 @@ onBeforeUnmount(() => {
   font-size: var(--fs-xs);
   font-weight: 700;
   color: #f4f6fa;
-  background: rgba(17, 20, 27, 0.82);
+  background: rgba(17, 20, 27, 0.94);
   border: 1px solid color-mix(in srgb, var(--dept) 70%, transparent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   white-space: nowrap;
@@ -1158,8 +1308,9 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   text-align: center;
   font-size: var(--fs-xs);
-  color: #11141b;
-  background: var(--dept);
+  /* dept hue darkened under white text: >= 4.5:1 for every department */
+  color: #ffffff;
+  background: color-mix(in srgb, var(--dept) 55%, #11141b);
 }
 
 /* ---------- server LEDs ---------- */
@@ -1298,7 +1449,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   line-height: 14px;
   color: #f4f6fa;
-  background: rgba(17, 20, 27, 0.82);
+  background: rgba(17, 20, 27, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
   white-space: nowrap;
@@ -1314,8 +1465,8 @@ onBeforeUnmount(() => {
   font-weight: 800;
   line-height: 14px;
   text-align: center;
-  color: #11141b;
-  background: var(--dept);
+  color: #ffffff;
+  background: color-mix(in srgb, var(--dept) 55%, #11141b);
 }
 
 .tag-name {
@@ -1334,16 +1485,18 @@ onBeforeUnmount(() => {
 
 .tag-dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: currentColor;
 }
 
 .tag-working .tag-dot { background: #4ade80; box-shadow: 0 0 6px #4ade80; animation: office-pulse 1.4s ease-in-out infinite; }
 .tag-waiting .tag-dot { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; animation: office-pulse 1s ease-in-out infinite; }
-.tag-done .tag-dot { background: #60a5fa; }
-.tag-idle .tag-dot { background: #9ca3af; }
+/* Not colour alone: each state has its own shape (round, diamond, square, ring) */
+.tag-waiting .tag-dot { border-radius: 1px; transform: rotate(45deg); }
+.tag-done .tag-dot { background: #60a5fa; border-radius: 2px; }
+.tag-idle .tag-dot { background: transparent; border: 1.5px solid #9ca3af; }
 
 @keyframes office-pulse {
   0%, 100% { opacity: 1; }
@@ -1442,7 +1595,7 @@ onBeforeUnmount(() => {
 }
 
 .bubble-body .bubble-text {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   color: #1c1f27;
 }
@@ -1834,6 +1987,7 @@ onBeforeUnmount(() => {
 .office-roster:not(.open) { width: auto; }
 
 .roster-toggle {
+  min-height: 40px;
   position: relative;
   display: flex;
   align-items: center;
@@ -1889,8 +2043,8 @@ onBeforeUnmount(() => {
   font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 15px;
-  color: var(--dept);
-  background: color-mix(in srgb, var(--dept) 18%, transparent);
+  color: color-mix(in srgb, var(--dept) 55%, #ffffff);
+  background: color-mix(in srgb, var(--dept) 22%, transparent);
 }
 
 .roster-state { flex: none; display: inline-flex; }
@@ -1916,6 +2070,7 @@ onBeforeUnmount(() => {
 
 .hud-toggle::before { content: ''; position: absolute; inset: -6px; }
 
+.roster-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: 8px; }
 .office-agent:focus-visible,
 .roster-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 8px; }
 

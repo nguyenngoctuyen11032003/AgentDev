@@ -1,33 +1,53 @@
 <template>
-  <div class="workflow-workbench">
+  <div class="workflow-workbench" :class="{ 'no-selection': !selectedWorkflow, 'sidebar-open': sidebarVisible }">
     <div
       id="workflow-sidebar"
       class="workflow-sidebar"
-      :class="{ open: isSidebarOpen }"
-      :inert="!isSidebarOpen"
-      :aria-hidden="!isSidebarOpen"
+      :class="{ open: sidebarVisible }"
+      :inert="!sidebarVisible"
+      :aria-hidden="!sidebarVisible"
     >
+      <div class="sidebar-header">
+        <h2 class="sidebar-title">{{ $t('nav.workflows') }}</h2>
+        <button
+          ref="closeBtnRef"
+          type="button"
+          class="btn ghost icon-only sidebar-close"
+          :aria-expanded="sidebarVisible"
+          aria-controls="workflow-sidebar"
+          :aria-label="$t('workbench.hide_sidebar')"
+          :title="$t('workbench.hide_sidebar')"
+          @click="handleToggleSidebar"
+        >
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
+        </button>
+      </div>
       <WorkflowList
         ref="workflowListRef"
         :use-routing="false"
         :selected="selectedWorkflow"
         @select="handleSelect"
+        @loaded="existingFiles = $event"
       />
     </div>
-    <!-- Sidebar toggle button, positioned next to the sidebar -->
-    <button 
-      class="sidebar-toggle-btn" 
-      :class="{ 'sidebar-open': isSidebarOpen }"
-      :aria-expanded="isSidebarOpen"
-      aria-controls="workflow-sidebar"
-      @click="handleToggleSidebar" 
-      :aria-label="isSidebarOpen ? $t('workbench.hide_sidebar') : $t('workbench.show_sidebar')"
-      :title="isSidebarOpen ? $t('workbench.hide_sidebar') : $t('workbench.show_sidebar')"
-    >
-      <span v-if="isSidebarOpen">‹</span>
-      <span v-else>›</span>
-    </button>
-    <div class="workflow-viewer" :class="{ 'sidebar-open': isSidebarOpen }">
+
+    <!-- Collapsed rail: the way back to the list -->
+    <div class="sidebar-rail">
+      <button
+        ref="openBtnRef"
+        type="button"
+        class="btn secondary icon-only sidebar-open-btn"
+        :aria-expanded="sidebarVisible"
+        aria-controls="workflow-sidebar"
+        :aria-label="$t('workbench.show_sidebar')"
+        :title="$t('workbench.show_sidebar')"
+        @click="handleToggleSidebar"
+      >
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+      </button>
+    </div>
+
+    <div class="workflow-viewer">
       <WorkflowView
         v-if="selectedWorkflow"
         :workflow-name="selectedWorkflow"
@@ -35,16 +55,26 @@
         @refresh-workflows="handleRefreshWorkflows"
       />
       <div v-else class="placeholder">
-        <div class="placeholder-title">{{ $t('workbench.select_workflow') }}</div>
-        <div class="placeholder-subtitle">{{ $t('workbench.choose_workflow') }}</div>
-        <div class="placeholder-actions">
-          <button type="button" class="ph-btn primary" @click="workflowListRef?.openCreate?.()">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-            {{ $t('workbench.create_new') }}
-          </button>
-          <button type="button" class="ph-btn" @click="handleSelect('software_company')">
-            {{ $t('workbench.open_template') }}
-          </button>
+        <div class="start-panel">
+          <h2 class="start-title">{{ $t('workbench.start_title') }}</h2>
+          <p class="start-subtitle">{{ $t('workbench.choose_workflow') }}</p>
+
+          <WorkflowTemplateCards :existing-files="existingFiles" @open="handleSelect" />
+
+          <div class="start-actions">
+            <button type="button" class="btn primary" @click="workflowListRef?.openCreate?.()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              {{ $t('workbench.create_new') }}
+            </button>
+            <button type="button" class="btn secondary" @click="handleSelect('software_company')">
+              {{ $t('workbench.open_template') }}
+            </button>
+          </div>
+
+          <div class="start-hint">
+            <strong>{{ $t('workbench.start_hint_title') }}</strong>
+            <span>{{ $t('workbench.start_hint') }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -52,14 +82,18 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import WorkflowList from './WorkflowList.vue'
 import WorkflowView from './WorkflowView.vue'
+import WorkflowTemplateCards from '@/components/workflow/WorkflowTemplateCards.vue'
 
 const route = useRoute()
 const router = useRouter()
 const workflowListRef = ref(null)
+const closeBtnRef = ref(null)
+const openBtnRef = ref(null)
+const existingFiles = ref([])
 
 const normalizeName = (name) => name?.replace?.('.yaml', '') ?? ''
 const selectedWorkflow = ref(normalizeName(route.params.name))
@@ -67,6 +101,15 @@ const selectedWorkflow = ref(normalizeName(route.params.name))
 // /workflows/<name> directly used to leave it open on top of the graph, hiding the
 // workflow name, the Graph/YAML tabs and the left part of the canvas.
 const isSidebarOpen = ref(!selectedWorkflow.value)
+
+// Narrow screens: the list is the primary view until a workflow is opened
+const NARROW_QUERY = '(max-width: 899px)'
+const isNarrow = ref(typeof window !== 'undefined' && window.matchMedia(NARROW_QUERY).matches)
+let narrowMql = null
+const onNarrowChange = (event) => {
+  isNarrow.value = event.matches
+}
+const sidebarVisible = computed(() => isSidebarOpen.value || (isNarrow.value && !selectedWorkflow.value))
 
 watch(
   () => route.params.name,
@@ -76,17 +119,37 @@ watch(
   { immediate: true }
 )
 
+function setSidebar(open) {
+  isSidebarOpen.value = open
+  window.dispatchEvent(new CustomEvent('workflow-sidebar-state', { detail: { open } }))
+}
+
 function handleToggleSidebar() {
-  isSidebarOpen.value = !isSidebarOpen.value
-  window.dispatchEvent(new CustomEvent('workflow-sidebar-state', { detail: { open: isSidebarOpen.value } }))
+  const open = !isSidebarOpen.value
+  setSidebar(open)
+  // The toggled-out button is inert/hidden afterwards: hand focus to its counterpart
+  nextTick(() => (open ? closeBtnRef.value : openBtnRef.value)?.focus())
+}
+
+// Escape closes the drawer (the card menu handles its own Escape first)
+const onKeydown = (event) => {
+  if (event.key === 'Escape' && isSidebarOpen.value && selectedWorkflow.value && !event.defaultPrevented) {
+    handleToggleSidebar()
+  }
 }
 
 onMounted(() => {
   window.addEventListener('toggle-workflow-sidebar', handleToggleSidebar)
+  window.addEventListener('keydown', onKeydown)
+  narrowMql = window.matchMedia(NARROW_QUERY)
+  isNarrow.value = narrowMql.matches
+  narrowMql.addEventListener('change', onNarrowChange)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('toggle-workflow-sidebar', handleToggleSidebar)
+  window.removeEventListener('keydown', onKeydown)
+  narrowMql?.removeEventListener('change', onNarrowChange)
 })
 
 const handleSelect = (name) => {
@@ -94,8 +157,7 @@ const handleSelect = (name) => {
   selectedWorkflow.value = normalized
 
   // Minimize sidebar when an entry is selected
-  isSidebarOpen.value = false
-  window.dispatchEvent(new CustomEvent('workflow-sidebar-state', { detail: { open: isSidebarOpen.value } }))
+  setSidebar(false)
 
   if (normalized) {
     router.push({ path: `/workflows/${normalized}` })
@@ -115,12 +177,13 @@ const handleRefreshWorkflows = async () => {
 <style scoped>
 .workflow-workbench {
   --sidebar-w: min(400px, 88vw);
+  --rail-w: 56px;
   position: relative;
   display: flex;
   height: calc(100vh - 55px);
   height: calc(100dvh - 55px);
-  background-color: var(--bg-base);
-  color: var(--text-1);
+  background-color: var(--bg);
+  color: var(--fg);
   overflow: hidden;
 }
 
@@ -130,77 +193,55 @@ const handleRefreshWorkflows = async () => {
   top: 0;
   bottom: 0;
   width: var(--sidebar-w);
-  transform: translateX(calc(-100% + 10px));
-  transition: transform 0.35s var(--ease-out);
-  z-index: var(--z-sticky);
-  border-right: 1px solid rgb(var(--ink) / 0.08);
-  background-color: var(--bg-deep);
-  overflow-y: auto;
-  overflow-x: hidden;
-  box-shadow: 4px 0 16px rgb(var(--shade) / 0.35);
-  will-change: transform;
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition: transform 0.3s var(--ease-out), visibility 0s linear 0.3s;
+  z-index: calc(var(--z-sticky) + 1);
+  border-right: 1px solid var(--border-strong);
+  background-color: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 4px 0 16px rgb(0 0 0 / 0.25);
 }
 .workflow-sidebar.open {
   transform: translateX(0);
+  visibility: visible;
+  transition: transform 0.3s var(--ease-out), visibility 0s;
+}
+.workflow-sidebar > :deep(.workflow-list) {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
-/* Sidebar toggle button - positioned next to the sidebar */
-.sidebar-toggle-btn {
-  position: absolute;
-  left: 10px; /* Keep 10px visible when collapsed */
-  top: 50%;
-  transform: translateY(-50%);
-  width: 12px;
-  height: 72px;
-  padding: 12px;
-  background: linear-gradient(180deg, var(--surface-3), var(--surface-1));
-  border: 1px solid rgb(var(--accent-indigo-rgb) / 0.3);
-  border-left: none;
-  border-radius: 0 12px 12px 0;
-  color: var(--accent-indigo);
-  font-size: 12px;
-  cursor: pointer;
+.sidebar-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) 0 var(--space-4);
+  min-height: calc(var(--control-h) + var(--space-3));
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* Collapsed rail with the single, always-visible list toggle */
+.sidebar-rail {
+  flex-shrink: 0;
+  width: var(--rail-w);
+  display: flex;
   justify-content: center;
-  z-index: calc(var(--z-sticky) + 1);
-  /* Slide with transform (compositor only) instead of animating `left`,
-     which would relayout the workbench on every frame */
-  transition: transform 0.35s var(--ease-out),
-              color 0.2s var(--ease-out),
-              border-color 0.2s var(--ease-out),
-              box-shadow 0.2s var(--ease-out);
-  box-shadow: 4px 0 12px rgb(var(--shade) / 0.4);
-  will-change: transform;
-}
-
-.sidebar-toggle-btn.sidebar-open {
-  transform: translate(calc(var(--sidebar-w) - 10px), -50%); /* Follow the sidebar when expanded */
-}
-
-/* The tab is only 12px wide: extend the hit area without changing the look */
-.sidebar-toggle-btn::after {
-  content: '';
-  position: absolute;
-  inset: -8px -12px -8px -4px;
-}
-
-.sidebar-toggle-btn:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.sidebar-toggle-btn:hover {
-  background: linear-gradient(180deg, var(--line-1), var(--surface-4));
-  color: var(--accent-indigo-3);
-  border-color: rgb(var(--accent-indigo-rgb) / 0.6);
-  box-shadow: 4px 0 16px rgb(var(--accent-indigo-rgb) / 0.15);
-}
-
-.sidebar-toggle-btn span {
-  font-weight: 700;
-  line-height: 1;
-  text-shadow: 0 0 8px rgb(var(--accent-indigo-rgb) / 0.5);
+  align-items: flex-start;
+  padding-top: var(--space-3);
+  border-right: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .workflow-viewer {
@@ -210,140 +251,100 @@ const handleRefreshWorkflows = async () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  margin-left: 10px; /* Match the visible width when the sidebar is collapsed */
 }
 
 .placeholder {
   flex: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  position: relative;
-  overflow: hidden;
-  background: transparent;
-  color: rgb(var(--ink-softer) / 0.7);
-  text-align: center;
-  padding: 24px;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-5);
 }
 
-.placeholder::before {
-  content: '';
-  position: absolute;
-  top: -150px;
-  left: 0;
-  right: 0;
-  height: 500px;
-  /* Pre-softened radial glows instead of filter: blur(120px) on a 500px-tall
-     layer, which is very expensive to rasterise and composite. */
-  background:
-    radial-gradient(ellipse 40% 70% at 18% 45%, var(--accent-mint), transparent 72%),
-    radial-gradient(ellipse 40% 70% at 50% 45%, var(--accent-sky), transparent 72%),
-    radial-gradient(ellipse 40% 70% at 82% 45%, var(--accent-indigo), transparent 72%);
-  opacity: 0.15;
-  z-index: 0;
-  pointer-events: none;
+.start-panel {
+  width: 100%;
+  max-width: 780px;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
 }
 
-.placeholder-title {
-  position: relative;
-  z-index: 1;
-  font-size: 18px;
+.start-title {
+  margin: 0;
+  font-size: 24px;
   font-weight: 600;
-  margin-bottom: 8px;
+  line-height: 1.25;
+  color: var(--fg);
 }
 
-.placeholder-subtitle {
-  position: relative;
-  z-index: 1;
-  max-width: 46ch;
+.start-subtitle {
+  margin: calc(var(--space-3) * -1) 0 0;
+  max-width: 56ch;
   font-size: 14px;
   line-height: 1.6;
-  color: rgb(var(--ink-softer) / 0.6);
+  color: var(--fg-muted);
+  text-wrap: pretty;
 }
 
-.placeholder-actions {
-  position: relative;
-  z-index: 1;
+.start-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 22px;
+  gap: var(--space-3);
 }
 
-.ph-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: 11px;
-  background: rgb(var(--ink) / 0.06);
-  box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.12);
-  color: var(--text-1);
-  font: inherit;
+.start-hint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.start-hint strong {
   font-size: 14px;
   font-weight: 600;
-  cursor: pointer;
+  color: var(--fg);
 }
 
-.ph-btn {
-  transition: background-color 0.2s var(--ease-out), filter 0.2s var(--ease-out);
+/* Nothing open yet (wide screens): the list is docked beside the start panel, not over it */
+@media (min-width: 900px) {
+  .workflow-workbench.no-selection.sidebar-open .workflow-sidebar {
+    position: relative;
+    flex-shrink: 0;
+    box-shadow: none;
+  }
+  .workflow-workbench.no-selection.sidebar-open .sidebar-rail {
+    display: none;
+  }
 }
 
-.ph-btn:hover {
-  background: rgb(var(--ink) / 0.1);
-}
-
-.ph-btn.primary {
-  background: var(--accent-sky);
-  box-shadow: none;
-  color: #05141f;
-}
-
-.ph-btn.primary:hover {
-  filter: brightness(1.06);
-}
-
-:root[data-theme="light"] .ph-btn.primary {
-  color: #fff;
-}
-
-.ph-btn:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-/* ---------- Light theme: solid text colors, visible edges, no glow ---------- */
-:root[data-theme="light"] .workflow-sidebar {
-  border-right-color: var(--line-4);
-  box-shadow: 4px 0 16px rgb(var(--shade) / 0.18);
-}
-:root[data-theme="light"] .sidebar-toggle-btn {
-  border-color: rgb(var(--accent-indigo-rgb) / 0.45);
-  box-shadow: 2px 0 8px rgb(var(--shade) / 0.18);
-}
-:root[data-theme="light"] .sidebar-toggle-btn span {
-  text-shadow: none;
-}
-:root[data-theme="light"] .placeholder {
-  color: var(--text-soft-1);
-}
-:root[data-theme="light"] .placeholder-title {
-  color: var(--text-1);
-}
-:root[data-theme="light"] .placeholder-subtitle {
-  color: var(--text-muted-3);
-}
-:root[data-theme="light"] .placeholder::before {
-  opacity: 0.08;
+/* Narrow screens: the list is the whole screen until a workflow is opened */
+@media (max-width: 899px) {
+  .workflow-workbench.no-selection .workflow-viewer,
+  .workflow-workbench.no-selection .sidebar-rail,
+  .workflow-workbench.no-selection .sidebar-close {
+    display: none;
+  }
+  .workflow-workbench.no-selection {
+    --sidebar-w: 100%;
+  }
+  .workflow-workbench {
+    --rail-w: 48px;
+  }
+  .placeholder {
+    padding: var(--space-5) var(--space-4);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .workflow-sidebar,
-  .sidebar-toggle-btn {
+  .workflow-sidebar.open {
     transition-duration: 0.01s;
   }
 }

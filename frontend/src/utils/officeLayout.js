@@ -13,17 +13,33 @@ export const OFFICE_IMAGE = '/office/office.png'
 export const ENTRANCE = MAP.entrance
 export const OBSTACLES = MAP.obstacles
 
-// Departments in display order, with their accent colors (matching the room furniture).
-export const DEPARTMENTS = [
-  { id: 'mgmt', color: '#c9a24f' },
-  { id: 'eng', color: '#4f8cff' },
-  { id: 'design', color: '#e06fb4' },
-  { id: 'qa', color: '#ef6b5b' },
-  { id: 'rnd', color: '#8b6cf0' },
-  { id: 'ops', color: '#2fbf9b' },
-  { id: 'meeting', color: '#f59e0b' },
-  { id: 'lobby', color: '#94a3b8' },
-]
+// Department identity colors, one hue per department (color follows the entity), stepped per
+// theme. Validated with the dataviz validator (adjacent pairs, display order below):
+//   light on #ffffff: band/chroma pass, CVD ΔE 12.2, normal-vision ΔE 22.1, all >= 3:1
+//   dark  on #1e1e1e: band/chroma pass, CVD ΔE 12.7, normal-vision ΔE 18.2, all >= 3:1
+// Eight hues cannot pass all-pairs, so every surface also names the department in text.
+export const DEPARTMENT_HEX = {
+  light: { mgmt: '#9f7100', eng: '#106dce', design: '#a61b86', qa: '#f4514f', rnd: '#703dc6', ops: '#109d7b', meeting: '#ab5200', lobby: '#1a93ab' },
+  dark: { mgmt: '#b8892d', eng: '#2a80e2', design: '#bb3398', qa: '#f4514f', rnd: '#9e71fd', ops: '#29a987', meeting: '#e06d00', lobby: '#21a3bc' },
+}
+const DEPT_IDS = ['mgmt', 'eng', 'design', 'qa', 'rnd', 'ops', 'meeting', 'lobby']
+
+// The colors are CSS custom properties so they follow the theme toggle without re-rendering.
+// `.dept-scope-dark` pins the dark steps for surfaces that are always dark (the office scene).
+const cssVars = (mode) => DEPT_IDS.map((id) => `--dept-${id}:${DEPARTMENT_HEX[mode][id]};`).join('')
+if (typeof document !== 'undefined') {
+  const css = `:root{${cssVars('dark')}}:root[data-theme="light"]{${cssVars('light')}}:root .dept-scope-dark{${cssVars('dark')}}`
+  let el = document.getElementById('dept-palette')
+  if (!el) {
+    el = document.createElement('style')
+    el.id = 'dept-palette'
+    document.head.appendChild(el)
+  }
+  el.textContent = css
+}
+
+// Departments in display order; `color` is a CSS color usable in any style binding.
+export const DEPARTMENTS = DEPT_IDS.map((id) => ({ id, color: `var(--dept-${id}, ${DEPARTMENT_HEX.dark[id]})` }))
 export const DEPARTMENT_COLOR = Object.fromEntries(DEPARTMENTS.map((d) => [d.id, d.color]))
 
 export const ROOMS = MAP.rooms

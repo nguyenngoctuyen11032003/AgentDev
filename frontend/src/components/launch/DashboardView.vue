@@ -2,42 +2,42 @@
   <div class="dash">
     <!-- Hero: what is running and how far it is -->
     <section class="hero card">
-      <div class="ring" :style="{ '--p': progress }" role="img" :aria-label="$t('launch.dashboard.progress_aria', { p: progress })">
-        <svg viewBox="0 0 120 120" aria-hidden="true">
-          <circle class="ring-track" cx="60" cy="60" r="52" />
-          <circle class="ring-fill" cx="60" cy="60" r="52" :style="{ strokeDashoffset: ringOffset }" />
-        </svg>
-        <div class="ring-text">
-          <strong>{{ noTasks ? '—' : `${progress}%` }}</strong>
-          <span v-if="noTasks">{{ $t('launch.dashboard.chat_only') }}</span>
-          <span v-else-if="teamMode">{{ $t('launch.dashboard.tasks_of', { done: teamTasksDone, total: delegatedRuns.length }) }}</span>
-          <span v-else>{{ $t('launch.dashboard.done_of', { done: doneCount, total: steps.length }) }}</span>
-        </div>
-      </div>
       <div class="hero-main">
-        <span class="eyebrow">{{ $t('launch.dashboard.title') }}</span>
-        <h2>{{ workflowName || $t('launch.board.no_workflow') }}</h2>
+        <h2 :aria-label="`${$t('launch.dashboard.title')}: ${workflowName || $t('launch.board.no_workflow')}`">{{ workflowName || $t('launch.board.no_workflow') }}</h2>
         <p class="hero-task" :title="tracker.task?.text || ''">
           {{ tracker.task?.text || $t('launch.dashboard.no_task') }}
         </p>
         <div class="hero-tags">
-          <span class="pill" :class="`is-${runTone}`"><span class="dot" aria-hidden="true"></span>{{ stateLabel(runTone) }}</span>
-          <span v-if="currentStep" class="pill is-neutral">
+          <StatusPill :tone="runTone" :label="stateLabel(runTone)" />
+          <span v-if="currentStep" class="tag">
             {{ $t('launch.dashboard.now_at', { n: currentStep.index, name: currentStep.id }) }}
           </span>
-          <span v-if="multiTurn && currentTurn" class="pill is-turn">{{ $t('launch.dashboard.turn_of', { n: currentTurn.number, total: turns.length }) }}</span>
-          <span v-if="tracker.startedAt" class="pill is-neutral">{{ $t('launch.dashboard.started', { time: clock(tracker.startedAt) }) }}</span>
+          <span v-if="multiTurn && currentTurn" class="tag">{{ $t('launch.dashboard.turn_of', { n: currentTurn.number, total: turns.length }) }}</span>
+          <span v-if="tracker.startedAt" class="tag">{{ $t('launch.dashboard.started', { time: clock(tracker.startedAt) }) }}</span>
         </div>
+      </div>
+      <!-- Progress is a meter with its numbers beside it, not a hero figure -->
+      <!-- Only the lead replied: say so plainly instead of drawing an empty meter -->
+      <p v-if="noTasks" class="hero-chat-only">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+        {{ $t('launch.dashboard.chat_only') }}
+      </p>
+      <div v-else class="hero-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progress" :aria-label="$t('launch.dashboard.progress_aria', { p: progress })">
+        <div class="hp-line">
+          <span class="hp-count">{{ teamMode ? $t('launch.dashboard.tasks_of', { done: teamTasksDone, total: delegatedRuns.length }) : $t('launch.dashboard.done_of', { done: doneCount, total: steps.length }) }}</span>
+          <span class="hp-pct">{{ progress }}%</span>
+        </div>
+        <div class="hp-track"><div class="hp-fill" :style="{ transform: `scaleX(${progress / 100})` }"></div></div>
       </div>
     </section>
 
     <!-- KPIs -->
-    <section class="kpis">
-      <article v-for="kpi in kpis" :key="kpi.key" class="kpi card">
-        <span class="kpi-label">{{ kpi.label }}</span>
-        <strong class="kpi-value">{{ kpi.value }}</strong>
-        <span class="kpi-sub">{{ kpi.sub }}</span>
-      </article>
+    <section class="kpis card">
+      <dl v-for="kpi in kpis" :key="kpi.key" class="kpi">
+        <dt class="kpi-label">{{ kpi.label }}</dt>
+        <dd class="kpi-value">{{ kpi.value }}</dd>
+        <dd class="kpi-sub" :title="kpi.sub">{{ kpi.sub }}</dd>
+      </dl>
     </section>
 
     <!-- Turns of this session, newest first; the current one is marked -->
@@ -65,7 +65,7 @@
                 <span :title="row.turn.task?.text || ''">{{ row.turn.task?.text || '—' }}</span>
                 <small v-if="row.turn.current" class="turn-now">{{ $t('launch.dashboard.turn_now') }}</small>
               </td>
-              <td><span class="pill" :class="`is-${row.tone}`"><span class="dot" aria-hidden="true"></span>{{ stateLabel(row.tone) }}</span></td>
+              <td><StatusPill :tone="row.tone" :label="stateLabel(row.tone)" /></td>
               <td class="num">{{ row.tasks ? `${row.tasksDone}/${row.tasks}` : '—' }}</td>
               <td class="num" :title="row.cost !== null ? formatCost(row.cost) : ''">{{ row.tokens ? row.tokens.toLocaleString() : '—' }}</td>
               <td>{{ row.turn.startedAt ? formatSpan(row.span) : '—' }}</td>
@@ -81,14 +81,15 @@
         <h3>{{ $t('launch.dashboard.pipeline') }}</h3>
         <span class="muted">{{ teamMode && idleCount ? $t('launch.dashboard.pipeline_team_sub', { n: idleCount }) : $t('launch.dashboard.pipeline_sub') }}</span>
       </header>
-      <ol v-if="steps.length" class="pipeline">
+      <ol v-if="steps.length" class="pipeline" :class="{ 'is-short': shownSteps.length <= 3 }">
         <li v-for="step in shownSteps" :key="step.id" class="pipe-step" :class="`is-${statusOf(step.id)}`" :style="{ '--dept': step.color }">
           <span class="pipe-node" :title="stateLabel(statusOf(step.id))">
             <svg v-if="statusOf(step.id) === 'done'" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
+            <svg v-else-if="statusOf(step.id) === 'error'" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg>
             <template v-else>{{ step.index }}</template>
           </span>
           <span class="pipe-name" :title="step.id">{{ step.id }}</span>
-          <span class="pipe-sub">{{ statusOf(step.id) === 'todo' ? deptLabel(step.dept) : formatSpan(durationOf(step.id)) }}</span>
+          <span class="pipe-sub">{{ pipeSub(step) }}</span>
         </li>
       </ol>
       <p v-else class="empty">{{ $t('launch.board.empty') }}</p>
@@ -108,7 +109,11 @@
           >{{ $t('launch.dashboard.timeline_wall', { time: formatSpan(span) }) }}</span>
           <span v-else class="muted">{{ session.startedAt ? formatSpan(span) : '' }}</span>
         </header>
-        <div v-if="session.startedAt && steps.length" class="gantt">
+        <div v-if="session.startedAt && steps.length" ref="ganttEl" class="gantt" @mouseleave="tip = null">
+          <!-- Bar color = department (same as the office rooms and board columns) -->
+          <ul v-if="ganttDepts.length" class="gantt-legend" :aria-label="$t('launch.dashboard.legend')">
+            <li v-for="dept in ganttDepts" :key="dept.id" :style="{ '--dept': dept.color }"><span class="legend-swatch" aria-hidden="true"></span>{{ deptLabel(dept.id) }}</li>
+          </ul>
           <div v-for="step in shownSteps" :key="step.id" class="gantt-row" :style="{ '--dept': step.color }">
             <span class="gantt-label" :title="step.id"><b>{{ step.index }}</b>{{ step.id }}</span>
             <span class="gantt-track">
@@ -118,11 +123,21 @@
                 class="gantt-bar"
                 :class="{ 'is-live': !run.endedAt, 'is-past': multiTurn && run.turn !== currentTurn?.number }"
                 :style="barStyle(run)"
-                :title="`${step.id} · ${multiTurn ? `${$t('launch.board.turn', { n: run.turn })} · ` : ''}${$t('launch.board.run', { n: run.index })} · ${formatSpan((run.endedAt || now) - run.startedAt)}`"
+                role="img"
+                tabindex="0"
+                :aria-label="`${barLabel(step, run)} · ${deptLabel(step.dept)}`"
+                @mouseenter="showTip($event, step, run)"
+                @focus="showTip($event, step, run)"
+                @blur="tip = null"
               ></span>
             </span>
           </div>
           <div class="gantt-axis"><span>0s</span><span>{{ formatSpan(span / 2) }}</span><span>{{ formatSpan(span) }}</span></div>
+          <div v-if="tip" class="gantt-tip" role="tooltip" :style="{ left: `${tip.x}px`, top: `${tip.y}px` }">
+            <span class="tip-head"><span class="legend-swatch" :style="{ '--dept': tip.color }" aria-hidden="true"></span><b>{{ tip.name }}</b></span>
+            <span class="tip-row">{{ tip.dept }}</span>
+            <span class="tip-row">{{ tip.detail }}</span>
+          </div>
         </div>
         <p v-else class="empty">{{ $t('launch.dashboard.no_run') }}</p>
       </section>
@@ -135,7 +150,9 @@
         </header>
         <ol v-if="feed.length" class="feed">
           <li v-for="event in feed" :key="event.id" class="feed-item" :class="`is-${event.kind}`">
-            <span class="feed-icon" aria-hidden="true">{{ eventIcon(event.kind) }}</span>
+            <span class="feed-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path v-for="(d, i) in eventIcon(event.kind)" :key="i" :d="d" /></svg>
+            </span>
             <span class="feed-text">
               <span v-html="eventText(event)"></span>
               <small v-if="event.text && !['task', 'input'].includes(event.kind)">{{ event.text }}</small>
@@ -173,7 +190,7 @@
               <td class="idx">{{ row.step.index }}</td>
               <td>
                 <span class="agent-cell" :style="{ paddingLeft: `${row.depth * 18}px` }">
-                  <span v-if="row.depth" class="branch" aria-hidden="true">↳</span>
+                  <svg v-if="row.depth" class="branch" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4v8a4 4 0 0 0 4 4h9" /><path d="m15 12 4 4-4 4" /></svg>
                   <span class="avatar" aria-hidden="true">
                     <img v-if="row.step.sprite" :src="row.step.sprite" alt="" />
                     <span v-else>{{ initialsOf(row.step.id) }}</span>
@@ -189,7 +206,7 @@
                   </span>
                 </span>
               </td>
-              <td><span class="pill" :class="`is-${row.status}`"><span class="dot" aria-hidden="true"></span>{{ stateLabel(row.status) }}</span></td>
+              <td><StatusPill :tone="row.status" :label="stateLabel(row.status)" /></td>
               <td v-if="hasOrg" class="num">
                 <template v-if="row.reportsTo">{{ row.assigned }} / {{ row.reported }}</template>
                 <template v-else>—</template>
@@ -200,7 +217,7 @@
               <td v-if="usage.tokens" class="num" :title="usage.nodes[row.step.id]?.cost ? formatCost(usage.nodes[row.step.id].cost) : ''">{{ usage.nodes[row.step.id]?.tokens ? usage.nodes[row.step.id].tokens.toLocaleString() : '—' }}</td>
               <td>
                 <span class="share">
-                  <span class="share-track"><span class="share-fill" :style="{ width: `${row.share}%` }"></span></span>
+                  <span class="share-track"><span class="share-fill" :style="{ transform: `scaleX(${row.share / 100})` }"></span></span>
                   <span class="share-text">{{ row.runs ? formatSpan(row.duration) : '—' }}</span>
                 </span>
               </td>
@@ -223,23 +240,27 @@
           type="button"
           class="work-stat"
           :class="[`is-${bucket.tone}`, { active: filter === bucket.key }]"
+          :aria-pressed="filter === bucket.key"
           @click="filter = filter === bucket.key ? '' : bucket.key"
         >
-          <strong>{{ bucket.count }}</strong>
           <span>{{ bucket.label }}</span>
+          <strong>{{ bucket.count }}</strong>
         </button>
       </div>
       <ul v-if="recentSessions.length" class="work-list">
         <li v-for="item in recentSessions" :key="item.session_id">
           <button type="button" class="work-item" :class="{ current: item.session_id === currentSessionId }" @click="$emit('open-session', item)">
-            <span class="pill" :class="`is-${sessionTone(item.status)}`"><span class="dot" aria-hidden="true"></span>{{ sessionLabel(item.status) }}</span>
+            <StatusPill :tone="sessionTone(item.status)" :label="sessionLabel(item.status)" />
             <span class="work-title" :title="item.title">{{ item.title || item.yaml_file }}</span>
             <span class="work-meta">{{ workMeta(item) }}</span>
             <time>{{ ago(item.updated_at) }}</time>
           </button>
         </li>
       </ul>
-      <p v-else class="empty">{{ $t('launch.dashboard.no_sessions') }}</p>
+      <p v-else class="empty">
+        {{ $t('launch.dashboard.no_sessions') }}
+        <button v-if="filter" type="button" class="empty-action" @click="filter = ''">{{ $t('launch.sessions.search_clear') }}</button>
+      </p>
     </section>
   </div>
 </template>
@@ -250,6 +271,7 @@ import { useI18n } from 'vue-i18n'
 import { combineTurns, formatCost, formatSpan, sessionTurns, stepDuration, stepStatus, turnSpan, usageTotals } from '@/utils/runTracker.js'
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
 import { buildOrgChart, computeTeamLinks } from '@/utils/teamLinks.js'
+import StatusPill from './StatusPill.vue'
 
 const props = defineProps({
   graph: { type: Object, default: () => ({}) },
@@ -265,7 +287,6 @@ const props = defineProps({
 defineEmits(['open-session'])
 
 const { t, te, locale } = useI18n()
-const RING_LENGTH = 2 * Math.PI * 52
 const FEED_LIMIT = 14
 const WORK_LIMIT = 8
 
@@ -329,7 +350,17 @@ const progress = computed(() => {
   }
   return steps.value.length ? Math.round((doneCount.value / steps.value.length) * 100) : 0
 })
-const ringOffset = computed(() => RING_LENGTH * (1 - progress.value / 100))
+
+// Under the step name: its department while it waits, else its state and how long it took
+const pipeSub = (step) => {
+  const status = statusOf(step.id)
+  if (status === 'todo') return deptLabel(step.dept)
+  const time = formatSpan(durationOf(step.id))
+  return status === 'done' ? time : `${stateLabel(status)} · ${time}`
+}
+
+const barLabel = (step, run) =>
+  `${step.id} · ${multiTurn.value ? `${t('launch.board.turn', { n: run.turn })} · ` : ''}${t('launch.board.run', { n: run.index })} · ${formatSpan((run.endedAt || now.value) - run.startedAt)}`
 
 const isLive = computed(() => props.status === 'Running...' || props.status === 'Waiting for input...')
 const runTone = computed(() => {
@@ -473,8 +504,43 @@ const barStyle = (run) => {
 // ---------------------------------------------------------------- activity feed
 const feed = computed(() => session.value.events.slice(-FEED_LIMIT).reverse())
 
-const ICONS = { task: '✎', start: '▶', end: '✓', tool: '⚙', handoff: '→', waiting: '?', input: '↩', completed: '★', cancelled: '■', error: '!' }
-const eventIcon = (kind) => ICONS[kind] || '•'
+// Drawn icons (one stroke style), path data per event kind
+const ICONS = {
+  task: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'],
+  start: ['M7 5v14l11-7z'],
+  end: ['M5 12.5l4.5 4.5L19 7'],
+  tool: ['M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z'],
+  handoff: ['M5 12h14', 'M13 6l6 6-6 6'],
+  waiting: ['M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3', 'M12 17h.01'],
+  input: ['M9 14 4 9l5-5', 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11'],
+  completed: ['M5 21V4h11l-1.5 4L16 12H5'],
+  cancelled: ['M7 7h10v10H7z'],
+  error: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M12 8v5', 'M12 16.5v.01']
+}
+const eventIcon = (kind) => ICONS[kind] || ['M12 11.5v1']
+
+// ---------------------------------------------------------------- timeline legend + tooltip
+const ganttDepts = computed(() => {
+  const seen = new Map()
+  for (const step of shownSteps.value) if (runsOf(step.id).length && !seen.has(step.dept)) seen.set(step.dept, { id: step.dept, color: step.color })
+  return [...seen.values()]
+})
+const ganttEl = ref(null)
+const tip = ref(null)
+const showTip = (event, step, run) => {
+  const box = ganttEl.value?.getBoundingClientRect()
+  const bar = event.currentTarget.getBoundingClientRect()
+  if (!box) return
+  const x = Math.min(Math.max(bar.left + bar.width / 2 - box.left, 90), box.width - 90)
+  tip.value = {
+    x,
+    y: bar.top - box.top,
+    name: step.id,
+    color: step.color,
+    dept: deptLabel(step.dept),
+    detail: `${multiTurn.value ? `${t('launch.board.turn', { n: run.turn })} · ` : ''}${t('launch.board.run', { n: run.index })} · ${formatSpan((run.endedAt || now.value) - run.startedAt)}${run.endedAt ? '' : ` · ${stateLabel('working')}`}`
+  }
+}
 
 const escapeHtml = (text) =>
   String(text ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch])
@@ -584,12 +650,12 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 <style scoped>
 .dash {
-  --ok: #22c55e;
-  --run: var(--accent-sky);
-  --wait: #f59e0b;
+  --ok: var(--success);
+  --run: var(--accent);
+  --wait: var(--warn);
   --err: var(--danger);
-  --muted: var(--text-muted-4);
-  --line: rgb(var(--ink) / 0.09);
+  --muted: var(--fg-muted);
+  --line: var(--border);
   height: 100%;
   box-sizing: border-box;
   overflow-y: auto;
@@ -597,113 +663,85 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   display: flex;
   flex-direction: column;
   gap: 14px;
-  color: var(--text-1);
-  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--fg);
+  font-family: inherit;
   scrollbar-width: thin;
-  transition: padding-left 0.25s ease;
+  transition: padding-left 0.25s var(--ease-out);
 }
+
+/* Sections keep their content height: the page scrolls, cards never get squeezed
+   (the figures strip used to collapse to its 2px divider on short panes) */
+.dash > * { flex-shrink: 0; }
 
 .card {
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--line);
-  background: var(--surface-1);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 8px 24px -18px rgb(0 0 0 / 0.35);
+  background: var(--surface);
 }
 
-.muted { color: var(--muted); font-size: 12px; }
-.empty { margin: 0; padding: 18px 4px; font-size: 13px; color: var(--muted); text-align: center; }
+.muted { color: var(--muted); font-size: var(--fs-xs); }
 
-/* ---------- pills ---------- */
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: 99px;
-  font-size: 11.5px;
-  font-weight: 650;
-  white-space: nowrap;
-  color: var(--tone, var(--muted));
-  background: color-mix(in srgb, var(--tone, var(--muted)) 14%, transparent);
-}
-
-.pill.is-neutral { --tone: var(--text-muted-6); font-weight: 550; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.is-working { --tone: var(--run); }
-.is-waiting { --tone: var(--wait); }
-.is-done,
-.is-completed { --tone: var(--ok); }
-.is-error { --tone: var(--err); }
-.is-cancelled { --tone: var(--text-muted-6); }
-.is-todo,
-.is-idle { --tone: var(--muted); }
-
-.pill.is-working .dot,
-.pill.is-waiting .dot { animation: pulse 1.4s ease-in-out infinite; }
-
-@keyframes pulse {
-  50% { opacity: 0.35; transform: scale(0.8); }
-}
-
-/* ---------- hero ---------- */
-.hero {
+.empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 22px;
-  padding: 18px 22px;
-  background:
-    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent-sky) 12%, transparent), transparent 60%),
-    radial-gradient(90% 120% at 100% 100%, color-mix(in srgb, var(--accent-mint) 10%, transparent), transparent 60%),
-    var(--surface-1);
-}
-
-.ring {
-  position: relative;
-  flex: none;
-  width: 112px;
-  height: 112px;
-}
-
-.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.ring circle { fill: none; stroke-width: 10; }
-.ring-track { stroke: rgb(var(--ink) / 0.08); }
-
-.ring-fill {
-  stroke: var(--accent-sky);
-  stroke-linecap: round;
-  stroke-dasharray: 326.73;
-  transition: stroke-dashoffset 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.ring-text {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
+  gap: 10px;
+  margin: 0;
+  padding: 18px 4px;
+  font-size: 13px;
+  color: var(--muted);
   text-align: center;
 }
 
-.ring-text strong { font-size: 24px; font-weight: 720; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.ring-text span { font-size: var(--fs-xs); color: var(--muted); }
+.empty-action {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.empty-action:hover { border-color: var(--accent); }
 
-.hero-main { min-width: 0; flex: 1; }
+button:focus-visible,
+.gantt-bar:focus-visible,
+.feed:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-.eyebrow {
+.tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 9px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  color: var(--fg-muted);
   font-size: var(--fs-xs);
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-weight: 550;
+  white-space: nowrap;
 }
 
-.hero-main h2 { margin: 2px 0 4px; font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }
+/* ---------- header ---------- */
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 28px;
+  padding: 16px 20px;
+}
+
+.hero-main { min-width: 0; flex: 1 1 320px; }
+
+.hero-main h2 { margin: 0 0 4px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
 
 .hero-task {
   margin: 0 0 10px;
   max-width: 80ch;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--text-soft-1, var(--text-1));
+  color: var(--fg-muted);
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -713,29 +751,66 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 .hero-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 
-/* ---------- KPIs ---------- */
+/* progress meter: numbers next to the bar, never a hero figure */
+.hero-progress { flex: 0 1 280px; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
+.hp-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 13px; }
+.hp-count { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.hp-pct { font-weight: 700; font-variant-numeric: tabular-nums; }
+.hp-track { height: 8px; border-radius: 99px; background: rgb(var(--ink) / 0.1); overflow: hidden; }
+.hp-fill { height: 100%; border-radius: inherit; background: var(--run); transform-origin: left center; transition: transform 0.25s var(--ease-out); }
+
+.hero-chat-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--line);
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.hero-chat-only svg { flex: none; }
+
+/* ---------- figures: one strip, a divider between items ---------- */
+/* Each item draws its right and bottom hairline; the card clips the outer ones, so a
+   short last row leaves plain surface rather than a filled gap */
 .kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  overflow: hidden;
+}
+
+.kpis .kpi { position: relative; }
+.kpis .kpi::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: 0 -1px -1px 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  pointer-events: none;
 }
 
 .kpi {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
-  padding: 14px 16px;
+  margin: 0;
+  padding: 12px 16px;
+  background: var(--surface);
 }
 
-.kpi-label { font-size: 12px; font-weight: 600; color: var(--muted); }
-.kpi-value { font-size: 24px; font-weight: 720; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi dd { margin: 0; }
+.kpi-label { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.kpi-value { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 
 .kpi-sub {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
 }
 
@@ -752,9 +827,11 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 .block-head h3 { margin: 0; font-size: 14px; font-weight: 680; }
 
+/* Cards size to their content: a two-row timeline does not stretch to the feed's height */
 .grid-2 {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: start;
   gap: 14px;
 }
 
@@ -769,9 +846,9 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 .pipe-step {
-  --dept: var(--accent-sky);
+  --dept: var(--accent);
   position: relative;
-  flex: 1 0 104px;
+  flex: 1 0 112px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -789,10 +866,13 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   right: calc(-50% + 17px);
   height: 2px;
   border-radius: 2px;
-  background: rgb(var(--ink) / 0.12);
+  background: rgb(var(--ink) / 0.14);
 }
 
 .pipe-step.is-done:not(:last-child)::after { background: var(--ok); }
+
+/* A short list (a lead who only replied, a 2-3 step flow) sits left at its natural width */
+.pipeline.is-short .pipe-step { flex: 0 1 160px; }
 
 .pipe-node {
   display: grid;
@@ -800,23 +880,19 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--muted);
-  border: 2px solid rgb(var(--ink) / 0.15);
-  background: var(--surface-1);
+  border: 2px solid rgb(var(--ink) / 0.2);
+  background: var(--surface);
   font-variant-numeric: tabular-nums;
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
+  transition: background-color 0.3s var(--ease-out), border-color 0.3s var(--ease-out), color 0.3s var(--ease-out);
 }
 
-.pipe-step.is-done .pipe-node { color: #fff; border-color: var(--ok); background: var(--ok); }
-.pipe-step.is-working .pipe-node { color: var(--run); border-color: var(--run); box-shadow: 0 0 0 5px color-mix(in srgb, var(--run) 18%, transparent); animation: glow 1.6s ease-in-out infinite; }
-.pipe-step.is-waiting .pipe-node { color: var(--wait); border-color: var(--wait); box-shadow: 0 0 0 5px color-mix(in srgb, var(--wait) 18%, transparent); }
-.pipe-step.is-error .pipe-node { color: #fff; border-color: var(--err); background: var(--err); }
-
-@keyframes glow {
-  50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--run) 6%, transparent); }
-}
+.pipe-step.is-done .pipe-node { color: var(--on-success); border-color: var(--ok); background: var(--ok); }
+.pipe-step.is-working .pipe-node { color: var(--run); border-color: var(--run); box-shadow: 0 0 0 4px color-mix(in srgb, var(--run) 18%, transparent); }
+.pipe-step.is-waiting .pipe-node { color: var(--wait); border-color: var(--wait); box-shadow: 0 0 0 4px color-mix(in srgb, var(--wait) 18%, transparent); }
+.pipe-step.is-error .pipe-node { color: var(--on-danger); border-color: var(--err); background: var(--err); }
 
 .pipe-name {
   max-width: 100%;
@@ -827,13 +903,58 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   font-weight: 620;
 }
 
-.pipe-sub { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.pipe-sub { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---------- gantt ---------- */
-.gantt { display: flex; flex-direction: column; gap: 7px; }
+.gantt { position: relative; display: flex; flex-direction: column; gap: 8px; }
+
+.gantt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+.gantt-legend li { display: inline-flex; align-items: center; gap: 6px; }
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 3px;
+  background: var(--dept);
+}
+
+.gantt-tip {
+  position: absolute;
+  z-index: 5;
+  transform: translate(-50%, calc(-100% - 8px));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  max-width: 240px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px rgb(var(--shade) / 0.3);
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  animation: tip-in 0.15s var(--ease-out);
+}
+.tip-head { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); font-size: 13px; }
+.tip-head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+
+@keyframes tip-in { from { opacity: 0; } }
 
 .gantt-row {
-  --dept: var(--accent-sky);
+  --dept: var(--accent);
   display: grid;
   grid-template-columns: minmax(90px, 160px) 1fr;
   align-items: center;
@@ -851,42 +972,55 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   display: inline-block;
   min-width: 18px;
   margin-right: 6px;
-  color: var(--dept);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
+/* Recessive scale: hairlines at 0 / 50 / 100% instead of a filled lane */
 .gantt-track {
   position: relative;
-  height: 14px;
-  border-radius: 7px;
-  background: rgb(var(--ink) / 0.05);
+  height: 20px;
+  background:
+    linear-gradient(var(--line), var(--line)) 0 0 / 1px 100% no-repeat,
+    linear-gradient(var(--line), var(--line)) 50% 0 / 1px 100% no-repeat,
+    linear-gradient(var(--line), var(--line)) 100% 0 / 1px 100% no-repeat;
 }
 
+/* Thin mark: 12px bar, 4px corners, 2px surface ring so touching runs stay apart */
 .gantt-bar {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  border-radius: 7px;
+  top: 4px;
+  bottom: 4px;
+  min-width: 6px;
+  border-radius: 4px;
   background: var(--dept);
-  opacity: 0.85;
-  transition: width 0.8s linear;
+  box-shadow: 0 0 0 2px var(--surface);
+  cursor: default;
+  transition: opacity 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out);
 }
 
+.gantt-bar::before { content: ''; position: absolute; inset: -4px -2px; }
+
+.gantt-bar:hover,
+.gantt-bar:focus-visible { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--fg); outline: none; }
+
+/* still running: hatched, so it differs from a finished bar without colour */
 .gantt-bar.is-live {
-  background: linear-gradient(90deg, var(--dept), color-mix(in srgb, var(--dept) 45%, transparent));
+  background-image: repeating-linear-gradient(135deg, rgb(0 0 0 / 0.22) 0 4px, transparent 4px 8px);
+  background-color: var(--dept);
   opacity: 1;
   animation: breathe 1.6s ease-in-out infinite;
 }
 
 @keyframes breathe {
-  50% { opacity: 0.65; }
+  50% { opacity: 0.7; }
 }
 
 .gantt-axis {
   display: flex;
   justify-content: space-between;
   margin-left: calc(min(160px, 30%) + 10px);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -908,10 +1042,10 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   grid-template-columns: 24px 1fr auto;
   align-items: start;
   gap: 9px;
-  padding: 7px 2px;
+  padding: 8px 2px;
   border-bottom: 1px solid var(--line);
-  font-size: 12.5px;
-  animation: slide 0.25s ease-out;
+  font-size: 13px;
+  animation: slide 0.25s var(--ease-out);
 }
 
 .feed-item:last-child { border-bottom: 0; }
@@ -928,7 +1062,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   border-radius: 7px;
   font-size: var(--fs-xs);
   color: var(--tone, var(--muted));
-  background: color-mix(in srgb, var(--tone, var(--muted)) 13%, transparent);
+  background: color-mix(in srgb, var(--tone, var(--muted)) 14%, transparent);
 }
 
 .feed-item.is-start { --tone: var(--run); }
@@ -942,7 +1076,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 .feed-text { min-width: 0; line-height: 1.45; }
 .feed-text :deep(b) { font-weight: 650; }
-.feed-text :deep(code) { font-size: 11.5px; padding: 0 4px; border-radius: 4px; background: rgb(var(--ink) / 0.07); }
+.feed-text :deep(code) { font-size: var(--fs-xs); padding: 0 4px; border-radius: 4px; background: rgb(var(--ink) / 0.08); }
 
 .feed-text small {
   display: block;
@@ -950,7 +1084,7 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
 }
 
 .feed-item time { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -961,15 +1095,13 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 .agents {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .agents th {
   padding: 0 10px 8px;
   font-size: var(--fs-xs);
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 600;
   text-align: left;
   color: var(--muted);
   border-bottom: 1px solid var(--line);
@@ -984,34 +1116,34 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 
 .agents tr:last-child td { border-bottom: 0; }
 .turns .idx { color: var(--accent-indigo); }
-.turns tr.is-current td { background: color-mix(in srgb, var(--accent-indigo) 8%, transparent); }
-.turns tr.is-current .idx { box-shadow: inset 3px 0 0 var(--accent-indigo); }
+.turns tr.is-current td { background: color-mix(in srgb, var(--accent-indigo) 9%, transparent); }
 .turn-ask { max-width: 420px; }
 .turn-ask span {
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .turn-now {
   display: inline-block;
   margin-top: 3px;
-  padding: 1px 7px;
+  padding: 1px 8px;
   border-radius: 99px;
-  background: color-mix(in srgb, var(--accent-indigo) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-indigo) 40%, transparent);
   color: var(--accent-indigo);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 650;
 }
-.pill.is-turn { --tone: var(--accent-indigo); }
-.gantt-bar.is-past { opacity: 0.4; }
-.agents tbody tr:hover td { background: rgb(var(--ink) / 0.025); }
+.gantt-bar.is-past { opacity: 0.45; }
+.agents tbody tr:hover td { background: rgb(var(--ink) / 0.03); }
 .agents .num { text-align: right; font-variant-numeric: tabular-nums; }
-.agents .idx { width: 28px; color: var(--dept); font-weight: 700; font-variant-numeric: tabular-nums; }
+.agents .idx { width: 28px; color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .agent-cell { display: flex; align-items: center; gap: 9px; min-width: 180px; }
-.agent-cell .branch { color: var(--muted, #8a8f98); font-size: 14px; margin-right: -3px; }
-.agent-name .chain-line { display: block; opacity: 0.85; }
+.agent-cell .branch { flex: none; color: var(--muted); margin-right: -3px; }
+.agents td:last-child { font-variant-numeric: tabular-nums; }
+.agent-name .chain-line { display: block; }
 
 .avatar {
   display: grid;
@@ -1023,49 +1155,51 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   overflow: hidden;
   font-size: var(--fs-xs);
   font-weight: 700;
-  color: var(--dept);
-  background: color-mix(in srgb, var(--dept) 14%, rgb(var(--ink) / 0.04));
+  color: var(--fg);
+  background: color-mix(in srgb, var(--dept) 22%, rgb(var(--ink) / 0.04));
 }
 
 .avatar img { width: 26px; height: 26px; object-fit: contain; image-rendering: pixelated; }
 
 .agent-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
 .agent-name strong { font-weight: 620; }
-.agent-name small { color: var(--muted); font-size: 11.5px; }
+.agent-name small { color: var(--muted); font-size: var(--fs-xs); }
 
-.share { display: flex; align-items: center; gap: 8px; min-width: 140px; }
-.share-track { flex: 1; height: 6px; border-radius: 99px; background: rgb(var(--ink) / 0.07); overflow: hidden; }
-.share-fill { display: block; height: 100%; border-radius: inherit; background: var(--dept); transition: width 0.6s ease; }
+.share { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+.share-track { flex: 1; height: 6px; border-radius: 99px; background: rgb(var(--ink) / 0.09); overflow: hidden; }
+.share-fill { display: block; height: 100%; border-radius: inherit; background: var(--dept); transform-origin: left center; transition: transform 0.25s var(--ease-out); }
 .share-text { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 
 /* ---------- all work ---------- */
 .work-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
+/* a filter: label and count on one line, the active one outlined */
 .work-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 10px 12px;
-  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 99px;
   border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--tone, var(--muted)) 6%, transparent);
-  color: var(--text-1);
+  background: transparent;
+  color: var(--fg);
   font: inherit;
-  text-align: left;
+  font-size: 13px;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
 }
 
-.work-stat strong { font-size: 20px; font-weight: 720; color: var(--tone); font-variant-numeric: tabular-nums; }
-.work-stat span { font-size: 12px; color: var(--muted); }
-.work-stat:hover,
-.work-stat.active { border-color: color-mix(in srgb, var(--tone) 55%, transparent); background: color-mix(in srgb, var(--tone) 12%, transparent); }
+.work-stat strong { font-weight: 700; font-variant-numeric: tabular-nums; }
+.work-stat span { color: var(--muted); }
+.work-stat:hover { border-color: var(--accent); }
+.work-stat.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.work-stat.active span { color: var(--fg); }
 
 .work-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 
@@ -1075,21 +1209,22 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 9px 8px;
+  min-height: 44px;
+  padding: 8px;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
-  color: var(--text-1);
+  color: var(--fg);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
 
 .work-list li:last-child .work-item { border-bottom: 0; }
-.work-item:hover { background: rgb(var(--ink) / 0.03); }
-.work-item.current { background: color-mix(in srgb, var(--accent-sky) 8%, transparent); }
+.work-item:hover { background: rgb(var(--ink) / 0.04); }
+.work-item.current { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 
 .work-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 
@@ -1101,13 +1236,16 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   color: var(--muted);
 }
 
-.work-item time { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.work-item time { color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
-  .pill .dot,
-  .pipe-node,
   .gantt-bar,
-  .feed-item { animation: none !important; transition: none; }
+  .hp-fill,
+  .pipe-node,
+  .share-fill { transition: none; }
+  .gantt-bar.is-live,
+  .gantt-tip,
+  .feed-item { animation: none; }
 }
 
 @media (max-width: 1100px) {
@@ -1115,9 +1253,12 @@ onBeforeUnmount(() => timer && clearInterval(timer))
 }
 
 @media (max-width: 640px) {
-  .dash { padding: 10px; }
-  .hero { flex-direction: column; align-items: flex-start; }
-  .work-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* top room keeps the floating sidebar toggle off the heading */
+  .dash { padding: 48px 10px 10px; }
+  .hero { flex-direction: column; align-items: stretch; }
+  .hero-main { flex: 0 0 auto; }
+  .hero-progress { flex-basis: auto; min-width: 0; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .work-item { grid-template-columns: auto minmax(0, 1fr); }
   .work-meta,
   .work-item time { display: none; }
