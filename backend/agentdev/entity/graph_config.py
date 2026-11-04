@@ -18,6 +18,7 @@ class GraphConfig:
     metadata: Dict[str, Any] = field(default_factory=dict)
     source_path: Optional[str] = None
     vars: Dict[str, Any] = field(default_factory=dict)
+    run_limits: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(
@@ -38,6 +39,7 @@ class GraphConfig:
             metadata={},
             source_path=source_path,
             vars=dict(vars or {}),
+            run_limits=dict(config.get("run_limits") or {}) if isinstance(config, dict) else {},
         )
 
     @classmethod

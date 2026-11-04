@@ -25,6 +25,23 @@ class LogType(str, Enum):
     PERFORMANCE = "performance"
 
 
+class SafeRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that tolerates Windows file locks.
+
+    With uvicorn --reload several processes hold the same log file, so
+    os.rename fails with PermissionError. Skip the rotation (keep appending)
+    instead of raising a logging error on every record.
+    """
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except PermissionError:
+            # Reopen in append mode if the failed rollover closed the stream.
+            if self.stream is None:
+                self.stream = self._open()
+
+
 class StructuredLogger:
     """A structured logger that outputs JSON format logs with consistent fields."""
     
@@ -42,7 +59,7 @@ class StructuredLogger:
             # Ensure log directory exists
             log_path = Path(log_file)
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8")
+            handler = SafeRotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8")
         else:
             handler = logging.StreamHandler(sys.stdout)
         
