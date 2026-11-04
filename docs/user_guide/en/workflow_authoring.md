@@ -102,7 +102,7 @@ Fetch the full schema via `POST /api/config/schema` or inspect the dataclasses i
 ```yaml
 model:
   connection: <your-gemini-connection-id>
-  name: gemini-2.5-flash
+  name: gemini-3-flash-preview
   input_mode: messages
   params:
     response_modalities: ["text", "image"]

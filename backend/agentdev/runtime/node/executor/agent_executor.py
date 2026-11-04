@@ -58,13 +58,21 @@ from agentdev.runtime.node.agent.team import (
     SUBMIT_PLAN_TOOL,
     TEAM_TOOL_SOURCE,
     TeamDelegation,
+    clip_middle,
     get_team_state,
     is_delegated_call,
     latest_user_message,
     resolve_members,
     team_digest,
 )
-from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled, cli_cancel_scope
+from agentdev.runtime.node.agent.interject import (
+    INBOX_KEY,
+    RunInbox,
+    lead_injection,
+    member_injection,
+)
+from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled, cli_cancel_scope, cli_idle_scope
+from agentdev.runtime.node.agent.providers._native import describe_tool_failure
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV, require_unsafe_code_execution
 from agentdev.utils.exceptions import (
     SecurityError,
@@ -79,6 +87,8 @@ from concurrent.futures import CancelledError as FutureCancelledError, ThreadPoo
 
 # Extra attempts for a CLI call that ran into its timeout (see _execute_with_retry).
 MAX_CLI_TIMEOUT_RETRIES = 1
+# A native agent's failing built-in tool is shown in the chat only at this many failures in a row.
+NATIVE_REPEATED_FAILURES = 3
 
 
 # Guards lazy creation of the per-node state dicts below. Team leads run members from worker
@@ -99,6 +109,16 @@ TOOL_LIMIT_STATUS_PROMPT = (
     "and what they could do next."
 )
 TOOL_LIMIT_SKIPPED_RESULT = "Not executed: the tool call limit for this request was reached."
+# A tool result longer than this goes to the model clipped (start and end kept): one huge file or page
+# would otherwise be re-read by every later model call of the loop.
+MAX_TOOL_RESULT_CHARS = 40_000
+# The same batch of tool calls (names and arguments) this many times in a row means the agent is stuck;
+# the next identical batch is not run and the agent is told to change approach or answer.
+MAX_IDENTICAL_TOOL_BATCHES = 3
+REPEATED_TOOL_BATCH_RESULT = (
+    "Not executed: you already made exactly this call {count} times in a row with the same result. Do not repeat "
+    "it: use a different approach, or give your answer with what you have and say what is unresolved."
+)
 
 # The user equips an agent with skills (e.g. frontend design) so its work follows those standards.
 # Treat them as the agent's professional playbook: load every skill that matches the task's domain
@@ -130,6 +150,19 @@ LOADED_SKILLS_HEADING = (
     "The user chose these skills for you; their full instructions follow (no need to load them). For work in "
     "their domain they are your binding working standards: follow them, and before finishing check your output "
     "against them."
+)
+# Every ticked skill is already preloaded (no on-demand catalog): nothing to compare and load first.
+PRELOADED_SKILL_RULES = (
+    "# Your skills (professional standards for your work)\n"
+    "Your skills are loaded below. Follow them for work in their domain, check your result against them "
+    "before you finish, and name the skills you applied in one short line. `read_skill_file` reads a file a "
+    "skill points to. Skip skills for greetings, small talk and simple factual questions."
+)
+NATIVE_PRELOADED_SKILL_RULES = (
+    "# Your skills (professional standards for your work)\n"
+    "Your skills are loaded below (a skill's other files are in its folder, read-only). Follow them for work in "
+    "their domain, check your result against them before you finish, and name the skills you applied in one "
+    "short line. Skip skills for greetings, small talk and simple factual questions."
 )
 NATIVE_SKILL_USAGE_RULES = (
     "# Your skills (professional standards for your work)\n"
@@ -279,7 +312,7 @@ class AgentNodeExecutor(NodeExecutor):
                 native=native,
             )
 
-            if response_obj.has_tool_calls():
+            if response_obj.has_tool_calls() or self._interjection_pending(node):
                 response_message = self._handle_tool_calls(
                     node,
                     provider,
@@ -483,7 +516,8 @@ class AgentNodeExecutor(NodeExecutor):
             loaded = skill_manager.build_preloaded_skills_section()
             skills_xml = skill_manager.build_available_skills_xml()
             if skills_xml or loaded:
-                parts.append("\n".join(part for part in (SKILL_USAGE_RULES, skills_xml) if part))
+                usage = SKILL_USAGE_RULES if skills_xml else PRELOADED_SKILL_RULES
+                parts.append("\n".join(part for part in (usage, skills_xml) if part))
                 if loaded:
                     parts.append(LOADED_SKILLS_HEADING + "\n\n" + loaded)
             else:
@@ -504,7 +538,8 @@ class AgentNodeExecutor(NodeExecutor):
             loaded = native_skills.build_preloaded_skills_section(with_paths=True)
             listing = native_skills.build_skill_file_listing()
             if listing or loaded:
-                parts.append((NATIVE_SKILL_USAGE_RULES + "\n" + listing).rstrip())
+                native_usage = NATIVE_SKILL_USAGE_RULES if listing else NATIVE_PRELOADED_SKILL_RULES
+                parts.append((native_usage + "\n" + listing).rstrip())
                 if loaded:
                     parts.append(LOADED_SKILLS_HEADING + "\n\n" + loaded)
 
@@ -630,7 +665,7 @@ class AgentNodeExecutor(NodeExecutor):
             extra = {"native": native} if native is not None and getattr(active_provider, "supports_native_mode", False) else {}
             try:
                 # Lets a CLI provider kill its subprocess as soon as the run is stopped.
-                with cli_cancel_scope(cancel_event):
+                with cli_cancel_scope(cancel_event), cli_idle_scope(self._idle_reporter(node)):
                     return active_provider.call_model(
                         active_client,
                         conversation=conversation,
@@ -690,6 +725,25 @@ class AgentNodeExecutor(NodeExecutor):
             call_details,
             stage,
         )
+
+    def _idle_reporter(self, node: Node):
+        """Idle-watchdog listener: tells the UI (INFO log, ``event: cli_idle``) an agent has been silent for long."""
+
+        def report(seconds: float, busy: bool, killed: bool) -> None:
+            minutes = max(1, round(seconds / 60))
+            if killed:
+                message = f"[Node: {node.id}] No output for {minutes} min: stopped the stuck CLI and retrying."
+            elif busy:
+                message = f"[Node: {node.id}] A tool has been running for {minutes}+ min."
+            else:
+                message = f"[Node: {node.id}] Still thinking ({minutes}+ min without output)."
+            self.log_manager.info(
+                message,
+                node_id=node.id,
+                details={"event": "cli_idle", "idle_seconds": int(seconds), "busy": busy, "killed": killed},
+            )
+
+        return report
 
     def _execute_with_retry(
         self,
@@ -887,6 +941,8 @@ class AgentNodeExecutor(NodeExecutor):
         trace_messages: List[Message] = []
         loop_limit = self._get_tool_loop_limit(node)
         iteration = 0
+        last_signature: str | None = None
+        repeats = 0
 
         while True:
             self._ensure_not_cancelled()
@@ -895,6 +951,12 @@ class AgentNodeExecutor(NodeExecutor):
             trace_messages.append(cloned_assistant)
 
             if not assistant_message.tool_calls:
+                # A note the user wrote while this answer was being generated: answer it before finishing
+                if self._apply_interjections(node, conversation):
+                    assistant_message = self._invoke_provider(
+                        provider, client, conversation, timeline, call_options, tool_specs, node
+                    ).message
+                    continue
                 return self._finalize_tool_trace(assistant_message, trace_messages, True, node.id)
 
             if iteration >= loop_limit:
@@ -912,12 +974,18 @@ class AgentNodeExecutor(NodeExecutor):
 
             iteration += 1
 
-            tool_call_messages, tool_events = self._execute_tool_batch(
-                node,
-                assistant_message.tool_calls,
-                tool_specs,
-                skill_manager,
-            )
+            signature = self._tool_batch_signature(assistant_message.tool_calls)
+            repeats = repeats + 1 if signature == last_signature else 1
+            last_signature = signature
+            if repeats > MAX_IDENTICAL_TOOL_BATCHES:
+                tool_call_messages, tool_events = self._refuse_repeated_batch(node, assistant_message.tool_calls, repeats - 1)
+            else:
+                tool_call_messages, tool_events = self._execute_tool_batch(
+                    node,
+                    assistant_message.tool_calls,
+                    tool_specs,
+                    skill_manager,
+                )
             conversation.extend(tool_call_messages)
             timeline.extend(tool_events)
             trace_messages.extend(self._clone_with_source(msg, node.id) for msg in tool_call_messages)
@@ -927,6 +995,9 @@ class AgentNodeExecutor(NodeExecutor):
                 # Plan gate: the lead's turn ends here; the plan is the answer, no further model call.
                 trace_messages.append(self._clone_with_source(plan_message, node.id))
                 return self._finalize_tool_trace(plan_message, trace_messages, True, node.id)
+
+            # Notes from the user sent meanwhile join the conversation before the next model call
+            self._apply_interjections(node, conversation)
 
             follow_up_response = self._invoke_provider(
                 provider,
@@ -938,6 +1009,68 @@ class AgentNodeExecutor(NodeExecutor):
                 node,
             )
             assistant_message = follow_up_response.message
+
+    def _tool_batch_signature(self, tool_calls: List[ToolCallPayload]) -> str:
+        """Names and arguments of a batch of tool calls, to spot an agent repeating itself."""
+        return json.dumps(
+            [[call.function_name, self._parse_tool_call_arguments(call.arguments)] for call in tool_calls],
+            sort_keys=True,
+            default=str,
+        )
+
+    def _refuse_repeated_batch(
+        self, node: Node, tool_calls: List[ToolCallPayload], count: int
+    ) -> tuple[List[Message], List[Any]]:
+        """Answer a batch the agent has already made ``count`` times in a row without running it."""
+        text = REPEATED_TOOL_BATCH_RESULT.format(count=count)
+        self.log_manager.warning(
+            f"[Node: {node.id}] Same tool calls {count} times in a row, not running them again", node_id=node.id
+        )
+        messages: List[Message] = []
+        events: List[Any] = []
+        for call in tool_calls:
+            messages.append(
+                Message(
+                    role=MessageRole.TOOL,
+                    content=text,
+                    tool_call_id=call.id,
+                    metadata={"tool_name": call.function_name, "source": node.id},
+                )
+            )
+            events.append(
+                FunctionCallOutputEvent(
+                    call_id=call.id or call.function_name or "tool_call",
+                    function_name=call.function_name,
+                    output_text=f"error: {text}",
+                )
+            )
+        return messages, events
+
+    def _interjection_pending(self, node: Node) -> bool:
+        """The lead (a node nobody delegated to) has a user note it has not seen yet."""
+        if is_delegated_call():
+            return False
+        inbox = self.context.global_state.get(INBOX_KEY)
+        return isinstance(inbox, RunInbox) and inbox.has_pending()
+
+    def _apply_interjections(self, node: Node, conversation: List[Message]) -> bool:
+        """Put the user's mid-run notes into ``conversation`` as the next user message; True when any was added.
+
+        The lead takes them (and the user is told so); a running member only gets a read-only heads-up.
+        """
+        inbox = self.context.global_state.get(INBOX_KEY)
+        if not isinstance(inbox, RunInbox):
+            return False
+        if is_delegated_call():
+            notes = inbox.take_for_member(node.id)
+            text = member_injection(notes) if notes else ""
+        else:
+            notes = inbox.take_for_lead(node.id)
+            text = lead_injection(notes) if notes else ""
+        if not text:
+            return False
+        self._append_user_message(conversation, text, node_id=node.id)
+        return True
 
     def _submitted_plan_answer(self, node: Node) -> Message | None:
         """The plan as the lead's final answer once it called ``submit_plan`` (None otherwise)."""
@@ -1389,9 +1522,24 @@ class AgentNodeExecutor(NodeExecutor):
                     node_id=node.id,
                 )
 
+        failures: Dict[str, int] = {}
+
         def on_tool(stage: str, name: str, success: Any, result: Any, details: Dict[str, Any]) -> None:
+            extra: Dict[str, Any] = {}
+            if stage != "before":
+                if success is False:
+                    # A failed built-in tool (a Bash command with a non-zero exit, a grep with no match, a
+                    # failing test) is fed back to the agent, which handles it. Keep it a timeline entry with
+                    # the real reason; raise it to the chat only when the same tool keeps failing.
+                    failures[name] = failures.get(name, 0) + 1
+                    extra["error"] = describe_tool_failure(name, result, details.get("arguments"))
+                    extra["recoverable"] = failures[name] != NATIVE_REPEATED_FAILURES
+                    if not extra["recoverable"]:
+                        extra["error"] += f" (failed {failures[name]} times in a row)"
+                elif success:
+                    failures.pop(name, None)
             self.log_manager.record_tool_call(
-                node.id, name, success, result, {**details, "native": True},
+                node.id, name, success, result, {**details, **extra, "native": True},
                 CallStage.BEFORE if stage == "before" else CallStage.AFTER,
             )
 
@@ -1758,9 +1906,12 @@ class AgentNodeExecutor(NodeExecutor):
         else:
             content = result
             if isinstance(result, dict):
-                content = json.dumps(self._serialize_tool_result(content), ensure_ascii=False, indent=2)
+                # Compact JSON: every later model call of the loop re-reads this text.
+                content = json.dumps(self._serialize_tool_result(content), ensure_ascii=False, separators=(",", ":"))
             elif not isinstance(result, str):
                 content = str(result)
+            if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
+                content = clip_middle(content, MAX_TOOL_RESULT_CHARS, head_ratio=0.7)
 
         return Message(
             role=MessageRole.TOOL,

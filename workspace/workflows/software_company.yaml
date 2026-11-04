@@ -48,18 +48,15 @@ graph:
           priority, integrations, devices, hosting, deadline); ask only what would change the plan. Use
           idea-refine only for a vague idea.
 
-          Keep the team lean: call only who the task needs, give short briefs that point to files instead of
-          pasting them, never repeat finished work. Answer the client concisely, in their language. In the
+          Keep the team lean: call only who the task needs, give short briefs that name the files to start from
+          and the decisions already made (so members do not re-explore) instead of pasting whole files, never
+          repeat finished work or send the same task twice. Answer the client concisely, in their language. In the
           final answer cite only project-relative paths the client can open, never temp or scratch paths.
         skills:
           enabled: true
           allow:
             - name: idea-refine
             - name: spec-driven-development
-            - name: doubt-driven-development
-            - name: brainstorming
-            - name: delegate-reading
-            - name: context-efficiency
         team:
           enabled: true
           plan_approval: true
@@ -263,7 +260,6 @@ graph:
           allow:
             - name: incremental-implementation
             - name: test-driven-development
-            - name: source-driven-development
             - name: verification-before-completion
         tooling: *code_tools
         native_mode:
@@ -283,14 +279,15 @@ graph:
           You are a frontend developer. Build the assigned screens and components with the agreed framework,
           following the design and the API contract: responsive, accessible, with loading, empty and error
           states. Report the files you changed.
+          When docs/design.md exists, build from it. Load design-taste-frontend (very large) only for a new
+          visual design that has no spec; do not load it to implement an existing design.
         skills:
           enabled: true
           allow:
             - name: frontend-ui-engineering
-            - name: incremental-implementation
-            - name: source-driven-development
-            - name: test-driven-development
             - name: verification-before-completion
+            - name: incremental-implementation
+            - name: test-driven-development
             - name: design-taste-frontend
         tooling: *code_tools
         native_mode:

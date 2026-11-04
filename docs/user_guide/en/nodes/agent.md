@@ -8,7 +8,7 @@ The Agent node is the most fundamental node type in the AgentDev platform, used 
 |-------|------|----------|---------|-------------|
 | `connection` | string | No | Default connection | Account connection id from the Connections page (form field "Account connection"; the default connection is preselected). Omit it to bind automatically at run time (see below) |
 | `provider` | string | No | - | Vendor hint kept by older workflows (`anthropic`, `openai`, `gemini`); only used to pick an account when `connection` is missing |
-| `name` | string | Yes | - | Model name, e.g., `claude-opus-5-5`, `gpt-6.1-sol`, `gemini-2.5-flash`. An unset `${MODEL_NAME}`-style placeholder falls back to the account's default model |
+| `name` | string | Yes | - | Model name, e.g., `claude-opus-5-5`, `gpt-6.1-sol`, `gemini-3-flash-preview`. An unset `${MODEL_NAME}`-style placeholder falls back to the account's default model |
 | `role` | text | No | - | System prompt |
 | `params` | dict | No | `{}` | Model call parameters (temperature, top_p, etc.) |
 | `tooling` | object | No | - | Tool calling configuration, see [Tooling Module](../modules/tooling/README.md) |

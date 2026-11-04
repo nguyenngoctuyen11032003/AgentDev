@@ -8,7 +8,7 @@ Agent 节点是 AgentDev 平台中最核心的节点类型，用于调用大语�
 |------|------|------|--------|------|
 | `connection` | string | 否 | 默认连接 | Connections 页面中的账号连接 ID（节点表单字段 "Account connection"，默认连接会被预先选中）。省略时在运行时自动绑定（见下文） |
 | `provider` | string | 否 | - | 旧工作流保留的厂商提示（`anthropic`、`openai`、`gemini`），仅在缺少 `connection` 时用于挑选账号 |
-| `name` | string | 是 | - | 模型名称，如 `claude-opus-5-5`、`gpt-6.1-sol`、`gemini-2.5-flash`。未在任何地方设置的 `${MODEL_NAME}` 类占位符会回退为该账号的默认模型 |
+| `name` | string | 是 | - | 模型名称，如 `claude-opus-5-5`、`gpt-6.1-sol`、`gemini-3-flash-preview`。未在任何地方设置的 `${MODEL_NAME}` 类占位符会回退为该账号的默认模型 |
 | `role` | text | 否 | - | 系统提示词 (System Prompt) |
 | `params` | dict | 否 | `{}` | 模型调用参数（temperature、top_p 等） |
 | `tooling` | object | 否 | - | 工具调用配置，详见 [Tooling 模块](../modules/tooling/README.md) |
