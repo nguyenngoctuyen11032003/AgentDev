@@ -20,7 +20,7 @@ class CycleInfo:
     # New fields for refactored cycle execution
     initial_node: Optional[str] = None  # The unique initial node when first entering the cycle
     configured_entry_node: Optional[str] = None  # User-configured entry node (if any)
-    max_iterations_default: int = 100  # Default maximum iterations if max_iterations is None
+    max_iterations_default: int = 20  # Safety cap for a cycle that sets no limit (was 100: a looping run could burn hours)
     
     def add_node(self, node_id: str) -> None:
         """Add a node to the cycle."""

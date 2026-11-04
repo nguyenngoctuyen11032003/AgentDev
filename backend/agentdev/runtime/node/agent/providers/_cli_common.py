@@ -355,6 +355,16 @@ def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str,
         raise CliProviderError(f"`{name}` CLI not installed or not executable") from exc
 
 
+EFFORT_LEVELS = ("low", "medium", "high")
+
+
+def effort_level(params: Any) -> Optional[str]:
+    """Node ``params.effort`` as low/medium/high, or None (unset / unknown values are omitted)."""
+    value = params.get("effort") if isinstance(params, dict) else None
+    value = str(value).strip().lower() if value is not None else ""
+    return value if value in EFFORT_LEVELS else None
+
+
 def validate_model_name(name: str) -> str:
     """Model names reach argv; on Windows .cmd shims go through cmd.exe, so keep them inert."""
     if name and not MODEL_NAME_RE.match(name):

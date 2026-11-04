@@ -29,6 +29,7 @@ from agentdev.runtime.node.agent.providers._cli_common import (
     session_reuse_enabled,
     split_conversation,
     attachments_section,
+    effort_level,
     stage_attachments,
     build_tool_preamble,
     flatten_conversation,
@@ -290,6 +291,9 @@ class ClaudeCliProvider(ModelProvider):
             prompt = prompt + chr(10) * 2 + section
         if self.model_name:
             cmd += ["--model", validate_model_name(self.model_name)]
+        effort = effort_level(self.params)
+        if effort:
+            cmd += ["--effort", effort]
         try:
             # on_line turns on the idle watchdog; each streamed delta counts as output.
             proc = run_cli(cmd, prompt, timeout, "claude", cwd, on_line=_ignore_line)
@@ -382,6 +386,9 @@ class ClaudeCliProvider(ModelProvider):
                 base += ["--add-dir", str(SKILLS_DIR)]
             if self.model_name:
                 base += ["--model", validate_model_name(self.model_name)]
+            effort = effort_level(self.params)
+            if effort:
+                base += ["--effort", effort]
             preamble = native_preamble(native.workspace, can_edit=True, can_run_commands=native.allow_commands,
                                        vendor="claude")
             prompt = with_preamble(flatten_conversation(conversation), preamble)

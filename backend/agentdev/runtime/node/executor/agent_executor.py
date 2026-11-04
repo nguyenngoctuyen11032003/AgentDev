@@ -12,6 +12,7 @@ import base64
 import contextvars
 import copy
 import json
+import os
 import threading
 import traceback
 from contextlib import contextmanager
@@ -112,7 +113,19 @@ TOOL_LIMIT_STATUS_PROMPT = (
 TOOL_LIMIT_SKIPPED_RESULT = "Not executed: the tool call limit for this request was reached."
 # A tool result longer than this goes to the model clipped (start and end kept): one huge file or page
 # would otherwise be re-read by every later model call of the loop.
-MAX_TOOL_RESULT_CHARS = 40_000
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+MAX_TOOL_RESULT_CHARS = _env_int("AGENTDEV_MAX_TOOL_RESULT_CHARS", 16_000)
+# Inside one tool loop only the newest results stay in full; older ones are clipped to a short stub so
+# every further model call does not resend them.
+KEEP_RECENT_TOOL_RESULTS = _env_int("AGENTDEV_KEEP_RECENT_TOOL_RESULTS", 3)
+OLD_TOOL_RESULT_CHARS = _env_int("AGENTDEV_OLD_TOOL_RESULT_CHARS", 1_500)
+OLD_TOOL_RESULT_MARKER = "[older result trimmed; call the tool again if needed]"
 # The same batch of tool calls (names and arguments) this many times in a row means the agent is stuck;
 # the next identical batch is not run and the agent is told to change approach or answer.
 MAX_IDENTICAL_TOOL_BATCHES = 3
@@ -156,8 +169,8 @@ LOADED_SKILLS_HEADING = (
 PRELOADED_SKILL_RULES = (
     "# Your skills (professional standards for your work)\n"
     "Your skills are loaded below. Follow them for work in their domain, check your result against them "
-    "before you finish, and name the skills you applied in one short line. `read_skill_file` reads a file a "
-    "skill points to. Skip skills for greetings, small talk and simple factual questions."
+    "before you finish, and name the skills you applied in one short line. If a skill points to another file "
+    "and you have a `read_skill_file` tool, use it to read that file. Skip skills for greetings, small talk and simple factual questions."
 )
 NATIVE_PRELOADED_SKILL_RULES = (
     "# Your skills (professional standards for your work)\n"
@@ -594,6 +607,10 @@ class AgentNodeExecutor(NodeExecutor):
         if skill_manager is None:
             return tool_specs
 
+        skill_manager.preload()
+        if not skill_manager.needs_skill_tool_specs():
+            return tool_specs
+
         merged = list(tool_specs)
         existing_names = {spec.name for spec in merged}
         for spec in skill_manager.build_tool_specs():
@@ -767,7 +784,7 @@ class AgentNodeExecutor(NodeExecutor):
         def _should_retry(exc: BaseException) -> bool:
             if isinstance(exc, (WorkflowCancelledError, CliCancelled)):
                 return False
-            if is_quota_error(exc) or not retry_config.should_retry(exc):
+            if is_exhaustion_error(exc) or not retry_config.should_retry(exc):
                 return False
             if isinstance(exc, CliTimeoutError):
                 timeouts_seen["count"] += 1
@@ -944,6 +961,7 @@ class AgentNodeExecutor(NodeExecutor):
         iteration = 0
         last_signature: str | None = None
         repeats = 0
+        tool_loop_start = len(conversation)
 
         while True:
             self._ensure_not_cancelled()
@@ -999,6 +1017,7 @@ class AgentNodeExecutor(NodeExecutor):
 
             # Notes from the user sent meanwhile join the conversation before the next model call
             self._apply_interjections(node, conversation)
+            self._compact_old_tool_results(conversation, tool_loop_start)
 
             follow_up_response = self._invoke_provider(
                 provider,
@@ -1010,6 +1029,33 @@ class AgentNodeExecutor(NodeExecutor):
                 node,
             )
             assistant_message = follow_up_response.message
+
+    @staticmethod
+    def _compact_old_tool_results(conversation: List[Message], start: int) -> None:
+        """Clip text tool results of this loop older than the newest KEEP_RECENT_TOOL_RESULTS ones.
+
+        Replaces list entries (the trace keeps its own full clones); only plain-text results are touched.
+        """
+        indexes = [
+            i for i in range(start, len(conversation))
+            if conversation[i].role == MessageRole.TOOL
+        ]
+        if len(indexes) <= KEEP_RECENT_TOOL_RESULTS:
+            return
+        old = indexes[:-KEEP_RECENT_TOOL_RESULTS] if KEEP_RECENT_TOOL_RESULTS else indexes
+        for i in old:
+            msg = conversation[i]
+            content = msg.content
+            if not isinstance(content, str) or content.endswith(OLD_TOOL_RESULT_MARKER):
+                continue
+            # A loaded skill body is the agent's instructions, never trimmed.
+            if (msg.metadata or {}).get("tool_name") in ("activate_skill", "read_skill_file"):
+                continue
+            if len(content) <= OLD_TOOL_RESULT_CHARS:
+                continue
+            clipped = msg.clone()
+            clipped.content = content[:OLD_TOOL_RESULT_CHARS] + "\n" + OLD_TOOL_RESULT_MARKER
+            conversation[i] = clipped
 
     def _tool_batch_signature(self, tool_calls: List[ToolCallPayload]) -> str:
         """Names and arguments of a batch of tool calls, to spot an agent repeating itself."""

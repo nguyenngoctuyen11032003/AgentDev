@@ -518,7 +518,9 @@ class CycleExecutor:
                         inner_cycle_id,
                         inner_cycle_nodes,
                         inner_initial_node,
-                        max_iterations=100,
+                        max_iterations=self.cycle_manager.cycles[inner_cycle_id].get_max_iterations()
+                        if inner_cycle_id in self.cycle_manager.cycles
+                        else 20,
                     )
 
                     if inner_external_nodes:

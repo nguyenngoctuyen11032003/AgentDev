@@ -436,3 +436,57 @@ def test_cli_timeout_gets_a_single_retry_not_the_full_policy():
     with pytest.raises(CliTimeoutError):
         ae.AgentNodeExecutor._execute_with_retry(fake_self, node, policy, always_times_out)
     assert calls["n"] == 1 + ae.MAX_CLI_TIMEOUT_RETRIES
+
+
+# ---- effort passthrough, Codex streaming/no flat 300 s kill, Gemini timeout ----
+
+def _cfg_params(**params):
+    return SimpleNamespace(base_url=None, api_key=None, name="m1", provider="x", params=params)
+
+
+def _codex_run(p):
+    def fake(cmd, **kw):
+        with open(cmd[cmd.index("-o") + 1], "w", encoding="utf-8") as fh:
+            fh.write("answer")
+        return _done()
+
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake) as run:
+        p.call_model(CliClient("codex"), _conv(), [])
+    return run
+
+
+def test_codex_effort_flag_and_unknown_value_omitted():
+    cmd = _codex_run(CodexCliProvider(_cfg_params(effort="High"))).call_args.args[0]
+    assert cmd[cmd.index("model_reasoning_effort=high") - 1] == "-c"
+    cmd = _codex_run(CodexCliProvider(_cfg_params(effort="turbo"))).call_args.args[0]
+    assert not any("model_reasoning_effort" in a for a in cmd)
+    cmd = _codex_run(CodexCliProvider(_cfg())).call_args.args[0]
+    assert not any("model_reasoning_effort" in a for a in cmd)
+
+
+def test_codex_non_native_streams_without_300s_kill():
+    kw = _codex_run(CodexCliProvider(_cfg())).call_args.kwargs
+    assert kw["timeout"] >= 1800  # backstop only
+    assert kw["on_stdout_line"] is not None and kw["idle_kill"] > 0  # idle watchdog on
+    assert _codex_run(CodexCliProvider(_cfg(timeout=90))).call_args.kwargs["timeout"] == 90
+
+
+def test_claude_effort_flag():
+    p = ClaudeCliProvider(_cfg_params(effort="low"))
+    fake, _ = _capture_claude(json.dumps({"type": "result", "result": "ok"}))
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake) as run:
+        p.call_model(CliClient("claude"), _conv(), [])
+    cmd = run.call_args.args[0]
+    assert cmd[cmd.index("--effort") + 1] == "low"
+    p = ClaudeCliProvider(_cfg_params(effort="bogus"))
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake) as run:
+        p.call_model(CliClient("claude"), _conv(), [])
+    assert "--effort" not in run.call_args.args[0]
+
+
+def test_gemini_http_timeout_configurable():
+    from agentdev.runtime.node.agent.providers.gemini_provider import GeminiProvider
+
+    assert GeminiProvider(_cfg_params(timeout=90))._http_timeout_ms() == 90_000
+    assert GeminiProvider(_cfg())._http_timeout_ms() == 600_000
+    assert GeminiProvider(_cfg_params(timeout="x"))._http_timeout_ms() == 600_000

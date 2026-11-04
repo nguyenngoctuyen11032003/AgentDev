@@ -1,6 +1,7 @@
 """Parallel execution helpers that eliminate duplicated code."""
 
 import concurrent.futures
+import threading
 
 from agentdev.utils.exceptions import WorkflowCancelledError
 from typing import Any, Callable, List, Tuple
@@ -23,7 +24,10 @@ class ParallelExecutor:
         """
         self.log_manager = log_manager
         self.nodes_dict = nodes_dict
-    
+        # Optional shared run-wide cancel signal (threading.Event): set on the first failure, checked before
+        # each item starts. Not wired by default.
+        self.cancel_event = None
+
     def execute_items_parallel(
         self,
         items: List[Any],
@@ -105,22 +109,50 @@ class ParallelExecutor:
         """
         self.log_manager.debug(f"Executing {len(items)} items in parallel")
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(items)) as executor:
-            futures = []
-            for item in items:
-                future = executor.submit(executor_func, item)
-                futures.append((item, future))
-            
-            # Wait for every future to finish
-            for item, future in futures:
+        # Fail fast: the first failure stops siblings that have not started yet, so they spend no tokens.
+        abort = threading.Event()
+
+        def guarded(item: Any) -> None:
+            if abort.is_set() or (self.cancel_event is not None and self.cancel_event.is_set()):
+                raise WorkflowCancelledError("Skipped: a parallel sibling failed")
+            executor_func(item)
+
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(items))
+        try:
+            future_items = {executor.submit(guarded, item): item for item in items}
+            real_error: BaseException | None = None
+            stop_error: BaseException | None = None
+            for future in concurrent.futures.as_completed(future_items):
+                item = future_items[future]
                 try:
                     future.result()
                     self.log_manager.debug(f"{item_desc_func(item)} completed successfully")
-                except WorkflowCancelledError:
-                    raise  # a user stop is not an error; don't log it as one
+                except concurrent.futures.CancelledError:
+                    continue
+                except WorkflowCancelledError as e:
+                    # a user stop is not an error; don't log it as one
+                    stop_error = stop_error or e
+                    abort.set()
+                    self._cancel_pending(future_items)
                 except Exception as e:
                     self.log_manager.error(f"{item_desc_func(item)} failed: {str(e)}")
-                    raise
+                    real_error = real_error or e
+                    abort.set()
+                    if self.cancel_event is not None:
+                        self.cancel_event.set()
+                    self._cancel_pending(future_items)
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
+        # A sibling skipped because of an earlier failure must not hide that failure.
+        if real_error is not None:
+            raise real_error
+        if stop_error is not None:
+            raise stop_error
+
+    @staticmethod
+    def _cancel_pending(future_items: dict) -> None:
+        for pending in future_items:
+            pending.cancel()
     
     def _execute_sequential_batch(
         self,
