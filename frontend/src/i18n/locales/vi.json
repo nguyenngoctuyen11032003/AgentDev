@@ -2576,6 +2576,7 @@
       "applied": "Đã áp dụng",
       "superseded": "Bản cũ — đã có bản mới hơn",
       "latest": "Bản mới nhất",
+      "earlier_turn": "Bản từ lượt trước — chưa gồm chỉnh sửa ở các tin sau",
       "version": "Bản {n}",
       "discarded": "Đã bỏ qua",
       "no_changes": "Sơ đồ không có thay đổi.",

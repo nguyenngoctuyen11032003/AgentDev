@@ -2576,6 +2576,7 @@
       "applied": "已应用",
       "superseded": "旧版本：已有更新的版本",
       "latest": "最新版本",
+      "earlier_turn": "来自之前的回合：未包含后续消息中的修改",
       "version": "版本 {n}",
       "discarded": "已忽略",
       "no_changes": "图没有变化。",

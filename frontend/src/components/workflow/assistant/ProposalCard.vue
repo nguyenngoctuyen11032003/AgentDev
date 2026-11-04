@@ -13,6 +13,7 @@
       <span v-else-if="conflicted" class="proposal-state">{{ $t('workflow_assistant.proposal.conflicted') }}</span>
       <span v-else-if="superseded" class="proposal-state old">{{ $t('workflow_assistant.proposal.superseded') }}</span>
       <span v-else-if="!active" class="proposal-state">{{ $t('workflow_assistant.proposal.discarded') }}</span>
+      <span v-else-if="earlierTurn" class="proposal-state old wide">{{ $t('workflow_assistant.proposal.earlier_turn') }}</span>
       <span v-else class="proposal-state latest">{{ $t('workflow_assistant.proposal.latest') }}</span>
     </header>
 
@@ -78,18 +79,28 @@
       <button type="button" class="btn-ghost" :disabled="busy" @click="emit('discard')">
         {{ $t('workflow_assistant.proposal.discard') }}
       </button>
+      <!-- A card from an earlier turn stays applicable (the user may want exactly it), but looks secondary. -->
       <button
         type="button"
-        :class="['btn-primary', { danger: confirming }]"
+        :class="[earlierTurn && !confirming ? 'btn-ghost' : 'btn-primary', { danger: confirming }]"
         :disabled="busy"
+        :title="earlierTurn ? $t('workflow_assistant.proposal.earlier_turn') : undefined"
         @click="onApply"
       >
         {{ applyLabel }}
       </button>
     </footer>
-    <!-- An older version: Apply stays visible but disabled, so it is clear this one cannot be saved. -->
+    <!-- An older version: Apply stays visible but unavailable, so it is clear this one cannot be saved.
+         aria-disabled (not disabled) keeps it focusable, so keyboard and screen-reader users get the reason. -->
     <footer v-else-if="superseded && !applied && !conflicted" class="proposal-actions">
-      <button type="button" class="btn-ghost btn-compact" disabled :title="$t('workflow_assistant.proposal.superseded')">
+      <button
+        type="button"
+        class="btn-ghost btn-compact"
+        aria-disabled="true"
+        :title="$t('workflow_assistant.proposal.superseded')"
+        :aria-description="$t('workflow_assistant.proposal.superseded')"
+        @click.prevent
+      >
         {{ $t('workflow_assistant.proposal.apply') }}
       </button>
     </footer>
@@ -122,6 +133,9 @@ const props = defineProps({
   applying: { type: Boolean, default: false },
   // This is the thread's pending proposal: Apply / Discard are offered.
   active: { type: Boolean, default: false },
+  // The pending proposal, but the assistant has answered again since (without a new card): it may not
+  // include what was said after it, so it is labelled "from an earlier turn" and Apply looks secondary.
+  earlierTurn: { type: Boolean, default: false },
   applied: { type: Boolean, default: false },
   // This applied proposal is the one Undo would revert: the card offers Undo too.
   canUndo: { type: Boolean, default: false }
@@ -357,6 +371,7 @@ const onApply = (event) => {
 
 .proposal-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -405,6 +420,11 @@ const onApply = (event) => {
 .proposal-state.old {
   color: var(--warn-soft-1);
   font-weight: 600;
+}
+
+/* A sentence, not a pill: its own line under the file name. */
+.proposal-state.wide {
+  flex-basis: 100%;
 }
 
 .proposal-version {
@@ -630,7 +650,7 @@ const onApply = (event) => {
   color: var(--text-1);
 }
 
-.btn-ghost:hover:not(:disabled) {
+.btn-ghost:hover:not(:disabled):not([aria-disabled="true"]) {
   background: rgb(var(--ink) / 0.06);
 }
 
@@ -658,7 +678,8 @@ const onApply = (event) => {
 }
 
 .btn-ghost:disabled,
-.btn-primary:disabled {
+.btn-primary:disabled,
+.btn-ghost[aria-disabled="true"] {
   opacity: 0.5;
   cursor: not-allowed;
 }

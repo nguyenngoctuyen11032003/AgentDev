@@ -94,6 +94,7 @@
               :applied="!!m.applied"
               :can-undo="!!m.applied && m.id === undoMessageId"
               :active="m.proposal === thread.pendingProposal"
+              :earlier-turn="m.proposal === thread.pendingProposal && answeredSince(index)"
               :busy="thread.status !== 'idle'"
               :applying="thread.status === 'applying'"
               @apply="emit('apply')"
@@ -312,6 +313,10 @@ const showQuickReplies = (m, index) =>
   index === thread.value.messages.length - 1 &&
   thread.value.status === 'idle' &&
   !thread.value.appliedSinceUserMessage
+
+// The assistant has replied again after this message (a turn without a new card can still have
+// changed what was agreed, so the pending card may not include it).
+const answeredSince = (index) => thread.value.messages.slice(index + 1).some((m) => m.role === 'assistant')
 
 const canRetry = computed(() => !!vendor.value && thread.value.status === 'idle')
 

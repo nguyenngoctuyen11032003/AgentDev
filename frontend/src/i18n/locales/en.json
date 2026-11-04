@@ -2576,6 +2576,7 @@
       "applied": "Applied",
       "superseded": "Old version: a newer one exists",
       "latest": "Latest version",
+      "earlier_turn": "From an earlier turn: does not include changes discussed in later messages",
       "version": "Version {n}",
       "discarded": "Discarded",
       "no_changes": "No changes to the graph.",
