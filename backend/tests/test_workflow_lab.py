@@ -90,10 +90,13 @@ def test_static_check_data_rejects_non_mapping():
 
 
 def test_runner_aggregates_and_verdict():
-    answers = iter(["ok", "ok", "bad", "ok"])
+    # Scenarios run in a thread pool: derive the answer from the scenario and its own call count (a's 2nd run is bad).
+    seen = {"a": 0, "b": 0}
 
     def run_once(path, scenario, cancel):
-        return {"answer": next(answers), "tokens": 10, "cost_usd": 0.01, "questions": []}
+        seen[scenario.prompt] += 1
+        bad = scenario.prompt == "a" and seen["a"] == 2
+        return {"answer": "bad" if bad else "ok", "tokens": 10, "cost_usd": 0.01, "questions": []}
 
     def judge(prompt, criteria, answer, questions):
         return {"pass": answer == "ok", "score": 9, "reason": ""}

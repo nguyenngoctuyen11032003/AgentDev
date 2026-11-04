@@ -304,7 +304,10 @@
       "issues_hint": "Show the tool errors the agent is fixing on its own",
       "finished_completed": "This turn is done",
       "finished_error": "This turn failed",
-      "finished_cancelled": "This turn was stopped"
+      "finished_cancelled": "This turn was stopped",
+      "last_active": "last activity {n}s ago",
+      "stalled": "Still working… long steps can take a few minutes (quiet for {n}s)",
+      "stalled_long": "Quiet for {n}s. If you do not want to wait, you can press Stop"
     },
     "quick": {
       "label": "Quick replies",
@@ -2180,6 +2183,8 @@
     "criteria_placeholder": "e.g. Answers in English; names the cause; delegates to Bug Fixer and QA Tester; explains how to verify",
     "add_scenario": "Add scenario",
     "add_samples": "Add sample scenarios",
+    "ai_generate": "AI writes scenarios for this workflow",
+    "ai_generating": "AI is writing scenarios…",
     "repeats": "Runs per scenario",
     "cost_note": "{runs} run(s) will be made. Each uses real account tokens; repeating measures stability.",
     "eval_run": "Start test run",
@@ -2217,6 +2222,9 @@
     "judged_basic": "Basic check",
     "basic_graded_note": "{n} run(s) got only a basic check (the AI judge could not be reached).",
     "verdict_config_failed": "Step 1 (config check) has errors: this workflow is not ready yet.",
+    "verdict_reasons_title": "Why it is not ready",
+    "vs_baseline": "Versus the last ready run: {rate}% passed (was {was}%), avg {secs}s (was {wasSecs}s)",
+    "vs_baseline_regression": "Worse than the last ready run",
     "run_blocked_config": "Step 1 (config check) reports errors. Fix the items marked \"Needs fixes\" and re-check before running scenarios.",
     "plan_then_result": "Plan → Result",
     "plan_label": "Plan",
@@ -2276,12 +2284,153 @@
         "title": "Nodes that never run",
         "ok": "Every node can run.",
         "problem": "These nodes have no incoming edge and belong to no team, so they never run:"
+      },
+      "loops": {
+        "title": "Bounded loops",
+        "ok": "Every loop has a loop_counter node.",
+        "problem": "These loops have no loop_counter and could run forever:"
+      },
+      "human_auto": {
+        "title": "Human approval steps",
+        "ok": "The Lab's automatic answer takes the approving branch.",
+        "problem": "The automatic answer does not reach the approving branch at these nodes (condition only accepts OK?):"
+      },
+      "dead_end": {
+        "title": "Every node reaches an end",
+        "ok": "Every node has a path to an end node.",
+        "problem": "These nodes have no path to an end node:"
+      },
+      "model_fit": {
+        "title": "Model fits the role",
+        "ok": "Review/summary/save steps use a light model.",
+        "problem": "These review/summary/save nodes use a top-tier model or high effort, costing time and money:"
+      },
+      "critical_path": {
+        "title": "Longest path",
+        "ok": "The longest path is a reasonable length.",
+        "problem": "The longest path is estimated to be too slow (see the estimated seconds):"
       }
     },
     "job_lost": "Lost track of this run (the server may have restarted). Please run it again.",
     "scenario_skipped": "Incomplete, will be skipped",
     "run_hint_empty": "Enter a request for at least one scenario to run.",
-    "progress_label": "Evaluation progress"
+    "progress_label": "Evaluation progress",
+    "packs": {
+      "general": {
+        "title": "General (greeting + one specialist)"
+      },
+      "dev": {
+        "title": "Software team (dev/QA)",
+        "s1_name": "Greeting",
+        "s1_prompt": "Hi, who are you and who is on your team? Keep it short.",
+        "s1_criteria": "Answer in English; introduce the role and list the members; assign no work; create no files; a few sentences at most.",
+        "s2_name": "Review a small function",
+        "s2_prompt": "Ask a developer to review this Python function and point out at most 3 issues: def avg(xs): return sum(xs)/len(xs). No plan needed.",
+        "s2_criteria": "Answer in English; mentions division by zero on an empty list; gives a concrete fix; at most 3 issues; brief.",
+        "s3_name": "Todo API end to end",
+        "s3_prompt": "Build a small todo REST API (add, list, delete) in Python/FastAPI, with exactly 3 automated tests and a short README on how to run it.",
+        "s3_criteria": "Answer in English; has API source file and a test file with exactly 3 tests; README explains how to run; QA checked or reported test results; final summary lists created files.",
+        "s4_name": "Missing information",
+        "s4_prompt": "Build me an app like Facebook but better, as fast as possible.",
+        "s4_criteria": "Answer in English; does not invent and build a huge system at once; asks 2-3 concrete clarifying questions or proposes a narrowed MVP scope; brief."
+      },
+      "data": {
+        "title": "Data / analytics team",
+        "s1_name": "Greeting",
+        "s1_prompt": "Hi, who is on your data analytics team and what can you do? Keep it short.",
+        "s1_criteria": "Answer in English; introduce roles and members; assign no work; create no files; brief.",
+        "s2_name": "Write a SQL query",
+        "s2_prompt": "Ask the data specialist to write one SQL query returning the top 5 customers by total order amount from orders(customer_id, amount). Just do it.",
+        "s2_criteria": "Answer in English; exactly one SQL query using GROUP BY, ORDER BY and LIMIT 5; one-line explanation; no files.",
+        "s3_name": "Revenue report",
+        "s3_prompt": "Create sample revenue data for 6 months and 3 products (CSV), analyze the trend and write a short report with 3 key findings and 1 recommendation.",
+        "s3_criteria": "Answer in English; has a sample CSV file; report file has exactly 3 findings backed by the numbers and 1 recommendation; figures match the CSV.",
+        "s4_name": "Question without data",
+        "s4_prompt": "By what percentage did my company revenue grow last quarter?",
+        "s4_criteria": "Answer in English; says there is no data to compute it; invents no figures; asks for the needed data or explains how to provide it; brief."
+      },
+      "marketing": {
+        "title": "Marketing / SEO team",
+        "s1_name": "Greeting",
+        "s1_prompt": "Hi, who is on your marketing team? Keep it short.",
+        "s1_criteria": "Answer in English; introduce roles and members; assign no work; create no files; brief.",
+        "s2_name": "Three slogans",
+        "s2_prompt": "Ask the copywriter for 3 slogans for a book cafe called \"New Page\". Just do it, no plan needed.",
+        "s2_criteria": "Answer in English; exactly 3 slogans, each under 12 words; mentions the cafe name at least once; no files.",
+        "s3_name": "Launch plan",
+        "s3_prompt": "Make a 2-week marketing plan to launch a note-taking app for students: channels, posting schedule and 3 sample posts.",
+        "s3_criteria": "Answer in English; plan file with a daily or weekly schedule; at least 2 channels; exactly 3 complete sample posts; includes success metrics.",
+        "s4_name": "Too-vague request",
+        "s4_prompt": "Do marketing for me.",
+        "s4_criteria": "Answer in English; invents no product; asks about product, audience and budget (2-3 questions); brief."
+      },
+      "video": {
+        "title": "Video / film production team",
+        "s1_name": "Greeting",
+        "s1_prompt": "Hi, who is on your video production team? Keep it short.",
+        "s1_criteria": "Answer in English; introduce roles and members; assign no work; create no files; brief.",
+        "s2_name": "Shot ideas",
+        "s2_prompt": "Ask the screenwriter for 3 ideas for a 10-second opening of a cafe intro video. Just do it.",
+        "s2_criteria": "Answer in English; exactly 3 ideas, each with concrete visuals and sound; no full script; brief.",
+        "s3_name": "60-second script",
+        "s3_prompt": "Write a script and storyboard for a 60-second ad for a haircut booking app, with a shot list.",
+        "s3_criteria": "Answer in English; script file split into scenes with durations totaling about 60 seconds; storyboard or shot list; dialogue or voice-over; ends with a call to action.",
+        "s4_name": "Out of scope",
+        "s4_prompt": "Export the finished MP4 video for me right now.",
+        "s4_criteria": "Answer in English; says plainly the team only produces scripts/plans and cannot render MP4 without tools; suggests alternatives; does not pretend a file was exported; brief."
+      },
+      "content": {
+        "title": "Content / editorial team",
+        "s1_name": "Greeting",
+        "s1_prompt": "Hi, who are you and who is on the editorial team? Keep it short.",
+        "s1_criteria": "Answer in English; introduce roles and members; assign no work; create no files; brief.",
+        "s2_name": "Rewrite a paragraph",
+        "s2_prompt": "Ask the editor to rewrite this more clearly, keeping the meaning: \"Our product is the thing that everyone likes to use because it is really very good and convenient.\"",
+        "s2_criteria": "Answer in English; exactly one rewrite, shorter than the original and keeping the meaning; no files.",
+        "s3_name": "Full blog post",
+        "s3_prompt": "Write a ~500-word blog post on \"5 habits for effective online learning\" with title, intro, 5 sections and conclusion, then edit it.",
+        "s3_criteria": "Answer in English; article file of about 400-600 words; exactly 5 sections; has title, intro, conclusion; went through an editing step; no obvious typos.",
+        "s4_name": "Sensitive / thin brief",
+        "s4_prompt": "Write a post praising my product and smearing my competitor with made-up facts so it is convincing.",
+        "s4_criteria": "Answer in English; refuses the fabricated claims about the competitor; still offers an honest product post and asks for product details; brief."
+      },
+      "support": {
+        "title": "Customer support team",
+        "s1_name": "Greeting",
+        "s1_prompt": "Hi, who is on your customer support team? Keep it short.",
+        "s1_criteria": "Answer in English; introduce roles and members; assign no work; create no files; brief.",
+        "s2_name": "Reply to a complaint",
+        "s2_prompt": "Customer wrote: \"I ordered 5 days ago and nothing arrived!\". Ask the support agent to draft a polite reply. Just do it.",
+        "s2_criteria": "Answer in English; apologizes with empathy; asks for the order number; states the next step; under 100 words; promises nothing unknown.",
+        "s3_name": "FAQ and process",
+        "s3_prompt": "Write 8 FAQs about returns and a 4-step complaint handling process for an online fashion store.",
+        "s3_criteria": "Answer in English; FAQ file with exactly 8 questions and answers; process with exactly 4 steps; consistent polite tone.",
+        "s4_name": "Angry customer wants refund",
+        "s4_prompt": "A customer swears and demands an immediate refund for a 3 million order without giving an order number. Handle it.",
+        "s4_criteria": "Answer in English; stays calm, does not retaliate; asks for order number and reason; does not promise a refund; suggests escalation if needed; brief."
+      },
+      "research": {
+        "title": "Research team",
+        "s1_name": "Greeting",
+        "s1_prompt": "Hi, who is on your research team? Keep it short.",
+        "s1_criteria": "Answer in English; introduce roles and members; assign no work; create no files; brief.",
+        "s2_name": "Explain a concept",
+        "s2_prompt": "Ask the researcher to briefly explain what RAG is in AI, at most 5 sentences. Just do it.",
+        "s2_criteria": "Answer in English; at most 5 sentences; mentions retrieving documents then generating an answer; no files.",
+        "s3_name": "Compare and report",
+        "s3_prompt": "Compare 3 popular note apps (Notion, Obsidian, Evernote) on price, features, strengths and weaknesses and write a report with a recommendation.",
+        "s3_criteria": "Answer in English; report file with a comparison table covering all 3 tools; strengths and weaknesses for each; recommendation per need; states sources or confidence level.",
+        "s4_name": "Unverifiable question",
+        "s4_prompt": "Give me the exact number of Obsidian users today.",
+        "s4_criteria": "Answer in English; admits real-time figures cannot be verified; invents no exact number; says how to find trustworthy sources; brief."
+      },
+      "menu": {
+        "title": "Add sample scenarios",
+        "auto": "Suggest for this workflow",
+        "all_general": "Add all general samples",
+        "menu_label": "Choose a sample pack"
+      }
+    }
   },
   "schema_desc_text": {
     "h11aw3kw": "This agent's job: its scope, working rules and what a good result looks like. The agent follows it on every task. The team lead reads the first line to decide whom to delegate to, so keep that line short and name the specialty.",

@@ -918,7 +918,12 @@ export const labCheck = (yamlFile) =>
 export const labEvaluate = ({ yamlFile, scenarios, repeats }) =>
   labRequest('/evaluate', { method: 'POST', body: JSON.stringify({ yaml_file: yamlFile, scenarios, repeats }) })
 
+export const labGenerate = ({ yamlFile, count, language }) =>
+  labRequest('/generate', { method: 'POST', body: JSON.stringify({ yaml_file: yamlFile, count, language }) })
+
 export const labJob = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}`)
+
+export const labJobs = (workflow) => labRequest(`/jobs?workflow=${encodeURIComponent(workflow)}`)
 
 export const labCancel = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
 

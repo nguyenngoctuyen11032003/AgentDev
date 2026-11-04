@@ -32,6 +32,8 @@ class ScenarioIn(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=20_000)
     criteria: str = Field("", max_length=5_000)
     name: str = Field("", max_length=120)
+    max_seconds: Optional[int] = Field(None, ge=10, le=3600)
+    max_tokens: Optional[int] = Field(None, ge=1000, le=2_000_000)
 
 
 class EvaluateRequest(BaseModel):
@@ -65,7 +67,8 @@ def check(payload: CheckRequest):
 @router.post("/evaluate", status_code=202)
 def evaluate(payload: EvaluateRequest):
     name, path = _workflow_path(payload.yaml_file)
-    scenarios = [Scenario(prompt=s.prompt.strip(), criteria=s.criteria.strip(), name=s.name.strip())
+    scenarios = [Scenario(prompt=s.prompt.strip(), criteria=s.criteria.strip(), name=s.name.strip(),
+                          max_seconds=s.max_seconds, max_tokens=s.max_tokens)
                  for s in payload.scenarios if s.prompt.strip()]
     if not scenarios:
         raise HTTPException(status_code=400, detail="Add at least one test scenario")
@@ -78,6 +81,14 @@ def evaluate(payload: EvaluateRequest):
         config_status = ""
     job = get_lab_runner().start(path, name, scenarios, repeats, config_status=config_status)
     return job.to_dict()
+
+
+@router.get("/jobs")
+def list_jobs(workflow: str, limit: int = 20):
+    name = (workflow or "").strip()
+    if name and not name.endswith((".yaml", ".yml")):
+        name += ".yaml"
+    return {"workflow": name, "jobs": get_lab_runner().list_jobs(name, max(1, min(limit, 100)))}
 
 
 @router.get("/jobs/{job_id}")
@@ -94,3 +105,20 @@ def cancel(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Lab run not found")
     return job.to_dict()
+
+
+class GenerateRequest(BaseModel):
+    yaml_file: str
+    count: int = 4
+    language: str = Field("Vietnamese", max_length=40)
+
+
+@router.post("/generate")
+def generate(payload: GenerateRequest):
+    from agentdev.api.services.workflow_lab import generate_scenarios
+
+    _, path = _workflow_path(payload.yaml_file)
+    try:
+        return {"scenarios": generate_scenarios(path, payload.count, payload.language)}
+    except Exception as exc:  # noqa: BLE001 - shown to the user as a retryable message
+        raise HTTPException(status_code=502, detail=str(exc) or exc.__class__.__name__) from exc
