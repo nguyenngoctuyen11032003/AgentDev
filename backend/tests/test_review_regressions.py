@@ -174,3 +174,70 @@ def test_session_reuse_off_allows_clipping():
     prov = ClaudeCliProvider.__new__(ClaudeCliProvider)
     prov.params = {"session_reuse": False}
     assert prov.keeps_tool_history(["spec"]) is False
+
+
+# --- 5. a loop that never exits must fail the run, not report success --------------------------
+
+def test_endless_cycle_fails_instead_of_reporting_success(tmp_path, monkeypatch):
+    import pytest
+
+    from agentdev.runtime import sdk
+    from agentdev.utils.exceptions import WorkflowExecutionError
+
+    monkeypatch.chdir(tmp_path)
+    regex = r"^(?!\s*ok)"
+    flow = tmp_path / "endless.yaml"
+    flow.write_text(
+        "version: 0.4.0\n"
+        "graph:\n"
+        "  id: endless\n"
+        "  start: [Maker]\n"
+        "  end: [Done]\n"
+        "  nodes:\n"
+        "    - {id: Maker, type: literal, config: {content: draft, role: assistant}}\n"
+        "    - {id: Judge, type: literal, config: {content: please revise, role: user}}\n"
+        "    - {id: Done, type: literal, config: {content: finished, role: assistant}}\n"
+        "  edges:\n"
+        "    - {from: Maker, to: Judge}\n"
+        f"    - {{from: Judge, to: Maker, condition: {{type: keyword, config: {{regex: ['{regex}'], case_sensitive: false}}}}}}\n"
+        "    - {from: Judge, to: Done, condition: {type: keyword, config: {regex: ['^\s*ok'], case_sensitive: false}}}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(WorkflowExecutionError):
+        sdk.run_workflow(flow, task_prompt="t", session_name="endless")
+
+
+# --- 6. a CLI call that never finished still reports what it spent ---------------------------
+
+def test_stream_reader_counts_usage_of_an_unfinished_call():
+    from agentdev.runtime.node.agent.providers._native import ClaudeStreamReader
+
+    reader = ClaudeStreamReader(None)
+    first = {"id": "m1", "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100}}
+    reader.feed({"type": "assistant", "message": {**first, "content": []}})
+    # the CLI repeats a message while it streams: the latest figures replace the earlier ones
+    reader.feed({"type": "assistant", "message": {"id": "m1", "usage": {"input_tokens": 10, "output_tokens": 9,
+                                                                         "cache_read_input_tokens": 100}, "content": []}})
+    reader.feed({"type": "assistant", "message": {"id": "m2", "usage": {"input_tokens": 3, "output_tokens": 4}, "content": []}})
+    usage = reader.partial_usage()
+    assert usage["input_tokens"] == 13 and usage["output_tokens"] == 13 and usage["cache_read_input_tokens"] == 100
+    assert reader.result is None  # it never reached the final result event
+
+
+def test_failed_lab_run_keeps_its_elapsed_time(tmp_path):
+    from agentdev.api.services import workflow_lab
+
+    scenario = workflow_lab.Scenario(prompt="x", criteria="", name="s") if hasattr(workflow_lab, "Scenario") else None
+    assert scenario is not None
+
+    def boom(*_args, **_kwargs):
+        raise ValueError("model failed")
+
+    yaml_path = tmp_path / "wf.yaml"
+    yaml_path.write_text("version: 0.4.0\n", encoding="utf-8")
+    try:
+        workflow_lab._run_once(yaml_path, scenario, __import__("threading").Event(), run_turn=boom)
+    except ValueError as exc:
+        assert getattr(exc, "lab_seconds", None) is not None
+    else:
+        raise AssertionError("the run should have failed")

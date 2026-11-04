@@ -9,6 +9,7 @@ language of the message it receives).
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -25,9 +26,24 @@ SIMPLE_TOKENS = 40_000
 LONG_TOKENS = 150_000
 
 
+# A short request that asks for work to be DONE ("Viết app todo bằng React") is real work, not a greeting:
+# length alone must not give it the tight greeting budget.
+_WORK_REQUEST = re.compile(
+    r"\b(viết|tạo|xây|làm|sửa|fix|thiết kế|lập|dựng|triển khai|phát triển|build|create|write|implement|develop|design|"
+    r"generate|refactor|app|website|video|api|plan)\b|写|创建|开发|修复|设计",
+    re.IGNORECASE,
+)
+
+
+def is_simple_prompt(prompt: str) -> bool:
+    """Greeting-like or a plain question: short AND not asking for a deliverable."""
+    text = (prompt or "").strip()
+    return len(text) <= SIMPLE_PROMPT_CHARS and not _WORK_REQUEST.search(text)
+
+
 def run_budget(prompt: str, max_seconds: Optional[int] = None, max_tokens: Optional[int] = None) -> Dict[str, int]:
     """Seconds/tokens one run may use: tight for greeting-like prompts, wider for real work; per-scenario overrides win."""
-    simple = len((prompt or "").strip()) <= SIMPLE_PROMPT_CHARS
+    simple = is_simple_prompt(prompt)
     return {
         "seconds": int(max_seconds or (SLOW_SECONDS if simple else LONG_SECONDS)),
         "tokens": int(max_tokens or (SIMPLE_TOKENS if simple else LONG_TOKENS)),
@@ -219,7 +235,7 @@ def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
         })
 
     # A short prompt with an explicit larger budget (scenario max_seconds / long-task budget) is real work.
-    simple = len(prompt.strip()) <= SIMPLE_PROMPT_CHARS and budget["seconds"] <= SLOW_SECONDS
+    simple = is_simple_prompt(prompt) and budget["seconds"] <= SLOW_SECONDS
     if simple and len(agents) > SIMPLE_MAX_AGENTS:
         findings.append({
             "code": "overkill",
@@ -298,7 +314,7 @@ def compare_baseline(current: Dict[str, Any], baseline: Optional[Dict[str, Any]]
         return {}
     flags: Dict[str, Any] = {}
     cur_rate, old_rate = current.get("pass_rate"), baseline.get("pass_rate")
-    if cur_rate is not None and old_rate is not None and old_rate - cur_rate > 0.10:
+    if cur_rate is not None and old_rate is not None and round(old_rate - cur_rate, 4) > 0.10:
         flags["pass_rate"] = {"was": old_rate, "now": cur_rate}
     now, was = current.get("avg_seconds"), baseline.get("avg_seconds")
     if now is not None and was and now > was * 1.3:

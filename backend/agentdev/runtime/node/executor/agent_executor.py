@@ -89,6 +89,7 @@ from concurrent.futures import CancelledError as FutureCancelledError, ThreadPoo
 
 # Extra attempts for a CLI call that ran into its timeout (see _execute_with_retry).
 MAX_CLI_TIMEOUT_RETRIES = 1
+LONG_CLI_CALL_SECONDS = 600  # a CLI timeout longer than this is not retried
 # A native agent's failing built-in tool is shown in the chat only at this many failures in a row.
 NATIVE_REPEATED_FAILURES = 3
 
@@ -794,6 +795,10 @@ class AgentNodeExecutor(NodeExecutor):
             if is_exhaustion_error(exc) or not retry_config.should_retry(exc):
                 return False
             if isinstance(exc, CliTimeoutError):
+                # A call that already ran for many minutes (a native agent: up to 30) is not redone from
+                # scratch: its files are on disk and a retry would double the wait and the spend.
+                if (getattr(exc, "timeout_seconds", 0) or 0) > LONG_CLI_CALL_SECONDS:
+                    return False
                 timeouts_seen["count"] += 1
                 return timeouts_seen["count"] <= MAX_CLI_TIMEOUT_RETRIES
             return True

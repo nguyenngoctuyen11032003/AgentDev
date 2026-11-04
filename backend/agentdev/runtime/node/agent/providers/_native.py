@@ -135,6 +135,19 @@ class ClaudeStreamReader:
         self.result: Optional[Dict[str, Any]] = None
         self.changed: List[str] = []
         self._pending: Dict[str, Dict[str, Any]] = {}
+        self._message_usage: Dict[str, Dict[str, Any]] = {}
+
+    def partial_usage(self) -> Dict[str, int]:
+        """Token usage seen so far, from the assistant events: what a call that never reached its final
+        ``result`` event (timeout, kill, cancel) still spent. One entry per message id (the CLI repeats it)."""
+        total = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        for usage in self._message_usage.values():
+            for key in total:
+                try:
+                    total[key] += int(usage.get(key) or 0)
+                except (TypeError, ValueError):
+                    pass
+        return total
 
     def feed(self, event: Dict[str, Any]) -> None:
         native = self.native
@@ -143,6 +156,8 @@ class ClaudeStreamReader:
             self.result = event
             return
         message = event.get("message")
+        if kind == "assistant" and isinstance(message, dict) and isinstance(message.get("usage"), dict):
+            self._message_usage[str(message.get("id") or len(self._message_usage))] = message["usage"]
         content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, list):
             return

@@ -204,8 +204,42 @@ def test_output_manifest_lists_files_and_skips_binaries(tmp_path):
 def test_rubric_requires_score_seven():
     assert workflow_lab._rubric_pass({"pass": True, "score": 8})
     assert not workflow_lab._rubric_pass({"pass": True, "score": 6})
-    assert workflow_lab._rubric_pass({"pass": True})
     assert not workflow_lab._rubric_pass({"pass": "yes", "score": 9})
+
+
+def test_rubric_rejects_missing_or_unusable_score():
+    # A lenient judge must not wave a result through without a real score.
+    assert not workflow_lab._rubric_pass({"pass": True})
+    assert not workflow_lab._rubric_pass({"pass": True, "score": "N/A"})
+    assert not workflow_lab._rubric_pass({"pass": True, "score": "seven"})
+    assert workflow_lab._rubric_pass({"pass": True, "score": "8/10"})
+
+
+def test_borderline_reads_string_scores_like_rubric():
+    assert workflow_lab._borderline({"score": "7/10"})
+    assert not workflow_lab._borderline({"score": "N/A"})
+    assert not workflow_lab._borderline({"score": 9})
+
+
+def test_judge_skips_the_model_when_nothing_was_produced():
+    verdict = workflow_lab._judge("viết app", "", "   ", [], output_dir=None)
+    assert verdict["pass"] is False and verdict["score"] == 0
+
+
+def test_short_work_request_is_not_a_greeting():
+    from agentdev.api.services import lab_diagnosis
+
+    assert not lab_diagnosis.is_simple_prompt("Viết một app todo bằng React có đăng nhập")
+    assert lab_diagnosis.is_simple_prompt("Xin chào")
+    assert lab_diagnosis.run_budget("Viết một app todo bằng React")["seconds"] == lab_diagnosis.LONG_SECONDS
+
+
+def test_baseline_drop_ignores_float_noise():
+    from agentdev.api.services import lab_diagnosis
+
+    flags = lab_diagnosis.compare_baseline({"pass_rate": 0.8}, {"pass_rate": 0.9})
+    assert "pass_rate" not in flags  # exactly 10 points is not a regression
+    assert "pass_rate" in lab_diagnosis.compare_baseline({"pass_rate": 0.7}, {"pass_rate": 0.8 + 0.01})
 
 
 def test_parallel_runs_keep_stable_order_and_cancel():
@@ -298,3 +332,14 @@ def test_concurrent_saves_of_one_job_do_not_collide(tmp_path, monkeypatch):
     assert len(set(replaced)) == len(replaced) - 1  # unique temp file per write (one retried)
     assert sorted(p.name for p in store.iterdir()) == ["abcdef123456.json"]  # no temp file left behind
     assert runner.get("abcdef123456") is not None
+
+
+def test_job_list_does_not_mark_a_live_job_as_interrupted(tmp_path):
+    import json
+
+    snapshot = {"id": "aaaaaaaaaaaa", "workflow": "wf.yaml", "status": "running", "started_at": 1}
+    (tmp_path / "aaaaaaaaaaaa.json").write_text(json.dumps(snapshot), encoding="utf-8")
+    gone = workflow_lab.list_stored_jobs(tmp_path, "wf.yaml")
+    live = workflow_lab.list_stored_jobs(tmp_path, "wf.yaml", live_ids=frozenset({"aaaaaaaaaaaa"}))
+    assert gone[0]["status"] == "error"  # nobody holds it: the server restarted
+    assert live[0]["status"] == "running"

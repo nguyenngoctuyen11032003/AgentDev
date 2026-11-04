@@ -87,6 +87,17 @@ def _analyze_graph(graph: Dict[str, Any], base_path: str, errors: List[str]) -> 
                 f"{base_path}: graph lacks a unique natural end; specify 'end' explicitly"
             )
 
+    # continue_on_error sends a "step failed" note downstream; a keyword/function edge could read that note as a
+    # decision (e.g. the "revise" branch of a gate), so such a node may only have unconditional outgoing edges.
+    soft = {n.get("id") for n in graph.get("nodes", []) or [] if isinstance(n, dict) and n.get("continue_on_error")}
+    for e in _edge_list(graph):
+        cond = e.get("condition", "true")
+        if e.get("from") in soft and cond not in (None, "true", True):
+            errors.append(
+                f"{base_path}: node '{e.get('from')}' has continue_on_error, so its edge to '{e.get('to')}' cannot have "
+                "a condition (a failure note would be read as a decision)"
+            )
+
     # Recurse into subgraphs
     for i, n in enumerate(graph.get("nodes", []) or []):
         if isinstance(n, dict) and n.get("type") == "subgraph":

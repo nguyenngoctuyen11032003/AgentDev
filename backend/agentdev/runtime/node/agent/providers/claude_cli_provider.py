@@ -403,12 +403,18 @@ class ClaudeCliProvider(ModelProvider):
             if section:
                 prompt = prompt + chr(10) * 2 + section
             optional = [flag for group in _NATIVE_OPTIONAL_FLAGS for flag in group]
-            proc, live = self._run_native_cli(base + optional, prompt, timeout, native)
-            if proc.returncode != 0 and "unknown option" in (proc.stderr or "").lower():
-                logger.warning("claude CLI rejected native-mode hardening flags; retrying without them: %s",
-                               trim(proc.stderr or "", 200))
-                live.abort()
-                proc, live = self._run_native_cli(base, prompt, timeout, native)
+            try:
+                proc, live = self._run_native_cli(base + optional, prompt, timeout, native)
+                if proc.returncode != 0 and "unknown option" in (proc.stderr or "").lower():
+                    logger.warning("claude CLI rejected native-mode hardening flags; retrying without them: %s",
+                                   trim(proc.stderr or "", 200))
+                    live.abort()
+                    proc, live = self._run_native_cli(base, prompt, timeout, native)
+            except BaseException as exc:
+                partial = getattr(exc, "partial_usage", None)
+                if partial and any(partial.values()):
+                    record_token_usage(self, {"usage": partial}, "claude_cli")
+                raise
         out, err = proc.stdout or "", proc.stderr or ""
         # Tool calls were reported live while the CLI ran; finish() reports any it did not see yet. The
         # result and changed files come from the whole output, exactly as before.
@@ -445,7 +451,13 @@ class ClaudeCliProvider(ModelProvider):
         live = LiveEvents(ClaudeStreamReader(native))
         try:
             return run_cli(cmd, prompt, timeout, "claude", native.workspace, on_line=live.push), live
-        except BaseException:
+        except BaseException as exc:
+            # The call never produced its final result (timeout, kill, cancel) but still spent tokens: hand
+            # what the stream showed to the caller, which records it.
+            try:
+                exc.partial_usage = live.reader.partial_usage()  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001
+                pass
             live.abort()
             raise
 

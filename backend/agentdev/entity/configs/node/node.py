@@ -85,6 +85,8 @@ class Node(BaseConfig):
     mascot: int | None = None
     # keep_context: bool = False
     log_output: bool = True
+    # When true, a failure of this node does not stop the run: its successors get a short failure note instead.
+    continue_on_error: bool = False
     context_window: int = 0
     vars: Dict[str, Any] = field(default_factory=dict)
     config: BaseConfig | None = None
@@ -155,6 +157,18 @@ class Node(BaseConfig):
             advance=True,
             description="Whether to log this node's output content. Set to false to avoid logging outputs.",
         ),
+        "continue_on_error": ConfigFieldSpec(
+            name="continue_on_error",
+            display_name="Continue On Error",
+            type_hint="bool",
+            required=False,
+            default=False,
+            advance=True,
+            description="If this step fails, keep the run going and pass a short failure note to the next steps "
+                        "instead of stopping. Use it for optional side steps whose result is not essential; "
+                        "its outgoing edges must have no condition. Cancelling the run, the run budget and "
+                        "security errors still stop it.",
+        ),
         "config": ConfigFieldSpec(
             name="config",
             display_name="Node Configuration",
@@ -209,6 +223,9 @@ class Node(BaseConfig):
         mascot = _parse_mascot(mapping.get("mascot"), extend_path(path, "mascot"))
         # keep_context = bool(mapping.get("keep_context", False))
         log_output = bool(mapping.get("log_output", True))
+        continue_on_error = mapping.get("continue_on_error", False)
+        if not isinstance(continue_on_error, bool):
+            raise ConfigError("continue_on_error must be true or false", extend_path(path, "continue_on_error"))
         context_window = int(mapping.get("context_window", 0))
         input_value = ensure_list(mapping.get("input"))
         output_value = ensure_list(mapping.get("output"))
@@ -247,6 +264,7 @@ class Node(BaseConfig):
             description=description,
             mascot=mascot,
             log_output=log_output,
+            continue_on_error=continue_on_error,
             input=input_messages,
             output=formatted_output,
             # keep_context=keep_context,

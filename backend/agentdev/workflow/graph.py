@@ -22,6 +22,8 @@ from agentdev.entity.messages import Message, MessageRole
 from agentdev.runtime.node.executor.base import ExecutionContext
 from agentdev.runtime.node.executor.factory import NodeExecutorFactory
 from agentdev.utils.logger import WorkflowLogger
+from agentdev.utils.token_tracker import BudgetExceededError
+from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled
 from agentdev.utils.exceptions import ValidationError, WorkflowExecutionError, WorkflowCancelledError, SecurityError
 from agentdev.utils.structured_logger import get_server_logger
 from agentdev.utils.human_prompt import (
@@ -56,6 +58,22 @@ from agentdev.workflow.executor.dynamic_edge_executor import DynamicEdgeExecutor
 # ------------------------------------------------------------------
 #  Executor class (includes all Memory and Thinking logic)
 # ------------------------------------------------------------------
+
+# Errors that end the run even on a continue_on_error node: the person stopped it, the run budget is spent, or
+# a security rule was hit. Skipping them would hide exactly what must stop everything.
+_ALWAYS_STOP_ERRORS = (WorkflowCancelledError, CliCancelled, BudgetExceededError, SecurityError)
+
+
+def _must_stop(exc: BaseException) -> bool:
+    """True when ``exc`` or anything it wraps is one of ``_ALWAYS_STOP_ERRORS`` (executors wrap model errors)."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        if isinstance(exc, _ALWAYS_STOP_ERRORS):
+            return True
+        seen.add(id(exc))
+        exc = exc.__cause__ or exc.__context__
+    return False
+
 
 class ExecutionError(RuntimeError):
     """Raised when the workflow graph cannot be executed."""
@@ -603,15 +621,28 @@ class GraphExecutor:
         started = time.perf_counter()
         status = "ok"
         try:
-            self._execute_node_inner(node)
+            if self._execute_node_inner(node):
+                status = "error"  # failed, the run went on (continue_on_error): never shown as ok
         except BaseException:
             status = "error"
             raise
         finally:
             tracker.record_node_run(node.id, (time.perf_counter() - started) * 1000.0, status, start_ts)
 
-    def _execute_node_inner(self, node: Node) -> None:
-        """Execute a single node."""
+    def _soft_failure_message(self, node: Node, exc: Exception) -> Message:
+        """What the next steps get when a ``continue_on_error`` node fails: a plain note, marked in metadata."""
+        reason = " ".join(str(exc).split())[:300] or type(exc).__name__
+        self.log_manager.warning(f"Node {node.id} failed but continue_on_error is set; the run goes on: {reason}")
+        return Message(
+            role=MessageRole.ASSISTANT,
+            content=f"[Step '{node.id}' failed and was skipped: {reason}. Continue without its result and say "
+                    "in your answer that this part is missing.]",
+            metadata={"step_failed": True, "error": reason},
+        )
+
+    def _execute_node_inner(self, node: Node) -> bool:
+        """Execute a single node. True when it failed and ``continue_on_error`` let the run go on."""
+        soft_failed = False
         self._raise_if_cancelled()
         with self.resource_manager.guard_node(node):
             input_results = node.input
@@ -636,10 +667,16 @@ class GraphExecutor:
             
             # Process all inputs together in a single executor call
             with self.log_manager.node_timer(node.id):
-                if dynamic_config is not None:
-                    raw_outputs = self._execute_with_dynamic_config(node, input_results, dynamic_config)
-                else:
-                    raw_outputs = self._process_result(node, input_results)
+                try:
+                    if dynamic_config is not None:
+                        raw_outputs = self._execute_with_dynamic_config(node, input_results, dynamic_config)
+                    else:
+                        raw_outputs = self._process_result(node, input_results)
+                except Exception as exc:
+                    if not node.continue_on_error or _must_stop(exc) or self.is_cancelled():
+                        raise
+                    raw_outputs = [self._soft_failure_message(node, exc)]
+                    soft_failed = True
 
             # Process all output messages
             output_messages: List[Message] = []
@@ -722,6 +759,8 @@ class GraphExecutor:
                 pseudo_link.condition_type = pseudo_condition.type
                 for output_msg in output_messages:
                     self._process_edge_output(pseudo_link, output_msg, node)
+
+        return soft_failed
 
     def _run_delegated_node(self, member_id: str, inputs: List[Message], lead_id: str) -> List[Message]:
         """Run a team member on behalf of a lead agent (no edges involved).

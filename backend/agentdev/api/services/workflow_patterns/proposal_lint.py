@@ -144,6 +144,10 @@ def unguarded_cycles(data: Any) -> List[List[str]]:
     return Graph.from_workflow(data).unguarded_cycles()
 
 
+def counters_in_inner_loop(data: Any) -> List[str]:
+    return Graph.from_workflow(data).counters_in_inner_loop()
+
+
 def gates_missing_auto_answer(data: Any) -> List[str]:
     """Human nodes the Lab's automatic answer cannot get past (same rule as the ``human_auto`` check)."""
     return Graph.from_workflow(data).humans_blocking_auto_answer(AUTO_ANSWER)
@@ -182,8 +186,14 @@ def lint(data: Any) -> Tuple[List[str], List[dict]]:
     """Read-only lint: (warning notes, extra checks). No extra speed check: the static check's
     ``critical_path`` already carries the estimate, and a second one could only disagree."""
     notes: List[str] = []
-    for comp in unguarded_cycles(data):
-        notes.append("Loop without a loop_counter: " + " → ".join(comp) + ". Add a counter so it cannot run forever.")
+    graph = Graph.from_workflow(data)
+    for i in sorted(graph.cyclic):
+        if not graph.guarded(i) and not graph.has_counter(i):  # a misplaced counter gets its own note below
+            notes.append("Loop without a loop_counter: " + " → ".join(map(str, graph.comps[i]))
+                         + ". Add a counter so it cannot run forever.")
+    for node_id in counters_in_inner_loop(data):
+        notes.append(f"{node_id}: this loop_counter sits on an inner loop that is left before it runs, so it never "
+                     "counts. Point its in-loop edge at the step that starts the loop (the one the outside feeds).")
     for node_id in gates_missing_auto_answer(data):
         notes.append(f"{node_id}: no branch accepts `[Automatic answer`, so the Lab test harness cannot pass this gate.")
     if triage_missing(data):

@@ -37,9 +37,16 @@ graph:
             parallel. No PM, no architect.
           - L (new project / significant feature): Code Scout and Solution Architect in parallel
             (`delegate_parallel`), then you write docs/tasks.md (ordered tasks with owners) and run the
-            developers in parallel with `delegate_parallel` (UI UX Designer, Data Engineer, Backend Lead;
-            then Frontend Developer), then QA Tester and Acceptance Reviewer. DevOps Engineer only when
-            deployment is in scope. Project Manager only if the client asks for formal requirements docs.
+            developers with `delegate_parallel`, split into batches per module: UI UX Designer, Data Engineer,
+            Backend Lead; once docs/architecture.md (API contract) exists, Frontend Developer runs in the SAME
+            batch as the Backend for that module, building against the contract, not afterwards.
+            Then QA Tester and Acceptance Reviewer in ONE `delegate_parallel`; skip the Acceptance Reviewer
+            when QA passed and no UI/API changed. DevOps Engineer only when deployment is in scope.
+            Project Manager only if the client asks for formal requirements docs.
+          - L checkpoint: keep docs/progress.md (task, owner, status, verified?); update it after each
+            `delegate_parallel` batch; on a new session read it first and skip done tasks.
+          - Verification gate: a worker report whose last line lacks `Đã kiểm chứng: <lệnh> → pass` is not
+            done: re-brief that worker once; never forward unverified work.
           - Every brief carries: the confirmed plan verbatim, the Code Scout anchors (file:line) when you have
             them, the owner list, and the `Scope:` line, so nobody re-routes or re-explores.
 
@@ -55,7 +62,7 @@ graph:
         team:
           enabled: true
           plan_approval: true
-          max_delegations: 16
+          max_delegations: 30
           max_review_rounds: 1
           max_parallel: 4
           members:
@@ -78,6 +85,8 @@ graph:
                 - name: list_directory
                 - name: read_file_segment
                 - name: search_in_files
+                - name: save_file
+                - name: apply_text_edits
         params:
           effort: medium
           max_tokens: 32000
@@ -398,6 +407,11 @@ graph:
           default browser may be the user's). Check main flows, forms, errors, 1440px and 390px widths and
           console errors; prefer `snapshot` over screenshots. Save a screenshot only as useful evidence, under
           `qa/`; delete `.playwright-cli/` when done.
+          Budget: every turn re-reads your whole history, so plan the checks first and batch commands. Browser
+          checks: at most ~10 playwright-cli commands in total (one main flow per width, snapshot not
+          screenshots, no exploratory clicking beyond the criteria). Re-check after a fix: test ONLY the
+          criteria that failed plus one run of the test suite; do not redo passed criteria or the browser pass
+          unless the fix touched the UI.
           Report: PASS or FAIL per criterion with short evidence (command + key output, or repro steps); no
           full logs; only project-relative paths.
         skills:
@@ -409,7 +423,7 @@ graph:
         native_mode:
           enabled: true
           allow_commands: true
-          max_turns: 40
+          max_turns: 28
         params:
           effort: medium
           max_tokens: 16000
@@ -422,7 +436,8 @@ graph:
         name: claude-sonnet-5-5
         role: |-
           You do the final acceptance review: the delivery does what the client asked, follows the agreed stack
-          and architecture, passed QA, and has no obvious security or quality problem. Nobody else reviews
+          and architecture, passed QA, and has no obvious security or quality problem. Run the project's test
+          command once yourself; REJECT if it fails. Nobody else reviews
           frontend code, so when frontend changed, also review it: structure, duplication, state and error
           handling, accessibility, consistency with the API contract.
           Read only the changed files (`git diff`, or the brief's paths; several in ONE tool call). Approve (ACCEPTED) when only minor issues remain; REJECT only for blocking problems.

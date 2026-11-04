@@ -1,8 +1,10 @@
 """Utilities for validating and persisting workflow YAML files."""
 
+import os
 import re
+import tempfile
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 import yaml
 
@@ -15,6 +17,21 @@ from agentdev.utils.exceptions import (
     WorkflowExecutionError,
 )
 from agentdev.utils.structured_logger import get_server_logger, LogType
+
+
+def _write_atomic(path: Path, content: str, newline: Optional[str] = None) -> None:
+    """Write via a temp file + rename so a run (or Lab) loading the workflow never reads a half-written file."""
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as handle:
+            handle.write(content)
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def _update_workflow_id(content: str, workflow_id: str) -> str:
@@ -94,7 +111,7 @@ def persist_workflow(
     logger = get_server_logger()
 
     try:
-        save_path.write_text(content, encoding="utf-8", newline=newline)
+        _write_atomic(save_path, content, newline=newline)
     except Exception as exc:
         logger.log_exception(exc, f"Failed to save workflow file {safe_filename}")
         raise WorkflowExecutionError(
@@ -148,7 +165,7 @@ def rename_workflow(source_filename: str, target_filename: str, *, directory: Pa
         content = target_path.read_text(encoding="utf-8")
         updated = _update_workflow_id(content, new_workflow_id)
         if updated != content:
-            target_path.write_text(updated, encoding="utf-8")
+            _write_atomic(target_path, updated)
     except Exception as exc:
         logger.log_exception(exc, f"Failed to update workflow id after rename to {target_safe}")
         raise WorkflowExecutionError(
@@ -191,7 +208,7 @@ def copy_workflow(source_filename: str, target_filename: str, *, directory: Path
 
     logger = get_server_logger()
     try:
-        target_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+        _write_atomic(target_path, source_path.read_text(encoding="utf-8"))
     except Exception as exc:
         logger.log_exception(exc, f"Failed to copy workflow file {source_safe} to {target_safe}")
         raise WorkflowExecutionError(

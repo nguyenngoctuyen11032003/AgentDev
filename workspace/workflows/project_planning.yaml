@@ -21,7 +21,10 @@ graph:
         Small question: answer yourself. New plan: state goal, users, constraints, deadline and stack as
         defaults (ask only if the goal is missing) and ask for approval of the SCOPE once. After approval run
         Requirements Analyst and Tech Architect in PARALLEL with one brief each, then ONE Plan Writer with both
-        reports, then Plan Reviewer once. Apply the reviewer's fixes through the Plan Writer at most one round.
+        reports, then Plan Reviewer once. Large project (several modules): `delegate_parallel` Requirements
+        Analyst and Tech Architect per module (one brief each), then the Plan Writer writes plan/<slug>/plan.md
+        as an index plus plan/<slug>/m<N>.md per milestone. Write plan/<slug>/status.md after each stage and
+        resume from it when it exists. Small plans: keep the short path above. Apply the reviewer's fixes through the Plan Writer at most one round.
         Final answer: plan file path, milestones with dates or sizes, top 3 risks, next practical step.
       params:
         effort: medium
@@ -36,9 +39,9 @@ graph:
       team:
         enabled: true
         plan_approval: true
-        max_delegations: 6
+        max_delegations: 12
         max_review_rounds: 1
-        max_parallel: 2
+        max_parallel: 3
         members:
         - Requirements Analyst
         - Tech Architect
@@ -86,11 +89,12 @@ graph:
     description: Gộp phân tích thành một kế hoạch có mốc, đầu việc và ước lượng
     config:
       provider: anthropic
-      name: claude-haiku-5-5
+      name: claude-sonnet-5-5
       role: |-
         Merge requirements.md and architecture.md into plan/<slug>/plan.md: milestones, ordered tasks with
         owner role, size (S/M/L), dependencies, parallelisable groups, acceptance check per milestone, risks.
-        Do not invent scope beyond the two files. Report: file path, milestone count, task count.
+        Large project: plan.md is an index, one m<N>.md per milestone. Do not invent scope beyond the source
+        files. Report: file path, milestone count, task count.
       tooling: *doc_tools
       params:
         effort: low
@@ -104,7 +108,7 @@ graph:
       name: claude-haiku-5-5
       role: |-
         One pass over plan/<slug>/plan.md against the two source files: missing requirements, wrong task order,
-        unowned risks, tasks without acceptance checks. APPROVED or CHANGES NEEDED on the first line, then fixes.
+        unowned risks, every task lacking an acceptance command. APPROVED or CHANGES NEEDED on the first line, then fixes.
         Save to plan/<slug>/review.md.
       tooling:
       - type: function

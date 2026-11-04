@@ -483,6 +483,9 @@ JUDGE_SYSTEM = (
     "Be strict but fair: pass only when every criterion is met by the answer itself. "
     "Also check the answer is in the same language as the request and actually addresses it. "
     "When the criteria expect a deliverable, verify it in the list of files produced by the run (name, size, preview). "
+    "A claim that tests passed or code works counts only when the answer names the command that was run and its "
+    "result (e.g. a 'Đã kiểm chứng: <command> → <result>' line) or the produced files show it; an unsupported claim is "
+    "unverified: do not give 7 or more for it. A sentence saying a step could not be run is honest, not a pass. "
     "Score 0-10 against the criteria; 7 or more only when every criterion is met. "
     'Reply with JSON only: {"pass": true|false, "score": 0-10, "reason": "<one or two sentences, in the request\'s language>"}'
 )
@@ -633,18 +636,24 @@ def build_output_manifest(output_dir: Any) -> str:
     return "\n".join(lines)
 
 
-def _rubric_pass(data: Dict[str, Any]) -> bool:
-    """pass must be true and, when a score is given, at least 7."""
-    if data.get("pass") is not True:
-        return False
-    score = data.get("score")
-    if score is None:
-        return True
+def _score_value(score: Any) -> Optional[float]:
+    """A judge score as a number, or None when it is missing or not a number ("N/A", "seven")."""
+    if score is None or isinstance(score, bool):
+        return None
     try:
-        return float(score) >= 7
+        return float(score)
     except (TypeError, ValueError):
         match = re.match(r"\s*(\d+(?:\.\d+)?)", str(score))  # "5/10", "8 out of 10"
-        return float(match.group(1)) >= 7 if match else True
+        return float(match.group(1)) if match else None
+
+
+def _rubric_pass(data: Dict[str, Any]) -> bool:
+    """pass must be true AND the score a number of at least 7: a verdict without a usable score cannot pass,
+    otherwise a lenient judge could wave through an empty or fabricated result."""
+    if data.get("pass") is not True:
+        return False
+    value = _score_value(data.get("score"))
+    return value is not None and value >= 7
 
 
 def _parse_verdict(text: str) -> Dict[str, Any]:
@@ -658,10 +667,8 @@ def _parse_verdict(text: str) -> Dict[str, Any]:
 
 def _borderline(data: Dict[str, Any]) -> bool:
     """Score 6-8 (the pass line is 7): too close to call for a cheap judge."""
-    try:
-        return 6 <= float(data.get("score")) <= 8
-    except (TypeError, ValueError):
-        return False
+    value = _score_value(data.get("score"))
+    return value is not None and 6 <= value <= 8
 
 
 def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, str]],
@@ -684,6 +691,10 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
         f"## Questions the workflow asked the user (auto-answered: approved)\n{asked}\n\n## Answer\n{answer[:20000]}"
     )
     manifest = build_output_manifest(output_dir)
+    if not answer.strip() and not manifest:
+        # Nothing to grade: do not spend a judge call (or risk a lenient pass) on an empty result.
+        return {"pass": False, "score": 0, "reason": "The run produced no answer and no files.",
+                "judged_by": "ai", "judge_model": ""}
     user += f"\n\n## Files produced by the run\n{manifest or '(no files were produced)'}"
     conn, model = account.current()
     try:
@@ -703,7 +714,8 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
             strong = default_model_for(conn) or ""
             if strong and strong != model:
                 second = _parse_verdict(_judge_call(conn, strong, user))
-                if "pass" in second:  # unparsable second look must not turn a pass into a fail
+                # An unparsable or score-less second look must not replace a complete first verdict.
+                if "pass" in second and _score_value(second.get("score")) is not None:
                     data, model = second, strong
         except Exception:  # noqa: BLE001 - keep the first verdict when the second look fails
             pass
@@ -822,6 +834,11 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
     threading.Thread(target=_watchdog, daemon=True).start()
     try:
         return _run_once_inner(yaml_path, scenario, cancel_event, run_turn, session, started, timed_out)
+    except Exception as exc:
+        # A failed or timed-out run still took this long: keep it so averages and time regressions are not
+        # computed as if the run took 0 seconds.
+        exc.lab_seconds = round(time.time() - started, 1)  # type: ignore[attr-defined]
+        raise
     finally:
         cancel_event.set()  # stops the watchdog
 
@@ -1015,7 +1032,9 @@ class LabRunner:
         return self._load(job_id)
 
     def list_jobs(self, workflow: str, limit: int = 20) -> List[Dict[str, Any]]:
-        return list_stored_jobs(self._dir(), workflow, limit)
+        with self._lock:
+            live = frozenset(self._jobs)
+        return list_stored_jobs(self._dir(), workflow, limit, live_ids=live)
 
     def _run_task(self, job: LabJob, yaml_path: Path, run_once, judge, index: int, repeat: int) -> None:
         scenario = job.scenarios[index]
@@ -1030,7 +1049,8 @@ class LabRunner:
             if job.cancel_event.is_set():
                 job.update_result(entry, status="cancelled")
                 return
-            job.update_result(entry, status="error", error=str(exc)[:2000])
+            extra = {"seconds": exc.lab_seconds} if getattr(exc, "lab_seconds", None) is not None else {}
+            job.update_result(entry, status="error", error=str(exc)[:2000], **extra)
             self._save(job)
             return
         job.update_result(entry, **outcome)
@@ -1077,8 +1097,10 @@ def _accepts(func: Callable[..., Any], name: str) -> bool:
     return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
-def list_stored_jobs(folder: Path, workflow: str, limit: int = 20) -> List[Dict[str, Any]]:
-    """Summaries of stored jobs of ``workflow`` (newest first)."""
+def list_stored_jobs(folder: Path, workflow: str, limit: int = 20,
+                     live_ids: frozenset = frozenset()) -> List[Dict[str, Any]]:
+    """Summaries of stored jobs of ``workflow`` (newest first). A job still held in memory by this server
+    (``live_ids``) is running, not interrupted, even though its last snapshot on disk says "running"."""
     rows: List[Dict[str, Any]] = []
     try:
         paths = list(Path(folder).glob("*.json"))
@@ -1092,8 +1114,8 @@ def list_stored_jobs(folder: Path, workflow: str, limit: int = 20) -> List[Dict[
         if not isinstance(data, dict) or data.get("workflow") != workflow:
             continue
         status = data.get("status")
-        if status in ("queued", "running"):
-            status = "error"  # interrupted
+        if status in ("queued", "running") and data.get("id") not in live_ids:
+            status = "error"  # interrupted: the server that was running it is gone
         rows.append({
             "id": data.get("id"), "status": status, "verdict": data.get("verdict"),
             "pass_rate": data.get("pass_rate"), "avg_seconds": data.get("avg_seconds"),

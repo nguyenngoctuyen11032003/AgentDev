@@ -230,23 +230,30 @@ class WorkflowRunService:
             # Free the session before announcing the end, so a follow-up sent right away is accepted.
             self._release(session_id, session)
 
-            if plan is not None:
-                # The lead submitted a plan and stopped: the UI shows it as awaiting approval.
-                await websocket_manager.send_message(session_id, {"type": PLAN_PROPOSED_EVENT, "data": plan})
+            # The run already finished and its session is saved: a client that disconnected right now must not
+            # turn a finished run into an error.
+            try:
+                if plan is not None:
+                    # The lead submitted a plan and stopped: the UI shows it as awaiting approval.
+                    await websocket_manager.send_message(session_id, {"type": PLAN_PROPOSED_EVENT, "data": plan})
 
-            await websocket_manager.send_message(
-                session_id,
-                {
-                    "type": "workflow_completed",
-                    "data": {
-                        "results": results,
-                        # The lead's / end node's answer is the delivered result; the generic
-                        # "Workflow finished with N node outputs" line only when there is none.
-                        "summary": summary,
-                        "token_usage": token_usage,
+                await websocket_manager.send_message(
+                    session_id,
+                    {
+                        "type": "workflow_completed",
+                        "data": {
+                            "results": results,
+                            # The lead's / end node's answer is the delivered result; the generic
+                            # "Workflow finished with N node outputs" line only when there is none.
+                            "summary": summary,
+                            "token_usage": token_usage,
+                        },
                     },
-                },
-            )
+                )
+            except Exception as send_error:  # noqa: BLE001
+                get_server_logger().warning(
+                    f"Could not deliver the completion event for session {session_id}: {send_error}"
+                )
 
             logger = get_server_logger()
             logger.info(
