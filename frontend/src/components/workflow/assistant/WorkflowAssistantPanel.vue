@@ -241,7 +241,7 @@ const WORKFLOW_STARTER_KEYS = [
   'workflow_assistant.starter_add_step',
   'workflow_assistant.starter_remove_step'
 ]
-const VENDOR_FALLBACK_LABELS = { anthropic: 'Claude', openai: 'Codex' }
+const VENDOR_FALLBACK_LABELS = { anthropic: 'Claude', openai: 'Codex', gemini: 'Gemini' }
 
 // ---------------------------------------------------------------- width (drag the left edge)
 const MIN_WIDTH = 340

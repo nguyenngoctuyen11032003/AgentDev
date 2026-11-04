@@ -292,6 +292,11 @@
     "hint_connecting": "Đang kết nối tới máy chủ..."
   },
   "launch": {
+    "resume": {
+      "banner": "Lượt trước bị gián đoạn trước khi xong.",
+      "action": "Tiếp tục",
+      "message": "Tiếp tục làm"
+    },
     "plan": {
       "title": "Kế hoạch",
       "awaiting": "Kế hoạch chờ duyệt",
@@ -306,6 +311,7 @@
     },
     "sessions": {
       "awaiting_plan": "Chờ duyệt KH",
+      "interrupted": "Bị gián đoạn",
       "title": "Phiên làm việc",
       "new": "Phiên mới",
       "new_in": "Phiên mới với {name}",
@@ -384,6 +390,8 @@
     "expand_panel": "Mở rộng bảng",
     "loading_image": "Đang tải hình ảnh...",
     "preparing": "Đang chuẩn bị...",
+    "open_file": "Mở file",
+    "open_file_failed": "Không mở được file: {error}",
     "upload_file": "Tải tệp lên",
     "uploading": "Đang tải lên...",
     "no_files_uploaded": "Chưa có tệp nào được tải lên",
@@ -987,6 +995,13 @@
     "replaced_by_other_tab": "Phiên này đang mở ở tab khác. Bấm \"Mở ở đây\" để tiếp tục trong tab này.",
     "run_in_progress": "Lượt trước vẫn đang chạy. Hãy chờ xong hoặc bấm Dừng rồi gửi lại.",
     "jump_to_latest": "Tin nhắn mới",
+    "interject": {
+      "send": "Gửi cho trưởng nhóm",
+      "placeholder": "Đang làm việc… nhắn thêm cho {name} bất cứ lúc nào, Enter để gửi",
+      "placeholder_agent": "Đang làm việc… bạn có thể nhắn thêm, Enter để gửi",
+      "applied": "{name} đã nhận ghi chú của bạn và sẽ xử lý ngay, đội không bị dừng.",
+      "moved_to_box": "Lượt chạy đã kết thúc: các ghi chú chưa được xử lý đã được đưa vào ô soạn, bấm gửi để tiếp tục."
+    },
     "chat_ui": {
       "composer_label": "Nhập tin nhắn cho trưởng nhóm",
       "running_draft_placeholder": "Đội đang làm việc… bạn có thể soạn tin tiếp theo hoặc dừng lượt chạy",
@@ -2542,7 +2557,7 @@
     "input_label": "Tin nhắn gửi trợ lý",
     "model_label": "Mô hình",
     "not_signed_in_option": "{vendor} (chưa đăng nhập)",
-    "no_provider": "Chưa đăng nhập tài khoản Claude hoặc Codex nào.",
+    "no_provider": "Chưa đăng nhập tài khoản Claude, Codex hoặc Gemini nào.",
     "open_connections": "Mở trang Kết nối",
     "enter_hint": "Enter để gửi, Shift+Enter để xuống dòng",
     "send": "Gửi",

@@ -439,7 +439,7 @@
                           :disabled="file.loading"
                           @click="downloadTurnFile(message, file)"
                         >
-                          {{ file.loading ? $t('launch.preparing') : $t('launch.download') }}
+                          {{ file.loading ? $t('launch.preparing') : file.openLocal ? $t('launch.open_file') : $t('launch.download') }}
                         </button>
                       </div>
                     </div>
@@ -515,7 +515,7 @@
                       :disabled="message.loading"
                       @click="downloadArtifact(message)"
                     >
-                      {{ message.loading ? $t('launch.preparing') : $t('launch.download') }}
+                      {{ message.loading ? $t('launch.preparing') : message.openLocal ? $t('launch.open_file') : $t('launch.download') }}
                     </button>
                   </div>
                 </div>
@@ -586,6 +586,11 @@
                 <button v-if="!selectedFile && !loading && chatMessages.length" type="button" class="composer-hint-action" @click="focusWorkflowPicker">
                   {{ $t('launch.composer.pick_workflow_action') }}
                 </button>
+              </p>
+              <!-- The last run stopped before it finished: one click continues it with what it already did -->
+              <p v-if="canResumeRun" class="composer-hint" role="status">
+                <span>{{ $t('launch.resume.banner') }}</span>
+                <button type="button" class="composer-hint-action" @click="resumeRun">{{ $t('launch.resume.action') }}</button>
               </p>
               <div
                 :class="['input-shell', 'composer', { glow: shouldGlow, 'drag-active': isDragActive }]"
@@ -685,6 +690,21 @@
                     class="hidden-file-input"
                     @change="onAttachmentSelected"
                   />
+                  <div class="composer-actions">
+                  <!-- While the team works: Send (a message for the lead) next to Stop -->
+                  <button
+                    v-if="canInterject"
+                    type="button"
+                    class="composer-send"
+                    :title="$t('launch.interject.send')"
+                    :aria-label="$t('launch.interject.send')"
+                    @click="sendInterjection"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="19" x2="12" y2="5"></line>
+                      <polyline points="5 12 12 5 19 12"></polyline>
+                    </svg>
+                  </button>
                   <button
                     type="button"
                     class="composer-send"
@@ -702,6 +722,7 @@
                       <polyline points="5 12 12 5 19 12"></polyline>
                     </svg>
                   </button>
+                  </div>
                 </div>
                 <div v-if="isDragActive" class="drag-overlay">
                   <div class="drag-overlay-content">{{ $t('launch.drop_files') }}</div>
@@ -979,7 +1000,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, fetchSessions, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject } from '@/api/client.js'
+import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, fetchSessions, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile } from '@/api/client.js'
 import { collectDroppedItems } from '@/utils/projectFiles.js'
 import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
 import KanbanView from '@/components/launch/KanbanView.vue'
@@ -1558,7 +1579,7 @@ const toggleStepDetail = (message, entry) => {
 
 // A file the turn produced: one card on the bubble that speaks for the turn, however many
 // times it is reported (the member makes it, the lead hands the same file over again)
-const attachTurnFile = (message, { nodeId, fileName, mimeType, attachmentId }) => {
+const attachTurnFile = (message, { nodeId, fileName, mimeType, attachmentId, openLocal = false, relativePath = '' }) => {
   if (!message.files) message.files = []
   const isImage = !!mimeType && mimeType.includes('image')
   let file = message.files.find((item) => item.fileName === fileName)
@@ -1574,7 +1595,7 @@ const attachTurnFile = (message, { nodeId, fileName, mimeType, attachmentId }) =
       return
     }
   } else {
-    message.files.push({ fileName, mimeType, attachmentId, isImage, dataUri: null, loading: false, error: null })
+    message.files.push({ fileName, mimeType, attachmentId, openLocal, relativePath, isImage, dataUri: null, loading: false, error: null })
     file = message.files[message.files.length - 1]
     // A member's file also shows up as a step of the lead's work
     if (nodeId && nodeId !== message.name && message.loadingEntries) {
@@ -2499,11 +2520,21 @@ watch(waitingElsewhere, (count) => {
 
 let sessionsPollTimer = null
 let sessionsRefreshTimer = null
+// A slow answer must not overwrite a newer one, and an unchanged list is not re-assigned
+// (the poll runs every few seconds: a new array would re-render the whole sidebar)
+let sessionsRequestSeq = 0
+let sessionsSnapshot = ''
 const refreshSessions = async () => {
+  const seq = ++sessionsRequestSeq
   try {
     const list = await fetchSessions()
-    sessions.value = list
-    notifyBackgroundChanges(list)
+    if (seq !== sessionsRequestSeq) return
+    const snapshot = JSON.stringify(list)
+    if (snapshot !== sessionsSnapshot) {
+      sessionsSnapshot = snapshot
+      sessions.value = list
+      notifyBackgroundChanges(list)
+    }
   } catch (error) {
     console.warn('Failed to load sessions:', error)
   } finally {
@@ -2578,6 +2609,61 @@ const isRunActive = computed(() =>
 // for your answer it becomes Send again as soon as you type one.
 const isStopMode = computed(() => isStopping.value || (isRunActive.value && !(isWaitingForInput.value && hasComposerContent.value)))
 
+// ---------------------------------------------------------------- messages while the team works
+// A message typed while the run is going is a note for the lead (not an answer to a question):
+// a status question is answered at once from the real progress, anything else is handed to the
+// lead, who picks it up before its next model call. Nothing that is running gets interrupted.
+const canInterject = computed(() =>
+  status.value === 'Running...' && isWorkflowRunning.value && !isStopping.value && Boolean(taskPrompt.value.trim())
+)
+// Notes the lead has not picked up yet: id -> { text, bubble }. Whatever is still here when the
+// run ends is sent as a follow-up turn, so nothing the user wrote is lost.
+const pendingNotes = new Map()
+let noteSeq = 0
+const dropNoteBubble = (note) => {
+  const index = note?.bubble ? chatMessages.value.indexOf(note.bubble) : -1
+  if (index > -1) chatMessages.value.splice(index, 1)
+}
+const sendInterjection = () => {
+  if (!canInterject.value) return
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    toast.warning(t('launch.errors.input_not_sent'))
+    return
+  }
+  const text = taskPrompt.value.trim()
+  const id = `note-${Date.now()}-${++noteSeq}`
+  try {
+    ws.send(JSON.stringify({ type: 'interject', data: { id, text, locale: i18nLocale.value } }))
+  } catch (sendError) {
+    console.warn('Failed to send note:', sendError)
+    toast.warning(t('launch.errors.input_not_sent'))
+    return
+  }
+  pendingNotes.set(id, { text, bubble: addDialogue(USER_SENDER, text) })
+  taskPrompt.value = ''
+  nextTick(() => {
+    autoResizeTaskInput()
+    const input = taskInputRef.value
+    if (input && !input.disabled) input.focus({ preventScroll: true })
+  })
+}
+// The run ended with notes the lead never picked up: they become the next turn
+const flushPendingNotes = () => {
+  if (!pendingNotes.size) return
+  const notes = [...pendingNotes.values()]
+  pendingNotes.clear()
+  notes.forEach(dropNoteBubble)
+  const text = notes.map((note) => note.text).join('\n\n')
+  const draft = taskPrompt.value.trim()
+  if (draft) {
+    taskPrompt.value = `${text}\n\n${draft}`
+    toast.info(t('launch.interject.moved_to_box'))
+    return
+  }
+  taskPrompt.value = text
+  nextTick(() => launchWorkflow())
+}
+
 // A finished run (completed, cancelled or failed) whose composer holds a new message continues
 // the same session as a follow-up turn; with an empty composer the button relaunches instead.
 const isRunFinished = computed(() => ['Completed', 'Cancelled', 'Error', 'Failed'].includes(status.value))
@@ -2621,6 +2707,17 @@ const approvePlan = () => {
   taskPrompt.value = t('launch.plan.approve_message')
   handleButtonClick()
 }
+// A run that was stopped or failed can be continued: the backend resumes from its saved progress
+const canResumeRun = computed(() => {
+  if (loading.value || isStopping.value || isAwaitingPlan.value || !isRunFinished.value) return false
+  if (['Cancelled', 'Error', 'Failed'].includes(status.value)) return true
+  return Boolean(sessions.value.find((s) => s.session_id === activeSessionId.value)?.resumable)
+})
+const resumeRun = () => {
+  if (!canResumeRun.value) return
+  taskPrompt.value = t('launch.resume.message')
+  handleButtonClick()
+}
 const requestPlanChanges = () => {
   const prefix = t('launch.plan.change_prefix')
   if (!taskPrompt.value.startsWith(prefix)) taskPrompt.value = prefix + taskPrompt.value
@@ -2651,7 +2748,9 @@ const composerPlaceholder = computed(() => {
     return asker ? t('launch.reply_placeholder', { name: asker }) : t('launch.reply_placeholder_any')
   }
   // The box is locked while the team works: say why, and what can be done meanwhile
-  if (isWorkflowRunning.value) return t(leadName.value ? 'launch.chat_ui.running_draft_placeholder' : 'launch.chat_ui.running_draft_placeholder_agent')
+  if (isWorkflowRunning.value) {
+    return t(leadName.value ? 'launch.interject.placeholder' : 'launch.interject.placeholder_agent', { name: leadName.value })
+  }
   if (isRunFinished.value) return t('launch.followup_placeholder')
   return t('launch.enter_prompt')
 })
@@ -3235,6 +3334,11 @@ const handleEnterKey = (e) => {
   if (e.shiftKey || e.altKey || e.isComposing || e.keyCode === 229) return
   if (isImeComposing || Date.now() - imeEndedAt < 60) return
   e.preventDefault()
+  // The team is working: Enter sends the text as a message for the lead
+  if (canInterject.value) {
+    sendInterjection()
+    return
+  }
   // Check disabled state logically similar to button
   if (isStopMode.value || loading.value || (isWorkflowRunning.value && !hasComposerContent.value) || (!isWorkflowRunning.value && !isRunFinished.value && !isConnectionReady.value)) {
     return
@@ -4065,6 +4169,7 @@ onUnmounted(() => {
   clearTimeout(sessionsPollTimer)
   clearTimeout(sessionsRefreshTimer)
   clearTimeout(workflowRefreshTimer)
+  clearTimeout(stopFallbackTimer)
   stopWorkflowSync?.()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   document.title = BASE_TITLE
@@ -4516,6 +4621,15 @@ watch(status, (newStatus) => {
 })
 
 const downloadArtifact = async (message) => {
+  if (sessionId && message?.openLocal) {
+    // Project opened in place: show the real file on this machine, no copy
+    try {
+      await openLocalProjectFile(sessionId, message.relativePath || message.fileName)
+    } catch (error) {
+      toast.error(t('launch.open_file_failed', { error: error?.message || String(error) }))
+    }
+    return
+  }
   if (!sessionId || !message?.attachmentId) {
     return
   }
@@ -4870,6 +4984,26 @@ const processMessage = async (msg) => {
     return
   }
 
+  // A note the user wrote while the team worked (only arrives when a saved session is replayed)
+  if (msg.type === 'user_note') {
+    addDialogue(USER_SENDER, msg.data?.text || '', at)
+    return
+  }
+  // The lead's answer to such a note: a status report, or "passed to the lead"
+  if (msg.type === 'lead_note_reply') {
+    const noteId = msg.data?.note_id
+    if (msg.data?.kind === 'status') pendingNotes.delete(noteId)
+    addDialogue(msg.data?.lead || leadName.value || t('launch.unknown_node'), msg.data?.text || '', at)
+    return
+  }
+  // The lead has the note in its conversation now
+  if (msg.type === 'interject_applied') {
+    if (pendingNotes.delete(msg.data?.note_id)) {
+      addChatNotification(t('launch.interject.applied', { name: msg.data?.node || leadName.value || '' }), at ? { at } : {})
+    }
+    return
+  }
+
   // The posted request really started: it can no longer be turned down
   if (msg.type === 'workflow_started') {
     workflowStartedCount += 1
@@ -5057,11 +5191,14 @@ const processMessage = async (msg) => {
         const fileName = event?.file_name || 'artifact'
         const mimeType = event?.mime_type || ''
         const attachmentId = event?.attachment_id
+        // A file of a project opened in place: opens on this machine instead of downloading
+        const openLocal = !!event?.extra?.open_local
+        const relativePath = event?.relative_path || fileName
 
         // The turn's agent bubble (the lead's, for a member's file) shows it once, under its answer
         const turnBubble = findTurnBubble(event?.node_id)
         if (turnBubble) {
-          attachTurnFile(turnBubble, { nodeId: event?.node_id, fileName, mimeType, attachmentId })
+          attachTurnFile(turnBubble, { nodeId: event?.node_id, fileName, mimeType, attachmentId, openLocal, relativePath })
           continue
         }
 
@@ -5084,6 +5221,8 @@ const processMessage = async (msg) => {
           fileName,
           mimeType,
           attachmentId,
+          openLocal,
+          relativePath,
           isImage: !!mimeType && mimeType.includes('image'),
           dataUri: null,
           loading: true,
@@ -5365,6 +5504,9 @@ const processMessage = async (msg) => {
     sessionIdToDownload = sessionId
     endStopping()
     pendingLaunch = null
+    // Notes the lead never got to see become the next turn (not while replaying a saved session)
+    if (!isReconnecting.value) flushPendingNotes()
+    else pendingNotes.clear()
   }
 
   // The server has the answer that was sent (also acknowledges a cancel request)
@@ -5391,6 +5533,16 @@ const processMessage = async (msg) => {
     if (!isReconnecting.value) toast.warning(t('launch.run_in_progress'))
     return
   }
+  if (msg.type === 'error' && msg.data?.code === 'not_running' && msg.data?.note_id) {
+    // The run ended just before the note arrived: take the note back into the box
+    const note = pendingNotes.get(msg.data.note_id)
+    pendingNotes.delete(msg.data.note_id)
+    if (note) {
+      dropNoteBubble(note)
+      if (!taskPrompt.value.trim()) taskPrompt.value = note.text
+    }
+    return
+  }
   if (msg.type === 'error' && msg.data?.fatal === false) {
     // A request was turned down (an answer nobody waits for, an empty or malformed message):
     // say so, but the run and its state carry on; a turned-down answer goes back in the box
@@ -5415,6 +5567,7 @@ const processMessage = async (msg) => {
     endStopping()
     pendingInput = null
     pendingLaunch = null
+    pendingNotes.clear()
   }
 }
 
@@ -5424,6 +5577,7 @@ const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
   locallyCancelled = false
   pendingInput = null
   pendingLaunch = null
+  pendingNotes.clear()
   if (message) addChatNotification(message, at ? { at } : {})
   if (runTracker.state.task && !runTracker.state.outcome) runTracker.finish('cancelled', { summary })
   status.value = 'Cancelled'
@@ -6756,6 +6910,7 @@ watch(
 }
 
 .attach-menu-wrap { position: relative; }
+.composer-actions { display: flex; align-items: center; gap: 8px; }
 
 .composer-icon-btn,
 .composer-send {

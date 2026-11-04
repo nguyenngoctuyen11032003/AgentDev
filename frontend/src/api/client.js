@@ -921,3 +921,18 @@ export const labEvaluate = ({ yamlFile, scenarios, repeats }) =>
 export const labJob = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}`)
 
 export const labCancel = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
+
+/** Open a file of the session's opened project on this machine (nothing is downloaded or copied). */
+export async function openLocalProjectFile(sessionId, relativePath, { reveal = false } = {}) {
+  const response = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(sessionId)}/local-files/open`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relative_path: relativePath, reveal })
+  })
+  if (!response.ok) {
+    let detail = ''
+    try { detail = (await response.json())?.detail || '' } catch { /* not JSON */ }
+    throw new Error(detail || `HTTP ${response.status}`)
+  }
+  return response.json()
+}

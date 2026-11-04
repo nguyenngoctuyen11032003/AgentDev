@@ -292,6 +292,11 @@
     "hint_connecting": "Connecting to the server..."
   },
   "launch": {
+    "resume": {
+      "banner": "The previous turn was interrupted before it finished.",
+      "action": "Continue",
+      "message": "Continue"
+    },
     "plan": {
       "title": "Plan",
       "awaiting": "Plan awaiting approval",
@@ -306,6 +311,7 @@
     },
     "sessions": {
       "awaiting_plan": "Plan to approve",
+      "interrupted": "Interrupted",
       "title": "Sessions",
       "new": "New session",
       "new_in": "New session with {name}",
@@ -384,6 +390,8 @@
     "expand_panel": "Expand panel",
     "loading_image": "Loading image...",
     "preparing": "Preparing...",
+    "open_file": "Open file",
+    "open_file_failed": "Could not open the file: {error}",
     "upload_file": "Upload File",
     "uploading": "Uploading...",
     "no_files_uploaded": "No files uploaded",
@@ -987,6 +995,13 @@
     "replaced_by_other_tab": "This session is open in another tab. Open it here to continue in this tab.",
     "run_in_progress": "The previous turn is still running. Wait for it to finish, or press Stop and send again.",
     "jump_to_latest": "New messages",
+    "interject": {
+      "send": "Send to the lead",
+      "placeholder": "Working… message {name} any time, Enter to send",
+      "placeholder_agent": "Working… you can send more at any time, Enter to send",
+      "applied": "{name} has your note and is on it; the team was not stopped.",
+      "moved_to_box": "The run has ended: notes that were not picked up are back in the box, press send to continue."
+    },
     "chat_ui": {
       "composer_label": "Message the lead",
       "running_draft_placeholder": "The team is working… you can draft your next message or stop the run",
@@ -2542,7 +2557,7 @@
     "input_label": "Message to the assistant",
     "model_label": "Model",
     "not_signed_in_option": "{vendor} (not signed in)",
-    "no_provider": "No signed-in Claude or Codex account.",
+    "no_provider": "No signed-in Claude, Codex or Gemini account.",
     "open_connections": "Open Connections",
     "enter_hint": "Enter to send, Shift+Enter for a new line",
     "send": "Send",

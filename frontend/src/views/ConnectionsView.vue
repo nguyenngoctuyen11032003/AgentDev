@@ -190,7 +190,7 @@ import {
   testConnection
 } from '@/api/client'
 import { accountName, isPremiumModel, normalizeModels } from '@/utils/accountFormat'
-import { invalidateConnectionModels } from '@/utils/connectionModels'
+import { invalidateConnectionModels, modelsForConnection } from '@/utils/connectionModels'
 import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast'
 
@@ -232,9 +232,24 @@ const errorOf = (id) => {
   return ''
 }
 
+// Live model list for Google sign-in connections, loaded as soon as the page opens so the card
+// does not show the 2-model static catalog until someone presses "Test".
+const liveModels = reactive({})
+
+async function loadLiveModels(conn) {
+  if (conn.auth_type === 'cli' || liveModels[conn.id]) return
+  try {
+    const data = await modelsForConnection(conn.id)
+    if (data.ok && data.models.length) liveModels[conn.id] = data.models
+  } catch {
+    // Keep the static catalog when the listing cannot be fetched.
+  }
+}
+
 const modelsOf = (conn) =>
   normalizeModels(
     accounts[conn.id]?.models ||
+      liveModels[conn.id] ||
       results[conn.id]?.models ||
       vendors.value.find((vendor) => vendor.id === conn.vendor)?.models
   )
@@ -273,6 +288,7 @@ async function refresh() {
   defaultId.value = data.defaultConnection || null
   invalidateConnectionModels()
   for (const conn of data.connections) {
+    loadLiveModels(conn)
     if (!accounts[conn.id] && !accountLoading[conn.id]) loadAccount(conn.id)
   }
 }

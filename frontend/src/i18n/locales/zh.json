@@ -252,6 +252,11 @@
     "hint_connecting": "正在连接服务器..."
   },
   "launch": {
+    "resume": {
+      "banner": "上一轮在完成前被中断。",
+      "action": "继续",
+      "message": "继续"
+    },
     "plan": {
       "title": "计划",
       "awaiting": "待审批的计划",
@@ -266,6 +271,7 @@
     },
     "sessions": {
       "awaiting_plan": "待批计划",
+      "interrupted": "已中断",
       "title": "会话",
       "new": "新会话",
       "new_in": "使用 {name} 新建会话",
@@ -344,6 +350,8 @@
     "expand_panel": "展开面板",
     "loading_image": "加载图片...",
     "preparing": "准备中...",
+    "open_file": "打开文件",
+    "open_file_failed": "无法打开文件：{error}",
     "upload_file": "上传文件",
     "uploading": "上传中...",
     "no_files_uploaded": "未上传文件",
@@ -947,6 +955,13 @@
     "replaced_by_other_tab": "此会话已在另一个标签页中打开。点击\"在此打开\"以在此标签页继续。",
     "run_in_progress": "上一轮仍在运行。请等待完成，或停止本次运行后重新发送。",
     "jump_to_latest": "新消息",
+    "interject": {
+      "send": "发送给负责人",
+      "placeholder": "正在工作… 可随时给 {name} 留言，按 Enter 发送",
+      "placeholder_agent": "正在工作… 可随时补充消息，按 Enter 发送",
+      "applied": "{name} 已收到你的备注并正在处理，团队没有被中断。",
+      "moved_to_box": "运行已结束：未被处理的备注已放回输入框，点击发送继续。"
+    },
     "chat_ui": {
       "composer_label": "给负责人发消息",
       "running_draft_placeholder": "团队正在工作… 你可以先写下一条消息，或停止本次运行",
@@ -2542,7 +2557,7 @@
     "input_label": "发给助手的消息",
     "model_label": "模型",
     "not_signed_in_option": "{vendor}（未登录）",
-    "no_provider": "没有已登录的 Claude 或 Codex 账号。",
+    "no_provider": "没有已登录的 Claude、Codex 或 Gemini 账号。",
     "open_connections": "打开连接页面",
     "enter_hint": "Enter 发送，Shift+Enter 换行",
     "send": "发送",
