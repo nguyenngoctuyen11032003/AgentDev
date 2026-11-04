@@ -1236,6 +1236,7 @@
     "clear_kept_context": "Xóa cả ngữ cảnh đã giữ",
     "carry_data": "Truyền dữ liệu tới nút đích",
     "log_output": "Ghi nhật ký đầu ra",
+    "continue_on_error": "Tiếp tục khi lỗi",
     "process": "Bộ xử lý dữ liệu",
     "dynamic": "Chạy song song động",
     "skills": "Skill của agent",
@@ -1357,6 +1358,7 @@
     "clear_kept_context": "Xóa các tin nhắn được đánh dấu giữ lại trước khi chuyển dữ liệu mới.",
     "carry_data": "Có chuyển dữ liệu tới nút đích hay không.",
     "log_output": "Có ghi nhật ký đầu ra của nút này hay không. Tắt để không ghi nhật ký đầu ra.",
+    "continue_on_error": "Nếu bước này lỗi, quy trình vẫn chạy tiếp và các bước sau nhận một ghi chú \"bước này đã lỗi\". Chỉ dùng cho bước phụ không thiết yếu; các cạnh đi ra không được có điều kiện. Huỷ chạy, hết ngân sách và lỗi bảo mật vẫn dừng quy trình.",
     "process": "Bộ xử lý dữ liệu (không bắt buộc) áp dụng sau khi điều kiện được thỏa mãn (trích xuất bằng regex, hàm tùy chỉnh...).",
     "dynamic": "Mở rộng động cho liên kết: chế độ Map (phân nhánh) hoặc Tree (phân nhánh + gộp kết quả).",
     "skills": "Các skill trong thư viện dùng chung mà agent này được trang bị.",
@@ -2467,9 +2469,9 @@
     "scenario_name": "Kịch bản {n}",
     "remove": "Xóa",
     "prompt_label": "Yêu cầu gửi cho quy trình",
-    "prompt_placeholder": "VD: Sửa lỗi nút Đăng nhập không phản hồi trên điện thoại",
+    "prompt_placeholder": "Một yêu cầu thật bạn sẽ gửi cho quy trình này, viết đủ như khi dùng thật",
     "criteria_label": "Tiêu chí đạt (để trống = AI chấm theo tiêu chí chung: trả lời đúng, đủ, đúng ngôn ngữ)",
-    "criteria_placeholder": "VD: Trả lời bằng tiếng Việt; nêu nguyên nhân; có giao cho Bug Fixer và QA Tester; nêu cách kiểm tra lại",
+    "criteria_placeholder": "VD: Trả lời bằng tiếng Việt; có đủ sản phẩm được yêu cầu (file, nội dung); đúng các ràng buộc trong yêu cầu",
     "add_scenario": "Thêm kịch bản",
     "add_samples": "Thêm kịch bản mẫu",
     "ai_generate": "AI tạo kịch bản theo quy trình",
@@ -2576,8 +2578,8 @@
       },
       "loops": {
         "title": "Vòng lặp có giới hạn",
-        "ok": "Mọi vòng lặp đều có node loop_counter.",
-        "problem": "Các vòng này không có loop_counter nên có thể chạy mãi:"
+        "ok": "Mọi vòng lặp đều có node loop_counter chạy được.",
+        "problem": "Các vòng này không có loop_counter, hoặc loop_counter nằm ở chỗ không bao giờ chạy tới (hãy nối nó về bước mở đầu vòng), nên có thể chạy mãi:"
       },
       "human_auto": {
         "title": "Bước duyệt của người",

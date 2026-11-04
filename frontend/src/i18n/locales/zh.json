@@ -1236,6 +1236,7 @@
     "clear_kept_context": "清除保留的上下文",
     "carry_data": "向目标传递数据",
     "log_output": "记录输出",
+    "continue_on_error": "出错时继续",
     "process": "负载处理器",
     "dynamic": "动态展开",
     "skills": "Agent 技能",
@@ -1357,6 +1358,7 @@
     "clear_kept_context": "在传递新负载前清除标记为保留的消息。",
     "carry_data": "是否将数据传递给目标节点。",
     "log_output": "是否记录此节点的输出。关闭可避免记录输出内容。",
+    "continue_on_error": "此步骤失败时流程继续，后续步骤会收到“该步骤失败”的说明。仅用于非必需的辅助步骤；其出边不能带条件。取消运行、预算用尽和安全错误仍会停止流程。",
     "process": "条件满足后应用的可选负载处理器（正则提取、自定义函数等）。",
     "dynamic": "连接的动态展开：Map（扇出）或 Tree（扇出 + 归约）模式。",
     "skills": "Agent 技能白名单及内置技能工具。",
@@ -2178,9 +2180,9 @@
     "scenario_name": "场景 {n}",
     "remove": "删除",
     "prompt_label": "发送给工作流的请求",
-    "prompt_placeholder": "例如：修复手机上“登录”按钮无响应的问题",
+    "prompt_placeholder": "一个你真实会发送给此流程的请求，像实际使用时一样完整填写",
     "criteria_label": "通过标准（留空 = AI 评审按通用标准：回答正确、完整、语言一致）",
-    "criteria_placeholder": "例如：用中文回答；指出原因；分派给 Bug Fixer 和 QA Tester；说明如何验证",
+    "criteria_placeholder": "例如：用中文回答；交付所要求的成果（文件、内容）；符合请求中的约束",
     "add_scenario": "添加场景",
     "add_samples": "添加示例场景",
     "ai_generate": "AI 为该流程生成场景",
@@ -2287,8 +2289,8 @@
       },
       "loops": {
         "title": "循环有上限",
-        "ok": "每个循环都有 loop_counter 节点。",
-        "problem": "这些循环没有 loop_counter，可能无限运行："
+        "ok": "每个循环都有会实际执行的 loop_counter 节点。",
+        "problem": "这些循环没有 loop_counter，或其 loop_counter 永远不会被执行（请将它连回循环的起始步骤），可能无限运行："
       },
       "human_auto": {
         "title": "人工审批步骤",

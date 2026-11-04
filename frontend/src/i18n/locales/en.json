@@ -1236,6 +1236,7 @@
     "clear_kept_context": "Clear Kept Context",
     "carry_data": "Pass Data to Target",
     "log_output": "Log Output",
+    "continue_on_error": "Continue on error",
     "process": "Payload Processor",
     "dynamic": "Dynamic Expansion",
     "skills": "Agent Skills",
@@ -1357,6 +1358,7 @@
     "clear_kept_context": "Clear messages marked as kept before passing the new payload.",
     "carry_data": "Whether to pass data to the target node.",
     "log_output": "Whether to log this node's output. Turn off to avoid logging outputs.",
+    "continue_on_error": "If this step fails, the run goes on and the next steps get a \"step failed\" note. Only for optional side steps; its outgoing edges must have no condition. Cancelling, the run budget and security errors still stop the run.",
     "process": "Optional payload processor applied after the condition is met (regex extraction, custom functions, etc.).",
     "dynamic": "Dynamic expansion for the connection: Map (fan-out) or Tree (fan-out + reduce) mode.",
     "skills": "Agent Skills allowlist and built-in skill tools.",
@@ -2178,9 +2180,9 @@
     "scenario_name": "Scenario {n}",
     "remove": "Remove",
     "prompt_label": "Request sent to the workflow",
-    "prompt_placeholder": "e.g. Fix the Login button not responding on mobile",
+    "prompt_placeholder": "A real request you would send to this workflow, written in full as in real use",
     "criteria_label": "Pass criteria (empty = the AI judge uses general criteria: correct, complete, in the user's language)",
-    "criteria_placeholder": "e.g. Answers in English; names the cause; delegates to Bug Fixer and QA Tester; explains how to verify",
+    "criteria_placeholder": "e.g. Answers in English; delivers what was asked (files, content); follows the constraints in the request",
     "add_scenario": "Add scenario",
     "add_samples": "Add sample scenarios",
     "ai_generate": "AI writes scenarios for this workflow",
@@ -2287,8 +2289,8 @@
       },
       "loops": {
         "title": "Bounded loops",
-        "ok": "Every loop has a loop_counter node.",
-        "problem": "These loops have no loop_counter and could run forever:"
+        "ok": "Every loop has a loop_counter node that runs.",
+        "problem": "These loops have no loop_counter, or one placed where it never runs (wire it back to the step that starts the loop), and could run forever:"
       },
       "human_auto": {
         "title": "Human approval steps",
