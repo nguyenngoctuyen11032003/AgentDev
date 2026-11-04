@@ -32,7 +32,7 @@ graph:
 Every node: `id`, `type` (`agent`, `human`, `literal`, `passthrough`, `loop_counter`, `subgraph`),
 `description` (one line; a team lead routes work on it), `config` (depends on type).
 
-- agent: `provider` (`anthropic` or `openai`) and `name` (a model of that vendor from the list, e.g.
+- agent: `provider` (`anthropic`, `openai` or `gemini`) and `name` (a model of that vendor from the list, e.g.
   `claude-opus-5-5` for leads/hard reasoning, `claude-sonnet-5-5` for most workers); never `connection`,
   `api_key` or `base_url`. `role` (`|-` block): who it is, its scope, its output format and any token an
   edge tests. Optional: `params` (`effort: low|medium|high`, `max_tokens`, `tool_loop_limit`), `skills:

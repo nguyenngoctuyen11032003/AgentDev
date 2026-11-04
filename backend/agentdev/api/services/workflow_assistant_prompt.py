@@ -27,8 +27,8 @@ REFERENCE_PATH = Path(__file__).with_name("workflow_assistant_reference.md")
 # visual companion and red-flags parts do not apply to a one-reply JSON chat).
 INTERVIEW_PATH = Path(__file__).with_name("workflow_assistant_interview.md")
 BRAINSTORMING_PATH = SKILLS_DIR / "brainstorming" / "SKILL.md"  # the source of INTERVIEW_PATH
-ASSISTANT_VENDORS = ("anthropic", "openai")
-VENDOR_LABELS = {"anthropic": "Claude", "openai": "Codex"}
+ASSISTANT_VENDORS = ("anthropic", "openai", "gemini")
+VENDOR_LABELS = {"anthropic": "Claude", "openai": "Codex", "gemini": "Gemini"}
 # Catalog descriptions are cut to the first sentence and this many characters: the model needs the exact
 # names (it may use only those) and a hint of what each is for, not the full text.
 SKILL_DESCRIPTION_CHARS = 50
