@@ -146,7 +146,7 @@ graph:
                 - name: save_file
                 - name: apply_text_edits
         params:
-          effort: medium
+          effort: low
           max_tokens: 16000
           tool_loop_limit: 15
 

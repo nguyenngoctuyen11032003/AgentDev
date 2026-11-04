@@ -57,8 +57,8 @@ graph:
         enabled: true
         plan_approval: true
         max_delegations: 12
-        max_review_rounds: 2
-        max_parallel: 2
+        max_review_rounds: 1
+        max_parallel: 3
         members:
         - Scriptwriter
         - Storyboard Artist
@@ -132,7 +132,7 @@ graph:
         Report: file paths, total duration, cue count.
       tooling: *doc_tools
       params:
-        effort: medium
+        effort: low
         max_tokens: 16000
         tool_loop_limit: 15
   - id: Video Editor
@@ -177,7 +177,7 @@ graph:
         Save to video/<slug>/packaging.md. Report: file path, recommended title and thumbnail.
       tooling: *doc_tools
       params:
-        effort: medium
+        effort: low
         max_tokens: 16000
         tool_loop_limit: 15
   - id: Video Reviewer
@@ -192,10 +192,6 @@ graph:
         edit plan and packaging (same lines, timecodes, title promise), SRT format, and brand/legal risks (music
         rights, claims, people or logos shown). APPROVED or CHANGES NEEDED on the first line, then fixes per file.
         Save to video/<slug>/review.md. Report: verdict and the fixes.
-      skills:
-        enabled: true
-        allow:
-        - name: verification-before-completion
       tooling:
       - type: function
         config:
