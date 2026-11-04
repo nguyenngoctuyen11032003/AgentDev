@@ -11,6 +11,8 @@ class WorkflowRequest(BaseModel):
     session_id: Optional[str] = None
     attachments: Optional[List[str]] = None
     log_level: Literal["INFO", "DEBUG"] = "INFO"
+    # How much this turn asks before acting (see agentdev.utils.run_mode)
+    mode: Literal["manual", "plan", "auto", "bypass"] = "manual"
 
 
 class WorkflowRunRequest(BaseModel):

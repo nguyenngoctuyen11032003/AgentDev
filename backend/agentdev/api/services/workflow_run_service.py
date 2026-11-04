@@ -40,6 +40,7 @@ from agentdev.api.services.session_store import SessionBusyError, SessionStatus,
 from agentdev.api.services.websocket_executor import WebSocketGraphExecutor
 from agentdev.api.services.workflow_storage import validate_workflow_filename
 from agentdev.api.settings import WARE_HOUSE_DIR, YAML_DIR
+from agentdev.utils.run_mode import DEFAULT_RUN_MODE
 
 RUN_IN_PROGRESS_CODE = "run_in_progress"
 RUN_IN_PROGRESS_MESSAGE = "A run is already in progress in this session"
@@ -104,6 +105,7 @@ class WorkflowRunService:
         *,
         attachments: Optional[List[str]] = None,
         log_level: Optional[LogLevel] = None,
+        mode: str = DEFAULT_RUN_MODE,
     ) -> None:
         normalized_yaml_name = (yaml_file or "").strip()
         existing = self.session_store.get_session(session_id)
@@ -153,6 +155,7 @@ class WorkflowRunService:
                 websocket_manager,
                 attachments,
                 log_level,
+                mode=mode,
             )
         except SessionBusyError:
             # Another launch won the race; leave its session alone.
@@ -195,6 +198,7 @@ class WorkflowRunService:
         websocket_manager,
         attachments: List[str],
         log_level: LogLevel,
+        mode: str = DEFAULT_RUN_MODE,
     ) -> None:
         session = self.session_store.get_session(session_id)
         cancel_event = session.cancel_event if session else None
@@ -211,6 +215,7 @@ class WorkflowRunService:
                 attachments,
                 log_level,
                 cancel_event,
+                mode,
             )
             await executor.execute_graph_async(task_input)
 
@@ -316,6 +321,7 @@ class WorkflowRunService:
         attachments: List[str],
         log_level: Optional[LogLevel],
         cancel_event,
+        mode: str = DEFAULT_RUN_MODE,
     ):
         """Build the graph, the executor and the first task input (blocking; runs in a worker thread)."""
         design = load_config(yaml_path)
@@ -340,6 +346,7 @@ class WorkflowRunService:
             self.session_store,
             cancel_event=cancel_event,
             workspace_root=opened_project_folder(session),
+            run_mode=mode,
         )
 
         if session:

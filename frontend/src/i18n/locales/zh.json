@@ -1047,7 +1047,30 @@
     },
     "stopping": "正在停止…",
     "stop_unconfirmed": "已在此处停止：服务器尚未确认停止。",
-    "take_over_here": "在此打开"
+    "take_over_here": "在此打开",
+    "mode": {
+      "title": "模式",
+      "to_switch": "切换",
+      "trigger_title": "模式：{mode}。点击切换（在输入框中按 Shift+Tab）",
+      "next_turn": "当前有运行中的轮次：新模式从下一条消息开始生效。",
+      "auto_answered": "已按当前模式自动回答 {node} 的问题。",
+      "manual": {
+        "label": "先询问",
+        "desc": "按工作流设计运行：所有问题和审批步骤都等待你回复。"
+      },
+      "plan": {
+        "label": "先出计划",
+        "desc": "负责人总是先提交计划，经你批准后再分配任务。"
+      },
+      "auto": {
+        "label": "自动",
+        "desc": "无需审批计划，负责人的问题会自动回答；工作流中的审批步骤仍等待你。"
+      },
+      "bypass": {
+        "label": "跳过确认",
+        "desc": "自动回答所有问题和审批步骤。付费步骤（如 Veo 视频生成）仍不会自动运行。"
+      }
+    }
   },
   "components": {
     "workflow_edge": {

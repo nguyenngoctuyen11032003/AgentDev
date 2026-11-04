@@ -1087,7 +1087,30 @@
     },
     "stopping": "Đang dừng…",
     "stop_unconfirmed": "Đã dừng ở đây: máy chủ chưa xác nhận đã dừng.",
-    "take_over_here": "Mở ở đây"
+    "take_over_here": "Mở ở đây",
+    "mode": {
+      "title": "Chế độ",
+      "to_switch": "để đổi",
+      "trigger_title": "Chế độ: {mode}. Bấm để đổi (Shift+Tab trong ô nhập)",
+      "next_turn": "Đang có lượt chạy: chế độ mới áp dụng từ tin nhắn tiếp theo.",
+      "auto_answered": "Đã tự trả lời câu hỏi của {node} theo chế độ đang chọn.",
+      "manual": {
+        "label": "Hỏi trước",
+        "desc": "Chạy đúng như quy trình thiết kế: mọi câu hỏi và bước duyệt đều chờ bạn trả lời."
+      },
+      "plan": {
+        "label": "Lên kế hoạch",
+        "desc": "Trưởng nhóm luôn trình kế hoạch và chờ bạn duyệt trước khi giao việc."
+      },
+      "auto": {
+        "label": "Tự động",
+        "desc": "Không cần duyệt kế hoạch, câu hỏi của trưởng nhóm được tự trả lời; các bước duyệt trong quy trình vẫn chờ bạn."
+      },
+      "bypass": {
+        "label": "Bỏ qua xác nhận",
+        "desc": "Tự trả lời mọi câu hỏi và bước duyệt. Bước tốn tiền (như tạo video Veo) vẫn không tự chạy."
+      }
+    }
   },
   "form_generator": {
     "advanced_settings": "Cài đặt nâng cao",

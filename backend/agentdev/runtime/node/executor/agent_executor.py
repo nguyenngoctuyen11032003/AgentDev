@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from agentdev.utils.run_mode import RUN_MODE_KEY, plan_approval_for
 from agentdev.connections import resolve_connection
 from agentdev.entity.configs import Node
 from agentdev.entity.configs.node.agent import AgentConfig, AgentRetryConfig
@@ -1744,7 +1745,8 @@ class AgentNodeExecutor(NodeExecutor):
             delegated=delegated,
             max_delegations=team_config.max_delegations,
             max_review_rounds=team_config.max_review_rounds,
-            plan_approval=team_config.plan_approval,
+            # The chat's mode can force the plan step on (plan) or skip it (auto, bypass) for this turn
+            plan_approval=plan_approval_for(self.context.global_state.get(RUN_MODE_KEY), team_config.plan_approval),
             max_parallel=team_config.max_parallel,
             cancel_event=cancel_event,
         )

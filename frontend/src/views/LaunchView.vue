@@ -581,10 +581,12 @@
                   v-if="hasUnseenMessages || isScrolledUp"
                   type="button"
                   class="jump-latest"
+                  :class="{ 'has-new': hasUnseenMessages }"
                   :aria-label="hasUnseenMessages ? $t('launch.jump_to_latest') : $t('launch.chat_ui.scroll_to_bottom')"
+                  :title="hasUnseenMessages ? $t('launch.jump_to_latest') : $t('launch.chat_ui.scroll_to_bottom')"
                   @click="jumpToLatest"
                 >
-                  {{ hasUnseenMessages ? $t('launch.jump_to_latest') : $t('launch.chat_ui.scroll_to_bottom') }}
+                  <span v-if="hasUnseenMessages" class="jump-latest-label">{{ $t('launch.jump_to_latest') }}</span>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
                 </button>
               </Transition>
@@ -642,7 +644,13 @@
                 <span>{{ $t('launch.resume.banner') }}</span>
                 <button type="button" class="composer-hint-action" @click="resumeRun">{{ $t('launch.resume.action') }}</button>
               </p>
-              <!-- Who works on what right now, for how long; the turn's totals once it is over -->
+              <!-- One tray above the box: while the team works, the live line on top; once the turn is
+                   over, the next-step chips on the left and its totals as a quiet line on the right -->
+              <div
+                v-if="liveProgress || quickReplies.length"
+                class="turn-footer"
+                :class="{ 'is-settled': !liveProgress || ['done', 'muted'].includes(liveProgress.tone) }"
+              >
               <LiveProgress
                 v-if="liveProgress"
                 :workers="liveProgress.workers"
@@ -664,6 +672,7 @@
                 :label="$t('launch.quick.label')"
                 @pick="pickQuickReply"
               />
+              </div>
               <div
                 :class="['input-shell', 'composer', { glow: shouldGlow, 'drag-active': isDragActive }]"
                 @dragenter="handleDragEnter"
@@ -721,6 +730,7 @@
                   @input="autoResizeTaskInput"
                   @keydown.enter="handleEnterKey"
                   @keydown.up="recallLastPrompt"
+                  @keydown.tab.shift.exact.prevent="cycleRunMode"
                   @compositionstart="handleCompositionStart"
                   @compositionend="handleCompositionEnd"
                   @paste="handlePaste"
@@ -765,6 +775,8 @@
                     @change="onAttachmentSelected"
                   />
                   <div class="composer-actions">
+                  <!-- How much this turn asks before acting (sent with each message) -->
+                  <ModePicker v-model="runMode" :run-active="isWorkflowRunning" />
                   <!-- While the team works: Send (a message for the lead) next to Stop -->
                   <button
                     v-if="canInterject"
@@ -1084,6 +1096,7 @@ import { createRunTracker, usageTotals, formatCost, stepStatus } from '@/utils/r
 import StatusPill from '@/components/launch/StatusPill.vue'
 import LiveProgress from '@/components/launch/chat/LiveProgress.vue'
 import QuickReplies from '@/components/launch/chat/QuickReplies.vue'
+import ModePicker from '@/components/launch/chat/ModePicker.vue'
 import { localizeErrorText } from '@/utils/errorTranslate.js'
 import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast.js'
@@ -2310,6 +2323,15 @@ const CHAT_MAX_W = 560
 const CHAT_DEFAULT_W = 380
 const CHAT_RAIL_W = 48
 const CHAT_WIDTH_KEY = 'agentdev.launch.chatWidth'
+// The chat's mode (manual / plan / auto / bypass): sent with each turn, remembered across visits
+const RUN_MODE_KEY = 'agentdev.launch.runMode'
+const RUN_MODES = ['manual', 'plan', 'auto', 'bypass']
+const runMode = ref(RUN_MODES.includes(readStorage(RUN_MODE_KEY)) ? readStorage(RUN_MODE_KEY) : 'manual')
+watch(runMode, (mode) => writeStorage(RUN_MODE_KEY, mode))
+// Shift+Tab in the message box steps through the modes (like the mode menu's hint says)
+const cycleRunMode = () => {
+  runMode.value = RUN_MODES[(RUN_MODES.indexOf(runMode.value) + 1) % RUN_MODES.length]
+}
 const clampChatWidth = (value) => Math.round(Math.min(CHAT_MAX_W, Math.max(CHAT_MIN_W, Number(value) || CHAT_DEFAULT_W)))
 const chatWidth = ref(clampChatWidth(readStorage(CHAT_WIDTH_KEY)))
 const setChatWidth = (value) => { chatWidth.value = clampChatWidth(value) }
@@ -5007,7 +5029,8 @@ const launchWorkflow = async () => {
         yaml_file: selectedFile.value,
         task_prompt: trimmedPrompt,
         session_id: sessionId,
-        attachments: attachmentIds
+        attachments: attachmentIds,
+        mode: runMode.value
       })
     })
 
@@ -6042,6 +6065,13 @@ const processMessage = async (msg) => {
 
   // The server has the answer that was sent (also acknowledges a cancel request)
   // A question nobody answered in time: the server moved the run on, so close it here too
+  // The turn's mode answered a question for the user: say so, so nothing is decided silently
+  if (msg.type === 'auto_answered') {
+    const node = msg.data?.node_id || ''
+    addChatNotification(t('launch.mode.auto_answered', { node }), { type: 'notification', at })
+    return
+  }
+
   if (msg.type === 'human_input_timeout') {
     for (const item of chatMessages.value) {
       if (item.isQuestion) {
@@ -7317,33 +7347,41 @@ watch(
   position: relative;
 }
 
-/* "New messages" pill: floats above the composer while the chat is scrolled up */
+/* Back to the latest: a small round arrow while merely scrolled up; a labelled accent pill
+   when something new arrived. Sits right of center so it never covers the line being read. */
 .jump-latest {
   position: absolute;
-  left: 50%;
-  bottom: calc(100% + 10px);
-  transform: translateX(-50%);
+  right: 14px;
+  bottom: calc(100% + 12px);
   z-index: 5;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
   border-radius: 999px;
-  border: 1px solid rgb(var(--ink) / 0.14);
-  background: rgb(32 32 34 / 0.96);
-  color: var(--text-1);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
   font-size: 12.5px;
-  font-weight: 500;
-  white-space: nowrap;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgb(0 0 0 / 0.28);
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.08), 0 6px 18px -6px rgb(15 23 42 / 0.35);
+  transition: transform 0.15s var(--ease-out), border-color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
 }
-.jump-latest:hover {
-  border-color: rgb(var(--ink) / 0.28);
+.jump-latest.has-new {
+  padding: 0 12px 0 14px;
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
 }
+.jump-latest:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.jump-latest.has-new:hover { border-color: transparent; filter: brightness(1.06); }
 .jump-latest:focus-visible {
-  outline: 2px solid var(--accent-blue-1);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 .jump-latest-enter-active,
@@ -7353,12 +7391,28 @@ watch(
 .jump-latest-enter-from,
 .jump-latest-leave-to {
   opacity: 0;
-  transform: translate(-50%, 6px);
+  transform: translateY(6px);
 }
-:root[data-theme="light"] .jump-latest {
-  background: var(--surface-1);
-  box-shadow: 0 2px 10px rgb(var(--shade) / 0.18);
+@media (prefers-reduced-motion: reduce) {
+  .jump-latest, .jump-latest-enter-active, .jump-latest-leave-active { transition: none; }
+  .jump-latest:hover { transform: none; }
 }
+
+/* Live line + next-step chips: one tray, no stacked boxes */
+.turn-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 0 0 8px;
+  padding-top: 8px;
+}
+.turn-footer :deep(.live-progress),
+.turn-footer :deep(.quick-replies) { margin: 0; }
+.turn-footer :deep(.live-progress) { flex: 1 1 100%; }
+/* Settled: chips first, the totals pushed right on the same row (they wrap under on narrow widths) */
+.turn-footer.is-settled :deep(.quick-replies) { order: 1; flex: 0 1 auto; }
+.turn-footer.is-settled :deep(.live-progress) { order: 2; flex: 0 1 auto; margin-left: auto; min-width: 0; }
 
 /* A send that failed: inline above the composer, with Retry (like ChatGPT / Claude) */
 .send-error {
