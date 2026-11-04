@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 # Connections always sign in with an account: the vendor's own CLI (Claude Code / Codex)
-# or Google OAuth. ``api_key`` only names connections saved by older versions; they can no
-# longer be created or used.
-AUTH_API_KEY = "api_key"
+# or Google OAuth. Any other auth type found in storage was saved by an older version
+# (API keys) and only loads so the user can be told to sign in again.
 AUTH_OAUTH = "oauth"
 AUTH_CLI = "cli"
+ACCOUNT_AUTH_TYPES = frozenset({AUTH_CLI, AUTH_OAUTH})
+
+
+def is_account_auth(auth_type: str) -> bool:
+    """True when ``auth_type`` is an account sign-in this version can run."""
+    return auth_type in ACCOUNT_AUTH_TYPES
 
 
 @dataclass(frozen=True)
@@ -21,7 +26,6 @@ class VendorInfo:
     auth_methods: Tuple[str, ...] = (AUTH_CLI,)
     cli_tools: bool = False  # whether the CLI provider can run agents that use tools
     cli_provider: str | None = None  # registered provider that drives the vendor's local CLI
-    planned_auth_methods: Tuple[str, ...] = field(default_factory=tuple)
 
     def to_json(self) -> dict:
         return {
@@ -29,7 +33,6 @@ class VendorInfo:
             "label": self.label,
             "models": list(self.models),
             "authMethods": list(self.auth_methods),
-            "plannedAuthMethods": list(self.planned_auth_methods),
             "cliProvider": self.cli_provider,
             "cliTools": self.cli_tools,
         }

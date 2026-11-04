@@ -93,14 +93,14 @@ def lead_workflow(tmp_path, monkeypatch):
 
 def _run(path, prompt):
     from agentdev.entity.graph_config import GraphConfig
-    from agentdev.runtime.sdk import OUTPUT_ROOT, ensure_schema_registry_populated
+    from agentdev.runtime.sdk import ensure_schema_registry_populated
     from agentdev.validation.check import load_config
     from agentdev.workflow.graph import GraphExecutor
     from agentdev.workflow.graph_context import GraphContext
 
     ensure_schema_registry_populated()
     design = load_config(path)
-    config = GraphConfig.from_definition(design.graph, name="plan_gate_test", output_root=OUTPUT_ROOT, source_path=str(path), vars=design.vars)
+    config = GraphConfig.from_definition(design.graph, name="plan_gate_test", output_root=path.parent / "out", source_path=str(path), vars=design.vars)
     context = GraphContext(config=config)
     executor = GraphExecutor(context)
     executor._execute(prompt)

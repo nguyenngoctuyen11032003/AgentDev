@@ -140,7 +140,7 @@
                 <span class="session-sub">
                   <StatusPill compact :tone="statusTone(item.status)" :label="statusLabel(item.status)" />
                   <span v-if="waitsOnPlan(item)" class="plan-badge" :title="t('launch.plan.status')">{{ t('launch.sessions.awaiting_plan') }}</span>
-                  <span v-else-if="item.resumable && !['completed', 'running', 'waiting_for_input', 'cancelling'].includes(item.status)" class="plan-badge" :title="item.interrupt_reason || t('launch.resume.banner')">{{ t('launch.sessions.interrupted') }}</span>
+                  <span v-else-if="item.resumable && !['completed', 'running', 'waiting_for_input', 'cancelling'].includes(item.status)" class="plan-badge" :title="interruptTitle(item)">{{ stoppedByYou(item) ? t('launch.sessions.stopped') : t('launch.sessions.interrupted') }}</span>
                   <time v-if="item.updated_at" class="session-time">{{ timeAgo(item.updated_at) }}</time>
                 </span>
               </span>
@@ -336,6 +336,17 @@ const STATUS_TONE = {
 const statusTone = (status) => STATUS_TONE[status] || 'idle'
 
 // Tooltip: the full title and the workflow a narrow row cannot show
+// The server stores its reason in English ("Workflow execution cancelled", "Interrupted by a server restart"):
+// say it in the UI language, and call a stop the user asked for a stop, not an interruption
+const USER_STOP_RE = /cancel|stopped by the user|user requested/i
+const stoppedByYou = (item) => USER_STOP_RE.test(String(item.interrupt_reason || ''))
+const interruptTitle = (item) => {
+  const reason = String(item.interrupt_reason || '')
+  if (stoppedByYou(item)) return t('launch.sessions.stopped_hint')
+  if (/server restart/i.test(reason)) return t('launch.sessions.interrupted_restart')
+  return t('launch.resume.banner')
+}
+
 const itemTitle = (item, group) =>
   [item.title || t('launch.sessions.untitled'), group.isProject ? workflowLabel(item.yaml_file) : '', statusLabel(item.status)]
     .filter(Boolean)

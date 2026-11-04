@@ -132,12 +132,12 @@ def test_gemini_bearer_path():
     from agentdev.runtime.node.agent.providers.gemini_provider import GeminiProvider
 
     p = GeminiProvider.__new__(GeminiProvider)
-    p.api_key, p.base_url = "oauth-bearer:tok123", ""
+    p.auth_token, p.base_url = "oauth-bearer:tok123", ""
     headers = p.create_client()._api_client._http_options.headers
     assert headers["Authorization"] == "Bearer tok123"
     assert "x-goog-api-key" not in headers
 
-    # API keys are not accepted: Gemini runs only with a Google sign-in
-    p.api_key = "plain-key"
+    # Anything but a Google sign-in token is refused: there is no API-key mode
+    p.auth_token = "plain-key"
     with pytest.raises(ValueError, match="Google account sign-in"):
         p.create_client()

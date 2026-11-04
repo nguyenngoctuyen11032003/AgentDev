@@ -146,7 +146,7 @@ def _provider_call(connection_id: str, model: str) -> ModelCall:
         creds = resolve_connection(connection_id)
         provider_name = creds.provider or creds.vendor
         provider_class = ProviderRegistry.get_provider(provider_name)
-        config = SimpleConfig(name=model, provider=provider_name, api_key=creds.token,
+        config = SimpleConfig(name=model, provider=provider_name, auth_token=creds.token,
                               base_url=creds.base_url or "", params={"timeout": CALL_TIMEOUT},
                               node_id="workflow_assistant")
         provider = provider_class(config)

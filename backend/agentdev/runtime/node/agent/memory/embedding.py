@@ -80,7 +80,7 @@ class EmbeddingFactory:
         if provider not in _warned_providers:
             _warned_providers.add(provider)
             logger.warning(
-                "Embedding provider '%s' is not supported (API-key embeddings were removed); "
+                "Embedding provider '%s' is not supported (only the 'local' model is); "
                 "using keyword retrieval instead.",
                 provider or "<unset>",
             )

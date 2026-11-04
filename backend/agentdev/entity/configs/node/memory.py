@@ -28,12 +28,12 @@ from agentdev.entity.configs.base import (
 
 logger = logging.getLogger(__name__)
 
-# Embedding providers that run without any third-party API key.
+# Embedding providers that run on this machine (no external service).
 SUPPORTED_EMBEDDING_PROVIDERS = ("local",)
 
 REMOVED_MEMORY_STORE_TYPES = {
     "mem0": (
-        "Mem0 memory is no longer supported (it required a third-party API key). "
+        "Mem0 memory is no longer supported (it needed an external service account). "
         "Use a 'simple', 'file' or 'blackboard' memory store instead."
     ),
 }
@@ -47,7 +47,7 @@ def _warn_ignored_embedding(provider: str, path: str) -> None:
         return
     _warned_embedding_providers.add(key)
     logger.warning(
-        "Ignoring embedding provider '%s' at %s: API-key embeddings are no longer supported; "
+        "Ignoring embedding provider '%s' at %s: only the 'local' embedding model is supported; "
         "memory falls back to keyword retrieval. Remove the 'embedding' block (or use provider 'local').",
         key,
         path,
@@ -65,7 +65,7 @@ def parse_optional_embedding(mapping: Mapping[str, Any], path: str) -> "Embeddin
     """Parse an optional ``embedding`` block.
 
     Embedding is optional: without it memory uses keyword (BM25) retrieval. Legacy
-    blocks that point at an API-key provider (e.g. ``openai``) are ignored with a
+    blocks that point at a hosted provider (e.g. ``openai``) are ignored with a
     warning instead of failing, so old workflows keep running.
     """
     raw = mapping.get("embedding")
@@ -80,10 +80,10 @@ def parse_optional_embedding(mapping: Mapping[str, Any], path: str) -> "Embeddin
 
 
 def strip_legacy_memory_embeddings(data: Any) -> None:
-    """Drop unsupported (API-key) embedding blocks from a raw design mapping, in place.
+    """Drop unsupported (hosted-provider) embedding blocks from a raw design mapping, in place.
 
-    Runs before ``${VAR}`` placeholder resolution so a legacy block such as
-    ``api_key: ${API_KEY}`` cannot fail the load when that variable is unset.
+    Runs before ``${VAR}`` placeholder resolution so a legacy block whose credential is a
+    ``${VAR}`` placeholder cannot fail the load when that variable is unset.
     """
     if not isinstance(data, dict):
         return

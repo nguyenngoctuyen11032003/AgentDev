@@ -15,6 +15,7 @@ const RULES = [
     re: /`(\w+)` CLI (?:is )?not installed|CLI for this provider is not installed/i,
     params: (m) => ({ cli: m[1] || 'CLI' })
   },
+  { key: 'codex_not_account', re: /Codex is signed in with an API key/i },
   {
     key: 'cli_not_logged_in',
     re: /`(\w+)` CLI is not logged in|\bnot logged in; run `(\w+)/i,

@@ -198,7 +198,7 @@ const oauthConfigured = ref(null)
 
 // "Account" covers whichever sign-in the vendor offers (CLI or Google OAuth).
 // OpenAI mirrors the Codex extension: ChatGPT sign-in, device code.
-// API keys are not offered: connections always use an account sign-in.
+// Connections always use an account sign-in.
 const methods = computed(() => {
   const list = []
   const auth = props.vendor.authMethods || []

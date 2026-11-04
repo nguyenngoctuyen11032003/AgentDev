@@ -100,7 +100,7 @@ def load_config(
 def _stub_missing_env_placeholders(config_path: Path) -> Dict[str, Any]:
     """Return dummy values for ``${VAR}`` placeholders that only exist at runtime.
 
-    API keys, model names, etc. come from the environment when a workflow runs;
+    Model names and similar settings come from the environment when a workflow runs;
     static validation (CI has no ``.env``) must not fail just because they are unset.
     """
     import os
@@ -145,7 +145,12 @@ def check_config(yaml_content: Any) -> str:
 
     # Skip placeholder resolution during save - users may configure env vars at runtime
     # Use yaml_content directly instead of prepare_design_mapping()
-    schema_errors = validate_design(yaml_content)
+    import copy
+
+    from agentdev.connections.autobind import strip_legacy_keys
+
+    # Old workflows may still carry legacy credential keys on agents: ignored here exactly as when they run
+    schema_errors = validate_design(strip_legacy_keys(copy.deepcopy(yaml_content)))
     if schema_errors:
         formatted = "\n".join(f"- {err}" for err in schema_errors)
         return formatted

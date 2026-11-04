@@ -29,7 +29,7 @@ def test_missing(store):
     assert [(p["nodeId"], p["problem"]) for p in r] == [("a", "missing")]
 
 
-def test_api_key_connection_is_flagged_and_accounts_pass(store, tmp_path):
+def test_old_api_key_connection_is_flagged_and_accounts_pass(store, tmp_path):
     import json
 
     (tmp_path / "c.json").write_text(

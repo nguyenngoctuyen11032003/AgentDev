@@ -22,8 +22,9 @@ class ModelProvider(ABC):
             config: Agent configuration instance
         """
         self.config = config
-        self.base_url = config.base_url
-        self.api_key = config.api_key
+        # Account credentials bound at run time (Google sign-in only; CLI accounts use their own login)
+        self.base_url = getattr(config, "base_url", "") or ""
+        self.auth_token = getattr(config, "auth_token", None)
         self.model_name = config.name if isinstance(config.name, str) else str(config.name)
         self.provider = config.provider
         self.params = config.params or {}

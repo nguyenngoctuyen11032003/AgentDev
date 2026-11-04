@@ -192,6 +192,7 @@ import {
 import { accountName, isPremiumModel, normalizeModels } from '@/utils/accountFormat'
 import { invalidateConnectionModels, modelsForConnection } from '@/utils/connectionModels'
 import { confirmDialog } from '@/utils/confirm'
+import { localizeBackendError } from '@/utils/errorTranslate'
 import { toast } from '@/utils/toast'
 
 const { t } = useI18n()
@@ -212,7 +213,7 @@ const detailId = ref('')
 const detailConn = computed(() => connections.value.find((conn) => conn.id === detailId.value) || null)
 
 const vendorLabel = (id) => vendors.value.find((vendor) => vendor.id === id)?.label || id
-const authLabel = (id) => t(`connections.auth_${id}`)
+const authLabel = (id) => (id === 'cli' || id === 'oauth' ? t(`connections.auth_${id}`) : t('connections.auth_legacy'))
 const countFor = (vendorId) => connections.value.filter((conn) => conn.vendor === vendorId).length
 
 // A test result wins; otherwise the account lookup tells whether the sign-in is live.
@@ -228,7 +229,7 @@ const statusOf = (id) => {
 
 const errorOf = (id) => {
   if (results[id] && !results[id].ok) return results[id].error
-  if (!results[id] && accounts[id]?.loggedIn === false) return accounts[id].detail
+  if (!results[id] && accounts[id]?.loggedIn === false) return localizeBackendError(accounts[id].detail) || accounts[id].detail
   return ''
 }
 

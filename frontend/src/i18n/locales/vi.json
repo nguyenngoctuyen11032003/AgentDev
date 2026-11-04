@@ -117,7 +117,7 @@
     "quickstart": {
       "title": "Bắt đầu nhanh",
       "connect_title": "Kết nối tài khoản",
-      "connect_desc": "Đăng nhập Claude, Codex hoặc Gemini bằng tài khoản bạn đang dùng, không cần API key.",
+      "connect_desc": "Đăng nhập Claude, Codex hoặc Gemini bằng tài khoản bạn đang dùng.",
       "connect_cta": "Mở Kết nối",
       "workflow_title": "Chọn quy trình",
       "workflow_desc": "Dùng mẫu “Công ty phần mềm” có sẵn trưởng nhóm CTO và 11 thành viên, hoặc tạo quy trình của riêng bạn.",
@@ -364,6 +364,9 @@
     "sessions": {
       "awaiting_plan": "Chờ duyệt KH",
       "interrupted": "Bị gián đoạn",
+      "stopped": "Đã dừng",
+      "stopped_hint": "Bạn đã dừng lượt này. Có thể chạy tiếp từ chỗ đã dừng.",
+      "interrupted_restart": "Máy chủ khởi động lại khi lượt này đang chạy. Có thể chạy tiếp từ chỗ dở.",
       "title": "Phiên làm việc",
       "new": "Phiên mới",
       "new_in": "Phiên mới với {name}",
@@ -659,11 +662,11 @@
     },
     "error_hints": {
       "cli_slow": "Gợi ý: model trả lời quá lâu (thường do viết một file rất dài trong một bước), không phải lỗi mạng. Hệ thống tự thử lại; nếu lặp lại, hãy yêu cầu chia nhỏ việc.",
-      "invalid_api_key": "Gợi ý: tài khoản bị từ chối xác thực. Hãy mở trang Kết nối, bấm Kiểm tra và đăng nhập lại tài khoản nếu cần.",
       "rate_limit": "Gợi ý: nhà cung cấp đang giới hạn tần suất gọi hoặc bạn đã hết hạn mức. Hãy đợi một lát rồi thử lại, hoặc kiểm tra gói dịch vụ/thanh toán.",
       "model_not_found": "Gợi ý: không tìm thấy model. Hãy chọn lại model trong biểu mẫu của nút agent (danh sách lấy từ tài khoản đã kết nối).",
       "connection": "Gợi ý: không kết nối được tới nhà cung cấp model. Hãy kiểm tra mạng, rồi mở trang Kết nối và bấm Kiểm tra.",
-      "python_disabled": "Gợi ý: việc chạy mã Python đang bị tắt để đảm bảo an toàn. Nếu bạn tin tưởng quy trình này, hãy đặt MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 trong tệp .env rồi khởi động lại backend (mã sẽ chạy trực tiếp, không có sandbox)."
+      "python_disabled": "Gợi ý: việc chạy mã Python đang bị tắt để đảm bảo an toàn. Nếu bạn tin tưởng quy trình này, hãy đặt MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 trong tệp .env rồi khởi động lại backend (mã sẽ chạy trực tiếp, không có sandbox).",
+      "auth_rejected": "Gợi ý: tài khoản bị từ chối xác thực. Hãy đăng nhập lại ở trang Kết nối."
     },
     "upload_folder": "Mở thư mục dự án",
     "upload_folder_hint": "Chọn một thư mục dự án trên máy. Agent làm việc trực tiếp trong thư mục đó, không cần tải lên.",
@@ -1189,7 +1192,6 @@
     "context_window": "Số tin nhắn ngữ cảnh",
     "provider": "Nhà cung cấp",
     "base_url": "URL gốc (Base URL)",
-    "api_key": "Khóa API",
     "params": "Tham số",
     "tooling": "Công cụ",
     "tools": "Danh sách công cụ",
@@ -1312,7 +1314,6 @@
     "context_window": "Số tin nhắn ngữ cảnh nút được đọc khi chạy. 0 = chỉ giữ tin nhắn được đánh dấu giữ lại, -1 = không giới hạn.",
     "provider": "Nhà cung cấp API của LLM (OpenAI, Anthropic, v.v.).",
     "base_url": "Ghi đè URL gốc mặc định của API.",
-    "api_key": "Khóa API dùng để truy cập dịch vụ LLM.",
     "params": "Các tham số tùy chỉnh bổ sung được truyền cho model.",
     "tooling": "Cho phép agent gọi các hàm, công cụ bên ngoài.",
     "tools": "Danh sách các công cụ có thể gọi.",
@@ -1591,7 +1592,8 @@
       "skill_permission_denied": "Không ghi được vào thư mục skill: có tệp đang mở trong chương trình khác hoặc chỉ đọc.",
       "skill_folder_failed": "Không cập nhật được thư mục skill.",
       "invalid_yaml": "Nội dung YAML không hợp lệ.",
-      "validation_failed": "Cấu hình workflow không hợp lệ."
+      "validation_failed": "Cấu hình workflow không hợp lệ.",
+      "codex_not_account": "Codex chưa đăng nhập bằng tài khoản ChatGPT. Hãy đăng nhập lại ở trang Kết nối."
     }
   },
   "schema_enum": {
@@ -1715,7 +1717,6 @@
     "system_prompt": "Vai trò và nhiệm vụ",
     "model_provider": "Nhà cung cấp model",
     "base_url": "URL gốc (Base URL)",
-    "api_key": "Khóa API",
     "call_parameters": "Tham số gọi model",
     "tool_configuration": "Cấu hình công cụ",
     "thinking_configuration": "Cấu hình suy luận",
@@ -1868,8 +1869,6 @@
     "h1105x1n": "Agent này là ai, làm việc gì và theo những quy tắc nào. Viết như một bản mô tả công việc.",
     "h16e0vh": "Tên nhà cung cấp đã đăng ký (claude_cli, codex_cli, gemini...), quyết định cách hệ thống gọi model.",
     "hh50ypp": "Ghi đè endpoint mặc định của nhà cung cấp; để trống để dùng URL gốc có sẵn.",
-    "h13ex0cl": "Thông tin xác thực mà client của nhà cung cấp sử dụng; hãy tham chiếu một biến môi trường như {'$'}{'{'}API_KEY{'}'} phù hợp với nhà cung cấp đã chọn.",
-    "h12gbrm2": "Khóa API",
     "h13rvfs8": "Tham số gọi model (temperature, top_p, v.v.)",
     "h4lfs71": "Các công cụ agent được dùng (hàm Python, máy chủ MCP...)",
     "hdroh30": "Khối cấu hình được kiểm tra theo loại công cụ đã chọn (danh sách hàm Python, thiết lập máy chủ MCP, lệnh khởi chạy MCP cục bộ, v.v.).",
@@ -2024,10 +2023,10 @@
     "h1n8qox5": "Giao việc biến đổi thông điệp cho các hàm Python trong workspace/functions/edge_processor.",
     "h9jg6yw": "Tham số embedding (model_path, device, v.v.)",
     "h173z8i7": "Đường dẫn lưu chỉ mục",
-    "h1bovyeq": "Lập chỉ mục các tệp cục bộ trên ổ đĩa; mặc định tìm kiếm theo từ khóa (không cần khóa API)",
-    "h17tljyg": "Kho nhẹ lưu các kết quả trước đó, truy xuất theo từ khóa (không cần khóa API); được lưu lại khi đặt memory_path",
-    "hgj8i5p": "Model embedding chạy cục bộ (cần sentence-transformers); không cần khóa API",
-    "hyiszls": "Model embedding cục bộ (không bắt buộc). Để trống để dùng truy xuất theo từ khóa (BM25), không cần khóa API hay cài thêm gói",
+    "h1bovyeq": "Lập chỉ mục các tệp cục bộ trên ổ đĩa; mặc định tìm kiếm theo từ khóa, chạy hoàn toàn trên máy",
+    "h17tljyg": "Kho nhẹ lưu các kết quả trước đó, truy xuất theo từ khóa, chạy trên máy; được lưu lại khi đặt memory_path",
+    "hgj8i5p": "Model embedding chạy cục bộ (cần sentence-transformers)",
+    "hyiszls": "Model embedding cục bộ (không bắt buộc). Để trống để dùng truy xuất theo từ khóa (BM25), không cần cài thêm gói",
     "hjafxzt": "Tên hoặc đường dẫn cục bộ của model sentence-transformers (cũng có thể dùng params.model_path)",
     "hzos6xi": "Các skill trong thư viện dùng chung mà agent này được trang bị (chọn trong danh sách bên dưới).",
     "hv3mhzz": "Biến agent này thành trưởng nhóm (CTO / PM / CEO): bạn chỉ trò chuyện với trưởng nhóm, trưởng nhóm giao việc cho các thành viên.",
@@ -2107,8 +2106,8 @@
       "function": "Dùng các hàm Python cục bộ",
       "keyword": "Điều kiện khai báo dựa trên từ khóa cần có/cần loại trừ hoặc khớp biểu thức chính quy",
       "regex_extract": "Trích xuất các phần của dữ liệu bằng biểu thức chính quy Python.",
-      "simple": "Kho nhẹ lưu các kết quả trước đó, truy xuất theo từ khóa (không cần khóa API); được lưu lại khi đặt memory_path",
-      "file": "Tham chiếu tới một tệp YAML bên ngoài chứa quy trình con",
+      "simple": "Kho nhẹ lưu các kết quả trước đó, truy xuất theo từ khóa, chạy trên máy; được lưu lại khi đặt memory_path",
+      "file": "Lập chỉ mục các tệp cục bộ trên ổ đĩa; mặc định tìm kiếm theo từ khóa, chạy hoàn toàn trên máy",
       "blackboard": "Bộ nhớ bảng chung cho phép nhiều nút cùng đọc/ghi",
       "agent": "Nút thực thi agent dựa trên các nhà cung cấp LLM/công cụ đã cấu hình, hỗ trợ mở rộng công cụ, bộ nhớ và suy luận.",
       "human": "Tạm dừng quy trình và chờ người dùng phản hồi",
@@ -2225,7 +2224,6 @@
     "label": "Tên",
     "label_placeholder": "VD: Claude (công việc)",
     "auth_method": "Cách đăng nhập",
-    "auth_api_key": "API key (không còn hỗ trợ, hãy đăng nhập tài khoản)",
     "auth_oauth": "Đăng nhập tài khoản (OAuth)",
     "auth_cli": "Đăng nhập tài khoản (CLI)",
     "coming_soon": "Sắp có",
@@ -2364,7 +2362,8 @@
     "fallback_missing": "Chưa kết nối",
     "fallback_ok": "Đã có tài khoản dự phòng: quy trình vẫn chạy tiếp khi một tài khoản hết hạn mức.",
     "fallback_no_backup": "Chưa có tài khoản dự phòng. Hãy kết nối thêm một nhà cung cấp (nên có cả Claude và Codex) để quy trình không bị dừng khi hết hạn mức.",
-    "usage_weekly_scoped": "Hàng tuần (theo model)"
+    "usage_weekly_scoped": "Hàng tuần (theo model)",
+    "auth_legacy": "Kết nối cũ, không còn dùng được. Hãy đăng nhập lại ở trang Kết nối"
   },
   "confirm": {
     "ok": "Đồng ý",

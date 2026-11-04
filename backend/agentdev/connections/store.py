@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agentdev.connections.catalog import AUTH_API_KEY, AUTH_CLI, AUTH_OAUTH
+from agentdev.connections.catalog import AUTH_CLI, is_account_auth
 from agentdev.connections.secret_box import SecretDecryptError, decrypt, encrypt
 from agentdev.paths import STORAGE_DIR
 
@@ -57,6 +57,11 @@ class Connection:
             "created_at": self.created_at,
         }
 
+    @property
+    def needs_sign_in(self) -> bool:
+        """Saved by an older version (API key): unusable until replaced by an account sign-in."""
+        return not is_account_auth(self.auth_type)
+
     def _public_hint(self) -> str:
         if self.auth_type == "oauth":
             try:
@@ -72,6 +77,7 @@ class Connection:
             "label": self.label,
             "authType": self.auth_type,
             "secretHint": self._public_hint(),
+            "needsSignIn": self.needs_sign_in,
             "baseUrl": self.base_url,
             "createdAt": self.created_at,
         }
@@ -105,7 +111,7 @@ def _pick_default(connections: Dict[str, Connection], default_id: Optional[str])
     """The chosen default, else Claude (account sign-in first), else none."""
     if default_id and default_id in connections:
         return connections[default_id]
-    claude = [c for c in connections.values() if c.vendor == DEFAULT_VENDOR]
+    claude = [c for c in connections.values() if c.vendor == DEFAULT_VENDOR and not c.needs_sign_in]
     claude.sort(key=lambda c: c.auth_type != AUTH_CLI)
     return claude[0] if claude else None
 
@@ -152,8 +158,9 @@ class ConnectionStore:
                     id=item["id"],
                     vendor=item["vendor"],
                     label=item.get("label") or item["id"],
-                    # Entries without auth_type were API-key connections (no longer usable)
-                    auth_type=item.get("auth_type", AUTH_API_KEY),
+                    # Older versions saved API-key entries ("api_key" or no auth_type). They still load,
+                    # unchanged, so the UI can ask the user to sign in again; nothing runs on them.
+                    auth_type=item.get("auth_type") or "api_key",
                     secret=_safe_decrypt(item.get("secret", "")),
                     raw_secret=item.get("secret", "") if _is_undecryptable(item.get("secret", "")) else "",
                     base_url=item.get("base_url", ""),
@@ -212,8 +219,8 @@ class ConnectionStore:
         label = (label or "").strip()
         if not label:
             raise ConnectionInputError("label is required")
-        if auth_type not in (AUTH_CLI, AUTH_OAUTH):
-            raise ConnectionInputError("connections sign in with an account; API keys are not supported")
+        if not is_account_auth(auth_type):
+            raise ConnectionInputError("connections sign in with an account (Claude/Codex CLI or Google)")
         with self._lock:
             connections = self._load(strict=True)
             base = _slug(label)

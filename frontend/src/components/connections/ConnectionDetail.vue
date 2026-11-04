@@ -36,7 +36,7 @@
                 </dd>
               </template>
             </dl>
-            <p v-if="account && account.loggedIn === false" class="notice is-error">{{ account.detail || $t('connections.not_signed_in') }}</p>
+            <p v-if="account && account.loggedIn === false" class="notice is-error">{{ (account.detail && localizeBackendError(account.detail)) || account.detail || $t('connections.not_signed_in') }}</p>
           </section>
 
           <!-- Usage limits (session / weekly windows reported by the CLI) -->
@@ -129,6 +129,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ProviderLogo from './ProviderLogo.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import { localizeBackendError } from '@/utils/errorTranslate'
 import { formatDateTime, formatReset, isPremiumModel, usageLabel, usageLevel } from '@/utils/accountFormat'
 
 const props = defineProps({
@@ -147,9 +148,12 @@ const { t, te, locale } = useI18n()
 const titleId = `conn-detail-${Math.random().toString(36).slice(2, 8)}`
 const showAllModels = ref(false)
 
+// Connections saved by older versions with another sign-in type are shown as "old connection".
+const authLabel = (id) => (id === 'cli' || id === 'oauth' ? t(`connections.auth_${id}`) : t('connections.auth_legacy'))
+
 const accountRows = computed(() => {
   const account = props.account || {}
-  const rows = [{ key: 'auth_method', value: account.authMethod || t(`connections.auth_${props.connection?.authType}`) }]
+  const rows = [{ key: 'auth_method', value: account.authMethod || authLabel(props.connection?.authType) }]
   if (account.displayName) rows.push({ key: 'name', value: account.displayName })
   if (account.email) rows.push({ key: 'email', value: account.email })
   if (account.organization) rows.push({ key: 'organization', value: account.organization })

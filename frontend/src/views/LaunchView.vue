@@ -78,6 +78,22 @@
           <button type="button" class="rail-btn" :title="$t('launch.shell.sessions_search')" :aria-label="$t('launch.shell.sessions_search')" @click="openSessionSearch">
             <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
           </button>
+          <!-- Outside the chat view the chat toggle joins this rail: one strip instead of two -->
+          <template v-if="viewMode !== 'chat'">
+            <span class="rail-sep" aria-hidden="true"></span>
+            <button
+              type="button"
+              class="rail-btn rail-btn-chat"
+              :class="{ 'is-active': isChatPanelOpen }"
+              :title="isChatPanelOpen ? $t('launch.shell.chat_collapse') : $t('launch.shell.chat_expand')"
+              :aria-label="isChatPanelOpen ? $t('launch.shell.chat_collapse') : $t('launch.shell.chat_expand')"
+              :aria-expanded="isChatPanelOpen"
+              @click="isChatPanelOpen = !isChatPanelOpen"
+            >
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+              <span v-if="!isChatPanelOpen && (pendingQuestion || hasUnseenMessages)" class="rail-dot" :class="{ 'is-waiting': pendingQuestion }" :title="pendingQuestion ? $t('launch.shell.lead_waiting') : $t('launch.jump_to_latest')"></span>
+            </button>
+          </template>
         </nav>
         <SessionSidebar
           v-show="isNarrow || isSessionSidebarOpen"
@@ -102,10 +118,10 @@
       <!-- Left panel -->
       <div ref="leftPanelRef" class="left-panel" :style="chatWidthStyle">
         <!-- Outside the chat view, a collapsed chat leaves a slim rail: nothing floats over the work -->
-        <div v-if="viewMode !== 'chat' && !isChatPanelOpen" class="chat-rail">
+        <div v-if="viewMode !== 'chat' && !isChatPanelOpen && !isChatRailMerged" class="chat-rail">
           <button
             type="button"
-            class="rail-btn"
+            class="rail-btn rail-btn-chat"
             :title="$t('launch.shell.chat_expand')"
             :aria-label="$t('launch.shell.chat_expand')"
             aria-expanded="false"
@@ -1265,10 +1281,11 @@ const LOG_EVENT_KEYS = {
 }
 // Run set-up lines that mean nothing to the user (memory stores being loaded)
 const SETUP_LOG_RE = /^(Global memory '.*' built successfully|Memory manager built for node )/
-// Actionable hint for well-known backend/provider failures (appended after the raw detail)
+// Actionable hint for well-known backend/provider failures (appended after the raw detail).
+// The auth pattern also matches the CLIs' own "invalid api key" wording when the account sign-in expired.
 const ERROR_HINTS = [
   [/MAC_ALLOW_UNSAFE_CODE_EXECUTION/, 'launch.error_hints.python_disabled'],
-  [/invalid_api_key|incorrect api key|api key not valid|unauthorized|\b401\b/i, 'launch.error_hints.invalid_api_key'],
+  [/invalid.?api.?key|incorrect api key|api key not valid|authentication.?(error|failed)|unauthorized|\b401\b/i, 'launch.error_hints.auth_rejected'],
   [/rate.?limit|quota|\b429\b/i, 'launch.error_hints.rate_limit'],
   [/model.{0,40}(not found|does not exist)|\b404\b/i, 'launch.error_hints.model_not_found'],
   // A CLI that ran past its limit is a slow answer (often one huge file in a single step), not a network fault.
@@ -2343,7 +2360,9 @@ const chatWidthStyle = computed(() => ({ '--chat-w': chatColumnCss.value }))
 // The width the chat covers on the left of a view: its column, or the rail when folded
 const chatCoverCss = computed(() => {
   if (viewMode.value === 'chat') return '0px'
-  return isChatPanelOpen.value ? chatColumnCss.value : `${CHAT_RAIL_W}px`
+  if (isChatPanelOpen.value) return chatColumnCss.value
+  // Folded into the sessions rail: the view gets the whole width
+  return isChatRailMerged.value ? '0px' : `${CHAT_RAIL_W}px`
 })
 // Views pad their content by --inset-left + 34px (room for an old edge toggle): subtract it
 // so content starts one gutter (16px) right of the chat column or rail
@@ -2476,6 +2495,8 @@ const isSessionSidebarOpen = computed({
     if (viewMode.value === 'chat') writeStorage(SIDEBAR_OPEN_KEY, open ? '1' : '0')
   }
 })
+// Wide screen with the sessions list folded: the chat toggle sits in the sessions rail
+const isChatRailMerged = computed(() => !isNarrow.value && !isSessionSidebarOpen.value)
 const hasLiveSession = computed(() => sessions.value.some((item) => ['running', 'cancelling', 'waiting_for_input'].includes(item.status)))
 const sessionsDrawerRef = ref(null)
 // Rail search: open the list and put the cursor in its search box
@@ -6304,13 +6325,50 @@ watch(
   border-radius: 12px;
 }
 .sessions-rail { flex: none; }
+/* Standalone (sessions list open): a small floating pill, not a full-height strip */
 .chat-rail {
   position: absolute;
   top: 0;
   left: 0;
-  bottom: 0;
   z-index: 9;
+  padding: var(--space-1);
+  width: auto;
   animation: fade-in 0.18s var(--ease-out);
+}
+.rail-sep {
+  width: 24px;
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
+}
+.rail-btn.is-active { background: var(--surface-raised); color: var(--fg); }
+/* The chat toggle is the rail's main action: solid accent while folded, a soft accent tint while open */
+.rail-btn.rail-btn-chat {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out), transform 0.15s var(--ease-out);
+}
+.rail-btn.rail-btn-chat:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.rail-btn.rail-btn-chat:active { transform: none; }
+.rail-btn.rail-btn-chat.is-active,
+.rail-btn.rail-btn-chat.is-active:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  filter: none;
+  transform: none;
+}
+.rail-btn.rail-btn-chat .rail-dot { top: 5px; right: 5px; background: var(--warn); }
+.rail-btn.rail-btn-chat .rail-dot:not(.is-waiting) { background: #fff; box-shadow: 0 0 0 2px var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .rail-btn.rail-btn-chat, .rail-btn.rail-btn-chat:hover { transition: none; transform: none; }
 }
 .rail-btn {
   position: relative;
