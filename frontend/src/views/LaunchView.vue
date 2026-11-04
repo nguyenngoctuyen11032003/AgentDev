@@ -230,15 +230,22 @@
                     <button type="button" class="btn primary chat-empty-pick" @click="focusWorkflowPicker">{{ $t('launch.composer.pick_workflow_action') }}</button>
                   </template>
                 </div>
-                <div v-if="isReconnecting && !chatMessages.length" class="chat-skeleton" role="status" :aria-label="$t('launch.loading')">
+                <div v-if="isReplaying || (isReconnecting && !chatMessages.length)" class="chat-skeleton" role="status" :aria-label="$t('launch.loading')">
                   <BaseSkeleton width="40%" height="14px" />
                   <BaseSkeleton height="14px" />
                   <BaseSkeleton width="85%" height="14px" />
                   <BaseSkeleton width="55%" height="14px" />
                 </div>
+                <!-- A long session renders only its latest messages; older ones on demand -->
+                <div v-if="hiddenMessageCount" class="chat-older">
+                  <button type="button" class="chat-older-btn" @click="showOlderMessages">
+                    {{ $t('launch.history.show_older', { n: Math.min(hiddenMessageCount, RENDER_STEP) }) }}
+                  </button>
+                  <span class="chat-older-note">{{ $t('launch.history.hidden', { n: hiddenMessageCount }) }}</span>
+                </div>
                 <!-- Notifications and dialogues in order -->
                 <div
-                  v-for="message in chatMessages"
+                  v-for="message in visibleMessages"
                   :key="messageKey(message)"
                   class="chat-message-item"
                   v-memo="[
@@ -264,7 +271,7 @@
                 }"
               >
                 <div class="notification-content">
-                  <div class="notification-text">{{ message.message }}</div>
+                  <div class="notification-text">{{ message.message }}<span v-if="message.repeat > 1" class="notification-repeat">×{{ message.repeat }}</span></div>
                   <button
                     v-if="canRetryRun(message)"
                     type="button"
@@ -276,6 +283,33 @@
                   </button>
                   <div class="message-timestamp">{{ formatTime(message.timestamp) }}</div>
                 </div>
+              </div>
+
+              <!-- Tool calls that failed during one agent's step, grouped: the agent gets the
+                   reason and usually fixes it itself, so once it moves on the group goes quiet -->
+              <div
+                v-else-if="message.type === 'tool_issues'"
+                class="tool-issues"
+                :class="{ 'is-recovered': message.recovered, 'is-open': message.open }"
+                :data-tool-issues="message.nodeId"
+              >
+                <button
+                  type="button"
+                  class="tool-issues-summary"
+                  :aria-expanded="!!message.open"
+                  @click="toggleToolIssues(message)"
+                >
+                  <svg class="tool-issues-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
+                  <span class="tool-issues-text">{{ toolIssuesHeadline(message) }}</span>
+                  <span class="message-timestamp">{{ formatTime(message.timestamp) }}</span>
+                </button>
+                <ul v-if="message.open" class="tool-issues-list">
+                  <li v-for="item in message.items" :key="item.key" class="tool-issues-item">
+                    <span class="tool-issues-tool">{{ item.tool }}</span>
+                    <span class="tool-issues-reason">{{ item.reason }}</span>
+                    <span v-if="item.count > 1" class="tool-issues-count">×{{ item.count }}</span>
+                  </li>
+                </ul>
               </div>
 
               <!-- Dialogue -->
@@ -592,6 +626,26 @@
                 <span>{{ $t('launch.resume.banner') }}</span>
                 <button type="button" class="composer-hint-action" @click="resumeRun">{{ $t('launch.resume.action') }}</button>
               </p>
+              <!-- Who works on what right now, for how long; the turn's totals once it is over -->
+              <LiveProgress
+                v-if="liveProgress"
+                :workers="liveProgress.workers"
+                :headline="liveProgress.headline"
+                :tone="liveProgress.tone"
+                :started-at="liveProgress.startedAt"
+                :ended-at="liveProgress.endedAt"
+                :steps="liveProgress.steps"
+                :issues="liveProgress.issues"
+                :usage="liveProgress.usage"
+                @show-issues="revealToolIssues"
+              />
+              <!-- What makes sense to say next in this state (approve the plan, ask for progress, retry...) -->
+              <QuickReplies
+                :items="quickReplies"
+                :disabled="isStopping"
+                :label="$t('launch.quick.label')"
+                @pick="pickQuickReply"
+              />
               <div
                 :class="['input-shell', 'composer', { glow: shouldGlow, 'drag-active': isDragActive }]"
                 @dragenter="handleDragEnter"
@@ -643,10 +697,12 @@
                   rows="1"
                   :disabled="!isConnectionReady || isStopping"
                   :placeholder="composerPlaceholder"
+                  :title="$t('launch.shortcuts.hint')"
                   :aria-label="$t(leadName ? 'launch.chat_ui.composer_label' : 'launch.chat_ui.composer_label_agent')"
                   ref="taskInputRef"
                   @input="autoResizeTaskInput"
                   @keydown.enter="handleEnterKey"
+                  @keydown.up="recallLastPrompt"
                   @compositionstart="handleCompositionStart"
                   @compositionend="handleCompositionEnd"
                   @paste="handlePaste"
@@ -1008,6 +1064,8 @@ import DashboardView from '@/components/launch/DashboardView.vue'
 import ReviewView from '@/components/launch/ReviewView.vue'
 import { createRunTracker, usageTotals, formatCost, stepStatus } from '@/utils/runTracker.js'
 import StatusPill from '@/components/launch/StatusPill.vue'
+import LiveProgress from '@/components/launch/chat/LiveProgress.vue'
+import QuickReplies from '@/components/launch/chat/QuickReplies.vue'
 import { localizeErrorText } from '@/utils/errorTranslate.js'
 import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast.js'
@@ -1211,6 +1269,8 @@ const ERROR_HINTS = [
   [/invalid_api_key|incorrect api key|api key not valid|unauthorized|\b401\b/i, 'launch.error_hints.invalid_api_key'],
   [/rate.?limit|quota|\b429\b/i, 'launch.error_hints.rate_limit'],
   [/model.{0,40}(not found|does not exist)|\b404\b/i, 'launch.error_hints.model_not_found'],
+  // A CLI that ran past its limit is a slow answer (often one huge file in a single step), not a network fault.
+  [/CLI (timed out|produced no output)/i, 'launch.error_hints.cli_slow'],
   [/connection (error|refused)|timed? ?out|name or service not known|getaddrinfo|failed to establish/i, 'launch.error_hints.connection']
 ]
 const withErrorHint = (text) => {
@@ -1333,6 +1393,54 @@ const messageKey = (message) => {
   return key
 }
 const chatMessagesRef = ref(null) // Extra ref
+
+// A long session (hundreds of turns, steps and notices) renders only its latest messages: the
+// list stays light while events stream in, and older ones come back with one click. The
+// window only slides while you are at the bottom, so what you read further up never moves.
+const RENDER_LIMIT = 160
+const RENDER_STEP = 120
+const renderStart = ref(0)
+// A reopened session is rebuilt from its replayed events (often thousands). While that runs the
+// list is not rendered at all: no "old chat replaying" on screen, and no re-render per event.
+// It appears once, complete, when session_resumed arrives. A backstop timer never leaves it hidden.
+const isReplaying = ref(false)
+let replayBackstop = null
+const setReplaying = (on) => {
+  clearTimeout(replayBackstop)
+  replayBackstop = on ? setTimeout(() => { isReplaying.value = false }, 20000) : null
+  if (isReplaying.value === on) return
+  isReplaying.value = on
+  if (!on) {
+    // Open at the latest messages, like a session that was followed live
+    const length = chatMessages.value.length
+    renderStart.value = length > RENDER_LIMIT ? length - RENDER_LIMIT : 0
+  }
+}
+const visibleMessages = computed(() => {
+  if (isReplaying.value) return []
+  const list = chatMessages.value
+  const start = Math.min(renderStart.value, list.length)
+  return start ? list.slice(start) : list
+})
+const hiddenMessageCount = computed(() => (isReplaying.value ? 0 : Math.min(renderStart.value, chatMessages.value.length)))
+// A new list (other session, reconnect, new workflow) starts from its top
+watch(chatMessages, () => { renderStart.value = 0 })
+watch(
+  () => chatMessages.value.length,
+  (length) => {
+    if (renderStart.value > length) renderStart.value = length
+    if (isNearBottom && length - renderStart.value > RENDER_LIMIT + RENDER_STEP) renderStart.value = length - RENDER_LIMIT
+  }
+)
+const showOlderMessages = () => {
+  const el = chatMessagesRef.value
+  const before = el ? el.scrollHeight - el.scrollTop : 0
+  renderStart.value = Math.max(0, renderStart.value - RENDER_STEP)
+  // Keep the message you were looking at in place while the older ones appear above it
+  nextTick(() => {
+    if (el) el.scrollTop = el.scrollHeight - before
+  })
+}
 
 // Map in-progress model/tool call messages by node ID
 // Map<nodeId, { message, entryMap, baseKeyToKey, counters }>
@@ -2730,6 +2838,137 @@ const requestPlanChanges = () => {
   })
 }
 
+// ---------------------------------------------------------------- live progress line
+// Who is working on what right now (most recently active first), read from the run tracker
+const liveWorkers = () => {
+  const list = []
+  for (const [id, node] of Object.entries(runTracker.state.nodes)) {
+    const run = node.runs[node.runs.length - 1]
+    if (!run || run.endedAt) continue
+    let doing
+    if (node.waiting) doing = t('launch.live.waiting_answer')
+    else if (run.activity?.kind === 'tool') doing = toolActivityLabel(run.activity.name, null)
+    else if (run.activity?.kind === 'model') doing = t(isNativeNode(id) ? 'launch.activity.working' : 'launch.activity.thinking')
+    else doing = t('launch.activity.working')
+    list.push({ id, doing, lastAt: node.lastAt || 0 })
+  }
+  return list.sort((a, b) => b.lastAt - a.lastAt)
+}
+const turnStepCount = () => {
+  let steps = 0
+  for (const node of Object.values(runTracker.state.nodes)) {
+    for (const run of node.runs) steps += (run.models || 0) + (run.tools?.length || 0)
+  }
+  return steps
+}
+const liveProgress = computed(() => {
+  const tracker = runTracker.state
+  // The plan card and the question card already say what is going on
+  if (isAwaitingPlan.value || isReconnecting.value || !selectedFile.value) return null
+  if (isRunActive.value) {
+    const workers = isStopping.value ? [] : liveWorkers()
+    let headline = t('launch.live.starting')
+    if (isStopping.value) headline = t('launch.live.stopping')
+    else if (isWaitingForInput.value) headline = t('launch.live.waiting_you')
+    return {
+      workers,
+      headline,
+      tone: isStopping.value || isWaitingForInput.value ? 'waiting' : 'running',
+      startedAt: tracker.startedAt || 0,
+      endedAt: 0,
+      steps: turnStepCount(),
+      issues: openToolIssueCount.value,
+      usage: ''
+    }
+  }
+  if (isRunFinished.value && tracker.outcome && tracker.startedAt && tracker.endedAt) {
+    const tone = { completed: 'done', error: 'danger' }[tracker.outcome] || 'muted'
+    return {
+      workers: [],
+      headline: t(`launch.live.finished_${['completed', 'error'].includes(tracker.outcome) ? tracker.outcome : 'cancelled'}`),
+      tone,
+      startedAt: tracker.startedAt,
+      endedAt: tracker.endedAt,
+      steps: turnStepCount(),
+      issues: 0,
+      usage: usageSummary.value
+    }
+  }
+  return null
+})
+
+// ---------------------------------------------------------------- quick replies
+// What makes sense to say next, by state. `act`: done at once (no new text to write);
+// `text`: goes into the box to edit and send; `send`: a status question, answered at once
+// from the real progress (no model call), so it is sent straight away.
+const quickReplies = computed(() => {
+  if (!selectedFile.value || !chatMessages.value.length || isReconnecting.value || !isConnectionReady.value) return []
+  if (hasComposerContent.value || isStopping.value || loading.value) return []
+  if (isAwaitingPlan.value) {
+    return [
+      { key: 'approve', label: t('launch.plan.approve'), primary: true, hint: t('launch.quick.approve_hint'), act: 'approve' },
+      { key: 'changes', label: t('launch.plan.request_changes'), act: 'changes' },
+      { key: 'explain_plan', label: t('launch.quick.explain_plan'), text: t('launch.quick.explain_plan_text') },
+      { key: 'smaller_plan', label: t('launch.quick.smaller_plan'), text: t('launch.quick.smaller_plan_text') }
+    ]
+  }
+  // The lead's question card is above the box: the answer is yours to write
+  if (isWaitingForInput.value) return []
+  if (isRunActive.value) {
+    if (status.value !== 'Running...' || !isWorkflowRunning.value) return []
+    return [
+      { key: 'progress', label: t('launch.quick.progress'), text: t('launch.quick.progress_text'), send: true, hint: t('launch.quick.progress_hint') },
+      { key: 'note', label: t('launch.quick.note'), text: t('launch.quick.note_text') }
+    ]
+  }
+  if (status.value === 'Completed') {
+    return [
+      { key: 'summary', label: t('launch.quick.summary'), text: t('launch.quick.summary_text') },
+      { key: 'next', label: t('launch.quick.next'), text: t('launch.quick.next_text') },
+      { key: 'tests', label: t('launch.quick.tests'), text: t('launch.quick.tests_text') }
+    ]
+  }
+  if (['Error', 'Failed', 'Cancelled'].includes(status.value)) {
+    // "Continue" lives on the resume banner right above
+    // A stopped run did not fail: asking why makes no sense there
+    const failed = status.value !== 'Cancelled'
+    return [
+      ...(failed ? [{ key: 'why', label: t('launch.quick.why_failed'), text: t('launch.quick.why_failed_text') }] : []),
+      { key: 'other_way', label: t('launch.quick.other_way'), text: t('launch.quick.other_way_text') }
+    ]
+  }
+  return []
+})
+const pickQuickReply = (item) => {
+  if (!item || isStopping.value) return
+  if (item.act === 'approve') return approvePlan()
+  if (item.act === 'changes') return requestPlanChanges()
+  if (item.send && canInterjectWith(item.text)) {
+    taskPrompt.value = item.text
+    sendInterjection()
+    return
+  }
+  if (item.text) pickSuggestion(item.text)
+}
+// Could a note be sent now (same rule as canInterject, for a text not typed yet)
+const canInterjectWith = (text) =>
+  status.value === 'Running...' && isWorkflowRunning.value && !isStopping.value && Boolean(String(text || '').trim())
+
+// Arrow Up in an empty box brings back your last message to edit (like a terminal or Slack)
+const recallLastPrompt = (event) => {
+  if (taskPrompt.value || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return
+  const list = chatMessages.value
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const message = list[i]
+    if (message.type !== 'dialogue' || !message.isRight) continue
+    const text = userAttachments(message)?.body ?? message.text
+    if (!text) return
+    event.preventDefault()
+    pickSuggestion(text)
+    return
+  }
+}
+
 // Chip icon by kind: project folder, video, audio, archive, any other file
 const attachmentIcon = (attachment) => {
   if (attachment.kind === 'project') return '📁'
@@ -2830,6 +3069,8 @@ const clearUploadedAttachments = () => {
 const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) => {
   // Any deliberate switch (other session, new draft, leaving the page) stops a pending auto-reconnect
   if (closeSocket) cancelReconnect()
+  // A replay that never finished (socket gone) must not keep the chat hidden
+  setReplaying(false)
   if (closeSocket && ws) {
     try {
       ws.close()
@@ -2855,6 +3096,12 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
     clearUploadedAttachments()
     chatMessages.value = []
     nodesLoadingMessagesMap.clear()
+    // Loading rows that never finished must not keep the shared timer ticking
+    runningLoadingEntries.value = 0
+    stopLoadingTimer()
+    clearToolIssues()
+    // Notes for the lead of the session you leave never become a turn of the next one
+    pendingNotes.clear()
     delegatedNodes.clear()
     memberLeads.clear()
     memberStarts.clear()
@@ -3085,15 +3332,152 @@ const touchWorkingTurns = () => {
 }
 
 // Add a notification (supports levels)
-const addChatNotification = (message, { type = 'notification', at = null, retryPrompt = '' } = {}) => {
-  chatMessages.value.push({
+// `coalesce`: a key for a line that replaces its previous version instead of piling up (e.g. an
+// agent's "still thinking" note every few minutes). A warning or error identical to the line
+// right before it counts up ("×3") instead of adding a bubble.
+const COALESCE_LOOKBACK = 8
+const addChatNotification = (message, { type = 'notification', at = null, retryPrompt = '', coalesce = '' } = {}) => {
+  const list = chatMessages.value
+  if (coalesce) {
+    for (let i = list.length - 1; i >= Math.max(0, list.length - COALESCE_LOOKBACK); i -= 1) {
+      const item = list[i]
+      if (item.coalesce !== coalesce) continue
+      item.message = message
+      item.timestamp = at ?? Date.now()
+      item.rev += 1
+      return
+    }
+  }
+  const last = list[list.length - 1]
+  if (!retryPrompt && type !== 'notification' && last && last.type === type && last.message === message && !last.retryPrompt) {
+    last.repeat = (last.repeat || 1) + 1
+    last.timestamp = at ?? Date.now()
+    last.rev += 1
+    return
+  }
+  list.push({
     type,
     message,
     timestamp: at ?? Date.now(),
     rev: 0,
-    ...(retryPrompt ? { retryPrompt } : {})
+    ...(retryPrompt ? { retryPrompt } : {}),
+    ...(coalesce ? { coalesce } : {})
   })
   scheduleScrollToBottom()
+}
+
+// ---------------------------------------------------------------- tool problems, grouped
+// A failed tool call is fed back to the agent, which nearly always fixes it on its own (another
+// path, another command). One quiet group per agent and step instead of one yellow bubble per
+// failure: the same tool + reason counts up, and the group folds away once the agent moves on.
+// nodeId -> the open group of that agent's current step
+const toolIssueGroups = new Map()
+const openToolIssueCount = ref(0)
+const TOOL_REASON_MAX = 240
+const TOOL_ITEMS_MAX = 20
+const recountToolIssues = () => {
+  let open = 0
+  for (const group of toolIssueGroups.values()) if (!group.recovered) open += 1
+  openToolIssueCount.value = open
+}
+const addToolIssue = (nodeId, toolName, reason, at = null) => {
+  const id = nodeId || ''
+  const tool = bareToolName(toolName) || String(toolName || '') || t('launch.unknown_name')
+  const text = String(reason || '').replace(/\s+/g, ' ').trim()
+  const short = text.length > TOOL_REASON_MAX ? `${text.slice(0, TOOL_REASON_MAX - 1)}…` : text
+  let group = toolIssueGroups.get(id)
+  if (!group) {
+    chatMessages.value.push({
+      type: 'tool_issues',
+      nodeId: id,
+      items: [],
+      total: 0,
+      lastTool: '',
+      lastReason: '',
+      recovered: false,
+      open: false,
+      timestamp: at ?? Date.now(),
+      rev: 0
+    })
+    group = chatMessages.value[chatMessages.value.length - 1]
+    toolIssueGroups.set(id, group)
+    scheduleScrollToBottom()
+  }
+  const key = `${tool}\u0000${short}`
+  const item = group.items.find((entry) => entry.key === key)
+  if (item) item.count += 1
+  else group.items.push({ key, tool, reason: short, count: 1 })
+  if (group.items.length > TOOL_ITEMS_MAX) group.items.splice(0, group.items.length - TOOL_ITEMS_MAX)
+  group.total += 1
+  group.lastTool = tool
+  group.lastReason = short
+  group.recovered = false
+  group.timestamp = at ?? Date.now()
+  group.rev += 1
+  recountToolIssues()
+}
+// The agent moved on (a tool call worked, or its step ended): the group folds away.
+// `close`: the step is over, its next failure starts a new group.
+const markToolsRecovered = (nodeId, { close = false } = {}) => {
+  const id = nodeId || ''
+  const group = toolIssueGroups.get(id)
+  if (!group) return
+  if (!group.recovered) {
+    group.recovered = true
+    group.open = false
+    group.rev += 1
+  }
+  if (close) toolIssueGroups.delete(id)
+  recountToolIssues()
+}
+const settleAllToolIssues = ({ recovered = true } = {}) => {
+  for (const id of [...toolIssueGroups.keys()]) {
+    if (recovered) markToolsRecovered(id, { close: true })
+    else toolIssueGroups.delete(id)
+  }
+  recountToolIssues()
+}
+const clearToolIssues = () => {
+  toolIssueGroups.clear()
+  openToolIssueCount.value = 0
+}
+const toggleToolIssues = (message) => {
+  message.open = !message.open
+  message.rev += 1
+}
+const toolIssuesHeadline = (message) => {
+  const name = message.nodeId || t('launch.unknown_node')
+  if (message.recovered) return t('launch.tool_issues.recovered', { name, n: message.total })
+  const last = message.lastReason ? `${message.lastTool}: ${message.lastReason}` : message.lastTool
+  return message.total > 1
+    ? t('launch.tool_issues.open_many', { name, n: message.total, last })
+    : t('launch.tool_issues.open_one', { name, last })
+}
+// From the live progress line: open the oldest problem still unsolved and bring it into view
+const revealToolIssues = () => {
+  const group = [...toolIssueGroups.values()].find((item) => !item.recovered)
+  if (!group) return
+  const index = chatMessages.value.indexOf(group)
+  if (index > -1 && index < renderStart.value) renderStart.value = index
+  if (!group.open) toggleToolIssues(group)
+  nextTick(() => {
+    const el = chatMessagesRef.value?.querySelector(`[data-tool-issues="${CSS.escape(group.nodeId)}"]:not(.is-recovered)`)
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  })
+}
+
+// A tool call ended (worked or failed): close its step on the bubble, the office and the board
+const handleToolCallEnd = (nodeId, details, eventAt, timestamp) => {
+  const toolName = details?.tool_name || ''
+  finishLoadingEntry(nodeId, `tool-${toolName || 'unknown'}`, eventAt)
+  if (delegatedNodes.has(nodeId)) {
+    finishMemberStep(nodeId, toolName, eventAt)
+    setMemberNow(nodeId, null, eventAt)
+    touchWorkingTurns()
+  }
+  officeRef.value?.activity(nodeId, 'tool', toolName, false, details?.arguments || null)
+  runTracker.activity(nodeId, 'tool', toolName, false, timestamp)
+  if (details?.success !== false) markToolsRecovered(nodeId)
 }
 
 // Format a millisecond timestamp as mm:ss
@@ -3311,9 +3695,30 @@ const closeImageModal = () => {
   unlockBodyScroll()
 }
 
+const isEditableTarget = (target) =>
+  Boolean(target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)))
 const handleKeydown = (event) => {
   if (event.key === 'Escape' && selectedArtifactImage.value) {
     closeImageModal()
+    return
+  }
+  if (event.defaultPrevented || event.isComposing || selectedArtifactImage.value) return
+  // Alt+1..9: the n-th quick reply under the chat (also from inside the message box)
+  if (event.altKey && !event.ctrlKey && !event.metaKey && /^Digit[1-9]$/.test(event.code || '')) {
+    const item = quickReplies.value[Number(event.code.slice(5)) - 1]
+    if (item) {
+      event.preventDefault()
+      pickQuickReply(item)
+    }
+    return
+  }
+  // "/" anywhere outside a field: straight into the message box
+  if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey && !isEditableTarget(event.target)) {
+    const input = taskInputRef.value
+    if (input && !input.disabled && input.offsetParent !== null) {
+      event.preventDefault()
+      input.focus()
+    }
   }
 }
 
@@ -3334,6 +3739,11 @@ const handleEnterKey = (e) => {
   if (e.shiftKey || e.altKey || e.isComposing || e.keyCode === 229) return
   if (isImeComposing || Date.now() - imeEndedAt < 60) return
   e.preventDefault()
+  // Ctrl/Cmd+Enter in an empty box approves the plan that waits for you
+  if ((e.ctrlKey || e.metaKey) && isAwaitingPlan.value && !hasComposerContent.value) {
+    approvePlan()
+    return
+  }
   // The team is working: Enter sends the text as a message for the lead
   if (canInterject.value) {
     sendInterjection()
@@ -3436,7 +3846,11 @@ const handleDrop = async (event) => {
 }
 
 // Handle YAML file selection
+// Bumped by every selection and session switch: a slow load that is no longer current must not
+// put its instructions into another chat or rebind another workflow's sprites
+let yamlSelectionSeq = 0
 const handleYAMLSelection = async (fileName) => {
+  const seq = ++yamlSelectionSeq
   if (!fileName) {
     workflowYaml.value = {}
     chatMessages.value = []
@@ -3453,6 +3867,7 @@ const handleYAMLSelection = async (fileName) => {
   try {
     // Fetch YAML config and emit initial_instructions to the chat
     const yamlContentString = await fetchWorkflowYAML(fileName)
+    if (seq !== yamlSelectionSeq) return
     const parsedYaml = yaml.load(yamlContentString)
     workflowYaml.value = parsedYaml || {}
     const initialInstructions = workflowYaml.value?.graph?.initial_instruction || ''
@@ -3468,6 +3883,7 @@ const handleYAMLSelection = async (fileName) => {
     // Warm the remaining characters in the background for chat avatars and edge walkers
     spriteFetcher.preloadAll()
   } catch (error) {
+    if (seq !== yamlSelectionSeq) return
     console.error('Failed to load YAML file:', error)
     workflowYaml.value = {}
     addChatNotification(
@@ -3595,6 +4011,9 @@ const restorePendingInput = (code = '') => {
   if (code !== 'not_waiting' && status.value === 'Running...' && statusBefore === 'Waiting for input...') status.value = statusBefore
 }
 
+// Messages of the socket are handled strictly in order (see onmessage)
+let processQueue = Promise.resolve()
+
 // Establish a WebSocket connection
 const establishWebSocketConnection = (options = {}) => {
   let { sessionId: reconnectSid, fresh = false } = options
@@ -3683,6 +4102,8 @@ const establishWebSocketConnection = (options = {}) => {
         autoReconnecting = false
         if (msg.data?.resumed) clearReplayedState()
       }
+      // The saved events follow, then session_resumed: build the chat off screen meanwhile
+      if (msg.data?.resumed) setReplaying(true)
 
       if (isReconnecting.value && !msg.data?.resumed) {
         // Nothing saved under that id (deleted or expired): continue as a new session
@@ -3712,7 +4133,11 @@ const establishWebSocketConnection = (options = {}) => {
         }
       }
     } else {
-      processMessage(msg)
+      // In order, one at a time: session_resumed waits for the workflow file, and events that
+      // arrive meanwhile (a live run) must not be applied before it, nor be overwritten by it
+      processQueue = processQueue
+        .then(() => (ws === socket ? processMessage(msg) : undefined))
+        .catch((processError) => console.error('Failed to handle a WebSocket message:', processError))
     }
   }
 
@@ -3792,6 +4217,9 @@ const clearReplayedState = () => {
   endStopping()
   chatMessages.value = []
   nodesLoadingMessagesMap.clear()
+  runningLoadingEntries.value = 0
+  stopLoadingTimer()
+  clearToolIssues()
   activeNodes.value = []
   delegatedNodes.clear()
   memberLeads.clear()
@@ -3814,6 +4242,8 @@ const openSession = async (item) => {
   pendingOpenSessionId = item.session_id
   stashComposer()
   resetConnectionState()
+  // A draft's workflow still loading must not drop its instructions into this session's replay
+  yamlSelectionSeq += 1
   pendingProject = null
   // Set before the URL changes so the route watch does not open a draft
   isReconnecting.value = true
@@ -5020,8 +5450,11 @@ const processMessage = async (msg) => {
     if (data.yaml_file) {
       selectedFile.value = data.yaml_file
       // Load YAML data and sprites (but don't clear chat)
+      const socketBefore = ws
       try {
         const yamlContentString = await fetchWorkflowYAML(data.yaml_file)
+        // Another session was opened while the file loaded: this answer is no longer ours
+        if (ws !== socketBefore) return
         const parsedYaml = yaml.load(yamlContentString)
         workflowYaml.value = parsedYaml || {}
         // Always rebind: the session may belong to another workflow than the last one
@@ -5030,9 +5463,11 @@ const processMessage = async (msg) => {
       } catch (e) {
         console.error('Failed to load YAML on reconnect:', e)
       }
+      if (ws !== socketBefore) return
     }
 
     isReconnecting.value = false
+    setReplaying(false)
     pendingOpenSessionId = null
     currentProjectName.value = stripSlash(data.projects?.[0]?.name)
     hasLaunched.value = Boolean(data.status) && data.status !== 'idle'
@@ -5070,6 +5505,8 @@ const processMessage = async (msg) => {
       activeNodes.value = []
     }
     const isLive = ['running', 'waiting_for_input', 'cancelling'].includes(data.status)
+    // Nothing runs any more: tool problems of the replay no longer count as being handled
+    if (!isLive) settleAllToolIssues({ recovered: data.status === 'completed' })
     if (!isLive || data.error_message === 'Interrupted by a server restart') {
       // The replay left turns open (the run was cut off, e.g. by a server restart): close them
       // at their last recorded activity rather than letting their timers run on
@@ -5117,7 +5554,7 @@ const processMessage = async (msg) => {
     scheduleScrollToBottom(true)
     setTimeout(() => scheduleScrollToBottom(true), 250)
     if (data.error_message === 'Interrupted by a server restart') {
-      addChatNotification(t('launch.sessions.interrupted'), { type: 'warning' })
+      addChatNotification(t('launch.sessions.interrupted_notice'), { type: 'warning' })
     } else if (data.status === 'running' || data.status === 'waiting_for_input') {
       // Only worth saying while the run is live; a finished or draft session just opens
       addChatNotification(t('launch.reconnected'))
@@ -5269,17 +5706,29 @@ const processMessage = async (msg) => {
     // A failed tool call is fed back to the agent, which retries on its own: show it as a
     // warning with the real reason instead of the bare "Tool call X for node Y" line.
     const isToolFailure = msg.data.event_type === 'TOOL_CALL'
-    const notificationType = msg.data.level === 'WARNING' || isToolFailure ? 'warning' : 'error'
-    // Backend warning/error text is technical English; give it a localized lead-in
-    const toolError = isToolFailure ? msg.data.details?.error : null
-    const detail = formatErrorDetail(
-      toolError ? `${msg.data.details?.tool_name || ''}: ${toolError}` : msg.data.message
-    )
-    const fallbackKey = notificationType === 'warning' ? 'launch.unknown_warning' : 'launch.unknown_error'
-    addChatNotification(
-      detail ? withErrorHint(t(`launch.log_events.backend_${notificationType}`, { detail })) : t(fallbackKey),
-      { type: notificationType, at }
-    )
+    if (isToolFailure) {
+      // Grouped per agent and step (see addToolIssue); the failed call's step also ends here,
+      // or its spinner would run on until the whole turn settles
+      const details = msg.data.details || {}
+      addToolIssue(
+        msg.data.node_id,
+        details.tool_name,
+        formatErrorDetail(details.error || details.tool_result || msg.data.message),
+        at
+      )
+      if (details.stage !== 'before' && msg.data.node_id) {
+        handleToolCallEnd(msg.data.node_id, { ...details, success: false }, eventTime(msg.data.timestamp), msg.data.timestamp)
+      }
+    } else {
+      const notificationType = msg.data.level === 'WARNING' ? 'warning' : 'error'
+      // Backend warning/error text is technical English; give it a localized lead-in
+      const detail = formatErrorDetail(msg.data.message)
+      const fallbackKey = notificationType === 'warning' ? 'launch.unknown_warning' : 'launch.unknown_error'
+      addChatNotification(
+        detail ? withErrorHint(t(`launch.log_events.backend_${notificationType}`, { detail })) : t(fallbackKey),
+        { type: notificationType, at }
+      )
+    }
   }
 
   // Handle log messages
@@ -5376,17 +5825,9 @@ const processMessage = async (msg) => {
         runTracker.activity(nodeId, 'tool', msg.data.details.tool_name || '', true, msg.data.timestamp)
       }
 
-      // Tool call ended
+      // Tool call ended (a failure the agent handles itself is an INFO entry with success: false)
       if (msg.data.details.stage === "after") {
-        const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
-        finishLoadingEntry(nodeId, baseKey, eventAt)
-        if (delegatedNodes.has(nodeId)) {
-          finishMemberStep(nodeId, msg.data.details.tool_name || '', eventAt)
-          setMemberNow(nodeId, null, eventAt)
-          touchWorkingTurns()
-        }
-        officeRef.value?.activity(nodeId, 'tool', msg.data.details.tool_name || '', false, msg.data.details.arguments || null)
-        runTracker.activity(nodeId, 'tool', msg.data.details.tool_name || '', false, msg.data.timestamp)
+        handleToolCallEnd(nodeId, msg.data.details, eventAt, msg.data.timestamp)
       }
     }
 
@@ -5432,6 +5873,8 @@ const processMessage = async (msg) => {
       } else if (!settleNodeTurn(nodeId, msg.data.details?.output, eventAt)) {
         addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output, at)
       }
+      // The step is over: its tool problems were handled (or no longer matter)
+      if (nodeId) markToolsRecovered(nodeId, { close: true })
       if (nodeId) officeRef.value?.nodeEnd(nodeId, msg.data.details?.output)
       runTracker.nodeEnd(nodeId, msg.data.details?.output, msg.data.timestamp, { status: memberCancelled ? 'cancelled' : 'done' })
     }
@@ -5475,7 +5918,9 @@ const processMessage = async (msg) => {
     }
 
     else if (msg.data.message) {
-      addChatNotification(localizeLogMessage(msg.data), { at })
+      // "Still thinking (N+ min)" comes back every few minutes: one line per agent, kept current
+      const coalesce = msg.data.details?.event === 'cli_idle' ? `idle:${nodeId || ''}` : ''
+      addChatNotification(localizeLogMessage(msg.data), { at, coalesce })
     }
   }
 
@@ -5499,6 +5944,8 @@ const processMessage = async (msg) => {
     } else if (!isEndLine && !turnHasAgentBubble()) addChatNotification(t('launch.workflow_completed'), { at })
     runTracker.finish('completed', { summary: formatErrorDetail(msg.data?.summary), tokenUsage: msg.data?.token_usage })
     settleAllNodeTurns({ at: at || Date.now() })
+    // The run got to its end: every tool problem on the way was dealt with
+    settleAllToolIssues()
     status.value = 'Completed'
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
@@ -5568,6 +6015,8 @@ const processMessage = async (msg) => {
     pendingInput = null
     pendingLaunch = null
     pendingNotes.clear()
+    // The problems the run died with stay readable; the next turn starts its own groups
+    settleAllToolIssues({ recovered: false })
   }
 }
 
@@ -5578,6 +6027,7 @@ const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
   pendingInput = null
   pendingLaunch = null
   pendingNotes.clear()
+  settleAllToolIssues({ recovered: false })
   if (message) addChatNotification(message, at ? { at } : {})
   if (runTracker.state.task && !runTracker.state.outcome) runTracker.finish('cancelled', { summary })
   status.value = 'Cancelled'
@@ -6132,6 +6582,105 @@ watch(
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   border-color: color-mix(in srgb, var(--danger) 40%, transparent);
   color: var(--danger-soft);
+}
+
+.notification-repeat {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: rgb(var(--ink) / 0.08);
+}
+
+/* Older messages of a long session: rendered on demand */
+.chat-older {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 4px 0 8px;
+}
+.chat-older-btn {
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.chat-older-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.chat-older-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.chat-older-note { font-size: 11px; color: rgb(var(--ink) / 0.4); }
+
+/* Failed tool calls of one agent's step, grouped; quiet once the agent moved on */
+.tool-issues {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  max-width: min(90%, 640px);
+  margin: 0 auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 204, 0, 0.3);
+  background: rgba(255, 204, 0, 0.06);
+}
+.tool-issues.is-recovered {
+  border-color: transparent;
+  background: transparent;
+}
+.tool-issues-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 12px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--warn-soft-2);
+  cursor: pointer;
+}
+.tool-issues.is-recovered .tool-issues-summary {
+  justify-content: center;
+  padding: 2px 12px;
+  color: rgb(var(--ink) / 0.45);
+}
+.tool-issues-summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: 10px; }
+.tool-issues-chevron {
+  flex: none;
+  align-self: center;
+  transition: transform 0.15s var(--ease-out);
+}
+.tool-issues.is-open .tool-issues-chevron { transform: rotate(90deg); }
+.tool-issues-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-issues.is-open .tool-issues-text { white-space: normal; overflow-wrap: anywhere; }
+.tool-issues-summary .message-timestamp { margin: 0 0 0 auto; padding-left: 8px; }
+.tool-issues.is-recovered .tool-issues-summary .message-timestamp { display: none; }
+.tool-issues-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 8px 29px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: rgb(var(--ink) / 0.7);
+}
+.tool-issues-item { overflow-wrap: anywhere; }
+.tool-issues-tool { font-weight: 600; margin-right: 6px; font-family: var(--font-mono, ui-monospace, monospace); }
+.tool-issues-count { margin-left: 6px; color: rgb(var(--ink) / 0.45); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  .tool-issues-chevron { transition: none; }
 }
 
 .question-tag {

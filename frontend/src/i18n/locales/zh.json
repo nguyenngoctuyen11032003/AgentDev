@@ -252,6 +252,55 @@
     "hint_connecting": "正在连接服务器..."
   },
   "launch": {
+    "live": {
+      "starting": "团队正在开始…",
+      "stopping": "正在停止运行…",
+      "waiting_you": "正在等待你的回答",
+      "waiting_answer": "正在等待你的回答",
+      "others": "另有 {n} 人",
+      "elapsed": "已用时间",
+      "steps": "{n} 步",
+      "issues": "{n} 个工具错误处理中",
+      "issues_hint": "查看智能体正在自行修复的工具错误",
+      "finished_completed": "本轮已完成",
+      "finished_error": "本轮出错",
+      "finished_cancelled": "本轮已停止"
+    },
+    "quick": {
+      "label": "快捷回复",
+      "approve_hint": "批准计划并让团队开始 (Ctrl+Enter)",
+      "explain_plan": "解释得更详细",
+      "explain_plan_text": "更详细地解释计划的每一步：谁做什么、产出什么、风险在哪里。",
+      "smaller_plan": "缩小范围",
+      "smaller_plan_text": "缩小计划：只保留可以先完成的核心部分，其余以后再做。",
+      "progress": "进度如何？",
+      "progress_text": "进度如何？",
+      "progress_hint": "根据真实进度立即回答，不调用模型",
+      "note": "给负责人补充说明",
+      "note_text": "补充一点：",
+      "summary": "总结结果",
+      "summary_text": "简要总结团队做了什么、改了哪些文件、还剩什么。",
+      "next": "做下一步",
+      "next_text": "继续进行最合理的下一步。",
+      "tests": "测试一下",
+      "tests_text": "为刚完成的部分编写并运行测试，有失败就修复。",
+      "why_failed": "为什么失败？",
+      "why_failed_text": "解释上一轮为什么失败，并建议如何修复。",
+      "other_way": "换个方法",
+      "other_way_text": "换一种方法重试，避开导致上一轮失败的原因。"
+    },
+    "tool_issues": {
+      "open_one": "{name} 遇到工具错误，正在自行处理 · {last}",
+      "open_many": "{name} 遇到 {n} 个工具错误，正在自行处理 · {last}",
+      "recovered": "{name} 已自行解决 {n} 个工具错误"
+    },
+    "history": {
+      "show_older": "显示更早的 {n} 条消息",
+      "hidden": "已隐藏 {n} 条较早的消息以保持页面流畅"
+    },
+    "shortcuts": {
+      "hint": "Enter：发送 · Shift+Enter：换行 · ↑：编辑上一条消息 · /：输入消息 · Alt+1–9：选择建议 · Ctrl+Enter：批准计划"
+    },
     "resume": {
       "banner": "上一轮在完成前被中断。",
       "action": "继续",
@@ -289,7 +338,7 @@
       "expand": "打开会话列表",
       "history": "会话历史",
       "pick_workflow": "在右侧面板选择工作流以开始新会话",
-      "interrupted": "此会话因服务器重启而中断。完整历史仍可查看；点击重新启动可在新会话中继续。",
+      "interrupted_notice": "此会话因服务器重启而中断。完整历史仍可查看；点击重新启动可在新会话中继续。",
       "count": "{n} 个会话",
       "status": {
         "idle": "未运行",
@@ -564,6 +613,7 @@
       "backend_error": "服务器错误：{detail}"
     },
     "error_hints": {
+      "cli_slow": "提示：模型回答耗时过长（通常是一步写入一个很长的文件），并非网络问题。系统会自动重试；如反复出现，请要求拆分任务。",
       "invalid_api_key": "提示：账户认证被拒绝。请打开“连接”页面点击检查，必要时重新登录账户。",
       "rate_limit": "提示：服务商限流或额度已用完。请稍后重试，或检查套餐/账单。",
       "model_not_found": "提示：未找到该模型。请在智能体节点配置中重新选择模型（列表来自已连接的账户）。",
@@ -2577,7 +2627,11 @@
       "not_signed_in": "此模型没有已登录的账号。请在连接页面登录。",
       "timeout": "模型响应超时。请重试。",
       "provider_error": "模型服务返回错误。",
-      "bad_request": "请求无效。"
+      "bad_request": "请求无效。",
+      "quota_exhausted": "此账号的用量已达上限。请切换到其他模型或稍后重试。",
+      "model_unavailable": "所选模型已不可用。请选择其他模型，或在连接页面重新连接账号。",
+      "busy": "助手正在处理的请求过多。请等待其中一个完成后再试。",
+      "internal": "助手遇到意外错误。详细信息请查看服务器日志。"
     },
     "preview": {
       "aria": "工作流预览：{nodes} 个节点，{edges} 条连线",

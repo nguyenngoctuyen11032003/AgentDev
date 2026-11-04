@@ -292,6 +292,55 @@
     "hint_connecting": "Connecting to the server..."
   },
   "launch": {
+    "live": {
+      "starting": "The team is getting started…",
+      "stopping": "Stopping the run…",
+      "waiting_you": "Waiting for your answer",
+      "waiting_answer": "waiting for your answer",
+      "others": "+{n} more",
+      "elapsed": "Time elapsed",
+      "steps": "{n} steps",
+      "issues": "{n} tool issues being handled",
+      "issues_hint": "Show the tool errors the agent is fixing on its own",
+      "finished_completed": "This turn is done",
+      "finished_error": "This turn failed",
+      "finished_cancelled": "This turn was stopped"
+    },
+    "quick": {
+      "label": "Quick replies",
+      "approve_hint": "Approve the plan and let the team start (Ctrl+Enter)",
+      "explain_plan": "Explain it in more detail",
+      "explain_plan_text": "Explain each step of the plan in more detail: who does what, what comes out of it and where the risks are.",
+      "smaller_plan": "Cut the scope",
+      "smaller_plan_text": "Make the plan smaller: keep only the core that can be done first, leave the rest for later.",
+      "progress": "How is it going?",
+      "progress_text": "How's it going?",
+      "progress_hint": "Answered at once from the real progress, no model call",
+      "note": "Add a note for the lead",
+      "note_text": "One more thing: ",
+      "summary": "Summarize the result",
+      "summary_text": "Briefly summarize what the team did, which files changed and what is left.",
+      "next": "Do the next step",
+      "next_text": "Go on with the most sensible next step.",
+      "tests": "Test it",
+      "tests_text": "Write and run tests for what was just built, and fix anything that fails.",
+      "why_failed": "Why did it fail?",
+      "why_failed_text": "Explain why the last turn failed and suggest how to fix it.",
+      "other_way": "Try another way",
+      "other_way_text": "Try again in a different way that avoids what made the last turn fail."
+    },
+    "tool_issues": {
+      "open_one": "{name} hit a tool error and is handling it · {last}",
+      "open_many": "{name} hit {n} tool errors and is handling them · {last}",
+      "recovered": "{name} worked around {n} tool errors"
+    },
+    "history": {
+      "show_older": "Show {n} older messages",
+      "hidden": "{n} older messages are hidden to keep the page fast"
+    },
+    "shortcuts": {
+      "hint": "Enter: send · Shift+Enter: new line · ↑: edit your last message · /: type a message · Alt+1–9: pick a suggestion · Ctrl+Enter: approve the plan"
+    },
     "resume": {
       "banner": "The previous turn was interrupted before it finished.",
       "action": "Continue",
@@ -329,7 +378,7 @@
       "expand": "Open session list",
       "history": "Session history",
       "pick_workflow": "Pick a workflow in the right panel to start a new session",
-      "interrupted": "This session was interrupted by a server restart. Its full history is still here; press Relaunch to continue in a new session.",
+      "interrupted_notice": "This session was interrupted by a server restart. Its full history is still here; press Relaunch to continue in a new session.",
       "count": "{n} sessions",
       "status": {
         "idle": "Not run",
@@ -604,6 +653,7 @@
       "backend_error": "Error from the server: {detail}"
     },
     "error_hints": {
+      "cli_slow": "Hint: the model took too long to answer (often one very long file in a single step); this is not a network problem. It is retried automatically; if it keeps happening, ask for the work to be split up.",
       "invalid_api_key": "Hint: the account was rejected. Open the Connections page, press Check and sign in to the account again if needed.",
       "rate_limit": "Hint: the provider is rate limiting or your quota is exhausted. Wait a moment and retry, or check your plan/billing.",
       "model_not_found": "Hint: the model was not found. Pick the model again in the agent node settings (the list comes from the connected account).",
@@ -2577,7 +2627,11 @@
       "not_signed_in": "This model has no signed-in account. Sign in on the Connections page.",
       "timeout": "The model took too long to answer. Try again.",
       "provider_error": "The model returned an error.",
-      "bad_request": "The request was not valid."
+      "bad_request": "The request was not valid.",
+      "quota_exhausted": "This account has reached its usage limit. Switch to another model or try again later.",
+      "model_unavailable": "The selected model is no longer available. Pick another model or reconnect the account on the Connections page.",
+      "busy": "The assistant is handling too many requests. Wait for one to finish, then try again.",
+      "internal": "The assistant hit an unexpected error. Details are in the server log."
     },
     "preview": {
       "aria": "Workflow preview: {nodes} nodes, {edges} edges",

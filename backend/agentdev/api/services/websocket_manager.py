@@ -17,6 +17,7 @@ from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.api.services.session_history import SessionHistoryStore
 from agentdev.api.services.session_store import WorkflowSessionStore, SessionStatus
 from agentdev.api.services.workflow_run_service import WorkflowRunService
+from agentdev.api.services.websocket_logger import client_entry
 from agentdev.utils.exceptions import ValidationError
 from agentdev.utils.workspace_paths import validate_path_component
 
@@ -142,6 +143,10 @@ class WebSocketManager:
                 for msg in messages_to_replay:
                     if not still_current():
                         return session_id
+                    # Sessions saved before log entries were trimmed for the client carry whole
+                    # model prompts; trim them on the way out too.
+                    if isinstance(msg, dict) and msg.get("type") == "log" and isinstance(msg.get("data"), dict):
+                        msg = {**msg, "data": client_entry(msg["data"])}
                     await self._send_to(websocket, session_id, msg)
 
                 snapshot = self.session_store.get_session_snapshot(session_id)
