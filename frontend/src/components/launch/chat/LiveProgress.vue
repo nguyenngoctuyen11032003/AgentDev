@@ -11,6 +11,7 @@
         {{ $t('launch.live.others', { n: others.length }) }}
       </span>
     </span>
+    <span v-if="stallText" class="live-stall" :class="{ 'is-warn': stallLevel >= 2 }" :title="stallText">{{ stallText }}</span>
     <span class="live-meta">
       <span v-if="startedAt" class="live-fact" :title="$t('launch.live.elapsed')">
         <LiveDuration :started-at="startedAt" :ended-at="endedAt || 0" />
@@ -31,7 +32,8 @@
 <script setup>
 // One line above the message box: who is working on what right now, for how long, how many
 // steps so far and how many tool problems are still open; the token use once the turn reports it.
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import LiveDuration from '@/components/common/LiveDuration.js'
 
 const props = defineProps({
@@ -44,10 +46,45 @@ const props = defineProps({
   endedAt: { type: Number, default: 0 },
   steps: { type: Number, default: 0 },
   issues: { type: Number, default: 0 },
-  usage: { type: String, default: '' }
+  usage: { type: String, default: '' },
+  // When the last event of the run arrived (ms); 0 = unknown
+  lastEventAt: { type: Number, default: 0 }
 })
-defineEmits(['show-issues'])
+const emit = defineEmits(['show-issues', 'stall-level'])
 
+// How long the run has been quiet. A calm hint after 60 s, a gentler warning after 180 s
+// (the Stop button is then emphasised by the host).
+const clock = ref(Date.now())
+let timer = null
+const watching = computed(() => props.tone === 'running' && !props.endedAt && !!props.startedAt)
+watch(
+  watching,
+  (on) => {
+    clearInterval(timer)
+    timer = null
+    if (!on) return
+    clock.value = Date.now()
+    timer = setInterval(() => { clock.value = Date.now() }, 1000)
+  },
+  { immediate: true }
+)
+onBeforeUnmount(() => clearInterval(timer))
+const quietSeconds = computed(() => {
+  if (!watching.value) return 0
+  const since = Math.max(props.lastEventAt || 0, props.startedAt || 0)
+  return since ? Math.max(0, Math.floor((clock.value - since) / 1000)) : 0
+})
+const stallLevel = computed(() => (quietSeconds.value >= 180 ? 2 : quietSeconds.value >= 60 ? 1 : 0))
+watch(stallLevel, (level) => emit('stall-level', level), { immediate: true })
+const stallText = computed(() => {
+  if (!watching.value || !props.lastEventAt) return ''
+  const idle = Math.max(0, Math.floor((clock.value - props.lastEventAt) / 1000))
+  if (stallLevel.value === 2) return t('launch.live.stalled_long', { n: idle })
+  if (stallLevel.value === 1) return t('launch.live.stalled', { n: idle })
+  return idle >= 5 ? t('launch.live.last_active', { n: idle }) : ''
+})
+
+const { t } = useI18n()
 const lead = computed(() => props.workers[0] || null)
 const others = computed(() => props.workers.slice(1))
 </script>
@@ -119,6 +156,13 @@ const others = computed(() => props.workers.slice(1))
   margin-right: 8px;
   color: rgb(var(--ink) / 0.3);
 }
+.live-stall {
+  flex: none;
+  font-size: 12px;
+  color: rgb(var(--ink) / 0.55);
+  font-variant-numeric: tabular-nums;
+}
+.live-stall.is-warn { color: var(--warn); }
 .live-issues {
   border: 0;
   background: none;
