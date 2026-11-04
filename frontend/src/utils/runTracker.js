@@ -153,6 +153,12 @@ export function createRunTracker() {
     pushEvent('input', '', time, { text: preview(text).slice(0, 140) })
   }
 
+  // Nobody answered in time and the run went on: nothing waits any more (no answer is counted)
+  const inputTimedOut = (id, at) => {
+    for (const node of Object.values(state.nodes)) node.waiting = false
+    pushEvent('input', id || '', toMs(at), { text: '' })
+  }
+
   // The server turned an answer down: it does not count (its event goes too)
   // `stillWaiting`: steps that keep waiting for an answer
   const undoInput = (stillWaiting = []) => {
@@ -266,7 +272,7 @@ export function createRunTracker() {
     state.plan = null
   }
 
-  return { state, begin, nodeStart, activity, nodeEnd, waitingInput, inputSent, undoInput, assign, handoff, finish, proposePlan, reset }
+  return { state, begin, nodeStart, activity, nodeEnd, waitingInput, inputSent, inputTimedOut, undoInput, assign, handoff, finish, proposePlan, reset }
 }
 
 // ---------------------------------------------------------------- derived views

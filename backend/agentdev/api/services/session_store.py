@@ -108,7 +108,8 @@ class WorkflowSession:
 
 
 def _is_pinned(message: Any) -> bool:
-    return isinstance(message, dict) and message.get("type") == "user_message"
+    # The open question of a human gate stays too: after a reload in a long run the person must still see it
+    return isinstance(message, dict) and message.get("type") in ("user_message", "human_input_required")
 
 
 MAX_CHANGED_FILES = 200
@@ -313,6 +314,15 @@ class WorkflowSessionStore:
             if saved.get("title_custom"):
                 live["title"] = saved.get("title")
             merged[session.session_id] = {**saved, **live}
+        live_ids = set(self._sessions)
+        live_statuses = (SessionStatus.RUNNING.value, SessionStatus.WAITING_FOR_INPUT.value,
+                         SessionStatus.CANCELLING.value)
+        for session_id, item in merged.items():
+            # Saved as running but not in memory: its run died with the previous server process (the same rule
+            # restore_session applies when it is opened), so the sidebar must not show a live run.
+            if session_id not in live_ids and item.get("status") in live_statuses:
+                item["status"] = SessionStatus.CANCELLED.value
+                item["resumable"] = True
         for item in merged.values():  # sessions saved before these fields existed
             item.setdefault("awaiting_plan", False)
             item.setdefault("has_work", False)

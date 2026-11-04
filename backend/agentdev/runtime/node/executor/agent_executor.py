@@ -1555,6 +1555,14 @@ class AgentNodeExecutor(NodeExecutor):
         agent_config.node_id = node.id
         return provider_class
 
+    def _warn_once(self, node_id: str, kind: str, message: str) -> None:
+        """A configuration notice that would repeat on every call of the node: once per node and run, at info."""
+        seen = self.context.global_state.setdefault("_notices_once", set())
+        if (node_id, kind) in seen:
+            return
+        seen.add((node_id, kind))
+        self.log_manager.info(message, node_id=node_id)
+
     def _resolve_native_mode(self, node: Node, agent_config: AgentConfig, provider_class: Any) -> NativeRunContext | None:
         """Native agent mode for this call, or None to run normally (AgentDev tools through the prompt).
 
@@ -1565,16 +1573,12 @@ class AgentNodeExecutor(NodeExecutor):
         if cfg is None or not cfg.enabled:
             return None
         if agent_config.team is not None and agent_config.team.enabled:
-            self.log_manager.warning(
-                f"[Node: {node.id}] native_mode is ignored on a team lead; the lead runs in normal mode.",
-                node_id=node.id,
-            )
+            self._warn_once(node.id, "native_lead",
+                            f"[Node: {node.id}] native_mode is ignored on a team lead; the lead runs in normal mode.")
             return None
         if not getattr(provider_class, "supports_native_mode", False):
-            self.log_manager.warning(
-                f"[Node: {node.id}] native_mode needs a Claude or Codex CLI account; running in normal mode.",
-                node_id=node.id,
-            )
+            self._warn_once(node.id, "native_account",
+                            f"[Node: {node.id}] native_mode needs a Claude or Codex CLI account; running in normal mode.")
             return None
         workspace = self._native_workspace_root()
         allow_commands = False

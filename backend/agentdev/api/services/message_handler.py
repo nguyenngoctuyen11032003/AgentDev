@@ -83,7 +83,8 @@ class MessageHandler:
             user_input = payload.get("input", "")
             attachments = payload.get("attachments") or []
 
-            if not user_input and not attachments:
+            # Whitespace only is no answer: it would use up the gate (and the person's turn) for nothing
+            if not str(user_input or "").strip() and not attachments:
                 await websocket_manager.send_message(session_id, client_error("Empty input", "empty_input"))
                 return
 

@@ -5934,7 +5934,9 @@ const processMessage = async (msg) => {
       // The step is over: its tool problems were handled (or no longer matter)
       if (nodeId) markToolsRecovered(nodeId, { close: true })
       if (nodeId) officeRef.value?.nodeEnd(nodeId, msg.data.details?.output)
-      runTracker.nodeEnd(nodeId, msg.data.details?.output, msg.data.timestamp, { status: memberCancelled ? 'cancelled' : 'done' })
+      // An optional step (continue_on_error) that failed ends with failed: true: it is not done
+      const endStatus = memberCancelled ? 'cancelled' : (msg.data.details?.failed ? 'error' : 'done')
+      runTracker.nodeEnd(nodeId, msg.data.details?.output, msg.data.timestamp, { status: endStatus })
     }
 
     // Edge condition met - trigger sprite animation
@@ -5975,7 +5977,10 @@ const processMessage = async (msg) => {
       // nothing to add
     }
 
-    else if (msg.data.message) {
+    // Only logs the UI knows how to say reach the chat: a mapped event type (localized) or a tagged event such as
+    // "still thinking". Any other INFO line is the engine's own English bookkeeping ("Cancellation requested for
+    // workflow session_...", "Executing node X with edge dynamic config ...") and stays in the downloadable log.
+    else if (msg.data.message && (LOG_EVENT_KEYS[eventType] || msg.data.details?.event)) {
       // "Still thinking (N+ min)" comes back every few minutes: one line per agent, kept current
       const coalesce = msg.data.details?.event === 'cli_idle' ? `idle:${nodeId || ''}` : ''
       addChatNotification(localizeLogMessage(msg.data), { at, coalesce })
@@ -6015,6 +6020,21 @@ const processMessage = async (msg) => {
   }
 
   // The server has the answer that was sent (also acknowledges a cancel request)
+  // A question nobody answered in time: the server moved the run on, so close it here too
+  if (msg.type === 'human_input_timeout') {
+    for (const item of chatMessages.value) {
+      if (item.isQuestion) {
+        item.isQuestion = false
+        item.rev += 1
+      }
+    }
+    runTracker.inputTimedOut(msg.data?.node_id)
+    if (status.value === 'Waiting for input...') status.value = 'Running...'
+    shouldGlow.value = false
+    addChatNotification(t('launch.human_input_timeout'), { type: 'warning', at })
+    return
+  }
+
   if (msg.type === 'input_received') {
     if (msg.data?.message !== 'Cancellation requested') confirmPendingInput()
     return
@@ -6022,7 +6042,8 @@ const processMessage = async (msg) => {
 
   // Workflow cancelled: from the server, or the confirmation that Stop really stopped it
   if (msg.type === 'workflow_cancelled') {
-    const message = locallyCancelled ? t('launch.workflow_cancelled') : formatErrorDetail(msg.data?.message) || t('launch.workflow_cancelled')
+    // Always our own wording: the server's reason is English bookkeeping ("User requested cancellation")
+    const message = t('launch.workflow_cancelled')
     markRunCancelled(message, { at, summary: formatErrorDetail(msg.data?.message) })
   }
 
@@ -6086,7 +6107,7 @@ const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
   pendingLaunch = null
   pendingNotes.clear()
   settleAllToolIssues({ recovered: false })
-  if (message) addChatNotification(message, at ? { at } : {})
+  if (message) addChatNotification(message, { ...(at ? { at } : {}), coalesce: 'run-stop' })
   if (runTracker.state.task && !runTracker.state.outcome) runTracker.finish('cancelled', { summary })
   status.value = 'Cancelled'
   isWorkflowRunning.value = false
@@ -6116,7 +6137,8 @@ const cancelWorkflow = () => {
   }
 
   locallyCancelled = true
-  addChatNotification(t('launch.stopping'))
+  // Same line as the final 'cancelled' notice: it is replaced, not left behind as a stale "Đang dừng…"
+  addChatNotification(t('launch.stopping'), { coalesce: 'run-stop' })
   startStopping()
 }
 

@@ -34,7 +34,9 @@ class SessionExecutionController:
         session.waiting_for_input = True
         session.current_node_id = node_id
         session.pending_input_data = input_data
-        session.status = SessionStatus.WAITING_FOR_INPUT
+        # A stop that arrived just before the gate opened wins: the wait raises Cancelled right away.
+        if session.status != SessionStatus.CANCELLING and not session.cancel_event.is_set():
+            session.status = SessionStatus.WAITING_FOR_INPUT
         session.human_input_future = Future()
         session.human_input_value = None
         self.logger.info("Session %s waiting for input at node %s", session_id, node_id)

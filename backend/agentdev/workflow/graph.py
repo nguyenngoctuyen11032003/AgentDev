@@ -406,7 +406,25 @@ class GraphExecutor:
         archiver = ResultArchiver(self.graph, self.log_manager, self.token_tracker)
         archiver.export(final_result)
 
+        self._raise_if_no_end_reached()
         return self.outputs
+
+    def _raise_if_no_end_reached(self) -> None:
+        """A run that declares end steps but reached none of them did not finish: say so instead of reporting a
+        completed run with an empty (or some side branch's) answer. Typical causes: no branch of a decision matched
+        the output, a loop stopped without taking its exit, or the only way in to the end step does not trigger."""
+        if self.graph.is_majority_voting:
+            return
+        end_ids = [n for n in (self.graph.config.definition.end_nodes or []) if n in self.graph.nodes]
+        if not end_ids or any(self.graph.nodes[n].output for n in end_ids):
+            return
+        runs = getattr(self.token_tracker, "node_runs", None) or []
+        last = runs[-1]["node"] if runs else "-"
+        raise WorkflowExecutionError(
+            f"Quy trình dừng trước khi tới bước kết thúc ({', '.join(end_ids)}): không nhánh nào phù hợp với kết quả "
+            f"của bước '{last}'. / The run stopped before reaching an end step ({', '.join(end_ids)}): no outgoing "
+            f"branch matched the output of '{last}'."
+        )
     
     def _prepare_edge_conditions(self) -> None:
         """Compile registered edge condition types into callable evaluators."""
@@ -631,7 +649,7 @@ class GraphExecutor:
 
     def _soft_failure_message(self, node: Node, exc: Exception) -> Message:
         """What the next steps get when a ``continue_on_error`` node fails: a plain note, marked in metadata."""
-        reason = " ".join(str(exc).split())[:300] or type(exc).__name__
+        reason = " ".join(str(exc).split())[:300] or "no details"
         self.log_manager.warning(f"Node {node.id} failed but continue_on_error is set; the run goes on: {reason}")
         return Message(
             role=MessageRole.ASSISTANT,
@@ -715,7 +733,7 @@ class GraphExecutor:
                     f"Node {node.id} produced no output; downstream edges suppressed"
                 )
 
-            get_run_progress(self.runtime_context.global_state).finish(node.id)
+            get_run_progress(self.runtime_context.global_state).finish(node.id, failed=soft_failed)
 
             # Record node end
             output_text = ""
@@ -736,7 +754,9 @@ class GraphExecutor:
                 "output_size": len(output_text),
                 "output_count": len(output_messages),
                 "output_role": output_role,
-                "output_source": output_source
+                "output_source": output_source,
+                # A continue_on_error step that failed: the UI must not show it as done
+                **({"failed": True, "error": str(output_text)[:300]} if soft_failed else {}),
             })
 
             # Pass results to successor nodes via edges
@@ -823,7 +843,7 @@ class GraphExecutor:
             try:
                 hook.before_node(node, workspace)
             except Exception:
-                self.log_manager.warning("workspace hook before_node failed for %s", node.id)
+                self.log_manager.warning(f"workspace hook before_node failed for {node.id}", node.id)
         success = False
         try:
             result = executor.execute(node, input_payload)
@@ -834,7 +854,7 @@ class GraphExecutor:
                 try:
                     hook.after_node(node, workspace, success=success)
                 except Exception:
-                    self.log_manager.warning("workspace hook after_node failed for %s", node.id)
+                    self.log_manager.warning(f"workspace hook after_node failed for {node.id}", node.id)
 
 
     def _collect_all_outputs(self) -> None:
@@ -934,6 +954,10 @@ class GraphExecutor:
                     # Check if node has output
                     if node.output:
                         return node
+
+        if end_node_ids:
+            # End steps are declared and none produced output: never hand back some other branch's output instead
+            return None
 
         # Fallback to default behavior - return sink node
         sink_node = [node for node in self.graph.nodes.values() if not node.successors]
