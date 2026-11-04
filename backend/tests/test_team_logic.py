@@ -99,8 +99,14 @@ def test_approval_of_previous_plan_executes_it_without_a_second_plan():
 
 
 def test_change_request_to_previous_plan_may_revise_it():
-    team = _team(state=_state("ok nhưng dùng Vue thay React", _plan_turns()))
+    team = _team(state=_state("đổi stack sang Django, thêm trang admin", _plan_turns()))
     assert not team.plan_approved and SUBMIT_PLAN_TOOL in _tools(team)
+
+
+def test_approval_with_edits_is_executed_not_replanned():
+    team = _team(state=_state("ok nhưng dùng Vue thay React", _plan_turns()))
+    assert not team.plan_approved and team.plan_approved_with_edits
+    assert SUBMIT_PLAN_TOOL not in _tools(team)
 
 
 def test_question_without_pending_plan_never_needs_approval():
