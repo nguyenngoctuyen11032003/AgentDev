@@ -521,9 +521,13 @@ class AgentNodeExecutor(NodeExecutor):
         if profile:
             parts.append(profile)
 
+        # Prompt caching is prefix based: static content first, the small per-message block (plan rule,
+        # language) last, so a changed message only invalidates the tail.
         team = self._active_teams().get(node.id)
+        team_per_turn = ""
         if team is not None:
-            parts.append(team.system_prompt_section())
+            team_static, team_per_turn = team.system_prompt_parts()
+            parts.append(team_static)
 
         if skill_manager is not None:
             skill_manager.preload()
@@ -560,6 +564,9 @@ class AgentNodeExecutor(NodeExecutor):
         rules = self._response_rules_section()
         if rules:
             parts.append(rules)
+
+        if team_per_turn:
+            parts.append(team_per_turn)
 
         if not parts:
             return None
@@ -1005,6 +1012,7 @@ class AgentNodeExecutor(NodeExecutor):
                     tool_specs,
                     skill_manager,
                 )
+            latest_batch_start = len(conversation)
             conversation.extend(tool_call_messages)
             timeline.extend(tool_events)
             trace_messages.extend(self._clone_with_source(msg, node.id) for msg in tool_call_messages)
@@ -1017,7 +1025,11 @@ class AgentNodeExecutor(NodeExecutor):
 
             # Notes from the user sent meanwhile join the conversation before the next model call
             self._apply_interjections(node, conversation)
-            self._compact_old_tool_results(conversation, tool_loop_start)
+            # Only results the model already saw (earlier batches) may be clipped. A provider resuming
+            # one CLI session keeps them anyway; clipping would break its resume and re-send everything.
+            keeps_history = getattr(provider, "keeps_tool_history", None)
+            if not (callable(keeps_history) and keeps_history(tool_specs)):
+                self._compact_old_tool_results(conversation, tool_loop_start, latest_batch_start)
 
             follow_up_response = self._invoke_provider(
                 provider,
@@ -1031,11 +1043,14 @@ class AgentNodeExecutor(NodeExecutor):
             assistant_message = follow_up_response.message
 
     @staticmethod
-    def _compact_old_tool_results(conversation: List[Message], start: int) -> None:
+    def _compact_old_tool_results(conversation: List[Message], start: int, end: int | None = None) -> None:
         """Clip text tool results of this loop older than the newest KEEP_RECENT_TOOL_RESULTS ones.
 
+        Only results before ``end`` (the start of the latest, still unseen batch) are eligible, so a
+        large parallel batch is never clipped before the model has read it.
         Replaces list entries (the trace keeps its own full clones); only plain-text results are touched.
         """
+        limit = len(conversation) if end is None else min(end, len(conversation))
         indexes = [
             i for i in range(start, len(conversation))
             if conversation[i].role == MessageRole.TOOL
@@ -1043,7 +1058,7 @@ class AgentNodeExecutor(NodeExecutor):
         if len(indexes) <= KEEP_RECENT_TOOL_RESULTS:
             return
         old = indexes[:-KEEP_RECENT_TOOL_RESULTS] if KEEP_RECENT_TOOL_RESULTS else indexes
-        for i in old:
+        for i in (i for i in old if i < limit):
             msg = conversation[i]
             content = msg.content
             if not isinstance(content, str) or content.endswith(OLD_TOOL_RESULT_MARKER):

@@ -15,7 +15,11 @@ from agentdev.utils.attachments import AttachmentRecord, AttachmentStore
 from agentdev.utils.human_prompt import PromptChannel
 
 
-_ALWAYS_EXCLUDED_DIRS = frozenset({".playwright-cli", "node_modules", ".git", "__pycache__", ".venv"})
+# Tool caches are never a deliverable (pytest, mypy, ruff, tox, coverage runs of the agent leave them behind).
+_ALWAYS_EXCLUDED_DIRS = frozenset({
+    ".playwright-cli", "node_modules", ".git", "__pycache__", ".venv",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".hypothesis",
+})
 
 
 @dataclass

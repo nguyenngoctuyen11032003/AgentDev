@@ -86,6 +86,8 @@ class WebSocketManager:
         # Live messages for a socket that is still replaying the buffer, keyed by id(socket);
         # flushed in order once the replay is done so nothing overtakes older history.
         self._replay_queues: Dict[int, list] = {}
+        # (client_id, seq) of the socket registered per session, see connect()
+        self._connection_meta: Dict[str, tuple] = {}
         self.session_store = session_store or WorkflowSessionStore(history=SessionHistoryStore())
         self.session_controller = session_controller or SessionExecutionController(self.session_store)
         self.attachment_service = attachment_service or AttachmentService()
@@ -100,7 +102,19 @@ class WebSocketManager:
             self.workflow_run_service,
         )
 
-    async def connect(self, websocket: WebSocket, session_id: Optional[str] = None) -> str:
+    async def connect(
+        self,
+        websocket: WebSocket,
+        session_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        seq: int = 0,
+    ) -> str:
+        """Accept ``websocket``; ``client_id``/``seq`` identify the page and its n-th socket.
+
+        Two sockets with the same ``client_id`` are the same page (a reconnect, a reload overlap):
+        the higher ``seq`` wins whatever order they reach the server, and the loser is dropped
+        silently. Only a *different* client takes the session with a ``session_replaced`` notice.
+        """
         if session_id:
             try:
                 validate_path_component(session_id, field="session_id")
@@ -115,22 +129,53 @@ class WebSocketManager:
         # --- Reconnect to existing session (live, or saved on disk before a restart) ---
         if session_id and self.session_store.restore_session(session_id):
             # If an old WebSocket is still tied to this session, close it first
-            if session_id in self.active_connections:
-                old_ws = self.active_connections[session_id]
+            old_ws = self.active_connections.get(session_id)
+            old_client, old_seq = self._connection_meta.get(session_id, (None, 0))
+            same_page = bool(client_id) and client_id == old_client
+            if old_ws is not None and old_ws is not websocket and same_page and seq < old_seq:
+                # This socket was opened before the one already registered (the two raced to
+                # the server): it is the stale one, so drop it and keep the newer socket.
                 try:
+                    await websocket.close(code=1000, reason="Superseded by newer socket of this page")
+                except Exception:
+                    pass
+                logging.info("Older socket of the same page dropped: %s", session_id)
+                return session_id
+            if old_ws is not None:
+                try:
+                    if same_page:
+                        raise RuntimeError("same page: swap silently")
                     # Say it in a message too: proxies (e.g. the Vite dev proxy) can drop the close
                     # reason, and a tab that sees a plain drop would reconnect and take it back.
                     await old_ws.send_text(json.dumps({"type": "session_replaced", "data": {"session_id": session_id}}))
                 except Exception:
                     pass
                 try:
-                    await old_ws.close(code=1000, reason="Replaced by new connection")
+                    reason = "Superseded by this page" if same_page else "Replaced by new connection"
+                    await old_ws.close(code=1000, reason=reason)
+                except Exception:
+                    pass
+
+            # The swap above awaited: another socket may have registered meanwhile. The newer socket
+            # of the same page still wins, and a registered one we did not close is closed now.
+            current = self.active_connections.get(session_id)
+            if current is not None and current is not websocket and current is not old_ws:
+                cur_client, cur_seq = self._connection_meta.get(session_id, (None, 0))
+                if bool(client_id) and client_id == cur_client and seq < cur_seq:
+                    try:
+                        await websocket.close(code=1000, reason="Superseded by newer socket of this page")
+                    except Exception:
+                        pass
+                    return session_id
+                try:
+                    await current.close(code=1000, reason="Superseded by this page")
                 except Exception:
                     pass
 
             # Register the socket, start queueing live messages and snapshot the buffer in
             # one synchronous step: every message is then either replayed or queued, once.
             self.active_connections[session_id] = websocket
+            self._connection_meta[session_id] = (client_id, seq)
             self.connection_timestamps[session_id] = time.time()
             queue: list = []
             self._replay_queues[id(websocket)] = queue
@@ -188,6 +233,7 @@ class WebSocketManager:
         if not session_id:
             session_id = str(uuid.uuid4())
         self.active_connections[session_id] = websocket
+        self._connection_meta[session_id] = (client_id, seq)
         self.connection_timestamps[session_id] = time.time()
         logging.info("WebSocket connected: %s", session_id)
 
@@ -213,6 +259,7 @@ class WebSocketManager:
             logging.info("Stale WebSocket disconnected (newer connection kept): %s", session_id)
             return
         self.active_connections.pop(session_id, None)
+        self._connection_meta.pop(session_id, None)
         self.connection_timestamps.pop(session_id, None)
         logging.info("WebSocket disconnected (session preserved): %s", session_id)
 

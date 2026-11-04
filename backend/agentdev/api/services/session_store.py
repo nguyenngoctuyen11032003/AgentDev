@@ -122,10 +122,12 @@ def note_changed_files(session: "WorkflowSession", message: Any) -> None:
         if not isinstance(event, dict):
             continue
         path = str(event.get("relative_path") or event.get("file_name") or "").strip()
-        if not path or event.get("change_type") == "deleted":
+        if not path:
             continue
-        size = event.get("size")
         session.changed_files.pop(path, None)  # re-insert: most recently changed last
+        if event.get("change_type") == "deleted":
+            continue  # a deleted file no longer belongs to the "files changed" digest
+        size = event.get("size")
         session.changed_files[path] = size if isinstance(size, int) else None
     while len(session.changed_files) > MAX_CHANGED_FILES:
         session.changed_files.pop(next(iter(session.changed_files)))

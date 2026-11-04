@@ -174,9 +174,12 @@ const onKeydown = (event) => {
 function openAssistantFromQuery() {
   if (!route.query.assist || !selectedWorkflow.value) return
   openAssistant('workflow')
-  const { assist, ...rest } = route.query
+  const rest = { ...route.query }
+  delete rest.assist
   router.replace({ query: rest })
 }
+// Also when the workbench is already mounted (e.g. a second "fix" from Lab in the same tab).
+watch(() => route.query.assist, (assist) => assist && nextTick(openAssistantFromQuery))
 
 onMounted(() => {
   openAssistantFromQuery()

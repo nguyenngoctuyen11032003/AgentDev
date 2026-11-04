@@ -12,9 +12,11 @@ import threading
 import uuid
 import weakref
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agentdev.connections import cli_auth
+from agentdev.utils.git_guard import with_git_ceiling
 from agentdev.connections.security import MODEL_NAME_RE
 from agentdev.entity.messages import Message, MessageRole, ToolCallPayload
 from agentdev.entity.tool_spec import ToolSpec
@@ -310,6 +312,12 @@ class _BusyTracker:
             return bool(self._open)
 
 
+def cli_run_env(cwd: Optional[str]) -> Dict[str, str]:
+    """Environment of a vendor CLI run in ``cwd``: the account login env plus the git ceiling
+    (see ``agentdev.utils.git_guard``)."""
+    return with_git_ceiling(cli_auth.cli_env(), cwd)
+
+
 def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str,
             on_line: Optional[Callable[[str], None]] = None) -> subprocess.CompletedProcess:
     """Run a vendor CLI. Raises ``CliCancelled`` (CLI tree killed) when the enclosing
@@ -337,7 +345,7 @@ def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str,
                  "is_busy": tracker.busy, "on_idle": _idle}
     try:
         return cli_auth.run_capture(
-            cmd, input=prompt, timeout=timeout, cwd=cwd, env=cli_auth.cli_env(), cancel_event=current_cancel_event(),
+            cmd, input=prompt, timeout=timeout, cwd=cwd, env=cli_run_env(cwd), cancel_event=current_cancel_event(),
             **extra,
         )
     except cli_auth.CliIdle as exc:

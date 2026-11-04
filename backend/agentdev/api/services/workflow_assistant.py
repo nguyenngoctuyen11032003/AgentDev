@@ -27,7 +27,7 @@ import yaml
 
 from agentdev.api.services.workflow_assistant_prompt import load_context, stable_prefix, turn_context, with_context
 from agentdev.api.services.workflow_diff import diff_workflows, new_dangerous_tool_items, unrequested_changes
-from agentdev.api.services.workflow_lab import FAIL, WARN, SimpleConfig, static_check_data
+from agentdev.api.services.workflow_lab import FAIL, WARN, SimpleConfig, new_failures, static_check_data
 from agentdev.api.services.workflow_patterns import proposal_lint
 from agentdev.api.services.workflow_storage import validate_workflow_filename
 from agentdev.api.settings import YAML_DIR
@@ -489,9 +489,9 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
     # provider yet; that is not the model's fault, so it does not fail the proposal. The UI shows it,
     # like every WARN check, from ``proposal.checks``.
     report = static_check_data(data)
-    errors = [f"{c['id']}: {c.get('detail') or 'failed'}" for c in report["checks"]
-              if c["status"] == FAIL and c["id"] != "accounts"]
+    # Loops / gates already broken in the saved file are not the edit's doing (``new_failures``).
     old = saved_doc if kind == "edit" else None
+    errors = [f"{c['id']}: {c.get('detail') or 'failed'}" for c in new_failures(report, old)]
 
     # 4. Duplicate edges. The runtime keeps one link per (from, to) pair, so a second edge between the
     # same nodes silently replaces the first. Pairs already duplicated in the saved file are left alone:

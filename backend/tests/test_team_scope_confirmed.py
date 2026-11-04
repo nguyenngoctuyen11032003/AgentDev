@@ -47,4 +47,4 @@ def test_approval_with_edits_executes_without_replanning():
 
 
 def test_budgets():
-    assert MAX_MEMBER_RESULT_CHARS == 2000 and MEMBER_BUSY_WAIT_SECONDS == 120
+    assert MAX_MEMBER_RESULT_CHARS == 2000 and MEMBER_BUSY_WAIT_SECONDS == 30 * 60

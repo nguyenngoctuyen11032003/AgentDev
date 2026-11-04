@@ -77,8 +77,9 @@ _QUOTA_ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 # Longest a ``delegate_task`` waits for the same member to finish another task of the same lead
-# (several ``delegate_task`` calls to one member in one reply run one after the other).
-MEMBER_BUSY_WAIT_SECONDS = 120
+# (several ``delegate_task`` calls to one member in one reply run one after the other, and a
+# member task can take many minutes). The wait also ends as soon as the run is cancelled.
+MEMBER_BUSY_WAIT_SECONDS = 30 * 60
 
 DelegateRunner = Callable[[str, List[Message], str], List[Message]]
 
@@ -617,7 +618,7 @@ def _sub_team(node_id: str, node: Any, nodes: Mapping[str, Any]) -> List[str]:
     return [m for m in (getattr(team, "members", None) or []) if m != node_id and m in nodes]
 
 
-LEAD_PROTOCOL = """\
+LEAD_PROTOCOL_STATIC = """\
 # You lead a team
 The user is your client. They talk ONLY to you; your members never talk to the user.
 
@@ -646,11 +647,16 @@ Member reports reach you clipped to about {report_chars} characters (the full te
 - At most {max_delegations} delegations for this request; the whole team (sub-teams included) shares {max_member_runs} member runs.
 
 ## Your team
-{roster}
+{roster}"""
 
+# The only part of the lead prompt that changes from message to message. It goes LAST in the system
+# prompt so prefix-based prompt caching keeps the long static part before it as cache reads.
+LEAD_TURN_BLOCK = """\
 ## This message
 - {plan_rule}
 {language_rule}"""
+
+LEAD_PROTOCOL = LEAD_PROTOCOL_STATIC + "\n\n" + LEAD_TURN_BLOCK
 
 # The lead's whole team section for a message that is only a greeting or thanks (``is_small_talk``):
 # no protocol, roster or team tools, so the reply is fast and cheap.
@@ -858,8 +864,14 @@ class TeamDelegation:
 
     # ---- prompt ----
     def system_prompt_section(self) -> str:
+        static, per_turn = self.system_prompt_parts()
+        return "\n\n".join(part for part in (static, per_turn) if part)
+
+    def system_prompt_parts(self) -> tuple[str, str]:
+        """(static, per_turn): the static part is the same on every message of a session, the per-turn
+        part (plan rule, language) changes with the user's message. Callers put the per-turn part last."""
         if self.small_talk:
-            return LEAD_SMALL_TALK
+            return "", LEAD_SMALL_TALK
         roster = "\n".join(
             f"- `{m.node_id}`: {m.summary}"
             + (f" — skills: {', '.join(m.skills)}" if m.skills else "")
@@ -874,22 +886,21 @@ class TeamDelegation:
                 marker=DECISION_MARKER,
                 max_delegations=self.max_delegations,
                 roster=roster,
-            )
+            ), ""
         language = self.state.user_language
         language_rule = (
             f"- The user writes in {language}: reply in {language}, answer directly, no filler.\n" if language else ""
         )
-        return LEAD_PROTOCOL.format(
+        static = LEAD_PROTOCOL_STATIC.format(
             max_rounds=self.max_review_rounds,
             marker=DECISION_MARKER,
-            plan_rule=self._plan_rule(),
             parallel_rule=parallel_rule,
             max_delegations=self.max_delegations,
             max_member_runs=self.state.max_member_runs,
             report_chars=MAX_MEMBER_RESULT_CHARS,
-            language_rule=language_rule,
             roster=roster,
         )
+        return static, LEAD_TURN_BLOCK.format(plan_rule=self._plan_rule(), language_rule=language_rule)
 
     # ---- tools ----
     def _member_property(self) -> Dict[str, Any]:

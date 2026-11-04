@@ -174,8 +174,11 @@ def test_vague_video_request_gets_a_pattern_and_a_first_turn_proposal(turn_env):
     assert "## Pattern `video`" in call.calls[0][1][-1]["content"]
     proposal = out["proposal"]
     assert proposal is not None and out["validation_errors"] == []
-    speed = next(c for c in proposal["checks"]["checks"] if c["id"] == "speed")
-    assert speed["estimated_seconds"] > 0
+    # one speed estimate per proposal: the static check's critical_path (no second, disagreeing "speed")
+    ids = [c["id"] for c in proposal["checks"]["checks"]]
+    assert "speed" not in ids and ids.count("critical_path") == 1
+    speed = next(c for c in proposal["checks"]["checks"] if c["id"] == "critical_path")
+    assert speed["estimated_seconds"] == proposal_lint.estimate_seconds(yaml.safe_load(proposal["yaml"])) > 0
 
 
 def test_unknown_model_is_substituted_without_a_repair_call(turn_env):
@@ -199,3 +202,74 @@ def test_create_downgrades_top_model_reviewer(turn_env):
     reviewer = next(n for n in saved["graph"]["nodes"] if n["id"] == "Reviewer")
     assert reviewer["config"]["name"] == "claude-haiku-5-5" and reviewer["config"]["params"]["effort"] == "low"
     assert any("Reviewer" in w for w in out["proposal"]["warnings"])
+
+
+# ---------------------------------------------------------------------------- shared graph logic
+
+
+def test_lint_and_lab_share_one_graph_implementation():
+    from agentdev.api.services import workflow_lab
+    from agentdev.api.services.workflow_patterns import graph_analysis
+
+    assert proposal_lint.model_tier is workflow_lab.model_tier is graph_analysis.model_tier
+    assert proposal_lint.edge_condition_matches is workflow_lab.edge_condition_matches
+    # "gemini" is not "mini"; "pro" is a top model; "mini" alone is small
+    assert graph_analysis.model_tier("gemini-3.1-pro-preview") == "top"
+    assert graph_analysis.model_tier("gpt-5-mini") == "small"
+    assert graph_analysis.model_tier("gpt-6.1-terra") == "mid"
+
+
+def test_none_only_keyword_condition_matches_like_the_runtime():
+    from agentdev.entity.configs.edge.edge_condition import KeywordEdgeConditionConfig
+    from agentdev.runtime.edge.conditions.keyword_manager import KeywordEdgeConditionManager
+
+    cond = {"type": "keyword", "config": {"none": ["Rejected"], "case_sensitive": True}}
+    manager = KeywordEdgeConditionManager.__new__(KeywordEdgeConditionManager)
+    cfg = KeywordEdgeConditionConfig.from_dict(cond["config"], path="c")
+    manager.any_keywords, manager.regex_patterns = cfg.any_keywords, cfg.regex_patterns
+    manager.processed_none, manager.processed_any = cfg.none_keywords, cfg.any_keywords
+    manager.compiled_regex, manager.case_sensitive = [], True
+    for text in ("[Automatic answer] Approved", "Rejected"):
+        assert proposal_lint.edge_condition_matches(cond, text) == manager._evaluate(text)
+    gate = _wf([{"id": "H", "type": "human", "config": {"description": "x"}}, _agent("A", "claude-haiku-5-5")],
+               [{"from": "H", "to": "A", "condition": cond}], start="H", end="A")
+    assert proposal_lint.gates_missing_auto_answer(gate) == []
+
+
+def test_lint_speed_matches_lab_critical_path():
+    lead = _agent("Lead", "claude-sonnet-5-5", team={"enabled": True, "members": ["W"]})
+    data = _wf([lead, _agent("W", "claude-haiku-5-5"), _agent("Self", "claude-haiku-5-5")],
+               [{"from": "Lead", "to": "Self"}, {"from": "Self", "to": "Self"}], start="Lead", end="Self")
+    lab = next(c for c in static_check_data(data)["checks"] if c["id"] == "critical_path")
+    assert lab["estimated_seconds"] == proposal_lint.estimate_seconds(data) == 40 + 15 + 15 + 30
+    assert proposal_lint.lint(data)[1] == []
+
+
+def test_full_system_prompt_includes_the_matched_pattern():
+    prompt = prompt_mod.build_system_prompt(current_yaml=None, current_name=None, pending_yaml=None,
+                                            existing_files=[], skills=[], tools=[], models={},
+                                            user_text="làm đội video")
+    assert "## Pattern `video`" in prompt
+
+
+def test_team_estimate_spreads_members_over_parallel_lanes():
+    from agentdev.api.services.workflow_patterns.graph_analysis import Graph, TIER_SECONDS
+
+    def agent(nid, model, team=None):
+        cfg = {"name": model}
+        if team:
+            cfg["team"] = team
+        return {"id": nid, "type": "agent", "config": cfg}
+
+    members = [f"m{i}" for i in range(4)]
+    nodes = [agent(m, "claude-sonnet-5-5") for m in members]
+
+    def lead_seconds(max_parallel):
+        lead = agent("lead", "claude-sonnet-5-5", {"enabled": True, "members": members, "max_parallel": max_parallel})
+        g = Graph.from_workflow({"graph": {"nodes": [lead, *nodes], "edges": [], "start": ["lead"]}})
+        return g._agent_cost(g.nodes["lead"])[0]
+
+    mid = TIER_SECONDS["mid"]
+    assert lead_seconds(1) == mid + 4 * mid  # one member at a time
+    assert lead_seconds(4) == mid + mid  # all four at once: the slowest member
+    assert lead_seconds(3) == mid + -(-4 * mid // 3)

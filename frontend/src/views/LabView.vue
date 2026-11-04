@@ -20,12 +20,12 @@
         v-model="workflow"
         class="picker-field"
         :label="$t('lab.workflow_label')"
-        :disabled="isRunning"
+        :disabled="isRunning || loadingWorkflows"
       >
         <template #icon>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="6" height="6" rx="1.5" /><rect x="15" y="14" width="6" height="6" rx="1.5" /><path d="M9 7h3a3 3 0 0 1 3 3v4" /></svg>
         </template>
-        <option value="" disabled>{{ $t('lab.workflow_placeholder') }}</option>
+        <option value="" disabled>{{ loadingWorkflows ? $t('lab.workflows_loading') : $t('lab.workflow_placeholder') }}</option>
         <option v-for="wf in workflows" :key="wf.name" :value="wf.name">{{ wf.name.replace(/.ya?ml$/, '') }}</option>
       </BaseSelect>
 
@@ -36,7 +36,7 @@
             <span v-if="checking" class="muted">{{ $t('lab.checking') }}</span>
             <span v-else-if="health" :class="['health-tag', health]">
               <span class="dot" aria-hidden="true"></span>
-              {{ tr(`lab.health.${health}`, { pass: 'Sẵn sàng', warn: 'Có cảnh báo', fail: 'Cần sửa' }[health]) }}
+              {{ $t(`lab.health.${health}`) }}
             </span>
             <span v-else class="muted">—</span>
           </dd>
@@ -62,6 +62,12 @@
 
     <!-- ================================================================ empty state -->
     <section v-if="!workflow" class="intro card" :aria-label="tr('lab.how_it_works', 'Cách kiểm định')">
+      <div v-if="!loadingWorkflows && !workflows.length && !listError" class="empty-state intro-empty">
+        <strong>{{ $t('lab.no_workflows_title') }}</strong>
+        <p>{{ $t('lab.no_workflows_hint') }}</p>
+        <router-link to="/workflows" class="btn primary sm">{{ $t('lab.no_workflows_cta') }}</router-link>
+      </div>
+      <p v-if="listError" class="error intro-error" role="alert">{{ listError }}</p>
       <div class="intro-head">
         <p class="intro-cta">{{ tr('lab.empty_cta', 'Chọn một quy trình ở trên để bắt đầu.') }}</p>
         <h2 class="intro-heading">{{ tr('lab.how_it_works', 'Cách kiểm định') }}</h2>
@@ -220,13 +226,24 @@
                 aria-haspopup="menu"
                 :aria-expanded="sampleMenuOpen"
                 :disabled="isRunning || scenarios.length >= MAX_SCENARIOS"
-                @click="sampleMenuOpen = !sampleMenuOpen"
+                @click="toggleSampleMenu"
+                @keydown.down.prevent="openSampleMenu"
               >
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3ZM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" /></svg>
                 {{ $t('lab.add_samples') }}
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
               </button>
-              <ul v-if="sampleMenuOpen" class="sample-menu-list" role="menu" :aria-label="$t('lab.packs.menu.menu_label')">
+              <ul
+                v-if="sampleMenuOpen"
+                ref="sampleListEl"
+                class="sample-menu-list"
+                role="menu"
+                :aria-label="$t('lab.packs.menu.menu_label')"
+                @keydown.down.prevent="moveSampleFocus(1)"
+                @keydown.up.prevent="moveSampleFocus(-1)"
+                @keydown.home.prevent="moveSampleFocus(0, true)"
+                @keydown.end.prevent="moveSampleFocus(-1, true)"
+              >
                 <li role="none">
                   <button type="button" role="menuitem" class="sample-menu-item strong" @click="addSamplePack('auto')">
                     {{ $t('lab.packs.menu.auto') }} <small>({{ $t(`lab.packs.${detectedPack}.title`) }})</small>
@@ -254,7 +271,7 @@
             >
               <span v-if="generating" class="btn-spinner" aria-hidden="true"></span>
               <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="8" width="14" height="11" rx="3" /><path d="M12 8V5M9.5 13h.01M14.5 13h.01M9.5 16.5h5M3 13v2M21 13v2" /><circle cx="12" cy="4" r="1" /></svg>
-              {{ generating ? tr('lab.ai_generating', 'AI đang viết kịch bản…') : 'AI' }}
+              {{ generating ? tr('lab.ai_generating', 'AI đang viết kịch bản…') : $t('lab.ai_short') }}
             </button>
             <div class="repeat">
               <BaseSelect
@@ -291,15 +308,16 @@
               <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
               {{ $t('lab.eval_run') }}
             </button>
-            <button v-else type="button" class="btn secondary sm danger-outline" @click="stopEval">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+            <button v-else type="button" class="btn secondary sm danger-outline" :disabled="stopping" @click="stopEval">
+              <span v-if="stopping" class="btn-spinner" aria-hidden="true"></span>
+              <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
               {{ $t('lab.eval_stop') }}
             </button>
           </footer>
         </section>
 
         <!-- Results -->
-        <section v-if="job" class="card panel results">
+        <section v-if="job" ref="resultsEl" class="card panel results" tabindex="-1" :aria-label="tr('lab.results_title', 'Kết quả')">
           <p class="sr-only" role="status" aria-live="polite">{{ srStatus }}</p>
           <header class="panel-head">
             <span class="icon-tile mint" aria-hidden="true">
@@ -321,14 +339,26 @@
               <span v-if="job.config_failed" class="warn-text">{{ tr('lab.verdict_config_failed', 'Bước 1 (kiểm tra cấu hình) đang có lỗi: chưa thể dùng quy trình này.') }}</span>
               <span v-if="job.basic_graded" class="warn-text">{{ tr('lab.basic_graded_note', '{n} lượt chỉ được chấm cơ bản (không gọi được AI chấm điểm).', { n: job.basic_graded }) }}</span>
               <template v-if="job.verdict_reasons?.length">
-                <strong class="warn-text">{{ tr('lab.verdict_reasons_title', 'Vì sao chưa đạt') }}</strong>
-                <span v-for="(reason, ri) in job.verdict_reasons" :key="ri" class="warn-text">- {{ reason }}</span>
+                <strong class="reasons-title">{{ tr('lab.verdict_reasons_title', 'Vì sao chưa đạt') }}</strong>
+                <ul class="reasons">
+                  <li v-for="(reason, ri) in job.verdict_reasons" :key="ri">{{ reason }}</li>
+                </ul>
               </template>
+              <a v-if="job.verdict === 'not_ready' && canFix" href="#lab-brief" class="next-step" @click.prevent="focusBrief">{{ $t('lab.next_step_fix') }}</a>
               <span v-if="job.baseline" :class="Object.keys(job.regression || {}).length ? 'warn-text' : ''">
                 {{ tr('lab.vs_baseline', 'So với lần đạt trước: đạt {rate}% (trước {was}%), TB {secs}s (trước {wasSecs}s)', { rate: passPct, was: Math.round((job.baseline.pass_rate || 0) * 100), secs: job.avg_seconds ?? '-', wasSecs: job.baseline.avg_seconds ?? '-' }) }}
                 <template v-if="Object.keys(job.regression || {}).length"> - {{ tr('lab.vs_baseline_regression', 'Kém đi so với lần đạt trước') }}</template>
               </span>
             </div>
+          </div>
+          <div v-else-if="job.status === 'error'" class="state-note error-note" role="alert">
+            <strong>{{ $t('lab.job_error_title') }}</strong>
+            <span v-if="job.error || evalError">{{ job.error || evalError }}</span>
+            <span class="state-hint">{{ $t('lab.job_error_hint') }}</span>
+          </div>
+          <div v-else-if="job.status === 'cancelled'" class="state-note">
+            <strong>{{ $t('lab.job_cancelled_title') }}</strong>
+            <span>{{ $t('lab.job_cancelled_hint', { done: job.done, total: job.total }) }}</span>
           </div>
           <div v-else class="progress">
             <div class="progress-row">
@@ -350,21 +380,21 @@
             </div>
             <div class="kpi">
               <dt>{{ tr('lab.kpi.time', 'Thời gian') }}</dt>
-              <dd>{{ job.duration_seconds }}<span class="unit">s</span></dd>
+              <dd>{{ job.duration_seconds ?? '—' }}<span v-if="job.duration_seconds != null" class="unit">s</span></dd>
             </div>
             <div class="kpi">
               <dt>{{ tr('lab.kpi.tokens', 'Token') }}</dt>
-              <dd>{{ job.total_tokens.toLocaleString() }}</dd>
+              <dd>{{ job.total_tokens ? job.total_tokens.toLocaleString() : '—' }}</dd>
             </div>
             <div class="kpi">
               <dt>{{ tr('lab.kpi.cost', 'Chi phí') }}</dt>
-              <dd>{{ job.cost_usd ? `$${job.cost_usd.toFixed(2)}` : '—' }}</dd>
+              <dd>{{ money(job.cost_usd) || '—' }}</dd>
             </div>
           </dl>
 
           <section v-if="job.status === 'completed' && (job.findings?.length || canFix)" class="diagnosis">
             <h3 class="diag-title">{{ tr('lab.diag_title', 'Chẩn đoán tốc độ và chất lượng') }}</h3>
-            <p v-if="job.slow_runs" class="warn-text">{{ tr('lab.slow_note', '{n} lượt chạy chậm hơn {s} giây (trung bình {avg}s).', { n: job.slow_runs, s: job.slow_seconds, avg: job.avg_seconds }) }}</p>
+            <p v-if="job.slow_runs" class="warn-text">{{ tr('lab.slow_note', '{n} lượt chạy vượt ngân sách thời gian (trung bình {avg}s).', { n: job.slow_runs, s: job.slow_seconds, avg: job.avg_seconds }) }}</p>
             <ul v-if="job.findings?.length" class="diag-list">
               <li v-for="(f, fi) in job.findings" :key="fi" :class="f.severity">
                 <strong>{{ severityLabel(f.severity) }} · {{ scenarioLabel(f.scenario) }}</strong>
@@ -374,7 +404,7 @@
             </ul>
             <template v-if="canFix">
               <label class="diag-label" for="lab-brief">{{ tr('lab.brief_label', 'Nội dung gửi cho trợ lý quy trình (có thể bổ sung)') }}</label>
-              <textarea id="lab-brief" v-model="briefText" class="brief" rows="10"></textarea>
+              <textarea id="lab-brief" ref="briefEl" v-model="briefText" class="input brief" rows="8"></textarea>
               <div class="brief-actions">
                 <button type="button" class="btn primary sm" @click="fixWithAssistant()">{{ tr('lab.fix_with_assistant', 'Chỉnh sửa quy trình theo lỗi này') }}</button>
                 <button type="button" class="btn secondary sm" @click="copyBrief">{{ briefCopied ? tr('lab.copied', 'Đã chép') : tr('lab.copy_brief', 'Chép nội dung') }}</button>
@@ -391,8 +421,12 @@
             </li>
           </ul>
 
-          <div class="runs">
-            <details v-for="(r, i) in job.results" :key="i" :class="['run', r.status]" @toggle="onRunToggle(i, $event)">
+          <h3 v-if="job.results?.length" class="runs-title">
+            {{ $t('lab.runs_title') }}
+            <span v-if="failedRuns.length" class="runs-failed">{{ $t('lab.runs_failed_count', { n: failedRuns.length }) }}</span>
+          </h3>
+          <div v-if="job.results?.length" class="runs">
+            <details v-for="{ r, i } in orderedRuns" :key="i" :class="['run', r.status]" @toggle="onRunToggle(i, $event)">
               <summary>
                 <span class="run-dot" aria-hidden="true"></span>
                 <span class="run-title">{{ scenarioLabel(r.scenario) }} <span class="run-attempt">· {{ $t('lab.attempt', { n: r.repeat }) }}</span></span>
@@ -441,7 +475,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
@@ -480,6 +514,8 @@ const onRunToggle = (index, event) => {
 const stripNo = (text) => String(text).replace(/^\d+\.\s*/, '')
 
 const workflows = ref([])
+const loadingWorkflows = ref(true)
+const listError = ref('')
 const workflow = ref('')
 const report = ref(null)
 const checking = ref(false)
@@ -492,6 +528,9 @@ const repeats = ref(1)
 const job = ref(null)
 const evalError = ref('')
 const starting = ref(false)
+const stopping = ref(false)
+const resultsEl = ref(null)
+const briefEl = ref(null)
 // Scenarios exactly as sent with the run (blank prompts dropped), so result indexes match the backend's.
 const submitted = ref([])
 let pollTimer = null
@@ -517,6 +556,20 @@ async function copyBrief() {
     /* clipboard unavailable: the text stays selectable in the box */
   }
 }
+// Failed and errored runs first once the job is done: they are what the user has to act on.
+const RUN_ORDER = { failed: 0, error: 0, cancelled: 1, passed: 2 }
+const orderedRuns = computed(() => {
+  const list = (job.value?.results || []).map((r, i) => ({ r, i }))
+  if (job.value?.status !== 'completed') return list
+  return list.sort((a, b) => (RUN_ORDER[a.r.status] ?? 1) - (RUN_ORDER[b.r.status] ?? 1) || a.i - b.i)
+})
+function focusBrief() {
+  const el = briefEl.value
+  if (!el) return
+  el.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  el.focus({ preventScroll: true })
+}
+const prefersReducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 const severityLabel = (sev) => (sev === 'fail' ? tr('lab.sev_fail', 'Lỗi') : tr('lab.sev_warn', 'Cần cải thiện'))
 function buildFixMessage(runs) {
   const lines = [tr('lab.fix_intro', 'Quy trình này vừa chạy thử trong Phòng thí nghiệm nhưng chưa đạt. Hãy xem lỗi bên dưới, tìm nguyên nhân trong quy trình rồi đề xuất bản sửa.')]
@@ -529,7 +582,7 @@ function buildFixMessage(runs) {
     if (r.judge?.reason) lines.push(`- ${tr('lab.fix_judge', 'Giám khảo nhận xét')}: ${r.judge.reason}`)
     if (r.error) lines.push(`- ${tr('lab.fix_error', 'Lỗi')}: ${String(r.error).slice(0, 500)}`)
     if (agents) lines.push(`- ${tr('lab.fix_agents', 'Agent đã chạy')}: ${agents}`)
-    if (r.seconds) lines.push(`- ${tr('lab.kpi.time', 'Thời gian')}: ${Math.round(r.seconds)}s, ${(r.tokens || 0).toLocaleString()} token`)
+    if (r.seconds) lines.push(`- ${tr('lab.kpi.time', 'Thời gian')}: ${Math.round(r.seconds)}s, ${t('lab.tokens_n', { n: (r.tokens || 0).toLocaleString() })}`)
     if (r.answer) lines.push(`- ${tr('lab.fix_answer', 'Câu trả lời nhận được')}: ${String(r.answer).replace(/\s+/g, ' ').slice(0, 400)}`)
   }
   lines.push('', tr('lab.fix_outro', 'Thông tin bổ sung của tôi: '))
@@ -573,11 +626,11 @@ const configBlockedHint = computed(() =>
 const money = (v) => (v ? `$${v.toFixed(v < 0.1 ? 3 : 2)}` : '')
 const joinMeta = (parts) => parts.filter(Boolean).join(' · ')
 const runMeta = (r) =>
-  joinMeta([r.seconds ? `${r.seconds}s` : '', r.tokens ? `${r.tokens.toLocaleString()} token` : '', money(r.cost_usd)])
+  joinMeta([r.seconds ? `${r.seconds}s` : '', r.tokens ? t('lab.tokens_n', { n: r.tokens.toLocaleString() }) : '', money(r.cost_usd)])
 const scenarioMeta = (s) =>
   joinMeta([
     s.seconds ? `~${s.seconds}s` : '',
-    s.tokens ? `${s.tokens.toLocaleString()} token` : '',
+    s.tokens ? t('lab.tokens_n', { n: s.tokens.toLocaleString() }) : '',
     money(s.cost_usd),
     s.members?.length ? s.members.join(', ') : ''
   ])
@@ -702,6 +755,23 @@ function removeScenario(index) {
 const sampleMenuOpen = ref(false)
 const sampleMenuEl = ref(null)
 const sampleBtnEl = ref(null)
+const sampleListEl = ref(null)
+const sampleItems = () => [...(sampleListEl.value?.querySelectorAll('[role="menuitem"]') || [])]
+function moveSampleFocus(step, absolute = false) {
+  const items = sampleItems()
+  if (!items.length) return
+  const current = items.indexOf(document.activeElement)
+  const next = absolute ? (step < 0 ? items.length - 1 : 0) : (current + step + items.length) % items.length
+  items[next].focus()
+}
+function openSampleMenu() {
+  sampleMenuOpen.value = true
+  nextTick(() => moveSampleFocus(0, true))
+}
+function toggleSampleMenu() {
+  if (sampleMenuOpen.value) closeSampleMenu()
+  else openSampleMenu()
+}
 const teamMembers = computed(() => report.value?.checks?.find((c) => c.id === 'team')?.members || [])
 const detectedPack = computed(() => detectPack(workflow.value, teamMembers.value))
 function closeSampleMenu(refocus = false) {
@@ -830,6 +900,13 @@ async function startEval() {
     job.value = started
     rememberJob(workflow.value, started.id, list)
     schedulePoll(1500)
+    // The results panel sits below the scenario list: bring the progress into view and focus it.
+    nextTick(() => {
+      const el = resultsEl.value
+      if (!el) return
+      el.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+      el.focus({ preventScroll: true })
+    })
   } catch (error) {
     evalError.value = error.message
   } finally {
@@ -838,12 +915,15 @@ async function startEval() {
 }
 
 async function stopEval() {
-  if (!job.value) return
+  if (!job.value || stopping.value) return
+  stopping.value = true
   try {
     job.value = await labCancel(job.value.id)
   } catch (error) {
     if (error.status === 404) markJobLost()
     else evalError.value = error.message
+  } finally {
+    stopping.value = false
   }
 }
 
@@ -852,7 +932,10 @@ onMounted(async () => {
     // Only the names are shown: one request instead of one per workflow
     workflows.value = (await fetchWorkflowNames()).map((name) => ({ name }))
   } catch (error) {
-    checkError.value = error.message
+    // Shown in the empty state: the workspace (where checkError lives) is not rendered yet.
+    listError.value = error?.message || String(error)
+  } finally {
+    loadingWorkflows.value = false
   }
   let preset = route.query.workflow
   if (!preset) {
@@ -866,7 +949,10 @@ onMounted(async () => {
   const match = preset && workflows.value.find((w) => [preset, `${preset}.yaml`, `${preset}.yml`].includes(w.name))
   if (match) workflow.value = match.name
   // Empty state: put the cursor on the one thing to do
-  else document.getElementById('lab-workflow-picker')?.focus()
+  else {
+    await nextTick() // the picker was disabled while the list loaded
+    document.getElementById('lab-workflow-picker')?.focus()
+  }
 })
 onBeforeUnmount(() => {
   unmounted = true
@@ -884,15 +970,30 @@ onBeforeUnmount(() => {
 .diag-list li.fail { background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .diag-fix { color: var(--fg-muted); }
 .diag-label { display: block; margin: 8px 0 4px; font-size: 12.5px; font-weight: 600; }
-.brief { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; line-height: 1.5; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg, #fff); color: var(--fg); resize: vertical; }
+.brief { width: 100%; box-sizing: border-box; min-height: 120px; font-size: 13px; line-height: 1.5; resize: vertical; }
 .brief-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .fix-btn { align-self: flex-start; margin-top: 6px; }
 .verdict-text .warn-text { display: block; margin-top: 4px; font-size: 12.5px; }
+.reasons-title { margin-top: 6px; font-size: 13px !important; color: var(--fg) !important; }
+.reasons { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.55; color: var(--fg); }
+.reasons li + li { margin-top: 2px; }
+.next-step { align-self: flex-start; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--accent); text-underline-offset: 3px; }
+.state-note { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; padding: 14px 16px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; color: var(--fg-muted); background: var(--tint); box-shadow: inset 0 0 0 1px var(--line); }
+.state-note strong { font-size: 15px; color: var(--fg); }
+.state-note.error-note { background: color-mix(in srgb, var(--danger) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent); }
+.state-note.error-note strong { color: var(--danger); }
+.state-hint { font-size: 12.5px; }
+.runs-title { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; font-size: 14px; font-weight: 650; color: var(--fg); }
+.runs-failed { font-size: 12.5px; font-weight: 600; color: var(--danger); }
+.results:focus { outline: none; }
+.results:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.intro-empty { margin-bottom: 24px; }
+.intro-error { margin: 0 0 16px; }
 .stab-meta { margin-left: auto; font-size: 12px; color: var(--fg-muted); text-align: right; }
 .judge-tag { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--tint-2); color: var(--fg-muted); }
 .judge-tag.basic { color: var(--warn); }
 .flow-label { margin: 12px 0 4px; font-size: 12px; font-weight: 650; letter-spacing: 0.03em; color: var(--accent); }
-.answer.plan { opacity: 0.85; }
+.answer.plan { color: var(--fg-muted); }
 .lab-view {
   --line: rgb(var(--ink) / 0.08);
   --line-strong: rgb(var(--ink) / 0.14);
@@ -996,11 +1097,13 @@ onBeforeUnmount(() => {
 .skip-tag { flex: none; padding: 2px 9px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 .scenario-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .sample-menu { position: relative; }
-.sample-menu-list { position: absolute; z-index: 20; left: 0; bottom: calc(100% + 6px); min-width: 260px; margin: 0; padding: 4px; list-style: none; background: var(--surface, #fff); border: 1px solid var(--border, #d0d5dd); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+.sample-menu-list { position: absolute; z-index: 20; left: 0; bottom: calc(100% + 6px); min-width: 260px; max-width: calc(100vw - 32px); margin: 0; padding: 4px; list-style: none; background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgb(var(--shade) / 0.22); }
 .sample-menu-item { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
-.sample-menu-item:hover, .sample-menu-item:focus-visible { background: rgba(127, 127, 127, 0.16); outline: none; }
+.sample-menu-item { min-height: 36px; }
+.sample-menu-item:hover, .sample-menu-item:focus-visible { background: var(--tint-2); }
+.sample-menu-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .sample-menu-item.strong { font-weight: 600; }
-.sample-menu-item small { font-weight: 400; opacity: 0.7; }
+.sample-menu-item small { font-weight: 400; color: var(--fg-muted); }
 .scenario-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
 .repeat { margin-left: auto; font-size: 13px; color: var(--fg-muted); }
 .repeat :deep(.field) { flex-direction: row; align-items: center; gap: var(--space-3); }

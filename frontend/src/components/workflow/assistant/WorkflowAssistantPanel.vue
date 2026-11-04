@@ -576,7 +576,7 @@ onBeforeUnmount(() => {
   border-left: 1px solid rgb(var(--ink) / 0.1);
   background: var(--bg-deep);
   color: var(--text-1);
-  font-family: 'Inter', sans-serif;
+  font-family: inherit;
   z-index: 6;
 }
 
@@ -985,12 +985,8 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 8px;
   background: var(--accent-sky);
-  color: #05141f;
+  color: var(--on-accent);
   cursor: pointer;
-}
-
-:root[data-theme="light"] .send-btn {
-  color: #fff;
 }
 
 .send-btn:disabled {
