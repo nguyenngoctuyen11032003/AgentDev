@@ -483,6 +483,9 @@ JUDGE_SYSTEM = (
     "Be strict but fair: pass only when every criterion is met by the answer itself. "
     "Also check the answer is in the same language as the request and actually addresses it. "
     "When the criteria expect a deliverable, verify it in the list of files produced by the run (name, size, preview). "
+    "A claim that tests passed or code works counts only when the answer names the command that was run and its "
+    "result (e.g. a 'Đã kiểm chứng: <command> → <result>' line) or the produced files show it; an unsupported claim is "
+    "unverified: do not give 7 or more for it. A sentence saying a step could not be run is honest, not a pass. "
     "Score 0-10 against the criteria; 7 or more only when every criterion is met. "
     'Reply with JSON only: {"pass": true|false, "score": 0-10, "reason": "<one or two sentences, in the request\'s language>"}'
 )
@@ -831,6 +834,11 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
     threading.Thread(target=_watchdog, daemon=True).start()
     try:
         return _run_once_inner(yaml_path, scenario, cancel_event, run_turn, session, started, timed_out)
+    except Exception as exc:
+        # A failed or timed-out run still took this long: keep it so averages and time regressions are not
+        # computed as if the run took 0 seconds.
+        exc.lab_seconds = round(time.time() - started, 1)  # type: ignore[attr-defined]
+        raise
     finally:
         cancel_event.set()  # stops the watchdog
 
@@ -1041,7 +1049,8 @@ class LabRunner:
             if job.cancel_event.is_set():
                 job.update_result(entry, status="cancelled")
                 return
-            job.update_result(entry, status="error", error=str(exc)[:2000])
+            extra = {"seconds": exc.lab_seconds} if getattr(exc, "lab_seconds", None) is not None else {}
+            job.update_result(entry, status="error", error=str(exc)[:2000], **extra)
             self._save(job)
             return
         job.update_result(entry, **outcome)
