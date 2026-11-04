@@ -407,6 +407,11 @@ graph:
           default browser may be the user's). Check main flows, forms, errors, 1440px and 390px widths and
           console errors; prefer `snapshot` over screenshots. Save a screenshot only as useful evidence, under
           `qa/`; delete `.playwright-cli/` when done.
+          Budget: every turn re-reads your whole history, so plan the checks first and batch commands. Browser
+          checks: at most ~10 playwright-cli commands in total (one main flow per width, snapshot not
+          screenshots, no exploratory clicking beyond the criteria). Re-check after a fix: test ONLY the
+          criteria that failed plus one run of the test suite; do not redo passed criteria or the browser pass
+          unless the fix touched the UI.
           Report: PASS or FAIL per criterion with short evidence (command + key output, or repro steps); no
           full logs; only project-relative paths.
         skills:
@@ -418,7 +423,7 @@ graph:
         native_mode:
           enabled: true
           allow_commands: true
-          max_turns: 40
+          max_turns: 28
         params:
           effort: medium
           max_tokens: 16000
