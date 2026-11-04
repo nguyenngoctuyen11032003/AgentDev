@@ -211,6 +211,7 @@ def judge_env(monkeypatch):
         return f"{conn.id}-model"
 
     monkeypatch.setattr(account_fallback, "default_model_for", default_model_for)
+    monkeypatch.setattr(workflow_lab, "_judge_model", lambda conn: None)  # account default model
     calls = []
     monkeypatch.setattr(workflow_lab, "_judge_call", lambda conn, model, user: (calls.append((conn.id, model)), "")[1])
     return SimpleNamespace(conns=conns, store=fake_store, model_calls=model_calls, calls=calls, monkeypatch=monkeypatch)
@@ -298,3 +299,33 @@ def test_running_job_is_reported_as_interrupted_after_restart(_lab_store):
     assert data["status"] == "error" and "interrupted" in data["error"]
     assert data["results"][0]["status"] == "error"
     assert LabRunner().get("../../etc") is None
+
+
+def test_judge_uses_mid_tier_model_of_the_vendor():
+    from agentdev.api.services.workflow_patterns.graph_analysis import model_tier
+
+    name = workflow_lab._judge_model(SimpleNamespace(vendor="anthropic"))
+    assert name and model_tier(name) == "mid"  # e.g. Sonnet, not Opus
+    assert workflow_lab._judge_model(SimpleNamespace(vendor="no-such-vendor")) is None
+
+
+def test_borderline_score_is_graded_again_with_the_stronger_model(judge_env):
+    judge_env.monkeypatch.setattr(workflow_lab, "_judge_model", lambda conn: "cheap-model")
+    seen = []
+
+    def call(conn, model, user):
+        seen.append(model)
+        return '{"pass": true, "score": 7, "reason": "ok"}' if model == "cheap-model" else '{"pass": false, "score": 4, "reason": "missing file"}'
+
+    judge_env.monkeypatch.setattr(workflow_lab, "_judge_call", call)
+    verdict = workflow_lab._judge("p", "c", "a", [], account=workflow_lab.JudgeAccount())
+    assert seen == ["cheap-model", "claude-model"] and verdict["pass"] is False and "claude-model" in verdict["judge_model"]
+
+
+def test_clear_score_is_not_graded_twice(judge_env):
+    judge_env.monkeypatch.setattr(workflow_lab, "_judge_model", lambda conn: "cheap-model")
+    seen = []
+    judge_env.monkeypatch.setattr(workflow_lab, "_judge_call",
+                                  lambda conn, model, user: (seen.append(model), '{"pass": true, "score": 10, "reason": "ok"}')[1])
+    assert workflow_lab._judge("p", "c", "a", [], account=workflow_lab.JudgeAccount())["pass"] is True
+    assert seen == ["cheap-model"]
