@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Any, List, Mapping, MutableMapping, Optional
 
-from agentdev.connections.catalog import AUTH_CLI, AUTH_OAUTH, get_vendor, is_retired_model, replace_retired_model
+from agentdev.connections.catalog import AUTH_CLI, get_vendor, is_account_auth, is_retired_model, replace_retired_model
 from agentdev.connections.store import Connection, get_store
 from agentdev.entity.configs import ConfigError
 
@@ -27,7 +27,6 @@ _VENDOR_OF = {
     "codex_cli": "openai",
     "gemini": "gemini",
 }
-_ACCOUNT_AUTH = (AUTH_CLI, AUTH_OAUTH)
 _LEGACY_KEYS = ("api_key", "base_url")
 _PLACEHOLDER = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
@@ -40,8 +39,27 @@ def _agent_config(node: Mapping[str, Any]) -> Optional[MutableMapping[str, Any]]
     return config if isinstance(config, MutableMapping) and isinstance(config.get("name"), str) else None
 
 
+def strip_legacy_keys(value: Any) -> Any:
+    """Drop the legacy credential keys (``_LEGACY_KEYS``) from every agent config, nested subgraphs too, in place.
+
+    Old workflows carried them; models now run only on a signed-in account, so they are ignored the same way on
+    every load path (run, save, Lab check, file subgraph) instead of loading on one path and failing on another.
+    """
+    if isinstance(value, MutableMapping):
+        config = _agent_config(value)
+        if config is not None:
+            for key in _LEGACY_KEYS:
+                config.pop(key, None)
+        for child in value.values():
+            strip_legacy_keys(child)
+    elif isinstance(value, list):
+        for child in value:
+            strip_legacy_keys(child)
+    return value
+
+
 def _serves(conn: Connection, needs_tools: bool) -> bool:
-    if conn.auth_type not in _ACCOUNT_AUTH:
+    if not is_account_auth(conn.auth_type):
         return False
     if not needs_tools or conn.auth_type != AUTH_CLI:
         return True

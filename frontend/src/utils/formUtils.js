@@ -66,8 +66,8 @@ const applyLayout = (schemaNode, fields) => {
 
 export const getTrailingFieldNames = (modal) => FORM_LAYOUT[modal?.schema?.node]?.trailing || []
 
-// Fields flagged `hidden` in the schema (raw API-key credentials) are kept in the YAML
-// when present but never shown: agents sign in through account connections instead.
+// Fields flagged `hidden` in the schema are never shown. Agents sign in only through account
+// connections: legacy credential keys in an old YAML are ignored by the server on every load path.
 export const getDisplayFields = (modal) => {
   const fields = getSchemaFields(modal)
   const cached = layoutCache.get(fields)

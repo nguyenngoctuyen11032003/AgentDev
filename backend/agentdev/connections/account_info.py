@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agentdev.connections.catalog import AUTH_API_KEY, AUTH_CLI, AUTH_OAUTH, get_vendor
+from agentdev.connections.catalog import AUTH_OAUTH, get_vendor, is_account_auth
 # Cached detection (a few seconds): account lookups repeat and each real detection spawns the CLI twice.
 from agentdev.connections.cli_auth import detect_cli_recent as detect_cli
 from agentdev.connections.store import Connection
@@ -338,10 +338,10 @@ def _codex_cli_account(info: Dict[str, Any]) -> None:
 def account_info(conn: Connection) -> Dict[str, Any]:
     """Return what is known about the account behind ``conn``. Never raises."""
     vendor = get_vendor(conn.vendor)
-    if conn.auth_type == AUTH_API_KEY:
-        info = _empty("API key")
+    if not is_account_auth(conn.auth_type):
+        info = _empty("Old sign-in")
         info["loggedIn"] = False
-        info["detail"] = "API-key connections are no longer supported: sign out and sign in with an account."
+        info["detail"] = "Saved with an old sign-in method that is no longer supported: remove it and sign in again."
         return info
     if conn.auth_type == AUTH_OAUTH:
         info = _empty("Google OAuth" if conn.vendor == "gemini" else "OAuth")
@@ -352,7 +352,7 @@ def account_info(conn: Connection) -> Dict[str, Any]:
         info["loggedIn"] = bool(conn.secret)
         return info
     info = _empty("CLI")
-    if conn.auth_type != AUTH_CLI or vendor is None:
+    if vendor is None:
         return info
     try:
         if conn.vendor == "anthropic":

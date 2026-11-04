@@ -32,8 +32,8 @@ Every node: `id`, `type` (`agent`, `human`, `literal`, `passthrough`, `loop_coun
 `description` (one line; a team lead routes work on it), `config` (depends on type).
 
 - agent: `provider` (`anthropic`, `openai` or `gemini`) and `name` (a model of that vendor from the list, e.g.
-  `claude-opus-5-5` for leads/hard reasoning, `claude-sonnet-5-5` for most workers); never `connection`,
-  `api_key` or `base_url`. `role` (`|-` block): who it is, its scope, its output format and any token an
+  `claude-opus-5-5` for leads/hard reasoning, `claude-sonnet-5-5` for most workers); never `connection`.
+  `role` (`|-` block): who it is, its scope, its output format and any token an
   edge tests. Optional: `params` (`effort: low|medium|high`, `max_tokens`, `tool_loop_limit`), `skills:
   {enabled: true, allow: [{name: <skill>}]}`, `tooling: [{type: function, config: {tools: [{name: <tool>}]}}]`
   (read-only: `describe_available_files`, `list_directory`, `read_file_segment`, `search_in_files`; writing

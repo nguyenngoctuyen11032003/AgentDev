@@ -1546,7 +1546,7 @@ class AgentNodeExecutor(NodeExecutor):
     def _bind_account(self, node: Node, agent_config: AgentConfig):
         creds = resolve_connection(agent_config.connection)
         agent_config.provider = creds.provider or creds.vendor
-        agent_config.api_key = creds.token
+        agent_config.auth_token = creds.token
         agent_config.base_url = creds.base_url or ""
         provider_class = ProviderRegistry.get_provider(agent_config.provider)
         if not provider_class:

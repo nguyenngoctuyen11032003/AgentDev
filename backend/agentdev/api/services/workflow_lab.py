@@ -580,7 +580,7 @@ def _judge_call(conn: Any, model: str, user: str, system: str = "") -> str:
     creds = resolve_connection(conn.id)
     provider_name = creds.provider or creds.vendor
     provider_class = ProviderRegistry.get_provider(provider_name)
-    config = SimpleConfig(name=model, provider=provider_name, api_key=creds.token,
+    config = SimpleConfig(name=model, provider=provider_name, auth_token=creds.token,
                           base_url=creds.base_url or "", params={"timeout": 180, "effort": "low"})
     provider = provider_class(config)
     response = provider.call_model(
@@ -744,7 +744,7 @@ class SimpleConfig:
 
     name: str
     provider: str
-    api_key: Optional[str] = None
+    auth_token: Optional[str] = None  # the account's OAuth token (Google); CLI accounts: empty
     base_url: str = ""
     params: Dict[str, Any] = field(default_factory=dict)
     token_tracker: Any = None

@@ -99,6 +99,9 @@ class GraphManager:
 
         if config_payload.get("log_level", None) is None:
             config_payload["log_level"] = self.graph.log_level.value
+        from agentdev.connections.autobind import strip_legacy_keys
+
+        strip_legacy_keys(config_payload)  # a file subgraph from an older version may carry legacy credential keys
 
         subgraph_config = GraphConfig.from_dict(
             config=config_payload,

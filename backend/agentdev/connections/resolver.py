@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from agentdev.connections.catalog import AUTH_API_KEY, AUTH_CLI, AUTH_OAUTH, get_vendor
+from agentdev.connections.catalog import AUTH_CLI, AUTH_OAUTH, get_vendor
 from agentdev.connections.store import get_store
 
 
@@ -55,9 +55,12 @@ def resolve_connection(connection_id: str) -> ResolvedCredentials:
         return ResolvedCredentials(vendor=conn.vendor, provider=vendor.cli_provider)
     if conn.auth_type == AUTH_OAUTH:
         return _resolve_oauth(conn)
-    if conn.auth_type == AUTH_API_KEY:
-        raise ConnectionResolutionError(
-            f"Connection '{connection_id}' uses an API key, which is no longer supported. "
-            "Sign out of it and sign in with an account on the Connections page."
-        )
-    raise ConnectionResolutionError(f"Connection '{connection_id}' uses unsupported auth type '{conn.auth_type}'.")
+    raise ConnectionResolutionError(sign_in_again_message(connection_id))
+
+
+def sign_in_again_message(connection_id: str) -> str:
+    """Error for a connection saved by an older version (API key): it can only be replaced."""
+    return (
+        f"Connection '{connection_id}' was saved with an old sign-in method that is no longer supported. "
+        "Remove it and sign in again with an account on the Connections page."
+    )

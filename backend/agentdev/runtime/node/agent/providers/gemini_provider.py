@@ -36,28 +36,25 @@ class GeminiProvider(ModelProvider):
     CSV_INLINE_SIZE_THRESHOLD_BYTES = 3 * 1024 * 1024  # 3 MB
 
     def create_client(self):
-        """
-        Create and return the Gemini client.
-        """
-        client_kwargs: Dict[str, Any] = {}
-        base_url = (self.base_url or "").strip()
-        # OAuth mechanism: the connection resolver passes a Google OAuth access
-        # token as ``api_key = "oauth-bearer:<token>"``. In that case we send
-        # ``Authorization: Bearer <token>`` instead of an API key.
-        api_key = self.api_key or ""
-        if isinstance(api_key, str) and api_key.startswith(OAUTH_BEARER_PREFIX):
-            token = api_key[len(OAUTH_BEARER_PREFIX):].strip()
-            client_kwargs["http_options"] = self._build_bearer_http_options(base_url, token)
-            # genai.Client insists on some api_key; give a dummy one and strip the
-            # resulting x-goog-api-key header so only the Bearer token is sent.
-            client = genai.Client(api_key="oauth-placeholder", **client_kwargs)
-            self._strip_api_key_header(client)
-            return client
+        """Create the Gemini client for the Google sign-in bound to this node.
 
-        # Only Google sign-in is supported: there is no API-key mode any more.
-        raise ValueError(
-            "Gemini runs only with a Google account sign-in. Connect Google Gemini on the Connections page."
-        )
+        The connection resolver passes the Google OAuth access token as
+        ``auth_token = "oauth-bearer:<token>"``; it is sent as ``Authorization: Bearer``.
+        There is no API-key mode.
+        """
+        auth_token = getattr(self, "auth_token", None) or ""
+        token = auth_token[len(OAUTH_BEARER_PREFIX):].strip() if auth_token.startswith(OAUTH_BEARER_PREFIX) else ""
+        if not token:
+            raise ValueError(
+                "Gemini runs only with a Google account sign-in. Connect Google Gemini on the Connections page."
+            )
+        base_url = (getattr(self, "base_url", "") or "").strip()
+        http_options = self._build_bearer_http_options(base_url, token)
+        # genai.Client refuses to build without a key; give a placeholder and strip the resulting
+        # x-goog-api-key header so only the Bearer token is sent.
+        client = genai.Client(api_key="oauth-placeholder", http_options=http_options)
+        self._strip_api_key_header(client)
+        return client
 
     @staticmethod
     def _strip_api_key_header(client: Any) -> None:

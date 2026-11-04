@@ -87,7 +87,7 @@ def connection_models(conn: Connection) -> Dict[str, Any]:
         return {"ok": True, "source": "catalog", "models": _fallback(conn.vendor), "error": None}
 
     if conn.auth_type != AUTH_OAUTH:
-        return {"ok": False, "source": "catalog", "models": _fallback(conn.vendor), "error": "Sign in with an account"}
+        return {"ok": False, "source": "catalog", "models": _fallback(conn.vendor), "error": "Sign in again with an account"}
     try:
         models = _remote(conn)
     except ConnectionResolutionError as exc:

@@ -117,7 +117,7 @@
     "quickstart": {
       "title": "Quick start",
       "connect_title": "Connect an account",
-      "connect_desc": "Sign in to Claude, Codex or Gemini with the account you already use. No API key needed.",
+      "connect_desc": "Sign in to Claude, Codex or Gemini with the account you already use.",
       "connect_cta": "Open Connections",
       "workflow_title": "Pick a workflow",
       "workflow_desc": "Use the \"Software company\" template with a CTO team lead and 11 members, or build your own workflow.",
@@ -364,6 +364,9 @@
     "sessions": {
       "awaiting_plan": "Plan to approve",
       "interrupted": "Interrupted",
+      "stopped": "Stopped",
+      "stopped_hint": "You stopped this turn. It can continue from where it stopped.",
+      "interrupted_restart": "The server restarted while this turn was running. It can continue from there.",
       "title": "Sessions",
       "new": "New session",
       "new_in": "New session with {name}",
@@ -659,11 +662,11 @@
     },
     "error_hints": {
       "cli_slow": "Hint: the model took too long to answer (often one very long file in a single step); this is not a network problem. It is retried automatically; if it keeps happening, ask for the work to be split up.",
-      "invalid_api_key": "Hint: the account was rejected. Open the Connections page, press Check and sign in to the account again if needed.",
       "rate_limit": "Hint: the provider is rate limiting or your quota is exhausted. Wait a moment and retry, or check your plan/billing.",
       "model_not_found": "Hint: the model was not found. Pick the model again in the agent node settings (the list comes from the connected account).",
       "connection": "Hint: could not reach the model provider. Check the network, then open the Connections page and press Check.",
-      "python_disabled": "Hint: running Python code is turned off for safety. If you trust this workflow, set MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 in the .env file and restart the backend (the code is not sandboxed)."
+      "python_disabled": "Hint: running Python code is turned off for safety. If you trust this workflow, set MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 in the .env file and restart the backend (the code is not sandboxed).",
+      "auth_rejected": "Hint: the account was rejected. Sign in again on the Connections page."
     },
     "upload_folder": "Open project folder",
     "upload_folder_hint": "Pick a project folder on this machine. Agents work directly in that folder; nothing is uploaded.",
@@ -1189,7 +1192,6 @@
     "context_window": "Context Window",
     "provider": "Provider",
     "base_url": "Base URL",
-    "api_key": "API Key",
     "params": "Parameters",
     "tooling": "Tooling",
     "tools": "Tools",
@@ -1312,7 +1314,6 @@
     "context_window": "Maximum amount of context tokens the model can read at once.",
     "provider": "LLM API provider (OpenAI, Anthropic, etc).",
     "base_url": "Overrides default API base URL.",
-    "api_key": "API Key token for the LLM service.",
     "params": "Additional custom parameters passed to the model.",
     "tooling": "Enables callable external functions.",
     "tools": "List of available callable tools.",
@@ -1591,7 +1592,8 @@
       "skill_permission_denied": "Could not write to the skill folder: a file is open in another program or read-only.",
       "skill_folder_failed": "Could not update the skill folder.",
       "invalid_yaml": "The YAML content is invalid.",
-      "validation_failed": "The workflow configuration is invalid."
+      "validation_failed": "The workflow configuration is invalid.",
+      "codex_not_account": "Codex is not signed in with a ChatGPT account. Sign in again on the Connections page."
     }
   },
   "schema_enum": {
@@ -1784,7 +1786,6 @@
     "label": "Name",
     "label_placeholder": "e.g. Claude (work)",
     "auth_method": "Sign-in method",
-    "auth_api_key": "API key (no longer supported, sign in with an account)",
     "auth_oauth": "Account sign-in (OAuth)",
     "auth_cli": "Account sign-in (CLI)",
     "coming_soon": "Coming soon",
@@ -1923,7 +1924,8 @@
     "fallback_missing": "Not connected",
     "fallback_ok": "You have a backup account: workflows keep running when one account runs out of quota.",
     "fallback_no_backup": "No backup account yet. Connect another provider (ideally both Claude and Codex) so workflows do not stop when quota runs out.",
-    "usage_weekly_scoped": "Weekly (per model)"
+    "usage_weekly_scoped": "Weekly (per model)",
+    "auth_legacy": "Old connection, no longer usable. Sign in again on the Connections page"
   },
   "confirm": {
     "ok": "OK",
@@ -1994,7 +1996,6 @@
     "system_prompt": "Role and instructions",
     "model_provider": "Model Provider",
     "base_url": "Base URL",
-    "api_key": "API Key",
     "call_parameters": "Call Parameters",
     "tool_configuration": "Tool Configuration",
     "thinking_configuration": "Thinking Configuration",
@@ -2475,8 +2476,6 @@
     "h1105x1n": "Who this agent is, what it does and which rules it follows. Write it like a job description.",
     "h16e0vh": "Name of a registered provider (openai, gemini, anthropic, etc.) that selects the underlying client adapter.",
     "hh50ypp": "Overrides the provider's default endpoint; leave empty to use the built-in base URL.",
-    "h13ex0cl": "Credential used by the provider client; reference an environment variable such as {'$'}{'{'}API_KEY{'}'} that matches the selected provider.",
-    "h12gbrm2": "API key",
     "h13rvfs8": "Call parameters (temperature, top_p, etc.)",
     "h4lfs71": "Bound tool configuration list",
     "hdroh30": "Configuration block validated by the chosen tool type (Python function list, MCP server settings, local command MCP launch, etc.).",
@@ -2631,10 +2630,10 @@
     "h1n8qox5": "Delegate message transformation to Python functions in workspace/functions/edge_processor.",
     "h9jg6yw": "Embedding parameters (model_path, device, etc.)",
     "h173z8i7": "Index storage path",
-    "h1bovyeq": "Indexes local files on disk; keyword search by default (no API key)",
-    "h17tljyg": "Lightweight store of past outputs with keyword retrieval (no API key); persists when memory_path is set",
-    "hgj8i5p": "Local embedding model (requires sentence-transformers); no API key needed",
-    "hyiszls": "Optional local embedding model. Leave empty to use keyword (BM25) retrieval, which needs no API key or extra packages",
+    "h1bovyeq": "Indexes local files on disk; keyword search by default, runs entirely on this machine",
+    "h17tljyg": "Lightweight store of past outputs with keyword retrieval, runs on this machine; persists when memory_path is set",
+    "hgj8i5p": "Local embedding model (requires sentence-transformers); runs on this machine",
+    "hyiszls": "Optional local embedding model. Leave empty to use keyword (BM25) retrieval, which needs no extra packages",
     "hjafxzt": "sentence-transformers model name or local path (params.model_path also works)",
     "hzos6xi": "Skills from the shared library this agent is equipped with (tick them in the form).",
     "hv3mhzz": "Make this agent the lead (CTO / PM / CEO): the user chats only with it and it delegates to the team.",
@@ -2714,8 +2713,8 @@
       "function": "Delegate message transformation to Python functions in workspace/functions/edge_processor.",
       "keyword": "Declarative conditions based on include/exclude keywords or regex matching",
       "regex_extract": "Extract payload fragments via Python regular expressions.",
-      "simple": "Lightweight store of past outputs with keyword retrieval (no API key); persists when memory_path is set",
-      "file": "Indexes local files on disk; keyword search by default (no API key)",
+      "simple": "Lightweight store of past outputs with keyword retrieval, runs on this machine; persists when memory_path is set",
+      "file": "Indexes local files on disk; keyword search by default, runs entirely on this machine",
       "blackboard": "Shared blackboard memory allowing multiple nodes to read/write",
       "agent": "Agent execution node backed by configured LLM/tool providers with support for tooling, memory, and thinking extensions.",
       "human": "Pauses graph and waits for human operator response",

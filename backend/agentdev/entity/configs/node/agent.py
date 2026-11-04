@@ -31,6 +31,8 @@ from .team import AgentTeamConfig
 from .thinking import ThinkingConfig
 from agentdev.entity.configs.node.tooling import ToolingConfig
 
+# Keys of the removed API-key mode: credentials come only from an account connection.
+_REMOVED_CREDENTIAL_KEYS = ("api_key", "base_url")
 
 DEFAULT_RETRYABLE_STATUS_CODES = [408, 409, 425, 429, 500, 502, 503, 504]
 DEFAULT_RETRYABLE_EXCEPTION_TYPES = [
@@ -328,9 +330,10 @@ class AgentConfig(BaseConfig):
     name: str
     role: str | None = None
     connection: str | None = None
-    # Filled from the account connection at run time only (Google sign-in passes its OAuth token here)
-    base_url: str = ""
-    api_key: str | None = None
+    # Filled from the account connection at run time only, never from YAML: Google sign-in passes
+    # its OAuth access token (``oauth-bearer:<token>``) and endpoint; CLI accounts leave both empty.
+    base_url: str = field(default="", repr=False)
+    auth_token: str | None = field(default=None, repr=False)
     params: Dict[str, Any] = field(default_factory=dict)
     retry: AgentRetryConfig | None = None
     input_mode: AgentInputMode = AgentInputMode.MESSAGES
@@ -358,7 +361,14 @@ class AgentConfig(BaseConfig):
                 "pick an account connection (Connections page) for this agent",
                 extend_path(path, "connection"),
             )
-        # api_key / base_url in older YAML are ignored: credentials come from the account.
+        for legacy_key in _REMOVED_CREDENTIAL_KEYS:
+            if legacy_key in mapping:
+                raise ConfigError(
+                    f"'{legacy_key}' is no longer supported: models run only on a signed-in account. "
+                    "Remove it and pick a connection (Claude, Codex or Google Gemini sign-in on the "
+                    "Connections page) for this agent instead.",
+                    extend_path(path, legacy_key),
+                )
         name_value = mapping.get("name")
         if isinstance(name_value, str) and name_value.strip():
             model_name = name_value.strip()

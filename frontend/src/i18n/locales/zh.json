@@ -77,7 +77,7 @@
     "quickstart": {
       "title": "快速开始",
       "connect_title": "连接账号",
-      "connect_desc": "用你正在使用的 Claude、Codex 或 Gemini 账号登录，无需 API key。",
+      "connect_desc": "用你正在使用的 Claude、Codex 或 Gemini 账号登录。",
       "connect_cta": "打开连接",
       "workflow_title": "选择工作流",
       "workflow_desc": "使用内置 CTO 负责人和 11 名成员的“软件公司”模板，或创建你自己的工作流。",
@@ -324,6 +324,9 @@
     "sessions": {
       "awaiting_plan": "待批计划",
       "interrupted": "已中断",
+      "stopped": "已停止",
+      "stopped_hint": "你停止了这一轮。可以从停止处继续。",
+      "interrupted_restart": "运行时服务器重启了。可以从中断处继续。",
       "title": "会话",
       "new": "新会话",
       "new_in": "使用 {name} 新建会话",
@@ -619,11 +622,11 @@
     },
     "error_hints": {
       "cli_slow": "提示：模型回答耗时过长（通常是一步写入一个很长的文件），并非网络问题。系统会自动重试；如反复出现，请要求拆分任务。",
-      "invalid_api_key": "提示：账户认证被拒绝。请打开“连接”页面点击检查，必要时重新登录账户。",
       "rate_limit": "提示：服务商限流或额度已用完。请稍后重试，或检查套餐/账单。",
       "model_not_found": "提示：未找到该模型。请在智能体节点配置中重新选择模型（列表来自已连接的账户）。",
       "connection": "提示：无法连接到模型提供商。请检查网络，然后打开“连接”页面点击检查。",
-      "python_disabled": "提示：出于安全考虑，Python 代码执行已关闭。如果你信任此工作流，请在 .env 文件中设置 MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 并重启后端（代码不在沙箱中运行）。"
+      "python_disabled": "提示：出于安全考虑，Python 代码执行已关闭。如果你信任此工作流，请在 .env 文件中设置 MAC_ALLOW_UNSAFE_CODE_EXECUTION=1 并重启后端（代码不在沙箱中运行）。",
+      "auth_rejected": "提示：账户认证被拒绝。请在“连接”页面重新登录。"
     },
     "upload_folder": "上传文件夹",
     "upload_folder_hint": "上传整个项目文件夹（保留目录结构，自动跳过 node_modules、.git、dist、build 等）。可拖放多个文件夹一次上传多个项目。",
@@ -1189,7 +1192,6 @@
     "context_window": "上下文窗口",
     "provider": "提供商",
     "base_url": "基础 URL",
-    "api_key": "API 密钥",
     "params": "参数",
     "tooling": "工具集",
     "tools": "工具",
@@ -1312,7 +1314,6 @@
     "context_window": "限制模型在一次处理中所能读取的最大历史上下文标记数。",
     "provider": "指定大语言模型的 API 提供商 (如 OpenAI, Anthropic等)。",
     "base_url": "如果使用了定制化或本地的代理转发，可修改覆盖模型默认基础 URL。",
-    "api_key": "用于验证调用该模型服务的 API 密钥授权码。",
     "params": "附加传输给底层模型服务的可选任意参数字典。",
     "tooling": "启用并定义允许模型主动调用的外部函数或工具列表。",
     "tools": "列出可被使用的可用外部工具。",
@@ -1591,7 +1592,8 @@
       "skill_permission_denied": "无法写入技能文件夹：有文件在其他程序中打开或为只读。",
       "skill_folder_failed": "无法更新技能文件夹。",
       "invalid_yaml": "YAML 内容无效。",
-      "validation_failed": "工作流配置无效。"
+      "validation_failed": "工作流配置无效。",
+      "codex_not_account": "Codex 未使用 ChatGPT 账号登录。请在“连接”页面重新登录。"
     }
   },
   "schema_enum": {
@@ -1784,7 +1786,6 @@
     "label": "名称",
     "label_placeholder": "例如：Claude（工作）",
     "auth_method": "登录方式",
-    "auth_api_key": "API key（已不再支持，请登录账户）",
     "auth_oauth": "账号登录（OAuth）",
     "auth_cli": "账号登录（CLI）",
     "coming_soon": "即将推出",
@@ -1923,7 +1924,8 @@
     "fallback_missing": "未连接",
     "fallback_ok": "已有备用账号：某个账号额度用完时工作流会继续运行。",
     "fallback_no_backup": "还没有备用账号。请再连接一个服务商（最好同时连接 Claude 和 Codex），以免额度用完时工作流中断。",
-    "usage_weekly_scoped": "每周（按模型）"
+    "usage_weekly_scoped": "每周（按模型）",
+    "auth_legacy": "旧连接，已无法使用。请在“连接”页面重新登录"
   },
   "confirm": {
     "ok": "确定",
@@ -1999,7 +2001,6 @@
     "system_prompt": "角色与任务说明",
     "model_provider": "模型服务商",
     "base_url": "基础 URL（Base URL）",
-    "api_key": "API 密钥",
     "call_parameters": "调用参数",
     "tool_configuration": "工具配置",
     "thinking_configuration": "思考配置",
@@ -2475,8 +2476,6 @@
     "h1105x1n": "这个智能体是谁、做什么、遵循哪些规则。像写岗位职责一样填写。",
     "h16e0vh": "已注册服务商的名称（openai、gemini、anthropic 等），用于选择底层客户端适配器。",
     "hh50ypp": "覆盖服务商的默认端点；留空则使用内置的基础 URL。",
-    "h13ex0cl": "服务商客户端使用的凭据；请引用与所选服务商匹配的环境变量，例如 {'$'}{'{'}API_KEY{'}'}。",
-    "h12gbrm2": "API 密钥",
     "h13rvfs8": "调用参数（temperature、top_p 等）",
     "h4lfs71": "绑定的工具配置列表",
     "hdroh30": "由所选工具类型校验的配置块（Python 函数列表、MCP 服务器设置、本地命令启动的 MCP 等）。",
@@ -2631,10 +2630,10 @@
     "h1n8qox5": "将消息转换交给 workspace/functions/edge_processor 中的 Python 函数处理。",
     "h9jg6yw": "嵌入参数（model_path、device 等）",
     "h173z8i7": "索引存储路径",
-    "h1bovyeq": "为本地磁盘上的文件建立索引；默认使用关键词搜索（无需 API 密钥）",
-    "h17tljyg": "轻量存储历史输出并支持关键词检索（无需 API 密钥）；设置 memory_path 后会持久保存",
-    "hgj8i5p": "本地嵌入模型（需要 sentence-transformers）；无需 API 密钥",
-    "hyiszls": "可选的本地嵌入模型。留空则使用关键词（BM25）检索，无需 API 密钥或额外的包",
+    "h1bovyeq": "为本地磁盘上的文件建立索引；默认使用关键词搜索，完全在本机运行",
+    "h17tljyg": "轻量存储历史输出并支持关键词检索，在本机运行；设置 memory_path 后会持久保存",
+    "hgj8i5p": "本地嵌入模型（需要 sentence-transformers），在本机运行",
+    "hyiszls": "可选的本地嵌入模型。留空则使用关键词（BM25）检索，无需额外的包",
     "hjafxzt": "sentence-transformers 模型名称或本地路径（也可使用 params.model_path）",
     "hzos6xi": "该 Agent 从共享技能库中装备的技能（在表单中勾选）。",
     "hv3mhzz": "将该 Agent 设为负责人（CTO / PM / CEO）：用户只与它对话，由它向团队分派工作。",
@@ -2714,8 +2713,8 @@
       "function": "将消息转换交给 workspace/functions/edge_processor 中的 Python 函数处理。",
       "keyword": "基于包含/排除关键词或正则匹配的声明式条件",
       "regex_extract": "通过 Python 正则表达式提取数据片段。",
-      "simple": "轻量存储历史输出并支持关键词检索（无需 API 密钥）；设置 memory_path 后会持久保存",
-      "file": "为本地磁盘上的文件建立索引；默认使用关键词搜索（无需 API 密钥）",
+      "simple": "轻量存储历史输出并支持关键词检索，在本机运行；设置 memory_path 后会持久保存",
+      "file": "为本地磁盘上的文件建立索引；默认使用关键词搜索，完全在本机运行",
       "blackboard": "共享黑板记忆，允许多个节点读写",
       "agent": "由已配置的 LLM/工具服务商驱动的 Agent 执行节点，支持工具、记忆和思考扩展。",
       "human": "暂停图的执行并等待人工回复",

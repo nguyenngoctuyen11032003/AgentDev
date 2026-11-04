@@ -27,11 +27,9 @@ def test_store_roundtrip_and_unique_ids(isolated_store):
 def test_agent_config_connection_makes_provider_optional():
     cfg = AgentConfig.from_dict({"connection": "work", "name": "claude-sonnet-5-5"}, path="t")
     assert cfg.connection == "work" and cfg.provider == ""
-    legacy = AgentConfig.from_dict(
-        {"provider": "openai", "name": "gpt-4o", "api_key": "${API_KEY}", "base_url": "${BASE_URL}"}, path="t"
-    )
+    legacy = AgentConfig.from_dict({"provider": "openai", "name": "gpt-4o"}, path="t")
     assert legacy.connection is None and legacy.provider == "openai"
-    assert legacy.api_key is None and legacy.base_url == ""  # credentials are never read from YAML
+    assert legacy.auth_token is None and legacy.base_url == ""  # credentials are never read from YAML
     specs = AgentConfig.field_specs()
     assert "api_key" not in specs and "base_url" not in specs and specs["provider"].hidden
     with pytest.raises(Exception):
@@ -123,9 +121,7 @@ def test_api_cannot_create_oauth_directly(isolated_store):
 
 # ---- hardening ---------------------------------------------------------------------------
 
-def test_api_keys_can_no_longer_be_created_or_used(isolated_store, tmp_path):
-    import json
-
+def test_only_account_sign_in_can_be_created(isolated_store):
     from agentdev.connections.store import ConnectionInputError
 
     app = FastAPI()
@@ -135,16 +131,46 @@ def test_api_keys_can_no_longer_be_created_or_used(isolated_store, tmp_path):
     assert refused.status_code == 422
     with pytest.raises(ConnectionInputError):
         isolated_store.create(vendor="openai", label="x", auth_type="api_key", secret="sk-123")
-    # A key connection saved by an older version still loads, but cannot run anything.
-    (tmp_path / "connections.json").write_text(
-        json.dumps({"connections": [{"id": "old", "vendor": "openai", "label": "old", "secret": "sk-legacy-1234"}]}),
-        encoding="utf-8",
-    )
-    with pytest.raises(ConnectionResolutionError, match="no longer supported"):
-        resolve_connection("old")
     vendors = client.get("/api/connections/vendors").json()["vendors"]
     assert all(v["authMethods"] in (["cli"], ["oauth"]) for v in vendors)
-    assert all("envKeyHint" not in v and "defaultBaseUrl" not in v for v in vendors)
+    assert all("plannedAuthMethods" not in v and "envKeyHint" not in v for v in vendors)
+
+
+@pytest.mark.parametrize("auth_field", [{}, {"auth_type": "api_key"}])
+def test_old_stored_api_key_connection_loads_and_asks_to_sign_in_again(isolated_store, tmp_path, monkeypatch, auth_field):
+    import json
+
+    monkeypatch.setattr(connections_route, "logout_cli", lambda vendor: True)
+    path = tmp_path / "connections.json"
+    old = {"id": "old", "vendor": "anthropic", "label": "old", "secret": "sk-legacy-1234", **auth_field}
+    path.write_text(json.dumps({"connections": [old]}), encoding="utf-8")
+
+    conn = isolated_store.get("old")
+    assert conn is not None and conn.needs_sign_in
+    with pytest.raises(ConnectionResolutionError, match="sign in again"):
+        resolve_connection("old")
+    # Never picked as the implicit default: nothing could run on it.
+    assert isolated_store.default_connection() is None
+
+    client = TestClient(_app())
+    listed = client.get("/api/connections").json()["connections"]
+    assert [(c["id"], c["needsSignIn"]) for c in listed] == [("old", True)]
+    assert "sk-legacy" not in json.dumps(listed)
+    account = client.get("/api/connections/old/account").json()
+    assert account["loggedIn"] is False and "sign in again" in account["detail"]
+    tested = client.post("/api/connections/old/test").json()
+    assert tested["ok"] is False and "sign in again" in tested["error"]
+
+    # Saving another connection keeps the old entry (never silently deleted).
+    isolated_store.create(vendor="gemini", label="G", auth_type="oauth", secret='{"email": "g@x.io"}')
+    assert isolated_store.get("old") is not None
+    assert [c["id"] for c in json.loads(path.read_text(encoding="utf-8"))["connections"]] == ["old", "g"]
+
+
+def _app():
+    app = FastAPI()
+    app.include_router(connections_route.router)
+    return app
 
 
 def test_cross_origin_writes_are_blocked(isolated_store, monkeypatch):

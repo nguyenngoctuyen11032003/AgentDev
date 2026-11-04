@@ -293,7 +293,7 @@ def test_agent_attachment_security_reaches_http_api(api, signed_in_account, tmp_
     monkeypatch.setattr(ProviderRegistry, "get_provider", lambda _: Mock(return_value=provider))
     definition = {"version": "0.4.0", "graph": {"id": "attachment_test", "start": [node_id], "nodes": [
         {"id": node_id, "type": "agent", "config": {"provider": "openai", "name": "test-model",
-                                                       "api_key": "local-test", "role": "test"}},
+                                                       "role": "test"}},
     ], "edges": []}}
     response = client.post("/api/workflows/upload/content", json={"filename": "agent.yaml", "content": yaml.safe_dump(definition)})
     assert response.status_code == 200, response.text
