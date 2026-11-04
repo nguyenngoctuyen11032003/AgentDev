@@ -135,10 +135,26 @@ def test_claude_normal_mode_unchanged(workspace):
     with patch(RUN, return_value=_done(out='{"result":"hi","is_error":false}')) as run:
         resp = ClaudeCliProvider(_cfg()).call_model(CliClient("claude"), _conv(), [])
     argv, kw = run.call_args.args[0], run.call_args.kwargs
-    assert _arg(argv, "--tools") == "" and _arg(argv, "--output-format") == "json"
+    assert _arg(argv, "--tools") == "" and _arg(argv, "--output-format") == "stream-json"
+    assert "--include-partial-messages" in argv
     assert kw["cwd"] != str(workspace) and "agentdev-cli-" in kw["cwd"]
-    assert kw["timeout"] == 300 and "--permission-mode" not in argv
+    # Streaming arms the idle watchdog; the wall-clock limit is only a backstop.
+    assert kw["timeout"] == 1800 and "on_stdout_line" in kw and "--permission-mode" not in argv
     assert resp.message.content == "hi"
+
+
+def test_claude_normal_mode_reads_stream_result(workspace):
+    """A long reply streams deltas; the final result event is what gets parsed."""
+    out = _claude_stream("streamed answer")
+    with patch(RUN, return_value=_done(out=out)):
+        resp = ClaudeCliProvider(_cfg()).call_model(CliClient("claude"), _conv(), [])
+    assert resp.message.content == "streamed answer"
+
+
+def test_claude_normal_mode_explicit_timeout_is_kept(workspace):
+    with patch(RUN, return_value=_done(out='{"result":"hi","is_error":false}')) as run:
+        ClaudeCliProvider(_cfg(timeout=120)).call_model(CliClient("claude"), _conv(), [])
+    assert run.call_args.kwargs["timeout"] == 120
 
 
 def test_claude_native_quota_and_errors(workspace):
