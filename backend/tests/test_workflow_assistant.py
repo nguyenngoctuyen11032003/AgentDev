@@ -415,11 +415,20 @@ def test_invalid_filename_is_repaired(turn_env):
     assert out["proposal"]["filename"] == "tong_dai.yaml"
 
 
-def test_yml_extension_is_repaired(turn_env):
-    call = FakeCall(_reply("v1", _proposal(filename="tong_dai.yml")), _reply("v2", _proposal()))
+@pytest.mark.parametrize("name", ["tong_dai.yml", "tong_dai", "tong_dai.YML"])
+def test_yml_or_missing_extension_is_fixed_without_a_repair_call(turn_env, name):
+    call = FakeCall(_reply("v1", _proposal(filename=name)), _reply("v2", _proposal()))
+    out = _turn(call)
+    assert len(call.calls) == 1
+    assert out["proposal"]["filename"] == "tong_dai.yaml"
+
+
+def test_yml_name_of_an_existing_file_is_still_repaired(turn_env):
+    (turn_env / "tong_dai.yaml").write_text(VALID_YAML, encoding="utf-8")
+    call = FakeCall(_reply("v1", _proposal(filename="tong_dai.yml")), _reply("v2", _proposal(filename="new_one.yaml")))
     out = _turn(call)
     assert len(call.calls) == 2
-    assert out["proposal"]["filename"] == "tong_dai.yaml"
+    assert out["proposal"]["filename"] == "new_one.yaml"
 
 
 def _edited_yaml():

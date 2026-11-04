@@ -40,3 +40,36 @@ def test_prompt_edit_checks_request_and_reports_changes():
     prompt = _prompt()
     assert "If what it asks for partly exists" in prompt
     assert "name any step you moved or reworded beyond the literal request" in prompt
+
+
+def _big_workflow(n=30):
+    nodes = "".join(f"    - id: Step {i}\n      type: agent\n      description: Does step {i}\n"
+                    f"      config:\n        provider: anthropic\n        name: claude-sonnet-5-5\n"
+                    f"        role: Do part {i} of the job carefully and report back.\n" for i in range(n))
+    return f"version: 0.4.0\ngraph:\n  id: big\n  start: [Step 0]\n  end: [Step {n - 1}]\n  nodes:\n{nodes}  edges: []\n"
+
+
+def test_pending_edit_sends_saved_file_as_a_diff_not_twice():
+    saved = _big_workflow()
+    pending = saved.replace("Do part 7 of", "Do part SEVEN of")
+    prompt = _prompt(current_yaml=saved, current_name="big.yaml", pending_yaml=pending)
+    assert pending in prompt                       # the proposal is sent whole
+    assert prompt.count("Does step 12") == 1       # the unchanged rest only once
+    assert "-        role: Do part 7 of" in prompt and "+        role: Do part SEVEN of" in prompt
+    assert "diff reversed" in prompt
+    assert len(prompt) < len(_prompt(current_yaml=saved, current_name="big.yaml")) + len(pending) * 0.3
+
+
+def test_pending_identical_to_saved_is_said_once():
+    saved = _big_workflow()
+    prompt = _prompt(current_yaml=saved, current_name="big.yaml", pending_yaml=saved.replace("\n", "\r\n"))
+    assert prompt.count("Does step 12") == 1
+    assert "identical to the saved file" in prompt
+
+
+def test_unrelated_pending_keeps_saved_file_in_full():
+    saved = _big_workflow()
+    pending = "version: 0.4.0\ngraph:\n  id: other\n  nodes: []\n  edges: []\n"
+    prompt = _prompt(current_yaml=saved, current_name="big.yaml", pending_yaml=pending)
+    assert saved.rstrip("\n") in prompt and pending.rstrip("\n") in prompt
+    assert "diff reversed" not in prompt

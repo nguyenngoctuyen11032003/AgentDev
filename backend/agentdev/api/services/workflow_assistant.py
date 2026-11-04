@@ -46,8 +46,8 @@ MAX_QUICK_REPLIES = 4
 MAX_CONCURRENT_TURNS = 4  # each turn runs a CLI for up to (MAX_REPAIRS + 1) x CALL_TIMEOUT
 MAX_REQUEST_CHARS = 400_000  # sum of message contents and pending_yaml
 
-ERROR_CODES = ("quota_exhausted", "not_signed_in", "timeout", "cancelled", "provider_error", "bad_request",
-               "busy")
+ERROR_CODES = ("quota_exhausted", "not_signed_in", "timeout", "model_unavailable", "cancelled",
+               "provider_error", "bad_request", "busy")
 
 # A model call returns the reply text, or (text, usage) where usage is a dict with any of
 # ``input_tokens``, ``output_tokens``, ``cache_read_tokens`` (None values when unknown).
@@ -412,6 +412,15 @@ def _dangerous_tools_check(old: Optional[dict], data: Any) -> Optional[dict]:
     return {"id": "dangerous_tools", "status": WARN, "detail": detail, "items": items}
 
 
+def _normalise_extension(filename: str) -> str:
+    """``name.yml`` / ``name`` -> ``name.yaml``; anything else unchanged (it is validated next)."""
+    if filename.lower().endswith(".yml"):
+        return filename[:-4] + ".yaml"
+    if filename and "." not in filename:
+        return filename + ".yaml"
+    return filename
+
+
 def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str], saved_doc: Optional[dict],
                     user_texts: List[str]) -> Tuple[Optional[dict], List[str]]:
     """(proposal for the client, []) when valid, else (None, errors to send back to the model).
@@ -426,6 +435,9 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
     if not isinstance(text, str) or not text.strip():
         return None, ["`proposal.yaml` must be the whole workflow YAML as a string."]
 
+    # A missing or ``.yml`` extension is fixed here rather than costing a repair round trip (a whole
+    # second model call that resends the full YAML).
+    filename = _normalise_extension(filename)
     # A "create" that reuses the open workflow's own file name is an edit of it.
     if workflow and kind == "create" and filename == workflow:
         kind = "edit"

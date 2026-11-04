@@ -13,6 +13,7 @@ hit needs that block unchanged, so volatile text inside it would make the whole 
 
 from __future__ import annotations
 
+import difflib
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -169,11 +170,31 @@ def neutralise_markers(text: str) -> str:
     return _MARKER_RE.sub(lambda m: m.group(0).replace("[", "［").replace("]", "］"), text)
 
 
-def _fenced_yaml(text: str) -> str:
-    """A YAML code fence longer than any backtick run inside ``text``, so the text cannot close it."""
+def _fenced_yaml(text: str, lang: str = "yaml") -> str:
+    """A code fence longer than any backtick run inside ``text``, so the text cannot close it."""
     longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
     fence = "`" * max(3, longest + 1)
-    return f"{fence}yaml\n{neutralise_markers(text.rstrip(chr(10)))}\n{fence}"
+    return f"{fence}{lang}\n{neutralise_markers(text.rstrip(chr(10)))}\n{fence}"
+
+
+# The saved file is sent as a diff against the pending proposal only when that diff is this much smaller
+# than the saved file itself (a "create" pending next to an unrelated open workflow stays in full).
+SAVED_DIFF_MAX_RATIO = 0.5
+
+
+def _saved_vs_pending_diff(current_yaml: Optional[str], pending_yaml: Optional[str]) -> Optional[str]:
+    """A unified diff from the pending proposal to the saved file ("" when equal), or None when either is
+    missing or the diff would not be much shorter than the saved file."""
+    if current_yaml is None or pending_yaml is None:
+        return None
+    saved = current_yaml.replace("\r\n", "\n")
+    pending = pending_yaml.replace("\r\n", "\n")
+    if saved.rstrip("\n") == pending.rstrip("\n"):
+        return ""
+    lines = difflib.unified_diff(saved.splitlines(), pending.splitlines(), "saved", "pending",
+                                 n=2, lineterm="")
+    diff = "\n".join(lines)
+    return diff if len(diff) <= len(saved) * SAVED_DIFF_MAX_RATIO else None
 
 
 def turn_context(
@@ -195,7 +216,19 @@ def turn_context(
         sections.append(
             f"The user is chatting with {label} (vendor {chat_vendor}); default new agents to that vendor's models."
         )
-    if current_yaml is not None:
+    saved_diff = _saved_vs_pending_diff(current_yaml, pending_yaml)
+    if current_yaml is not None and saved_diff is not None:
+        # The pending proposal is sent whole below; the saved file only as its difference from it, so a
+        # follow-up turn on a pending edit does not carry the same workflow twice.
+        sections.append(
+            f"## Current workflow: `{neutralise_markers(current_name or 'untitled')}`\n\n"
+            "The user has this workflow open (`kind: \"edit\"`, same filename). To save space it is given as "
+            "a diff against the pending proposal below: the saved file is the pending YAML with this diff "
+            "reversed (`-` lines are only in the saved file, `+` lines only in the proposal). "
+            + ("Explain the saved workflow from that.\n\n" + _fenced_yaml(saved_diff, "diff") if saved_diff
+               else "The pending proposal is identical to the saved file.")
+        )
+    elif current_yaml is not None:
         sections.append(
             f"## Current workflow: `{neutralise_markers(current_name or 'untitled')}`\n\n"
             "The user has this workflow open. Explain it from this YAML; an edit proposal starts from it "

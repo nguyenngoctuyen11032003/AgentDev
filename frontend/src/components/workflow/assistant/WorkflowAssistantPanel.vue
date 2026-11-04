@@ -149,6 +149,29 @@
           </div>
           <div v-else class="notice error" :role="alertRole(index)">
             <div class="notice-title">{{ errorTitle(m) }}</div>
+            <!-- Newest notice only: retry the same message, or move to a model that can answer it. -->
+            <div v-if="index === thread.messages.length - 1 && errorActions(m, index)" class="notice-actions">
+              <button
+                v-if="errorActions(m, index).retry"
+                type="button"
+                class="btn-small"
+                :disabled="!canRetry"
+                @click="retryError(index)"
+              >{{ $t('workflow_assistant.retry') }}</button>
+              <template v-if="errorActions(m, index).switchVendor">
+                <button
+                  v-for="p in otherProviders(vendor)"
+                  :key="p.vendor"
+                  type="button"
+                  class="btn-small"
+                  :disabled="thread.status !== 'idle'"
+                  @click="switchAndRetryError(p.vendor, index)"
+                >{{ $t('workflow_assistant.switch_to', { vendor: p.label }) }}</button>
+              </template>
+              <RouterLink v-if="errorActions(m, index).connections" to="/connections" class="btn-small">
+                {{ $t('workflow_assistant.open_connections') }}
+              </RouterLink>
+            </div>
             <details v-if="m.detail" class="notice-detail">
               <summary>{{ $t('workflow_assistant.error_detail') }}</summary>
               <code>{{ m.detail }}</code>
@@ -364,6 +387,39 @@ function replySnippet(content) {
 const errorTitle = (m) => {
   const key = `workflow_assistant.errors.${m.code}`
   return m.code && te(key) ? t(key) : m.message || t('workflow_assistant.errors.request_failed')
+}
+
+// What an error notice offers, by code. A retry resends the user message the error answered; it is
+// offered only when that message is right above the notice (so the resend replaces it, not duplicates it).
+const RETRY_CODES = new Set(['timeout', 'busy', 'provider_error', 'internal', 'network'])
+const SWITCH_CODES = new Set(['model_unavailable', 'not_signed_in', 'timeout', 'provider_error'])
+const CONNECTIONS_CODES = new Set(['model_unavailable', 'not_signed_in'])
+const failedUserText = (index) => {
+  const previous = thread.value.messages[index - 1]
+  return previous?.role === 'user' ? previous.content : ''
+}
+const errorActions = (m, index) => {
+  const code = m.code || 'network'
+  const hasText = !!failedUserText(index)
+  const actions = {
+    retry: hasText && RETRY_CODES.has(code),
+    switchVendor: hasText && SWITCH_CODES.has(code) && otherProviders(vendor.value).length > 0,
+    connections: CONNECTIONS_CODES.has(code)
+  }
+  return actions.retry || actions.switchVendor || actions.connections ? actions : null
+}
+// Drops the notice and the failed user message; send() adds the message again.
+const resendFailed = (index) => {
+  const text = failedUserText(index)
+  if (!text || thread.value.status !== 'idle') return
+  thread.value.messages.splice(index - 1, 2)
+  send(text)
+  focusInput()
+}
+const retryError = (index) => resendFailed(index)
+const switchAndRetryError = (code, index) => {
+  vendor.value = code
+  resendFailed(index)
 }
 
 // AI replies are markdown; html: false escapes any raw HTML in them.
@@ -788,6 +844,7 @@ onBeforeUnmount(() => {
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .btn-small:hover:not(:disabled) {
