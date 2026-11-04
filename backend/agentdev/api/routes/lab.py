@@ -107,6 +107,23 @@ def cancel(job_id: str):
     return job.to_dict()
 
 
+@router.post("/jobs/{job_id}/resume", status_code=202)
+def resume(job_id: str):
+    """Run again only the unfinished runs of a job a server restart (or a cancel) stopped."""
+    runner = get_lab_runner()
+    stored = runner.get(job_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Lab run not found")
+    _, path = _workflow_path(stored.to_dict().get("workflow", ""))
+    try:
+        job = runner.resume(job_id, path)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return job.to_dict()
+
+
 class GenerateRequest(BaseModel):
     yaml_file: str
     count: int = 4

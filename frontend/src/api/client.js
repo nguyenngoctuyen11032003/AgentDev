@@ -927,6 +927,9 @@ export const labJobs = (workflow) => labRequest(`/jobs?workflow=${encodeURICompo
 
 export const labCancel = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
 
+/** Re-run only the unfinished runs of a job that a server restart or a cancel stopped. */
+export const labResume = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST' })
+
 /** Open a file of the session's opened project on this machine (nothing is downloaded or copied). */
 export async function openLocalProjectFile(sessionId, relativePath, { reveal = false } = {}) {
   const response = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(sessionId)}/local-files/open`), {
