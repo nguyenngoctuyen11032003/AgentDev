@@ -523,6 +523,29 @@ const orbitDots = [
     linear-gradient(90deg, rgb(var(--accent-sky-rgb) / 0.14) 1px, transparent 1px);
 }
 
+/* ---------------------------------------------------------------- short screens
+   Laptops are wide but short (1280x720, 1366x768, 1536x864). Tighten the hero in steps so
+   the headline, the actions and the three quick-start cards all fit the first screen. */
+@media (max-height: 900px) and (min-width: 769px) {
+  .home-view { padding-top: 12px; padding-bottom: 12px; }
+  .eyebrow { margin-bottom: 16px; }
+  .title { margin-bottom: 14px; font-size: clamp(40px, 7vw, calc(9.5 * var(--vh))); }
+  .introduction { margin-bottom: 24px; font-size: 18px; line-height: 1.5; }
+  .runs-on { margin-top: 24px; }
+  .quickstart { margin-top: 24px; }
+  .quick-step { padding-block: 12px 10px; }
+}
+
+@media (max-height: 800px) and (min-width: 769px) {
+  .eyebrow { margin-bottom: 12px; }
+  .title { margin-bottom: 10px; font-size: clamp(36px, 7vw, calc(8 * var(--vh))); line-height: 1.06; }
+  .introduction { margin-bottom: 16px; font-size: 16px; }
+  .actions .btn { min-height: 42px; }
+  .runs-on { margin-top: 16px; }
+  .quickstart { margin-top: 16px; }
+  .quickstart-title { margin-bottom: 8px; }
+}
+
 /* ---------------------------------------------------------------- responsive */
 @media (max-width: 768px) {
   .introduction { font-size: 17px; }
