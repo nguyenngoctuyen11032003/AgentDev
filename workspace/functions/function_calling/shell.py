@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from agentdev.connections.cli_auth import kill_process_tree
 from agentdev.utils.code_execution import require_unsafe_code_execution
+from agentdev.utils.git_guard import with_git_ceiling
 
 _MAX_TIMEOUT = 1800
 _OUTPUT_LIMIT = 12_000
@@ -367,6 +368,7 @@ def run_shell_command(
     limit = max(1, min(int(timeout or 300), _MAX_TIMEOUT))
     env = dict(os.environ)
     env.update({"CI": "1", "NO_COLOR": "1", "FORCE_COLOR": "0", "PYTHONIOENCODING": "utf-8"})
+    with_git_ceiling(env, str(workdir))  # git must not reach AgentDev's own repository
     returncode, out, err, note = _run(command, workdir, env, limit)
     output = (_decode(out) + _decode(err)).strip()
     if note:
