@@ -20,7 +20,7 @@
         v-model="workflow"
         class="picker-field"
         :label="$t('lab.workflow_label')"
-        :disabled="isRunning || loadingWorkflows"
+        :disabled="isRunning || starting || generating || loadingWorkflows"
       >
         <template #icon>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="6" height="6" rx="1.5" /><rect x="15" y="14" width="6" height="6" rx="1.5" /><path d="M9 7h3a3 3 0 0 1 3 3v4" /></svg>
@@ -300,7 +300,7 @@
               v-if="!isRunning"
               type="button"
               class="btn primary"
-              :disabled="!plannedRuns || starting || configBlocked"
+              :disabled="!plannedRuns || starting || checking || configBlocked"
               :title="configBlocked ? configBlockedHint : undefined"
               @click="startEval"
             >
@@ -317,8 +317,9 @@
         </section>
 
         <!-- Results -->
+        <!-- Always in the DOM so assistive tech announces the changes (a live region created with its text is often skipped). -->
+        <p class="sr-only" role="status" aria-live="polite">{{ srStatus }}</p>
         <section v-if="job" ref="resultsEl" class="card panel results" tabindex="-1" :aria-label="tr('lab.results_title', 'Kết quả')">
-          <p class="sr-only" role="status" aria-live="polite">{{ srStatus }}</p>
           <header class="panel-head">
             <span class="icon-tile mint" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18" /><path d="m7 15 4-4 3 3 5-6" /></svg>
@@ -638,9 +639,12 @@ const filledScenarios = computed(() => scenarios.value.filter((s) => s.prompt.tr
 // Why Run is disabled (the config-blocked reason has its own note above the run bar)
 const runHint = computed(() => (!isRunning.value && !plannedRuns.value && !configBlocked.value ? t('lab.run_hint_empty') : ''))
 // One short line for screen readers instead of announcing the whole results panel on every poll
-const srStatus = computed(() =>
-  job.value ? `${t(`lab.job_status.${job.value.status}`)}: ${job.value.done}/${job.value.total}` : ''
-)
+const srStatus = computed(() => {
+  if (!job.value) return ''
+  const base = `${t(`lab.job_status.${job.value.status}`)}: ${job.value.done}/${job.value.total}`
+  // Say the verdict too: it is the one thing the user is waiting for.
+  return job.value.status === 'completed' && job.value.verdict ? `${base}. ${t(`lab.verdict.${job.value.verdict}`)}` : base
+})
 
 // Scenarios are kept per workflow in this browser so a test suite can be re-run after changes.
 const storageKey = (name) => `agentdev.lab.scenarios.${name}`
@@ -795,8 +799,10 @@ async function generateWithAi() {
   if (generating.value || !workflow.value) return
   generating.value = true
   evalError.value = ''
+  const name = workflow.value
   try {
-    const { scenarios: generated } = await labGenerate({ yamlFile: workflow.value, count: 4, language: { vi: 'Vietnamese', en: 'English', zh: 'Chinese' }[locale.value] || 'Vietnamese' })
+    const { scenarios: generated } = await labGenerate({ yamlFile: name, count: 4, language: { vi: 'Vietnamese', en: 'English', zh: 'Chinese' }[locale.value] || 'Vietnamese' })
+    if (workflow.value !== name) return
     const { toAdd, replaceBlank } = dedupeSamples(scenarios.value, generated, MAX_SCENARIOS)
     if (replaceBlank) scenarios.value = []
     toAdd.forEach((s) => addScenario(s))
@@ -830,12 +836,15 @@ async function runCheck() {
   if (!workflow.value) return
   checking.value = true
   checkError.value = ''
+  const name = workflow.value
   try {
-    report.value = await labCheck(workflow.value)
+    const result = await labCheck(name)
+    // The user switched workflow while this request was in flight: drop the stale answer.
+    if (workflow.value === name) report.value = result
   } catch (error) {
-    checkError.value = error.message
+    if (workflow.value === name) checkError.value = error.message
   } finally {
-    checking.value = false
+    if (workflow.value === name) checking.value = false
   }
 }
 
@@ -893,12 +902,13 @@ async function startEval() {
     .map(({ name, prompt, criteria }) => ({ name, prompt, criteria }))
   starting.value = true
   try {
-    const started = await labEvaluate({ yamlFile: workflow.value, scenarios: list, repeats: repeats.value })
+    const name = workflow.value
+    const started = await labEvaluate({ yamlFile: name, scenarios: list, repeats: repeats.value })
     if (unmounted) return
     submitted.value = list
     pollErrors = 0
     job.value = started
-    rememberJob(workflow.value, started.id, list)
+    rememberJob(name, started.id, list)
     schedulePoll(1500)
     // The results panel sits below the scenario list: bring the progress into view and focus it.
     nextTick(() => {
@@ -918,7 +928,10 @@ async function stopEval() {
   if (!job.value || stopping.value) return
   stopping.value = true
   try {
-    job.value = await labCancel(job.value.id)
+    const cancelled = await labCancel(job.value.id)
+    // Keep the poll's change detector in sync so an in-flight poll cannot restore a stale "running" state.
+    lastJobSnapshot = JSON.stringify(cancelled)
+    job.value = cancelled
   } catch (error) {
     if (error.status === 404) markJobLost()
     else evalError.value = error.message
