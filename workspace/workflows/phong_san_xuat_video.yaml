@@ -6,7 +6,7 @@ graph:
   log_level: INFO
   is_majority_voting: false
   start: [Intake]
-  end: [Archivist, Chat Reply, Quick Writer, Production Stopped]
+  end: [Archivist, Chat Reply, Quick Writer, Production Stopped, Video Renderer, Render Skipped]
   nodes:
     - id: Intake
       type: agent
@@ -28,14 +28,15 @@ graph:
           2. An idea for an episode of the series, or change notes for an episode: it explicitly mentions an
              episode/tập (e.g. tập 24), the series/bộ phim, a series character, or an episode script you sent.
              Your first line is exactly EPISODE, then the user's message unchanged on the following lines. Nothing else.
-          3. Something the studio cannot do (render or export an MP4/video file, upload, edit real footage):
-             do NOT start with EPISODE or TASK. In 3-4 short sentences, in the user's language, say plainly that
-             the team only writes scripts and production plans and cannot render an MP4 because it has no
-             video-rendering tool, then offer concrete alternatives. For a Vietnamese message, write like:
-             Đội mình chỉ viết kịch bản và kế hoạch sản xuất, nên không xuất được file MP4 vì không có công cụ
-             dựng video. Thay vào đó mình có thể làm gói sản xuất đầy đủ (danh sách cảnh và câu lệnh tạo hình,
-             video để dán vào công cụ tạo video), lời thoại kèm file phụ đề SRT, tiêu đề và câu lệnh thumbnail.
-             Bạn gửi ý tưởng tập hoặc nội dung video để mình bắt đầu nhé.
+          3. The user wants the actual video/MP4 of a series episode (e.g. "tạo video tập 1", "xuất MP4 tập 1",
+             "chưa thấy video tập 1", "render tập 2"): your first line is exactly RENDER, then the user's message
+             unchanged on the following lines. Nothing else. The studio renders an approved episode's production
+             package with Google Veo after the user agrees to the cost.
+          3b. Something the studio cannot do (upload to a platform, edit real footage, render a video that is not
+             a series episode): do NOT start with EPISODE, TASK or RENDER. In 2-3 short sentences, in the user's
+             language, say what cannot be done and offer what can: an episode's script, production package
+             (shots, image/video prompts, voice lines, SRT subtitles, title/thumbnail) and, for an episode, a
+             rendered video with Google Veo (paid on the user's Google account).
           4. Anything else (greeting, thanks, a question about the studio): do NOT start with EPISODE or TASK;
              answer in 2-3 short sentences in the user's language, say what the studio does and ask for an
              episode idea.
@@ -346,6 +347,45 @@ graph:
                 - name: create_folder
                 - name: save_file
                 - name: apply_text_edits
+    - id: Render Approval
+      type: human
+      description: Bạn quyết định có tạo video thật bằng Google Veo (có phí) hay không
+      config:
+        description: 'Tạo video thật từ gói sản xuất bằng Google Veo? Việc này tính phí trên tài khoản Google của bạn theo số giây video (mỗi cảnh 4-8 giây) và cần đăng nhập Google Gemini có bật trả phí Gemini API. Trả lời TẠO VIDEO để tạo. Trả lời khác để bỏ qua: gói sản xuất (kịch bản, câu lệnh tạo hình/video, lời thoại, phụ đề) vẫn giữ nguyên để bạn dán vào công cụ video.'
+    - id: Video Renderer
+      type: agent
+      description: Tạo video từ gói sản xuất bằng Google Veo, ghép các cảnh và gắn phụ đề
+      config:
+        provider: anthropic
+        name: claude-haiku-5-5
+        role: |-
+          LANGUAGE: reply in the user's language (Vietnamese unless clearly another language).
+          Call render_episode_video exactly once, always with confirmed=true (the person already agreed to the
+          cost at the step before you). Pass episode_dir as series/tap_<number> when your input names an
+          episode number (e.g. "tập 3" -> series/tap_3); otherwise leave it empty (the latest package is used).
+          Never call it a second time: one call renders every shot.
+          Then reply in at most 6 short lines, from the result only:
+          - status rendered or partial: the video path, the number of shots, the seconds of video paid for now,
+            any failed shots (number + reason), and that running it again only renders the missing shots.
+          - status clips_only: where the clips are and why they were not joined.
+          - status not_rendered: one line with the reason in plain words (e.g. đăng nhập Google hết hạn, hãy
+            đăng nhập lại ở trang Kết nối; tài khoản chưa bật trả phí Gemini API), then say the production
+            package in that folder is unchanged and ready to paste into a video tool.
+          Never say a video exists unless the result has status rendered or partial and a video path.
+        params:
+          effort: low
+          tool_loop_limit: 2
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: render_episode_video
+    - id: Render Skipped
+      type: literal
+      description: Báo đã bỏ qua bước tạo video
+      config:
+        role: assistant
+        content: 'Đã bỏ qua bước tạo video. Gói sản xuất (kịch bản, danh sách cảnh, câu lệnh tạo hình/video, lời thoại và phụ đề) vẫn ở series/tap_<số>/ để bạn dán vào công cụ tạo video. Khi muốn tạo video, nhắn "tạo video tập <số>".'
   edges:
     - {from: Intake, to: Writer, keep_message: true, condition: {type: keyword, config: {regex: ['^\s*EPISODE\b'], case_sensitive: true}}}
     - from: Intake
@@ -369,7 +409,10 @@ graph:
             - '^\s*EPISODE\b'
           case_sensitive: true
     - {from: Intake, to: Quick Writer, condition: {type: keyword, config: {regex: ['^\s*TASK\b'], case_sensitive: true}}}
-    - {from: Intake, to: Chat Reply, condition: {type: keyword, config: {regex: ['^(?!\s*(EPISODE|TASK)\b)'], case_sensitive: true}}}
+    - {from: Intake, to: Chat Reply, condition: {type: keyword, config: {regex: ['^(?!\s*(EPISODE|TASK|RENDER)\b)'], case_sensitive: true}}}
+    - {from: Intake, to: Render Approval, keep_message: true, condition: {type: keyword, config: {regex: ['^\s*RENDER\b'], case_sensitive: true}}}
+    # The renderer reads the episode number from the request (EPISODE ... tập N / RENDER ... tập N).
+    - {from: Intake, to: Video Renderer, trigger: false, keep_message: true}
     - {from: Writer, to: Script Reviewer}
     - {from: Writer, to: Script Approval, trigger: false, clear_context: true}
     - {from: Writer, to: Visual Director, trigger: false, clear_context: true, keep_message: true}
@@ -377,8 +420,8 @@ graph:
     - {from: Writer, to: Thumbnail Title, trigger: false, clear_context: true, keep_message: true}
     - {from: Writer, to: Production QA, trigger: false, clear_context: true, keep_message: true}
     - {from: Writer, to: Archivist, trigger: false, clear_context: true}
-    - {from: Script Reviewer, to: Writer, condition: {type: keyword, config: {regex: ['^(?!\s*APPROVED\b)'], case_sensitive: true}}}
-    - {from: Script Reviewer, to: Script Guard, condition: {type: keyword, config: {regex: ['^(?!\s*APPROVED\b)'], case_sensitive: true}}}
+    - {from: Script Reviewer, to: Writer, condition: {type: keyword, config: {regex: ['^(?!\W*APPROVED\b)'], case_sensitive: true}}}
+    - {from: Script Reviewer, to: Script Guard, condition: {type: keyword, config: {regex: ['^(?!\W*APPROVED\b)'], case_sensitive: true}}}
     - from: Script Reviewer
       to: Archivist
       trigger: false
@@ -388,20 +431,20 @@ graph:
     - from: Script Guard
       to: Archivist
       trigger: false
-    - {from: Script Reviewer, to: Script Approval, condition: {type: keyword, config: {regex: ['^\s*APPROVED\b'], case_sensitive: true}}}
-    - {from: Script Approval, to: Visual Director, condition: {type: keyword, config: {regex: ['^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)'], case_sensitive: false}}}
-    - {from: Script Approval, to: Voice & Subtitles, condition: {type: keyword, config: {regex: ['^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)'], case_sensitive: false}}}
-    - {from: Script Approval, to: Thumbnail Title, condition: {type: keyword, config: {regex: ['^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)'], case_sensitive: false}}}
-    - {from: Script Approval, to: Writer, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer))'], case_sensitive: false}}}
+    - {from: Script Reviewer, to: Script Approval, condition: {type: keyword, config: {regex: ['^\W*APPROVED\b'], case_sensitive: true}}}
+    - {from: Script Approval, to: Visual Director, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Script Approval, to: Voice & Subtitles, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Script Approval, to: Thumbnail Title, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Script Approval, to: Writer, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer))'], case_sensitive: false}}}
     - {from: Visual Director, to: Production QA}
     # Voice and title run in parallel before the production loop; trigger: false lets QA (the loop entry is
     # Visual Director) run once with all three outputs instead of once per branch.
     - {from: Voice & Subtitles, to: Production QA, trigger: false}
     - {from: Thumbnail Title, to: Production QA, trigger: false}
     - {from: Production QA, to: Video Approval}
-    - {from: Video Approval, to: Archivist, condition: {type: keyword, config: {regex: ['^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)'], case_sensitive: false}}}
-    - {from: Video Approval, to: Visual Director, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer))'], case_sensitive: false}}}
-    - {from: Video Approval, to: Production Guard, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer))'], case_sensitive: false}}}
+    - {from: Video Approval, to: Archivist, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Video Approval, to: Visual Director, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer))'], case_sensitive: false}}}
+    - {from: Video Approval, to: Production Guard, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer))'], case_sensitive: false}}}
     # Production Guard stays silent for the first 3 rounds of notes (each one is applied) and speaks on the 4th.
     # Its edge back to Visual Director only keeps it inside the loop: a counter outside the loop would end the
     # loop on the first note, and
@@ -409,5 +452,11 @@ graph:
     # counter runs. When it speaks, the edge to Final Approval (outside the loop) wins and the loop ends.
     - {from: Production Guard, to: Visual Director}
     - {from: Production Guard, to: Final Approval}
-    - {from: Final Approval, to: Archivist, condition: {type: keyword, config: {regex: ['^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)'], case_sensitive: false}}}
-    - {from: Final Approval, to: Production Stopped, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer))'], case_sensitive: false}}}
+    - {from: Final Approval, to: Archivist, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
+    # Video costs money: only an explicit "tạo video" renders it. The Lab's automatic answer, a timeout or any
+    # other reply skips it, and the production package stays as it is.
+    - {from: Video Approval, to: Render Approval, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Final Approval, to: Render Approval, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Render Approval, to: Video Renderer, condition: {type: keyword, config: {regex: ['^\s*((ok|có|co|đồng ý|dong y)\W*)?(tạo|tao)\s+video\b'], case_sensitive: false}}}
+    - {from: Render Approval, to: Render Skipped, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|có|co|đồng ý|dong y)\W*)?(tạo|tao)\s+video\b)'], case_sensitive: false}}}
+    - {from: Final Approval, to: Production Stopped, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer))'], case_sensitive: false}}}
