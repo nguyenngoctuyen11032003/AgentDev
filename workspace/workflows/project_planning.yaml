@@ -36,6 +36,7 @@ graph:
           tools:
           - name: list_directory
           - name: read_file_segment
+          - name: save_file  # writes plan/<slug>/status.md after each stage, as its role asks
       team:
         enabled: true
         plan_approval: true

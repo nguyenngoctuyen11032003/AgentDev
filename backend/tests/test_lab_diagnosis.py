@@ -188,3 +188,33 @@ def test_interrupted_only_job_needs_no_fix_brief():
     run = {"scenario": 0, "repeat": 1, "status": "error", "error": "interrupted"}
     findings = [{**f, "scenario": 0, "repeat": 1} for f in diagnose_run(run, "x")]
     assert build_fix_brief("wf", [run], [Scenario(prompt="x")], findings, 0.0, 0.8) == ""
+
+
+# --- audit 2026-11-05: false findings -------------------------------------------------------------------------
+
+def test_provider_retry_error_is_not_called_a_loop():
+    from agentdev.api.services.lab_diagnosis import _error_finding
+
+    assert _error_finding("Provider call stopped after 3 retries: 429")["code"] == "error"
+    lab_timeout = ("Run stopped after 10 minutes without finishing: the workflow is probably looping "
+                   "(check approval conditions and loop guards).")
+    assert _error_finding(lab_timeout)["code"] == "timeout"
+
+
+def test_english_refusal_to_an_english_request_is_not_wrong_final_node():
+    from agentdev.api.services.lab_diagnosis import diagnose_run
+
+    run = {"status": "failed", "answer": "I cannot approve rendering without your OK; skipped.",
+           "judge": {"judged_by": "ai", "pass": False, "reason": "no video"}}
+    codes = [f["code"] for f in diagnose_run(run, prompt="Render episode 1 as a video")]
+    assert "wrong_final_node" not in codes
+    codes_vi = [f["code"] for f in diagnose_run(run, prompt="Tạo video tập 1 giúp mình")]
+    assert "wrong_final_node" in codes_vi
+
+
+def test_fix_brief_keeps_paid_gates_refusing_the_auto_answer():
+    from agentdev.api.services.lab_diagnosis import build_fix_brief
+
+    finding = {"code": "quality", "severity": "fail", "detail": "x", "fix": "y"}
+    brief = build_fix_brief("wf", [], [], [finding], pass_rate=0.0, threshold=0.8)
+    assert "tốn tiền" in brief and "nhánh bỏ qua" in brief

@@ -18,13 +18,13 @@ def render_manim(
     preview: bool = True,
 ) -> Path:
     require_unsafe_code_execution("render_manim")
-    output_dir = Path.cwd() / "media" 
-    print("Clearing media folder:", output_dir)
-    shutil.rmtree(output_dir, ignore_errors=True)
+    # Render into a folder of its own: the old code deleted <cwd>/media, which can be the user's own folder.
+    output_dir = Path(tempfile.mkdtemp(prefix="manim-media-"))
     script_path = Path(script_path).resolve()
     if not script_path.exists():
+        shutil.rmtree(output_dir, ignore_errors=True)
         raise FileNotFoundError(script_path, " does not exist.")
-    scene_name = _get_class_names(str(script_path))[0] 
+    scene_name = _get_class_names(str(script_path))[0]
     cmd = [
         sys.executable, "-m", "manim",
         f"-pq{quality}",
@@ -33,25 +33,28 @@ def render_manim(
     if preview:
         cmd.insert(3, "-p")
 
-    cmd.extend([str(script_path), scene_name])
+    cmd.extend(["--media_dir", str(output_dir), str(script_path), scene_name])
 
     print("Running:", " ".join(cmd))
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     except subprocess.CalledProcessError as e:
         print("Manim rendering failed:")
         print("stdout:", e.stdout)
         print("stderr:", e.stderr)
         error_info = f"Error rendering {scene_name} from {script_path}: {e.stderr}"
-        # shutil.rmtree(output_dir, ignore_errors=True)
+        shutil.rmtree(output_dir, ignore_errors=True)
         raise RuntimeError(error_info)
 
-    # Find valid mp4 files where no parent directory contains a partial_movie_files folder
+    # Final video only: skip the partial_movie_files that manim keeps next to it
     video_file = None
-    for mp4_file in (Path.cwd() / "media" / "videos").parent.rglob("*.mp4"):
-        if mp4_file.name == f"{scene_name}.mp4":
+    for mp4_file in output_dir.rglob("*.mp4"):
+        if mp4_file.name == f"{scene_name}.mp4" and "partial_movie_files" not in mp4_file.parts:
             video_file = mp4_file
             break
+    if video_file is None:
+        shutil.rmtree(output_dir, ignore_errors=True)
+        raise RuntimeError(f"Manim finished but produced no {scene_name}.mp4")
 
     target_path = script_path.parent / video_file.name
     print(f"Copying video to {target_path}")
@@ -66,9 +69,11 @@ def concat_videos(video_paths: list[Path]) -> Path:
     video_paths = [Path(p).resolve() for p in video_paths]
     output_path = video_paths[0].parent / "combined_video.mp4"
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+    # utf-8 (accented folder names); a quote in a path must be escaped for ffmpeg's concat list
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
         for p in video_paths:
-            f.write(f"file '{p.as_posix()}'\n")
+            escaped = p.as_posix().replace("'", "'\\''")  # ffmpeg concat quoting: ' -> '\''
+            f.write(f"file '{escaped}'\n")
         list_file = f.name
 
     cmd = [
@@ -81,6 +86,8 @@ def concat_videos(video_paths: list[Path]) -> Path:
         str(output_path)
     ]
 
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)
+    finally:
+        Path(list_file).unlink(missing_ok=True)
     return output_path
-

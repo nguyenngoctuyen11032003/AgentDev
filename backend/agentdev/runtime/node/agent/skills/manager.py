@@ -471,7 +471,12 @@ class AgentSkillManager:
             try:
                 yield parse_skill_file(skill_file)
             except SkillValidationError as exc:
-                self._warn(str(exc))
+                # Only a skill this agent ticked is worth a chat warning; a broken file elsewhere in the library
+                # would otherwise warn on every agent node of every run.
+                if candidate.name in self.allow:
+                    self._warn(str(exc))
+                else:
+                    self._discovery_warnings.append(str(exc))
                 continue
 
     def _get_skill(self, skill_name: str) -> SkillMetadata:

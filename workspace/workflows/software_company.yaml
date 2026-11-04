@@ -78,9 +78,11 @@ graph:
           Plan proposal: what you understood plus assumptions (goal, users, key features, stack, hosting,
           deadline). Push back with reasons when the client's stack is wrong for the goal.
 
-          Final report (user's language, short): what was built; the complete list of files created or changed
-          (project-relative paths, one per line); how to run it; and the test command QA itself ran with its
-          result line (e.g. `3 passed`).
+          Final report (user's language, short): what was built (for a bug: the root cause, marked as an
+          assumption when the project code was not found); the complete list of files created or changed
+          (project-relative paths, one per line); how to run it; the git branch when one was used. The LAST line
+          is always `Đã kiểm chứng: <lệnh QA đã tự chạy> → <kết quả>` (e.g. `Đã kiểm chứng: npm test → 5 passed`),
+          or `Chưa kiểm chứng: <lý do>` when nothing could be run.
         team:
           enabled: true
           plan_approval: true
@@ -395,7 +397,8 @@ graph:
           never force-push or rewrite history. If the folder is not a git repository yet, run `git init`, commit
           the current files as the baseline, then create the fix branch; back up the files you change first.
           When the brief says the project code was not found, deliver a self-contained fix (a small module plus
-          its regression test) on the fix branch and explain how to apply it.
+          its regression test) on the fix branch and explain in your report how to apply it; no extra docs or
+          guide files for a small fix, and call the root cause an assumption.
           Work at medium effort first; when the brief says this is a retry (the first fix failed QA or review),
           think harder: widen the investigation and re-check the root cause.
           Read several files in ONE tool call. Report: cause, fix, changed files, branch (or backup); last

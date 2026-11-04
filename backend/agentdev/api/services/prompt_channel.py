@@ -66,6 +66,9 @@ class WebPromptChannel(PromptChannel):
             logger.log_exception(exc, "Error waiting for human input", node_id=node_id, session_id=self.session_id)
             raise
 
+        if isinstance(human_response, dict) and human_response.get("timed_out"):
+            # The run moves on without an answer: close the question in the UI instead of leaving it open
+            self._send({"type": "human_input_timeout", "data": {"node_id": node_id}})
         response_text, attachment_ids = self._extract_response(human_response)
         blocks = self._build_blocks(response_text, attachment_ids)
         metadata_out = {
@@ -100,14 +103,16 @@ class WebPromptChannel(PromptChannel):
         return blocks
 
     def _notify_human_prompt(self, node_id: str, preview: str, task: str) -> None:
-        message = {
+        self._send({
             "type": "human_input_required",
             "data": {
                 "node_id": node_id,
                 "input": preview,
                 "task_description": task,
             },
-        }
+        })
+
+    def _send(self, message: Dict[str, Any]) -> None:
         if self._loop and self._loop.is_running():
             future = asyncio.run_coroutine_threadsafe(
                 self.websocket_manager.send_message(self.session_id, message),

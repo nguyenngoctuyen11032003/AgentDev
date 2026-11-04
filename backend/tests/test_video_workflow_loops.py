@@ -148,3 +148,70 @@ def test_misplaced_counter_is_reported_once():
     notes = lint(_loop_graph("Approval"))[0]
     assert not any(n.startswith("Loop without a loop_counter") for n in notes)
     assert sum("Guard" in n for n in notes) == 1
+
+
+def test_branch_not_taken_is_not_a_warning():
+    """An approval's other branch not running is normal: it must not show up as a server warning in the chat."""
+    from unittest.mock import MagicMock
+    from agentdev.workflow.executor.cycle_executor import CycleExecutor
+
+    executor = CycleExecutor.__new__(CycleExecutor)
+    executor.log_manager = MagicMock()
+    executor.nodes = {"Final Approval": MagicMock(is_triggered=lambda: False)}
+    executor.execute_node_func = MagicMock()
+    executor._execute_single_node("Final Approval")
+    executor.execute_node_func.assert_not_called()
+    executor.log_manager.warning.assert_not_called()
+
+
+# --- the paid video render step -------------------------------------------------------------------------------
+
+def test_render_needs_an_explicit_yes(tmp_path, runs):
+    """After approval the person is asked; only 'tạo video' renders. Anything else skips, package untouched."""
+    _run(tmp_path, **{"Render Approval": "tạo video"})
+    assert runs["Archivist"] == 1 and runs["Render Approval"] == 1 and runs["Video Renderer"] == 1, dict(runs)
+
+    runs.clear()
+    _run(tmp_path, **{"Render Approval": "để sau"})
+    assert runs["Render Approval"] == 1 and runs["Video Renderer"] == 0 and runs["Render Skipped"] == 1, dict(runs)
+
+
+@pytest.mark.parametrize("answer", ["[Automatic answer: no person is available in this run] Approved. Proceed.",
+                                    "[No reply from the user within the time limit. Proceed with your recommended "
+                                    "default and state the assumption you made.]", "ok"])
+def test_lab_auto_answer_timeout_or_plain_ok_never_spends_money(tmp_path, runs, answer):
+    _run(tmp_path, **{"Render Approval": answer})
+    assert runs["Video Renderer"] == 0 and runs["Render Skipped"] == 1, dict(runs)
+
+
+def test_render_request_for_an_existing_episode_goes_straight_to_the_gate(tmp_path, runs):
+    """'tạo video tập 1' does not rewrite the episode: Intake routes RENDER to the cost gate only."""
+    _run(tmp_path, **{"Intake": "RENDER\ntạo video tập 1", "Render Approval": "TẠO VIDEO"})
+    assert runs["Writer"] == 0 and runs["Visual Director"] == 0, dict(runs)
+    assert runs["Render Approval"] == 1 and runs["Video Renderer"] == 1, dict(runs)
+
+
+def test_gate_where_silence_approves_is_flagged_but_shipped_gates_are_not():
+    from agentdev.api.services.session_execution import NO_REPLY_TEXT
+    from agentdev.api.services.workflow_patterns.graph_analysis import Graph
+    from agentdev.api.services.workflow_patterns.proposal_lint import lint
+
+    def gate(approve, reject):
+        return {"graph": {"start": ["A"], "end": ["Send", "Stop"], "edges": [
+            {"from": "A", "to": "Gate"},
+            {"from": "Gate", "to": "Send", "condition": {"type": "keyword", "config": {"regex": [approve]}}},
+            {"from": "Gate", "to": "Stop", "condition": {"type": "keyword", "config": {"regex": [reject]}}}],
+            "nodes": [{"id": "A", "type": "agent"}, {"id": "Gate", "type": "human"},
+                      {"id": "Send", "type": "agent"}, {"id": "Stop", "type": "agent"}]}}
+
+    loose = gate(r"^\s*(OK|\[)", r"^(?!\s*(OK|\[))")
+    assert Graph.from_workflow(loose).humans_approving_silence(NO_REPLY_TEXT) == ["Gate"]
+    assert any("silence approves" in n for n in lint(loose)[0])
+    strict = gate(r"^\s*(OK\s*$|\[Automatic answer)", r"^(?!\s*(OK\s*$|\[Automatic answer))")
+    assert Graph.from_workflow(strict).humans_approving_silence(NO_REPLY_TEXT) == []
+
+    folders = [BACKEND_ROOT.parent / "workspace" / "workflows",
+               BACKEND_ROOT / "agentdev" / "api" / "services" / "workflow_patterns"]
+    for path in sorted(p for folder in folders for p in folder.glob("*.yaml")):
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert Graph.from_workflow(data).humans_approving_silence(NO_REPLY_TEXT) == [], path.name

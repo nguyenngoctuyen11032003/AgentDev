@@ -49,7 +49,9 @@ def execute_code(code: str, time_out: int = 60) -> str:
                 cwd=str(workspace),
                 capture_output=True,
                 timeout=time_out,
-                check=False
+                check=False,
+                # Piped stdout of a child is cp1252 on Windows: printing Vietnamese raised UnicodeEncodeError.
+                env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
             )
             stdout = completed.stdout.decode('utf-8', errors="replace")
             stderr = completed.stderr.decode('utf-8', errors="replace")

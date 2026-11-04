@@ -79,8 +79,10 @@ graph:
   edges:
     - {from: Triage, to: Case Handler, keep_message: true, condition: {type: keyword, config: {regex: ['^\s*CASE\b'], case_sensitive: true}}}
     - {from: Triage, to: Answer, condition: {type: keyword, config: {regex: ['^(?!\s*CASE\b)'], case_sensitive: true}}}
-    - {from: Case Handler, to: Manager Approval, condition: {type: keyword, config: {regex: ['^\s*NEEDS_APPROVAL\b'], case_sensitive: true}}}
-    - {from: Case Handler, to: Sender, condition: {type: keyword, config: {regex: ['^(?!\s*NEEDS_APPROVAL\b)'], case_sensitive: true}}}
+    # Anchored on the token that SKIPS the person: any malformed or missing token goes to the manager, never
+    # straight to the customer (Gates rule 2).
+    - {from: Case Handler, to: Sender, condition: {type: keyword, config: {regex: ['^\s*NO_APPROVAL\b'], case_sensitive: true}}}
+    - {from: Case Handler, to: Manager Approval, condition: {type: keyword, config: {regex: ['^(?!\s*NO_APPROVAL\b)'], case_sensitive: true}}}
     - {from: Case Handler, to: Approved Sender, trigger: false, clear_context: true}
     - {from: Manager Approval, to: Approved Sender, condition: {type: keyword, config: {regex: ['^\s*(OK\s*$|\[Automatic answer)'], case_sensitive: false}}}
     - {from: Manager Approval, to: Answer, condition: {type: keyword, config: {regex: ['^(?!\s*(OK\s*$|\[Automatic answer))'], case_sensitive: false}}}

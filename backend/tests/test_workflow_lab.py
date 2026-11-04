@@ -301,6 +301,67 @@ def test_running_job_is_reported_as_interrupted_after_restart(_lab_store):
     assert LabRunner().get("../../etc") is None
 
 
+def _wait_done(job):
+    for _ in range(300):
+        if job.status in ("completed", "error", "cancelled"):
+            break
+        time.sleep(0.02)
+    time.sleep(0.05)
+
+
+def test_interrupted_job_resumes_only_unfinished_runs(_lab_store, tmp_path):
+    """A server restart mid-run: the graded runs are kept, only the unfinished ones run again."""
+    yaml_path = tmp_path / "wf.yaml"
+    yaml_path.write_text("graph: {}", encoding="utf-8")
+    ran = []
+
+    def run_once(path, scenario, cancel):
+        ran.append(scenario.prompt)
+        return {"answer": "ok", "tokens": 5, "questions": []}
+
+    job = LabRunner().start(yaml_path, "wf.yaml", [Scenario("a", "c", name="A"), Scenario("b", "c", name="B")], 1,
+                            run_once=run_once, judge=lambda *a: {"pass": True})
+    _wait_done(job)
+    # Simulate the snapshot the server left behind when it died: run "b" was still in progress.
+    path = _lab_store / f"{job.id}.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["status"] = "running"
+    data["results"] = [r if r["scenario"] == 0 else {"scenario": 1, "repeat": 1, "status": "running"}
+                       for r in data["results"]]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    runner = LabRunner()  # the server after the reload
+    stored = runner.get(job.id).to_dict()
+    assert stored["status"] == "error" and stored["interrupted"] and stored["resumable"]
+    ran.clear()
+    resumed = runner.resume(job.id, yaml_path, run_once=run_once, judge=lambda *a: {"pass": True})
+    _wait_done(resumed)
+    assert ran == ["b"]
+    final = runner.get(job.id).to_dict()
+    assert final["status"] == "completed" and final["passed"] == 2 and final["total"] == 2
+    assert final["resumable"] is False
+    with pytest.raises(ValueError):
+        runner.resume(job.id, yaml_path)  # nothing left to run
+
+
+def test_resume_refused_when_workflow_changed_or_scenarios_missing(_lab_store, tmp_path):
+    yaml_path = tmp_path / "wf.yaml"
+    yaml_path.write_text("graph: {}", encoding="utf-8")
+    _lab_store.mkdir(parents=True, exist_ok=True)
+    base = {"id": "abcdef123456", "workflow": "wf.yaml", "status": "running", "total": 1, "results": [],
+            "workflow_hash": "different", "scenarios": [{"name": "A", "prompt": "a", "criteria": ""}]}
+    (_lab_store / "abcdef123456.json").write_text(json.dumps(base), encoding="utf-8")
+    with pytest.raises(ValueError, match="sửa"):
+        LabRunner().resume("abcdef123456", yaml_path)
+    old = dict(base, workflow_hash="", scenarios=[{"name": "A"}])  # written before prompts were stored
+    (_lab_store / "abcdef123456.json").write_text(json.dumps(old), encoding="utf-8")
+    assert LabRunner().get("abcdef123456").to_dict()["resumable"] is False
+    with pytest.raises(ValueError):
+        LabRunner().resume("abcdef123456", yaml_path)
+    with pytest.raises(LookupError):
+        LabRunner().resume("0123456789ab", yaml_path)
+
+
 def test_judge_uses_mid_tier_model_of_the_vendor():
     from agentdev.api.services.workflow_patterns.graph_analysis import model_tier
 

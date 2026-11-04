@@ -1,6 +1,7 @@
 """File-related function tools for model-invoked file access."""
 
 import fnmatch
+import codecs
 import locale
 import mimetypes
 import os
@@ -784,6 +785,10 @@ def apply_text_edits(
 
     normalized = _normalize_edits(_build_single_edit(start_line, end_line, replacement))
     original_text, used_encoding = _read_text_content(target, encoding)
+    # "auto" tries utf-8-sig first, which also reads plain UTF-8: write it back as plain UTF-8 unless the file
+    # really started with a BOM, or every edit would add one.
+    if used_encoding.lower() == "utf-8-sig" and not target.read_bytes().startswith(codecs.BOM_UTF8):
+        used_encoding = "utf-8"
     lines, had_trailing_newline = _split_lines(original_text)
     newline_style = _resolve_newline_choice(newline, _detect_newline(original_text))
 
@@ -799,7 +804,10 @@ def apply_text_edits(
         rendered += newline_style
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(rendered, encoding=used_encoding)
+    # newline="": the text already carries the file's own line endings; Windows must not translate them again
+    # (CRLF became CR CR LF).
+    with target.open("w", encoding=used_encoding, newline="") as handle:
+        handle.write(rendered)
     stat = target.stat()
     return {
         "path": ctx.to_workspace_relative(target),

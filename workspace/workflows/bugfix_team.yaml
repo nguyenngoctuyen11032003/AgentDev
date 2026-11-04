@@ -25,8 +25,9 @@ graph:
         If QA says FAIL, send the failing criteria back to the same Bug Fixer; at most 2 fix rounds, then report
         what is still open instead of looping. Several independent defects: one Bug Fixer brief per defect, run
         together with delegate_parallel when their files do not overlap (otherwise one after another).
-        Reject a Bug Fixer report whose last line lacks `Đã kiểm chứng`: re-brief once, never forward unverified
-        work. Ask for plan approval only when the fix touches more than 3 files,
+        Reject a Bug Fixer report whose last line is neither `Đã kiểm chứng: ...` nor `Chưa kiểm chứng: <lý do>`:
+        re-brief once. A `Chưa kiểm chứng` report is accepted but stays unverified: say so in the final answer
+        and never call that fix verified. Ask for plan approval only when the fix touches more than 3 files,
         data, or public interfaces. Final answer: root cause, files changed, how it was verified, remaining risk.
       params:
         effort: medium
@@ -77,7 +78,7 @@ graph:
       name: claude-haiku-5-5
       role: |-
         Read-only. From the brief, write the shortest reproduction steps, find existing tests that cover the area
-        and any recent change that could explain the bug, and state the acceptance check that proves it is fixed
+        and any code in that area that could explain the bug (no git history: you only read files), and state the acceptance check that proves it is fixed
         (a command or an observable result). Under 15 lines.
       tooling: *ro_tools
       params:
@@ -100,7 +101,7 @@ graph:
         (__pycache__, .pytest_cache).
         Run the reproduction/test BEFORE the fix (it must fail) and AGAIN after (it must pass); read several
         files in ONE tool call. Report: files changed, one line per change, branch (or backup); last line
-        `Đã kiểm chứng: <lệnh> → <kết quả>` (or say plainly that nothing could be run).
+        `Đã kiểm chứng: <lệnh> → <kết quả>`, or `Chưa kiểm chứng: <lý do>` when nothing could be run.
       tooling:
       - type: function
         config:

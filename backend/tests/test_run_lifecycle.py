@@ -282,3 +282,67 @@ def test_no_reply_text_never_reads_as_approval():
     approve = re.compile(r"^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)", re.IGNORECASE)
     assert not approve.search(NO_REPLY_TEXT)
     assert "approved" not in NO_REPLY_TEXT.lower()
+
+
+# ------------------------------------------------------------- human gate audit (2026-11-05)
+
+
+def test_gate_timeout_closes_the_question_in_the_ui(tmp_path, monkeypatch):
+    from agentdev.api.services.prompt_channel import WebPromptChannel
+    from agentdev.utils.attachments import AttachmentStore
+
+    store = WorkflowSessionStore()
+    store.create_session(session_id="g1", yaml_file="solo.yaml", task_prompt="x")
+    controller = SessionExecutionController(store)
+    real_wait = controller.wait_for_human_input
+    monkeypatch.setattr(controller, "wait_for_human_input", lambda sid: real_wait(sid, timeout=0.05))
+    sockets = FakeSocketManager()
+    channel = WebPromptChannel(session_id="g1", session_controller=controller, websocket_manager=sockets,
+                               attachment_service=AttachmentService(root=tmp_path / "a"),
+                               attachment_store=AttachmentStore(tmp_path / "s"))
+    result = channel.request(node_id="Video Approval", task="Duyệt?")
+    assert result.text == NO_REPLY_TEXT
+    assert [m["type"] for m in sockets.sent] == ["human_input_required", "human_input_timeout"]
+
+
+def test_open_question_survives_buffer_eviction():
+    session = WorkflowSession(session_id="g2", yaml_file="w.yaml", task_prompt="t")
+    session.append_message({"type": "human_input_required", "data": {"node_id": "Gate"}})
+    for i in range(session.MAX_BUFFER_SIZE + 50):
+        session.append_message({"type": "log", "data": {"i": i}})
+    assert any(m["type"] == "human_input_required" for m in session.message_buffer)
+
+
+def test_stop_just_before_a_gate_is_not_overwritten():
+    store = WorkflowSessionStore()
+    store.create_session(session_id="g3", yaml_file="solo.yaml", task_prompt="x")
+    session = store.get_session("g3")
+    session.status = SessionStatus.CANCELLING
+    session.cancel_event.set()
+    SessionExecutionController(store).set_waiting_for_input("g3", "Gate", {"input": "?"})
+    assert session.status == SessionStatus.CANCELLING
+
+
+def test_saved_running_session_from_a_dead_server_is_not_listed_as_live(tmp_path):
+    first = WorkflowSessionStore(history=SessionHistoryStore(tmp_path))
+    first.create_session(session_id="g4", yaml_file="solo.yaml", task_prompt="x")
+    first.get_session("g4").status = SessionStatus.WAITING_FOR_INPUT
+    first._persist(first.get_session("g4"))
+    fresh = WorkflowSessionStore(history=SessionHistoryStore(tmp_path))
+    listed = {item["session_id"]: item for item in fresh.list_summaries()}
+    assert listed["g4"]["status"] == SessionStatus.CANCELLED.value and listed["g4"]["resumable"] is True
+
+
+def test_whitespace_answer_is_rejected():
+    from agentdev.api.services.message_handler import MessageHandler
+
+    store = WorkflowSessionStore()
+    store.create_session(session_id="g5", yaml_file="solo.yaml", task_prompt="x")
+    controller = SessionExecutionController(store)
+    controller.set_waiting_for_input("g5", "Gate", {"input": "?"})
+    handler = MessageHandler.__new__(MessageHandler)
+    handler.session_controller = controller
+    sockets = FakeSocketManager()
+    asyncio.run(handler._handle_human_input("g5", {"data": {"input": "   "}}, sockets))
+    assert sockets.sent and sockets.sent[0]["data"].get("code") == "empty_input"
+    assert store.get_session("g5").waiting_for_input is True

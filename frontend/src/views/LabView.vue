@@ -354,12 +354,26 @@
           </div>
           <div v-else-if="job.status === 'error'" class="state-note error-note" role="alert">
             <strong>{{ $t('lab.job_error_title') }}</strong>
-            <span v-if="job.error || evalError">{{ job.error || evalError }}</span>
-            <span class="state-hint">{{ $t('lab.job_error_hint') }}</span>
+            <template v-if="job.interrupted || String(job.error || '').startsWith('interrupted')">
+              <span>{{ tr('lab.job_interrupted', 'Máy chủ đã khởi động lại khi lượt kiểm định đang chạy (thường do sửa mã nguồn backend khi chạy chế độ tự nạp lại). Không phải lỗi kết nối mô hình.') }}</span>
+              <span class="state-hint">{{ tr('lab.job_interrupted_hint', 'Bấm "Chạy tiếp" để chỉ chạy lại {n} lượt dang dở, giữ nguyên các lượt đã chấm.', { n: job.total - job.judged }) }}</span>
+            </template>
+            <template v-else>
+              <span v-if="job.error || evalError">{{ job.error || evalError }}</span>
+              <span class="state-hint">{{ $t('lab.job_error_hint') }}</span>
+            </template>
+            <button v-if="job.resumable" type="button" class="btn primary sm resume-btn" :disabled="resuming" @click="resumeEval">
+              <span v-if="resuming" class="btn-spinner" aria-hidden="true"></span>
+              {{ tr('lab.resume', 'Chạy tiếp') }}
+            </button>
           </div>
           <div v-else-if="job.status === 'cancelled'" class="state-note">
             <strong>{{ $t('lab.job_cancelled_title') }}</strong>
             <span>{{ $t('lab.job_cancelled_hint', { done: job.done, total: job.total }) }}</span>
+            <button v-if="job.resumable" type="button" class="btn secondary sm resume-btn" :disabled="resuming" @click="resumeEval">
+              <span v-if="resuming" class="btn-spinner" aria-hidden="true"></span>
+              {{ tr('lab.resume', 'Chạy tiếp') }}
+            </button>
           </div>
           <div v-else class="progress">
             <div class="progress-row">
@@ -483,7 +497,7 @@ import MarkdownIt from 'markdown-it'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { MAX_SCENARIOS, PACK_IDS, buildPackScenarios, dedupeSamples, detectPack } from '@/utils/labSamples.js'
 import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
-import { fetchWorkflowNames, labCancel, labCheck, labEvaluate, labGenerate, labJob } from '@/api/client'
+import { fetchWorkflowNames, labCancel, labCheck, labEvaluate, labGenerate, labJob, labResume } from '@/api/client'
 
 const { t, te, locale } = useI18n()
 const route = useRoute()
@@ -530,6 +544,7 @@ const job = ref(null)
 const evalError = ref('')
 const starting = ref(false)
 const stopping = ref(false)
+const resuming = ref(false)
 const resultsEl = ref(null)
 const briefEl = ref(null)
 // Scenarios exactly as sent with the run (blank prompts dropped), so result indexes match the backend's.
@@ -924,6 +939,26 @@ async function startEval() {
   }
 }
 
+// A server restart (or a cancel) stopped the job: run only its unfinished runs again, keep the graded ones.
+async function resumeEval() {
+  if (!job.value || resuming.value || isRunning.value) return
+  resuming.value = true
+  evalError.value = ''
+  try {
+    const resumed = await labResume(job.value.id)
+    if (unmounted) return
+    lastJobSnapshot = JSON.stringify(resumed)
+    pollErrors = 0
+    job.value = resumed
+    schedulePoll(1500)
+  } catch (error) {
+    evalError.value = error.message
+    job.value = { ...job.value, resumable: false, error: error.message, interrupted: false }
+  } finally {
+    resuming.value = false
+  }
+}
+
 async function stopEval() {
   if (!job.value || stopping.value) return
   stopping.value = true
@@ -986,6 +1021,7 @@ onBeforeUnmount(() => {
 .brief { width: 100%; box-sizing: border-box; min-height: 120px; font-size: 13px; line-height: 1.5; resize: vertical; }
 .brief-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .fix-btn { align-self: flex-start; margin-top: 6px; }
+.resume-btn { align-self: flex-start; margin-top: 8px; }
 .verdict-text .warn-text { display: block; margin-top: 4px; font-size: 12.5px; }
 .reasons-title { margin-top: 6px; font-size: 13px !important; color: var(--fg) !important; }
 .reasons { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.55; color: var(--fg); }

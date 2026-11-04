@@ -22,7 +22,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -391,6 +391,11 @@ class LabJob:
             per_scenario.append({
                 "index": index,
                 "name": scenario.name or f"#{index + 1}",
+                # The scenario itself is stored too, so a run interrupted by a server restart can be resumed.
+                "prompt": scenario.prompt,
+                "criteria": scenario.criteria,
+                "max_seconds": scenario.max_seconds,
+                "max_tokens": scenario.max_tokens,
                 "runs": len(runs),
                 "passed": len(ok),
                 # Stable = every repeat gave the same verdict.
@@ -472,6 +477,8 @@ class LabJob:
             "avg_seconds": round(sum(r.get("seconds", 0) or 0 for r in done) / len(done), 1) if done else None,
             "fix_brief": build_fix_brief(self.workflow, done, self.scenarios, findings, pass_rate, PASS_THRESHOLD) if status == "completed" else "",
             "results": results,
+            # Stopped before every run was graded: the rest can still run under this job (LabRunner.resume).
+            "resumable": status in ("cancelled", "error") and len(judged) < self.total,
             "duration_seconds": round((self.finished_at or time.time()) - self.started_at, 1),
             "total_tokens": sum(r.get("tokens", 0) for r in results),
             "cost_usd": round(sum(r.get("cost_usd", 0.0) for r in results), 4),
@@ -486,6 +493,9 @@ JUDGE_SYSTEM = (
     "A claim that tests passed or code works counts only when the answer names the command that was run and its "
     "result (e.g. a 'Đã kiểm chứng: <command> → <result>' line) or the produced files show it; an unsupported claim is "
     "unverified: do not give 7 or more for it. A sentence saying a step could not be run is honest, not a pass. "
+    "Each run starts in an EMPTY project folder: when the request refers to an existing app whose code it does not "
+    "include, a self-contained fix that says plainly the code was not found and labels its root cause as an "
+    "assumption meets a root-cause/reproduction criterion; do not fail it for that alone. "
     "Score 0-10 against the criteria; 7 or more only when every criterion is met. "
     'Reply with JSON only: {"pass": true|false, "score": 0-10, "reason": "<one or two sentences, in the request\'s language>"}'
 )
@@ -952,6 +962,21 @@ def _replace_with_retry(src: Path, dst: Path, attempts: int = 10, delay: float =
             time.sleep(delay * (attempt + 1))
 
 
+INTERRUPTED_ERROR = "interrupted: the server restarted while this run was in progress"
+
+
+def _resumable_tasks(data: Dict[str, Any]) -> List[Tuple[int, int]]:
+    """(scenario index, repeat index) of every run of a stored job that has no grade yet."""
+    specs = data.get("scenarios") or []
+    if not specs:
+        return []
+    repeats = max(1, int(data.get("total") or 0) // len(specs))
+    graded = {(int(r.get("scenario", -1)), int(r.get("repeat", 0)) - 1) for r in data.get("results") or []
+              if r.get("status") in ("passed", "failed")}
+    return [(index, repeat) for repeat in range(repeats) for index in range(len(specs))
+            if (index, repeat) not in graded]
+
+
 class LabRunner:
     """Runs Lab jobs in threads; every change is also written to storage/lab_jobs/<id>.json so results
     survive a backend reload (a job that was running when the server stopped is reported as interrupted)."""
@@ -996,12 +1021,61 @@ class LabRunner:
             return None
         if data.get("status") in ("queued", "running"):
             data["status"] = "error"
-            data["error"] = "interrupted: the server restarted while this run was in progress"
+            data["error"] = INTERRUPTED_ERROR
+            data["interrupted"] = True
             for result in data.get("results") or []:
                 if result.get("status") == "running":
                     result["status"] = "error"
                     result["error"] = "interrupted"
+        if data.get("status") in ("error", "cancelled"):
+            data["resumable"] = bool(_resumable_tasks(data)) and all(
+                (s.get("prompt") or "").strip() for s in data.get("scenarios") or [{}])
         return StoredJob(data)
+
+    def resume(self, job_id: str, yaml_path: Path,
+               run_once: Callable[..., Dict[str, Any]] = _run_once,
+               judge: Callable[..., Dict[str, Any]] = _judge) -> LabJob:
+        """Continue a job that a server restart (or a cancel) stopped: graded runs are kept and only the
+        unfinished ones run again, under the same job id. Raises ValueError when it cannot be resumed."""
+        with self._lock:
+            if job_id in self._jobs and self._jobs[job_id].status in ("queued", "running"):
+                raise ValueError("Lượt kiểm định này vẫn đang chạy.")
+        stored = self._load(job_id)
+        if stored is None:
+            raise LookupError("Lab run not found")
+        data = stored.data
+        if data.get("status") not in ("error", "cancelled"):
+            raise ValueError("Chỉ chạy tiếp được lượt kiểm định bị gián đoạn hoặc đã dừng.")
+        specs = data.get("scenarios") or []
+        if not specs or not all((s.get("prompt") or "").strip() for s in specs):
+            raise ValueError("Lượt kiểm định này được tạo bởi phiên bản cũ, không lưu nội dung kịch bản: hãy chạy lại từ đầu.")
+        try:
+            current_hash = hashlib.sha256(Path(yaml_path).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+        except OSError:
+            current_hash = ""
+        if data.get("workflow_hash") and current_hash and data["workflow_hash"] != current_hash:
+            raise ValueError("Quy trình đã được sửa sau lượt này: kết quả cũ không còn so được, hãy chạy lại từ đầu.")
+        tasks = _resumable_tasks(data)
+        if not tasks:
+            raise ValueError("Không còn lượt nào cần chạy tiếp.")
+        scenarios = [Scenario(prompt=s.get("prompt", ""), criteria=s.get("criteria", ""), name=s.get("name", ""),
+                              max_seconds=s.get("max_seconds"), max_tokens=s.get("max_tokens")) for s in specs]
+        keep = [dict(r, scenario=int(r["scenario"]), repeat=int(r["repeat"])) for r in data.get("results") or []
+                if r.get("status") in ("passed", "failed")]
+        # Count only the time the job actually ran, not the gap while the server was down.
+        elapsed = float(data.get("duration_seconds") or 0)
+        job = LabJob(id=data["id"], workflow=data.get("workflow", ""), scenarios=scenarios,
+                     repeats=int(data.get("total") or 0) // max(1, len(scenarios)) or 1,
+                     config_status=data.get("config_status", ""), workflow_hash=data.get("workflow_hash", ""),
+                     store_dir=self._dir(), results=keep, started_at=time.time() - elapsed)
+        if judge is _judge:
+            judge = functools.partial(_judge, account=JudgeAccount())
+        with self._lock:
+            self._jobs[job.id] = job
+        self._save(job)
+        thread = threading.Thread(target=self._run, args=(job, yaml_path, run_once, judge, tasks), daemon=True)
+        thread.start()
+        return job
 
     def start(self, yaml_path: Path, workflow: str, scenarios: List[Scenario], repeats: int,
               run_once: Callable[..., Dict[str, Any]] = _run_once,
@@ -1066,12 +1140,14 @@ class LabRunner:
             job.update_result(entry, status="passed" if verdict["pass"] else "failed", judge=verdict)
         self._save(job)
 
-    def _run(self, job: LabJob, yaml_path: Path, run_once, judge) -> None:
+    def _run(self, job: LabJob, yaml_path: Path, run_once, judge,
+             tasks: Optional[List[Tuple[int, int]]] = None) -> None:
         from concurrent.futures import ThreadPoolExecutor
 
         job.status = "running"
         try:
-            tasks = [(index, repeat) for repeat in range(job.repeats) for index in range(len(job.scenarios))]
+            if tasks is None:
+                tasks = [(index, repeat) for repeat in range(job.repeats) for index in range(len(job.scenarios))]
             with ThreadPoolExecutor(max_workers=_lab_workers(), thread_name_prefix="lab") as pool:
                 futures = [pool.submit(self._run_task, job, yaml_path, run_once, judge, i, r) for i, r in tasks]
                 for future in futures:
@@ -1140,7 +1216,9 @@ GENERATE_SYSTEM = (
     "to this workflow (concrete, with the details the workflow needs), \"criteria\": 2-4 checkable pass criteria "
     "separated by semicolons (what the answer and deliverables must contain, which members should have worked, "
     "the language)}. Cover different paths of THIS workflow: the main happy path, a small/quick task, a task that "
-    "needs several members, and one edge case (unclear, impossible or unverifiable request). Fit the workflow's "
+    "needs several members, and one edge case (unclear, impossible or unverifiable request). Each run starts in an "
+    "EMPTY project folder: a scenario about changing or fixing an existing app must paste the relevant code (a short "
+    "file of 10-40 lines) into the prompt, otherwise there is nothing to fix. Fit the workflow's "
     "real purpose and members; never invent members it does not have."
 )
 

@@ -160,13 +160,16 @@ def _run_uv_command(
 ) -> Dict[str, Any]:
     require_unsafe_code_execution("uv command")
     timeout_value = _DEFAULT_TIMEOUT if timeout is None else timeout
-    env_vars = None if env is None else {**os.environ, **env}
+    # UTF-8 both ways: the default cp1252 raised UnicodeDecodeError (and silently returned empty output) on Vietnamese
+    env_vars = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", **(env or {})}
     try:
         completed = subprocess.run(
             cmd,
             cwd=str(workspace_root),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_value,
             check=False,
             env=env_vars,

@@ -332,13 +332,16 @@ def test_executor_rejects_native_on_team_lead(tmp_path):
     executor, _ = _executor(tmp_path)
     cfg = _agent_cfg({"enabled": True}, team={"enabled": True})
     assert executor._resolve_native_mode(NODE, cfg, ClaudeCliProvider) is None
-    assert "team lead" in executor.log_manager.warning.call_args.args[0]
+    assert "team lead" in executor.log_manager.info.call_args.args[0]
+    # A configuration notice, not a fault: said once per node and run, never as a chat warning on every call
+    executor._resolve_native_mode(NODE, cfg, ClaudeCliProvider)
+    assert executor.log_manager.info.call_count == 1 and not executor.log_manager.warning.called
 
 
 def test_executor_native_needs_cli_provider(tmp_path):
     executor, _ = _executor(tmp_path)
     assert executor._resolve_native_mode(NODE, _agent_cfg({"enabled": True}), object) is None
-    assert executor.log_manager.warning.called
+    assert "CLI account" in executor.log_manager.info.call_args.args[0] and not executor.log_manager.warning.called
 
 
 def test_executor_default_session_workspace_is_allowed(tmp_path):

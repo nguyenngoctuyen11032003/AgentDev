@@ -94,7 +94,8 @@ class CycleExecutor:
         if node.is_triggered():
             self.execute_node_func(node)
         else:
-            self.log_manager.warning(f"Node {node_id} is not triggered, skipping execution")
+            # A branch that was not taken (e.g. the other side of an approval): normal, not a warning.
+            self.log_manager.debug(f"Node {node_id} skipped - not triggered")
     
     def _execute_cycle(self, cycle_info: Dict[str, Any]) -> None:
         """Execute a cycle using the multi-iteration logic."""
