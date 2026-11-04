@@ -194,6 +194,10 @@ def lint(data: Any) -> Tuple[List[str], List[dict]]:
     for node_id in counters_in_inner_loop(data):
         notes.append(f"{node_id}: this loop_counter sits on an inner loop that is left before it runs, so it never "
                      "counts. Point its in-loop edge at the step that starts the loop (the one the outside feeds).")
+    from agentdev.api.services.session_execution import NO_REPLY_TEXT
+    for node_id in Graph.from_workflow(data).humans_approving_silence(NO_REPLY_TEXT):
+        notes.append(f"{node_id}: a timeout (no reply) takes the approve branch, so silence approves. Anchor the "
+                     "approve regex on the answer itself (e.g. ^\s*OK\W*$ or [Automatic answer), never on '['.")
     for node_id in gates_missing_auto_answer(data):
         notes.append(f"{node_id}: no branch accepts `[Automatic answer`, so the Lab test harness cannot pass this gate.")
     if triage_missing(data):

@@ -35,6 +35,9 @@ _WORK_REQUEST = re.compile(
 )
 
 
+_VI_CHARS = re.compile(r"[ăâđêôơưàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ]", re.IGNORECASE)
+
+
 def is_simple_prompt(prompt: str) -> bool:
     """Greeting-like or a plain question: short AND not asking for a deliverable."""
     text = (prompt or "").strip()
@@ -176,11 +179,14 @@ def _error_finding(error: str) -> Dict[str, Any]:
         return {"code": "budget_limit", "severity": "fail", "detail": error[:400],
                 "fix": ("Lượt chạy chạm giới hạn run_limits của quy trình: giảm vòng lặp và rút gọn node tốn nhiều nhất "
                         "được nêu; chỉ nâng giới hạn khi việc này thật sự lớn.")}
-    if "looping" in error or "stopped after" in error:
+    # Only the Lab's own time limit (or the engine's loop cap) is a loop; "stopped after 3 retries: 429" from a
+    # provider is an account/provider error, not a reason to add a loop_counter.
+    if "probably looping" in error or error.startswith("Run stopped after") or "safety limit" in error:
         return {"code": "timeout", "severity": "fail", "detail": error[:400],
                 "fix": ("Lượt chạy quá thời gian tối đa, thường do vòng lặp không thoát được: thêm node loop_counter ở "
                         "mọi vòng sửa/duyệt và bảo đảm các điều kiện duyệt chấp nhận cả câu tự trả lời của Phòng thí "
-                        "nghiệm ([Automatic answer ...]); nếu không có vòng lặp thì rút gọn các bước dài.")}
+                        "nghiệm ([Automatic answer ...]), trừ bước tốn tiền hoặc không thể hoàn tác: ở đó câu tự trả "
+                        "lời phải đi nhánh bỏ qua; nếu không có vòng lặp thì rút gọn các bước dài.")}
     return {"code": "error", "severity": "fail", "detail": error[:400],
             "fix": "Sửa nguyên nhân lỗi nêu trên (tài khoản, công cụ, cấu hình) rồi chạy lại."}
 
@@ -283,7 +289,10 @@ def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
     answer = str(run.get("answer") or "")
     if status in ("failed", "passed") and answer and judge.get("judged_by") == "ai" and not judge.get("pass"):
         head = answer.lstrip()[:60].lower()
-        if head.startswith(("no files were saved", "there is no", "i could not", "i cannot")):
+        # Only a reply in another language than the request: an English refusal to an English request is a
+        # legitimate answer (e.g. "I cannot render without your OK; skipped.").
+        prompt_vi = bool(_VI_CHARS.search(prompt or ""))
+        if prompt_vi and not _VI_CHARS.search(answer[:400]) and                 head.startswith(("no files were saved", "there is no", "i could not", "i cannot")):
             findings.append({
                 "code": "wrong_final_node",
                 "severity": "warn",
@@ -413,7 +422,8 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
         "- Chỉ sửa những gì cần để khắc phục các lỗi trên; giữ nguyên phần đang chạy tốt.",
         "- Quy trình phải chạy NHANH: việc nhỏ trả lời trong vài chục giây, mọi vòng lặp có giới hạn, model nhẹ cho việc đơn giản.",
         "- Các bước duyệt của người phải chấp nhận cả câu tự trả lời `[Automatic answer ...]` của Phòng thí nghiệm "
-        "(người thật vẫn chỉ cần gõ OK).",
+        "(người thật vẫn chỉ cần gõ OK). Ngoại lệ: bước duyệt trước việc tốn tiền hoặc không thể hoàn tác (tạo video, "
+        "gửi email, thanh toán, đăng bài) phải đưa câu tự trả lời và lúc hết giờ sang nhánh bỏ qua, không được duyệt.",
         "- Sau khi sửa, nói rõ đã đổi gì và vì sao nó khắc phục từng lỗi.",
         "",
         "Thông tin bổ sung của tôi: ",

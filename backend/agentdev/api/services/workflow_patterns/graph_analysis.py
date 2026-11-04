@@ -184,6 +184,27 @@ class Graph:
     def has_counter(self, comp: int) -> bool:
         return any(self.nodes[n].get("type") == "loop_counter" for n in self.comps[comp])
 
+    def humans_approving_silence(self, silence: str, approval: str = "OK",
+                                 refusal: str = "Không, sửa lại phần mở đầu") -> List[Any]:
+        """Human gates where a timeout (nobody answered) takes the approve branch.
+
+        The approve branch is the edge that takes ``approval`` but not a plain ``refusal``; a skip/revise branch
+        takes refusals too, and silence going there is the safe outcome. Silence must never approve: no email is
+        sent, nothing is published and no money is spent without a person.
+        """
+        bad: List[Any] = []
+        for nid, node in self.nodes.items():
+            if node.get("type") != "human":
+                continue
+            out = [e for e in self.edges if e.get("from") == nid and e.get("to") in self.adj]
+            approve = [e for e in out if edge_condition_matches(e.get("condition"), approval)
+                       and not edge_condition_matches(e.get("condition"), refusal)]
+            if not approve or len(approve) == len(out):
+                continue  # no decision at this gate
+            if any(edge_condition_matches(e.get("condition"), silence) for e in approve):
+                bad.append(nid)
+        return bad
+
     def humans_blocking_auto_answer(self, answer: str) -> List[Any]:
         """Human nodes where the automatic answer cannot move the run on: no matching outgoing edge
         leaves the node's loop, unless that loop has a loop_counter that will end it."""
