@@ -311,7 +311,7 @@ onMounted(() => {
 
   box-sizing: border-box;
   width: 100%;
-  height: calc(100dvh - var(--nav-height, 55px)); /* below the top bar */
+  height: calc(calc(100 * var(--dvh)) - var(--nav-height, 55px)); /* below the top bar */
   overflow-x: hidden;
   overscroll-behavior: contain;
   background: var(--bg);
@@ -319,7 +319,7 @@ onMounted(() => {
 }
 
 :global(body.nav-hidden .tutorial-view) {
-  height: 100dvh;
+  height: calc(100 * var(--dvh));
 }
 
 .tutorial-layout {
@@ -338,7 +338,7 @@ onMounted(() => {
   position: sticky;
   top: 32px;
   align-self: start;
-  max-height: calc(100dvh - 140px);
+  max-height: calc(calc(100 * var(--dvh)) - 140px);
   overflow-y: auto;
   padding-right: 8px;
 }

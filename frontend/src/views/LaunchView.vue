@@ -1233,15 +1233,24 @@ const toggleGraphInteractive = () => {
 // (names are 15px: 0.75 keeps them >= 11px). A graph too big for that is shown from its
 // left edge (the start and the lead), centred vertically; pan or zoom out for the rest.
 const GRAPH_MIN_ZOOM = 0.75
+const GRAPH_SPRITE_HEADROOM = 56
 const fitView = async (options = {}) => {
   if (!fitFlow) return
   await fitFlow({ ...options, padding: 0.12, maxZoom: 1.1 })
   const nodes = getNodes.value || []
   const { width, height } = dimensions.value || {}
   if (!nodes.length || !width || !height) return
-  const rect = getRectOfNodes(nodes)
+  // Sprites stand above their node box, which getRectOfNodes ignores: reserve that headroom
+  // so the top row is not clipped by the canvas edge.
+  const base = getRectOfNodes(nodes)
+  const rect = { ...base, y: base.y - GRAPH_SPRITE_HEADROOM, height: base.height + GRAPH_SPRITE_HEADROOM }
   const fitZoom = Math.min(width / (rect.width * 1.24), height / (rect.height * 1.24))
-  if (!(fitZoom < GRAPH_MIN_ZOOM)) return
+  if (!(fitZoom < GRAPH_MIN_ZOOM)) {
+    const vp = viewport.value
+    const clipped = vp.y + rect.y * vp.zoom
+    if (clipped < 8) setViewport({ ...vp, y: vp.y + (8 - clipped) })
+    return
+  }
   const zoom = GRAPH_MIN_ZOOM
   setViewport({ x: 32 - rect.x * zoom, y: (height - rect.height * zoom) / 2 - rect.y * zoom, zoom })
 }
@@ -2222,7 +2231,8 @@ const insetStyle = computed(() => ({
   '--inset-left': `calc(${chatCoverCss.value} - 18px)`,
   '--graph-inset': chatCoverCss.value
 }))
-const officeInsetStyle = computed(() => ({ '--office-inset-left': chatCoverCss.value }))
+// the office map cancels the page zoom (see OfficeView), so convert the chat width into its units
+const officeInsetStyle = computed(() => ({ '--office-inset-left': `calc(${chatCoverCss.value} * var(--ui-zoom, 1))` }))
 
 // ---------------------------------------------------------------- control panel content
 // A long workflow description folds to three lines
@@ -6562,7 +6572,7 @@ watch(
   color: var(--text-1);
   font-size: 13px;
   line-height: 1.5;
-  max-height: 40vh;
+  max-height: calc(40 * var(--vh));
   overflow-y: auto;
 }
 .question-card-head {
@@ -7205,7 +7215,7 @@ watch(
 .image-modal-content {
   position: relative;
   max-width: 95vw;
-  max-height: 95vh;
+  max-height: calc(95 * var(--vh));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -7217,7 +7227,7 @@ watch(
 
 .image-modal-content img {
   max-width: 70vw;
-  max-height: 65vh;
+  max-height: calc(65 * var(--vh));
   box-shadow: 0 20px 40px rgb(var(--shade) / 0.5);
 }
 
@@ -7238,8 +7248,8 @@ watch(
 .launch-view {
   --header-h: 48px;
   width: 100%;
-  height: 100vh;
-  height: 100dvh;
+  height: calc(100 * var(--vh));
+  height: calc(100 * var(--dvh));
   display: flex;
   flex-direction: column;
   background-color: var(--bg);
@@ -7336,6 +7346,8 @@ watch(
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent);
 }
 .view-tabs::-webkit-scrollbar { display: none; }
 
@@ -7937,7 +7949,7 @@ watch(
   }
   .right-panel.is-sheet.is-open { transform: none; visibility: visible; transition: transform 0.2s var(--ease-out); }
   .right-panel.is-sheet .control-section {
-    max-height: 80dvh;
+    max-height: calc(80 * var(--dvh));
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     border-bottom: none;
     padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));

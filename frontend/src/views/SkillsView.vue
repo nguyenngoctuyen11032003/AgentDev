@@ -507,7 +507,7 @@ onMounted(load)
 .error { color: var(--danger); font-size: 13px; margin: 10px 0 0; }
 
 .import-bar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--border-strong); }
-.import-list { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow: auto; }
+.import-list { list-style: none; margin: 0; padding: 0; max-height: calc(46 * var(--vh)); overflow: auto; }
 .import-list li { padding: 8px 2px; border-bottom: 1px solid var(--border-strong); }
 .check { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 13.5px; cursor: pointer; }
 .loading-note { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 13px; color: var(--muted); }

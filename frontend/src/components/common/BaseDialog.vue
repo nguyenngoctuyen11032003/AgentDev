@@ -160,7 +160,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   width: min(var(--dialog-width), 100%);
-  max-height: calc(100dvh - 48px);
+  max-height: calc(calc(100 * var(--dvh)) - 48px);
   border: 1px solid var(--line-4);
   border-radius: 14px;
   background: var(--surface-1);

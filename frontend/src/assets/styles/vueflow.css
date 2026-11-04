@@ -314,3 +314,13 @@
     opacity: 0.7;
   }
 }
+
+/*
+ * The app is scaled up on large screens with `zoom` on <html> (see main.css). Vue Flow turns
+ * mouse movement into graph units using only its own viewport scale, so inside a zoomed page
+ * nodes drag and the canvas pans faster than the cursor. Cancel the page zoom on the canvas;
+ * its content is scaled by Vue Flow's own fit-to-screen anyway.
+ */
+.vue-flow {
+  zoom: calc(1 / var(--ui-zoom, 1));
+}

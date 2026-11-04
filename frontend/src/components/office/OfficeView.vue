@@ -329,7 +329,11 @@ const isRunning = computed(() => props.status === 'Running...' || props.status =
 const focusId = computed(() => hoveredId.value || pinnedId.value)
 const focusAgent = computed(() => agents.value.find((a) => a.id === focusId.value) || null)
 // Crowded offices show only the step number for people who are not busy (full name on hover).
-const compactTags = computed(() => agents.value.length > 12)
+// Also when the map is drawn small (laptop screens): name tags keep a fixed pixel size, so
+// neighbouring seats would otherwise overlap and truncate each other.
+const compactTags = computed(() =>
+  agents.value.length > 12 || (agents.value.length > 6 && OFFICE_WIDTH * scale.value < 1000)
+)
 const opsBusy = computed(() => agents.value.some((a) => a.dept === 'ops' && a.state === 'working'))
 
 const counts = computed(() => {
@@ -398,7 +402,8 @@ const measure = () => {
   const left = safe ? Math.max(0, safe.left - root.left) : 0
   const hud = hudRef.value?.getBoundingClientRect()
   const top = hud ? Math.max(12, hud.bottom - root.top + 8) : 12
-  const bottom = 60 // roster toggle + zoom controls
+  const uiZoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom')) || 1
+  const bottom = 60 * uiZoom // roster toggle + zoom controls (scaled with the page)
   area.x = left + 12
   area.y = top
   area.w = Math.max(1, root.width - left - 24)
@@ -1201,6 +1206,8 @@ onBeforeUnmount(() => {
   background: #1c1f26;
   user-select: none;
   font-family: inherit;
+  /* cancel the page-level UI zoom (main.css): the map measures itself in screen pixels */
+  zoom: calc(1 / var(--ui-zoom, 1));
 }
 
 .office-view.pannable { cursor: grab; }
@@ -1224,6 +1231,7 @@ onBeforeUnmount(() => {
 
 /* ---------- zoom controls ---------- */
 .office-zoom {
+  zoom: var(--ui-zoom, 1);
   position: absolute;
   right: 12px;
   bottom: 12px;
@@ -1804,6 +1812,7 @@ onBeforeUnmount(() => {
 
 /* Animates height between auto and 0 (grid row trick), so the drawer slides up smoothly. */
 .office-hud-drawer {
+  zoom: var(--ui-zoom, 1);
   display: grid;
   grid-template-rows: 1fr;
   max-width: 100%;
@@ -1966,12 +1975,13 @@ onBeforeUnmount(() => {
 
 /* ---------- roster ---------- */
 .office-roster {
+  zoom: var(--ui-zoom, 1);
   position: absolute;
-  left: calc(var(--office-inset-left, 0px) + 12px);
+  left: calc((var(--office-inset-left, 0px) + 12px) / var(--ui-zoom, 1));
   bottom: 12px;
   z-index: var(--z-backdrop);
   width: 250px;
-  max-width: calc(100% - var(--office-inset-left, 0px) - 24px);
+  max-width: calc(100% - (var(--office-inset-left, 0px) + 24px) / var(--ui-zoom, 1));
   max-height: calc(100% - 70px);
   display: flex;
   flex-direction: column-reverse;

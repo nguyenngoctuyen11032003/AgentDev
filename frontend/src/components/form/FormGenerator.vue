@@ -2279,7 +2279,7 @@ defineExpose({
   flex-direction: column;
   width: 90%;
   max-width: 900px;
-  max-height: 90vh;
+  max-height: calc(90 * var(--vh));
   /* Near-opaque instead of backdrop-filter: a blur behind a large panel over the
      animated canvas is recomputed every frame while the form is open. */
   background-color: rgb(var(--panel-33) / 0.98);

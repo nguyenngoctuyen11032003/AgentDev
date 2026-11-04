@@ -2347,8 +2347,8 @@ const handleCopySubmit = async () => {
 <style scoped>
 .workflow-view {
   width: 100%;
-  height: calc(100vh - 55px);
-  height: calc(100dvh - 55px);
+  height: calc(calc(100 * var(--vh)) - 55px);
+  height: calc(calc(100 * var(--dvh)) - 55px);
   display: flex;
   flex-direction: column;
   background-color: var(--bg-base);

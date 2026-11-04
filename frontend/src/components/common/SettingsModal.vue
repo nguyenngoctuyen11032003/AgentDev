@@ -86,7 +86,7 @@ const save = () => {
   flex-direction: column;
   width: 640px;
   max-width: 100%;
-  max-height: calc(100vh - 32px);
+  max-height: calc(calc(100 * var(--vh)) - 32px);
   border-radius: 16px;
   background: var(--bg-base);
   box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.1), 0 24px 60px rgb(var(--shade) / 0.5);

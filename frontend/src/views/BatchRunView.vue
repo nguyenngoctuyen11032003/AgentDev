@@ -1321,8 +1321,8 @@ watch(viewMode, async (mode) => {
   --label-ink: rgb(var(--ink) / 0.68);
   --mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'SF Mono', Menlo, 'Ubuntu Mono', monospace;
   width: 100%;
-  height: 100vh;
-  height: 100dvh;
+  height: calc(100 * var(--vh));
+  height: calc(100 * var(--dvh));
   display: flex;
   flex-direction: column;
   background-color: var(--bg);
@@ -1925,7 +1925,7 @@ watch(viewMode, async (mode) => {
 .preview-image {
   display: block;
   max-width: 100%;
-  max-height: 70vh;
+  max-height: calc(70 * var(--vh));
   margin: 0 auto;
   border-radius: 6px;
 }
@@ -2014,8 +2014,8 @@ watch(viewMode, async (mode) => {
 @media (max-width: 980px) {
   .launch-view {
     height: auto;
-    min-height: 100vh;
-    min-height: 100dvh;
+    min-height: calc(100 * var(--vh));
+    min-height: calc(100 * var(--dvh));
   }
 
   .content {

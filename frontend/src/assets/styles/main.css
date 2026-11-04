@@ -292,6 +292,20 @@
 /* =========================================================
    Base
    ========================================================= */
+/* Screen-adaptive UI scale. Every size in the app is in px, so large displays (external
+   monitors, 16" Macs in "More space" mode) would show tiny text in a sea of empty space.
+   Scale the whole UI up on roomy screens and keep 1x on laptops (<= 1728px wide). Viewport
+   heights are divided by the zoom (--vh/--dvh) so full-height layouts still fit exactly. */
+:root {
+  --ui-zoom: 1;
+  --vh: calc(1vh / var(--ui-zoom));
+  --dvh: calc(1dvh / var(--ui-zoom));
+}
+@media (min-width: 1900px) and (min-height: 1000px) { :root { --ui-zoom: 1.1; } }
+@media (min-width: 2300px) and (min-height: 1250px) { :root { --ui-zoom: 1.25; } }
+@media (min-width: 3000px) and (min-height: 1700px) { :root { --ui-zoom: 1.5; } }
+html { zoom: var(--ui-zoom); }
+
 :root {
   scrollbar-gutter: auto;
   font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -319,7 +333,7 @@ a:hover {
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: calc(100 * var(--vh));
   background-color: var(--bg-base);
   color: var(--text-1);
 }
@@ -362,7 +376,7 @@ textarea {
 
 #app {
   width: 100%;
-  height: 100vh;
+  height: calc(100 * var(--vh));
 }
 
 /* Light theme: crisper native controls and subtle surface edges */
