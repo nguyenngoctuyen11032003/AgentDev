@@ -1024,7 +1024,9 @@ class LabRunner:
         return self._load(job_id)
 
     def list_jobs(self, workflow: str, limit: int = 20) -> List[Dict[str, Any]]:
-        return list_stored_jobs(self._dir(), workflow, limit)
+        with self._lock:
+            live = frozenset(self._jobs)
+        return list_stored_jobs(self._dir(), workflow, limit, live_ids=live)
 
     def _run_task(self, job: LabJob, yaml_path: Path, run_once, judge, index: int, repeat: int) -> None:
         scenario = job.scenarios[index]
@@ -1086,8 +1088,10 @@ def _accepts(func: Callable[..., Any], name: str) -> bool:
     return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
-def list_stored_jobs(folder: Path, workflow: str, limit: int = 20) -> List[Dict[str, Any]]:
-    """Summaries of stored jobs of ``workflow`` (newest first)."""
+def list_stored_jobs(folder: Path, workflow: str, limit: int = 20,
+                     live_ids: frozenset = frozenset()) -> List[Dict[str, Any]]:
+    """Summaries of stored jobs of ``workflow`` (newest first). A job still held in memory by this server
+    (``live_ids``) is running, not interrupted, even though its last snapshot on disk says "running"."""
     rows: List[Dict[str, Any]] = []
     try:
         paths = list(Path(folder).glob("*.json"))
@@ -1101,8 +1105,8 @@ def list_stored_jobs(folder: Path, workflow: str, limit: int = 20) -> List[Dict[
         if not isinstance(data, dict) or data.get("workflow") != workflow:
             continue
         status = data.get("status")
-        if status in ("queued", "running"):
-            status = "error"  # interrupted
+        if status in ("queued", "running") and data.get("id") not in live_ids:
+            status = "error"  # interrupted: the server that was running it is gone
         rows.append({
             "id": data.get("id"), "status": status, "verdict": data.get("verdict"),
             "pass_rate": data.get("pass_rate"), "avg_seconds": data.get("avg_seconds"),

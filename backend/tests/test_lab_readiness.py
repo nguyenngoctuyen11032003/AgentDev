@@ -332,3 +332,14 @@ def test_concurrent_saves_of_one_job_do_not_collide(tmp_path, monkeypatch):
     assert len(set(replaced)) == len(replaced) - 1  # unique temp file per write (one retried)
     assert sorted(p.name for p in store.iterdir()) == ["abcdef123456.json"]  # no temp file left behind
     assert runner.get("abcdef123456") is not None
+
+
+def test_job_list_does_not_mark_a_live_job_as_interrupted(tmp_path):
+    import json
+
+    snapshot = {"id": "aaaaaaaaaaaa", "workflow": "wf.yaml", "status": "running", "started_at": 1}
+    (tmp_path / "aaaaaaaaaaaa.json").write_text(json.dumps(snapshot), encoding="utf-8")
+    gone = workflow_lab.list_stored_jobs(tmp_path, "wf.yaml")
+    live = workflow_lab.list_stored_jobs(tmp_path, "wf.yaml", live_ids=frozenset({"aaaaaaaaaaaa"}))
+    assert gone[0]["status"] == "error"  # nobody holds it: the server restarted
+    assert live[0]["status"] == "running"
