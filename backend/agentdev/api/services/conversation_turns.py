@@ -13,8 +13,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from agentdev.runtime.node.agent.team import DELEGATION_KIND, MAX_DIGEST_ENTRIES, clip_middle
 
-MAX_TURNS = 8
-MAX_TRANSCRIPT_CHARS = 14_000
+MAX_TURNS = 4
+MAX_TRANSCRIPT_CHARS = 9_000
 MAX_USER_CHARS = 2_000
 MAX_LATEST_USER_CHARS = 4_000
 MAX_ANSWER_CHARS = 4_000
@@ -32,6 +32,23 @@ MAX_OLD_USER_CHARS = 800
 MAX_OLD_ANSWER_CHARS = 1_200
 MAX_OLD_QUESTION_CHARS = 600
 MAX_OLD_REPLY_CHARS = 300
+
+# Pinned project brief: kept ahead of the transcript so the agreed scope survives long chats.
+MAX_BRIEF_FIRST_CHARS = 1_500
+MAX_BRIEF_PLAN_CHARS = 2_500
+MAX_BRIEF_DECISIONS = 8
+MAX_BRIEF_QUESTION_CHARS = 200
+MAX_BRIEF_REPLY_CHARS = 350
+MAX_BRIEF_CHARS = 6_000
+MAX_FILES_LISTED = 40
+BRIEF_HEADER = (
+    "[PROJECT BRIEF (pinned, always applies even if the turns below are omitted): the original request, the "
+    "latest plan and the user's answers. Keep to this scope; do not redo what is done.]"
+)
+FILES_HEADER = (
+    "[Files changed so far in this conversation. Read these files when you need them instead of "
+    "regenerating or rewriting them from scratch.]"
+)
 
 HEADER = (
     "[Earlier in this conversation, oldest first. Context only: decisions, approvals and facts in it still "
@@ -223,7 +240,53 @@ def build_transcript(
     return "\n".join(lines)
 
 
-def compose_follow_up_prompt(turns: List[Dict[str, Any]], prompt: str, resume_note: str = "") -> str:
+def build_project_brief(turns: List[Dict[str, Any]]) -> str:
+    """Deterministic brief of the whole session (no model call): first request, latest plan, user answers."""
+    usable = [t for t in turns or [] if isinstance(t, dict)]
+    parts: List[str] = []
+    first = next((str(t.get("user") or "").strip() for t in usable if str(t.get("user") or "").strip()), "")
+    if first:
+        parts.append(f"Original request: {_clip(first, MAX_BRIEF_FIRST_CHARS)}")
+    plan = next((t for t in reversed(usable) if is_plan_turn(t) and str(t.get("answer") or "").strip()), None)
+    if plan:
+        parts.append(f"Latest plan submitted: {_clip(str(plan['answer']).strip(), MAX_BRIEF_PLAN_CHARS)}")
+    decisions: List[str] = []
+    for t in usable:
+        for ex in t.get("exchanges") or []:
+            if isinstance(ex, dict) and str(ex.get("answer") or "").strip():
+                decisions.append(
+                    f"- Q: {_clip(str(ex.get('question') or ''), MAX_BRIEF_QUESTION_CHARS)} "
+                    f"A: {_clip(str(ex['answer']).strip(), MAX_BRIEF_REPLY_CHARS)}"
+                )
+    if decisions:
+        parts.append("User's answers to your questions (confirmed decisions):")
+        parts.extend(decisions[-MAX_BRIEF_DECISIONS:])
+    if not parts:
+        return ""
+    return clip_middle("\n".join([BRIEF_HEADER] + parts), MAX_BRIEF_CHARS, head_ratio=0.5)
+
+
+def render_files_digest(changed_files: Any) -> str:
+    """"Files changed so far" block from ``{path: size_bytes}`` (or a list of paths); "" when empty."""
+    if isinstance(changed_files, dict):
+        items = [(str(k), v) for k, v in changed_files.items()]
+    else:
+        items = [(str(k), None) for k in changed_files or []]
+    items = [(k, v) for k, v in items if k]
+    if not items:
+        return ""
+    shown = items[-MAX_FILES_LISTED:]
+    lines = [FILES_HEADER]
+    for path, size in shown:
+        lines.append(f"- {path}" + (f" ({size} bytes)" if isinstance(size, int) and size >= 0 else ""))
+    if len(items) > len(shown):
+        lines.append(f"(+{len(items) - len(shown)} earlier file(s) not listed)")
+    return "\n".join(lines)
+
+
+def compose_follow_up_prompt(
+    turns: List[Dict[str, Any]], prompt: str, resume_note: str = "", changed_files: Any = None
+) -> str:
     """Prefix ``prompt`` with the session transcript; unchanged when there is no history.
 
     ``resume_note``: what an interrupted run had done (see run_checkpoint.build_resume_note); it
@@ -234,6 +297,9 @@ def compose_follow_up_prompt(turns: List[Dict[str, Any]], prompt: str, resume_no
         if resume_note:
             return f"{resume_note}\n\n{NEW_MESSAGE_HEADER}\n{prompt or ''}".rstrip()
         return prompt
+    brief = build_project_brief(turns)
+    files = render_files_digest(changed_files)
+    transcript = "\n\n".join(x for x in (brief, transcript, files) if x)
     note = f"{resume_note}\n\n" if resume_note else ""
     if turns and is_plan_turn(turns[-1]):
         # Before the new-message header: the header still marks where the user's own text starts.

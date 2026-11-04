@@ -419,7 +419,12 @@ class WorkflowRunService:
         start_nodes = list(getattr(graph_context.config.definition, "start_nodes", None) or [])
         if len(start_nodes) != 1:
             return prompt
-        return compose_follow_up_prompt(session.turns, prompt, self._resume_note(session, prompt))
+        return compose_follow_up_prompt(
+            session.turns,
+            prompt,
+            self._resume_note(session, prompt),
+            changed_files=getattr(session, "changed_files", None),
+        )
 
     @staticmethod
     def _resume_note(session, prompt: str) -> str:

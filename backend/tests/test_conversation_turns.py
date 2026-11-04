@@ -37,7 +37,7 @@ def test_no_history_leaves_prompt_untouched():
 def test_transcript_lists_turns_then_new_message():
     turns = [make_turn("Build login", "Login done in app/auth.py", ["spec.pdf"])]
     text = compose_follow_up_prompt(turns, "Now add logout")
-    assert text.startswith(HEADER)
+    assert HEADER in text
     assert "User: Build login" in text and "spec.pdf" in text
     assert "You answered: Login done in app/auth.py" in text
     assert text.endswith(f"{NEW_MESSAGE_HEADER}\nNow add logout")
@@ -68,7 +68,7 @@ def test_transcript_caps_turn_count_and_size():
 
 def test_long_answers_keep_start_and_end_and_latest_turn_gets_more_room():
     answer = "START " + "x" * 20_000 + " END"
-    text = build_transcript([make_turn("old", answer), make_turn("new", answer)])
+    text = build_transcript([make_turn("old", answer), make_turn("new", answer)], max_chars=14_000)
     old, new = text.split("--- Turn 2 ---")
     assert "START" in old and "END" in old and "chars omitted" in old
     assert "START" in new and "END" in new
@@ -360,3 +360,28 @@ def test_failed_run_saves_turn_with_error_status(run_service, monkeypatch):
     asyncio.run(service.start_workflow("ex", "team.yaml", "Build a login API", socket))
     assert socket.sent[-1]["type"] == "error"
     assert store.get_session("ex").turns == [{**make_turn("Build a login API", ""), "status": "error"}]
+
+
+def test_pinned_brief_survives_many_turns():
+    from agentdev.api.services.conversation_turns import MAX_BRIEF_CHARS
+
+    turns = [make_turn("BUILD SHOP SCOPE-X", "ok")]
+    turns.append({**make_turn("go", "PLAN-Y: step one"), "kind": "plan"})
+    turns.append(make_turn("ok", "done", exchanges=[{"question": "DB?", "answer": "use postgres-Z"}]))
+    turns += [make_turn(f"msg {i}", f"ans {i}") for i in range(12)]
+    text = compose_follow_up_prompt(turns, "next")
+    assert "PROJECT BRIEF" in text and "BUILD SHOP SCOPE-X" in text
+    assert "PLAN-Y" in text and "postgres-Z" in text
+    assert text.index("PROJECT BRIEF") < text.index("Earlier in this conversation")
+    assert "msg 0" not in text.split("Earlier in this conversation")[1]
+    from agentdev.api.services.conversation_turns import build_project_brief
+
+    assert len(build_project_brief([make_turn("x" * 50_000, "y")] * 3)) <= MAX_BRIEF_CHARS
+
+
+def test_files_digest_rendered_and_capped():
+    files = {f"src/f{i}.py": i * 10 for i in range(60)}
+    text = compose_follow_up_prompt([make_turn("hi", "hello")], "more", changed_files=files)
+    assert "src/f59.py (590 bytes)" in text and "src/f0.py" not in text
+    assert text.count("\n- src/") == 40 and "earlier file(s)" in text
+    assert "src/" not in compose_follow_up_prompt([make_turn("hi", "hello")], "more")
