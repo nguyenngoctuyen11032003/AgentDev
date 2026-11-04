@@ -9,6 +9,7 @@ from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.utils.attachments import AttachmentStore
 from agentdev.utils.exceptions import TimeoutError
 from agentdev.utils.human_prompt import PromptChannel, PromptResult
+from agentdev.utils.run_mode import DEFAULT_RUN_MODE, RUN_MODE_AUTO_ANSWER, answers_automatically, normalize_run_mode
 from agentdev.utils.structured_logger import get_server_logger
 
 
@@ -23,8 +24,10 @@ class WebPromptChannel(PromptChannel):
         websocket_manager: Any,
         attachment_service: AttachmentService,
         attachment_store: AttachmentStore,
+        run_mode: str = DEFAULT_RUN_MODE,
     ) -> None:
         self.session_id = session_id
+        self.run_mode = normalize_run_mode(run_mode)
         self.session_controller = session_controller
         self.websocket_manager = websocket_manager
         self.attachment_service = attachment_service
@@ -43,6 +46,22 @@ class WebPromptChannel(PromptChannel):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> PromptResult:
         preview = inputs or ""
+        if answers_automatically(self.run_mode, metadata):
+            # The user chose not to be asked in this turn: answer for them, and say so in the chat
+            self._send({
+                "type": "auto_answered",
+                "data": {
+                    "node_id": node_id,
+                    "task_description": task,
+                    "answer": RUN_MODE_AUTO_ANSWER,
+                    "mode": self.run_mode,
+                },
+            })
+            return PromptResult(
+                text=RUN_MODE_AUTO_ANSWER,
+                blocks=[MessageBlock.text_block(RUN_MODE_AUTO_ANSWER)],
+                metadata={"auto_answered": True, "run_mode": self.run_mode},
+            )
         payload = {
             "input": preview,
             "task_description": task,

@@ -177,6 +177,24 @@ const others = computed(() => props.workers.slice(1))
   outline-offset: 2px;
   border-radius: 4px;
 }
+/* A finished (or idle) turn is a fact, not an alert: a quiet line without a box */
+.live-progress.is-done,
+.live-progress.is-muted {
+  padding: 4px 2px;
+  border-color: transparent;
+  background: transparent;
+  color: rgb(var(--ink) / 0.55);
+}
+.is-done .live-main,
+.is-muted .live-main { flex: 0 1 auto; }
+.live-progress.is-danger {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface-raised));
+}
+.live-progress.is-waiting {
+  border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
+  background: color-mix(in srgb, var(--warn) 7%, var(--surface-raised));
+}
 @media (max-width: 520px) {
   .live-progress { flex-wrap: wrap; }
   .live-meta { width: 100%; padding-left: 16px; }

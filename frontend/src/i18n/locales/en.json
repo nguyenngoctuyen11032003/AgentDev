@@ -1087,7 +1087,30 @@
     },
     "stopping": "Stopping…",
     "stop_unconfirmed": "Stopped here: the server has not confirmed the stop yet.",
-    "take_over_here": "Open here"
+    "take_over_here": "Open here",
+    "mode": {
+      "title": "Modes",
+      "to_switch": "to switch",
+      "trigger_title": "Mode: {mode}. Click to change (Shift+Tab in the message box)",
+      "next_turn": "A turn is running: the new mode applies from your next message.",
+      "auto_answered": "Answered {node}'s question automatically, as the current mode allows.",
+      "manual": {
+        "label": "Ask first",
+        "desc": "Runs the workflow as designed: every question and approval step waits for you."
+      },
+      "plan": {
+        "label": "Plan",
+        "desc": "The lead always presents a plan and waits for your approval before assigning work."
+      },
+      "auto": {
+        "label": "Auto",
+        "desc": "No plan approval and the lead's questions are answered automatically; the workflow's approval steps still wait for you."
+      },
+      "bypass": {
+        "label": "Bypass approvals",
+        "desc": "Answers every question and approval step automatically. Paid steps (such as a Veo video render) still never run on their own."
+      }
+    }
   },
   "form_generator": {
     "advanced_settings": "Advanced Settings",
