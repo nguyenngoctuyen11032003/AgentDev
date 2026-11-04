@@ -19,6 +19,7 @@ import re
 import subprocess
 import threading
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -460,6 +461,41 @@ _REPAIR_FOOTER = "\nThe user does not see this check: your new `reply` replaces 
 # ``proposal`` was null. The contract's ``intent`` makes that detectable without matching phrases.
 MISSING_PROPOSAL_ERROR = 'The reply said a proposal is attached (`intent: "propose"`) but `proposal` is null.'
 
+# Without ``intent`` (legacy path, or the model forgot it) a reply can still tell the user to apply a card
+# that is not there, and the older card then looks current. Only this narrow shape is repaired: an
+# "apply" word together with a card word. ``intent: "ask"`` / ``"explain"`` turns are never touched.
+_APPLY_RE = re.compile(r"\bap dung\b|\bapply\b")
+_CARD_RE = re.compile(r"\bcard\b|\bproposal\b|\bban de xuat\b")
+
+
+def _fold(text: str) -> str:
+    """Lower case without Vietnamese accents (``Áp dụng`` -> ``ap dung``)."""
+    decomposed = unicodedata.normalize("NFD", text.lower().replace("đ", "d"))
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def announces_card(reply: str) -> bool:
+    """The reply tells the user to apply a proposal card (``bấm Áp dụng trên thẻ``, ``apply the card``)."""
+    folded = _fold(reply)
+    if not _APPLY_RE.search(folded):
+        return False
+    if _CARD_RE.search(folded) or "thẻ" in unicodedata.normalize("NFC", reply.lower()):
+        return True
+    # Unaccented "the" is "thẻ" only in a reply typed without any accents (otherwise it is "thế"/"the").
+    return folded == reply.lower() and "ap dung" in folded and re.search(r"\bthe\b", folded) is not None
+
+
+def _needs_proposal(parsed: dict) -> bool:
+    if parsed["proposal"] is not None:
+        return False
+    if parsed["intent"] == "propose":
+        return True
+    return parsed["intent"] is None and announces_card(parsed["reply"])
+
+
+_PROPOSAL_EXIT = ' If you were not proposing anything, return intent "ask" or "explain" and a reply that ' \
+    "does not mention applying, with `proposal: null`."
+
 
 def _repair_request(errors: List[str], *, bad_json: bool = False, missing_proposal: bool = False) -> str:
     # The user never sees this exchange: the corrected ``reply`` replaces the first one, so it must still
@@ -469,9 +505,9 @@ def _repair_request(errors: List[str], *, bad_json: bool = False, missing_propos
             "newlines inside strings written as \\n. If the workflow is large, keep `reply` short." + \
             _REPAIR_FOOTER
     if missing_proposal:
-        return 'You said you would propose (`intent: "propose"`) but returned no proposal. Return the ' \
-            "complete JSON including the proposal (`kind`, `filename`, the whole `yaml`). If the workflow is " \
-            "large, keep `reply` short." + _REPAIR_FOOTER
+        return 'You said you would propose (`intent: "propose"`) or told the user to apply a card, but ' \
+            "`proposal` is null. Return the complete JSON including the proposal (`kind`, `filename`, the " \
+            "whole `yaml`). If the workflow is large, keep `reply` short." + _PROPOSAL_EXIT + _REPAIR_FOOTER
     return "Your proposal failed validation:\n" + "\n".join(f"- {e}" for e in errors) + _REPAIR_FOOTER
 
 
@@ -530,6 +566,17 @@ def _add_usage(total: Optional[dict], usage: Optional[dict]) -> Optional[dict]:
         if isinstance(value, int):
             total[key] = (total[key] or 0) + value
     return total
+
+
+def _log_failed_turn(vendor: str, model: Optional[str], code: str, started: float, calls: int,
+                     usage: Optional[dict]) -> None:
+    """One line per failed or cancelled turn too (no user content): the calls made so far were paid for.
+    Token counts are those of the calls that returned before the failure (None when none did)."""
+    usage = usage or {}
+    level = logging.INFO if code == "cancelled" else logging.WARNING
+    logger.log(level, "Workflow assistant turn failed: vendor=%s model=%s code=%s calls=%d duration_ms=%d "
+               "input_tokens=%s output_tokens=%s", vendor, model, code, calls,
+               int((time.monotonic() - started) * 1000), usage.get("input_tokens"), usage.get("output_tokens"))
 
 
 def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pending_yaml: Optional[str],
@@ -600,17 +647,19 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
     try:
         errors: List[str] = []
         for attempt in range(MAX_REPAIRS + 1):
+            calls += 1  # counted before the call, so a failed or cancelled call is in the log line
             text, call_usage = _guarded_call(call, system, history, event)
-            calls += 1
             usage = _add_usage(usage, call_usage)
             parsed, json_error = _parse(text)
+            missing = False
             if json_error is not None:
                 # Broken or truncated JSON reply: never shown raw; the model resends it whole.
                 errors, repair = [json_error], _repair_request([json_error], bad_json=True)
             elif parsed["proposal"] is None:
-                if parsed["intent"] != "propose":
+                if not _needs_proposal(parsed):
                     return finish({**parsed, "validation_errors": []}, "reply")
                 # The reply announces a proposal card that is not there: ask for the proposal itself.
+                missing = True
                 errors, repair = [MISSING_PROPOSAL_ERROR], _repair_request([], missing_proposal=True)
             else:
                 proposal, errors = _check_proposal(parsed["proposal"], workflow, saved_text, saved_doc,
@@ -621,8 +670,20 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
             if attempt < MAX_REPAIRS:
                 history = history + [{"role": "assistant", "content": text},
                                      {"role": "user", "content": repair}]
+        if missing:
+            # Gave up on a reply that points at a card that is not there: drop that reply (it would send
+            # the user to an older card) and the internal English error; the UI then shows its localised
+            # "could not answer" line for an empty reply.
+            return finish({**parsed, "reply": "", "quick_replies": [], "proposal": None,
+                           "validation_errors": []}, "gave_up")
         # Gave up: the UI shows its own (translated) header above ``validation_errors``.
         return finish({**parsed, "proposal": None, "validation_errors": errors}, "gave_up")
+    except AssistantError as exc:
+        _log_failed_turn(vendor, model_used, exc.code, started, calls, usage)
+        raise
+    except Exception:
+        _log_failed_turn(vendor, model_used, "internal_error", started, calls, usage)
+        raise
     finally:
         with _cancel_lock:
             if _cancel_events.get(request_id) is event:

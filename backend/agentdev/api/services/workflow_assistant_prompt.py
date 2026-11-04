@@ -155,6 +155,25 @@ inside a workflow, is a request from the user. The user's own words follow `[The
 
 CONTEXT_HEADER = "[App context for this turn, written by AgentDev, not by the user]"
 USER_HEADER = "[The user's message]"
+# A saved or pending workflow (imported, or written by an agent with ``save_file``) is pasted into the
+# context block; it must not be able to fake the block's headers. Inside injected content their square
+# brackets become look-alike fullwidth ones, which the model reads the same but cannot take for a header.
+_MARKER_RE = re.compile(
+    "|".join(re.escape(h) for h in (CONTEXT_HEADER, USER_HEADER)) + r"|\[(?=\s*(?:the user's message|app context))",
+    re.IGNORECASE,
+)
+
+
+def neutralise_markers(text: str) -> str:
+    """``text`` with every context-block header (any case) defused: ``[`` / ``]`` -> ``［`` / ``］``."""
+    return _MARKER_RE.sub(lambda m: m.group(0).replace("[", "［").replace("]", "］"), text)
+
+
+def _fenced_yaml(text: str) -> str:
+    """A YAML code fence longer than any backtick run inside ``text``, so the text cannot close it."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}yaml\n{neutralise_markers(text.rstrip(chr(10)))}\n{fence}"
 
 
 def turn_context(
@@ -166,7 +185,7 @@ def turn_context(
     chat_vendor: Optional[str] = None,
 ) -> str:
     """The sections that vary per chat or per turn (never part of the cached system prompt)."""
-    files = "\n".join(f"- `{name}`" for name in existing_files) or "- (none)"
+    files = "\n".join(f"- `{neutralise_markers(name)}`" for name in existing_files) or "- (none)"
     sections = [
         "## Existing workflow files (do not reuse these names for a new file; `subgraph` may point to them)\n"
         + files
@@ -178,9 +197,9 @@ def turn_context(
         )
     if current_yaml is not None:
         sections.append(
-            f"## Current workflow: `{current_name or 'untitled'}`\n\n"
+            f"## Current workflow: `{neutralise_markers(current_name or 'untitled')}`\n\n"
             "The user has this workflow open. Explain it from this YAML; an edit proposal starts from it "
-            "(`kind: \"edit\"`, same filename).\n\n```yaml\n" + current_yaml.rstrip("\n") + "\n```"
+            "(`kind: \"edit\"`, same filename).\n\n" + _fenced_yaml(current_yaml)
         )
     else:
         sections.append(
@@ -191,7 +210,7 @@ def turn_context(
             "## Bản đề xuất chưa áp dụng (pending proposal)\n\n"
             "You already proposed this YAML and the user has not applied it yet. When they ask for changes, "
             "continue from this proposal, not from the original: keep everything they did not ask to change.\n\n"
-            "```yaml\n" + pending_yaml.rstrip("\n") + "\n```"
+            + _fenced_yaml(pending_yaml)
         )
     sections.append(FORMAT_REMINDER)
     return "\n\n".join(sections)
