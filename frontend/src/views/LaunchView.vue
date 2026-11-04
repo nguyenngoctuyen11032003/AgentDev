@@ -5127,9 +5127,15 @@ const processMessage = async (msg) => {
 
   // Handle warning/error messages
   else if (msg.type === 'log' && (msg.data.level === 'WARNING' || msg.data.level === 'ERROR')) {
-    const notificationType = msg.data.level === 'WARNING' ? 'warning' : 'error'
+    // A failed tool call is fed back to the agent, which retries on its own: show it as a
+    // warning with the real reason instead of the bare "Tool call X for node Y" line.
+    const isToolFailure = msg.data.event_type === 'TOOL_CALL'
+    const notificationType = msg.data.level === 'WARNING' || isToolFailure ? 'warning' : 'error'
     // Backend warning/error text is technical English; give it a localized lead-in
-    const detail = formatErrorDetail(msg.data.message)
+    const toolError = isToolFailure ? msg.data.details?.error : null
+    const detail = formatErrorDetail(
+      toolError ? `${msg.data.details?.tool_name || ''}: ${toolError}` : msg.data.message
+    )
     const fallbackKey = notificationType === 'warning' ? 'launch.unknown_warning' : 'launch.unknown_error'
     addChatNotification(
       detail ? withErrorHint(t(`launch.log_events.backend_${notificationType}`, { detail })) : t(fallbackKey),

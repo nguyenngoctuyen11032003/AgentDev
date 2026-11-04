@@ -180,6 +180,16 @@ def list_directory(
     ctx = FileToolContext(_context)
     target = ctx.resolve_under_workspace(path)
     if not target.exists():
+        # Agents routinely probe the reserved "attachments" folder. It only exists in
+        # sessions with uploads; a folder opened in place has none, so report it empty.
+        if path.strip().strip("/\\").lower() == "attachments":
+            return {
+                "directory": "attachments",
+                "entries": [],
+                "truncated": False,
+                "recursive": recursive,
+                "note": "No uploaded attachments in this session.",
+            }
         raise FileNotFoundError(f"Directory not found: {path}")
     if not target.is_dir():
         raise NotADirectoryError(f"Path is not a directory: {path}")
