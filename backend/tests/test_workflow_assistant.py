@@ -247,7 +247,7 @@ def test_load_context(tmp_path, monkeypatch):
     assert context["skills"] == [("good", "ok")]
     assert "save_file" in dict(context["tools"])
     assert "claude-opus-5-5" in context["models"]["anthropic"]
-    assert set(context["models"]) == {"anthropic", "openai"}
+    assert set(context["models"]) == {"anthropic", "openai", "gemini"}
 
 
 # ---------------------------------------------------------------------------- chat turn
@@ -415,11 +415,20 @@ def test_invalid_filename_is_repaired(turn_env):
     assert out["proposal"]["filename"] == "tong_dai.yaml"
 
 
-def test_yml_extension_is_repaired(turn_env):
-    call = FakeCall(_reply("v1", _proposal(filename="tong_dai.yml")), _reply("v2", _proposal()))
+@pytest.mark.parametrize("name", ["tong_dai.yml", "tong_dai", "tong_dai.YML"])
+def test_yml_or_missing_extension_is_fixed_without_a_repair_call(turn_env, name):
+    call = FakeCall(_reply("v1", _proposal(filename=name)), _reply("v2", _proposal()))
+    out = _turn(call)
+    assert len(call.calls) == 1
+    assert out["proposal"]["filename"] == "tong_dai.yaml"
+
+
+def test_yml_name_of_an_existing_file_is_still_repaired(turn_env):
+    (turn_env / "tong_dai.yaml").write_text(VALID_YAML, encoding="utf-8")
+    call = FakeCall(_reply("v1", _proposal(filename="tong_dai.yml")), _reply("v2", _proposal(filename="new_one.yaml")))
     out = _turn(call)
     assert len(call.calls) == 2
-    assert out["proposal"]["filename"] == "tong_dai.yaml"
+    assert out["proposal"]["filename"] == "new_one.yaml"
 
 
 def _edited_yaml():
@@ -559,7 +568,7 @@ def test_duplicate_request_id_in_flight_is_bad_request(turn_env):
 
 def test_unknown_vendor_bad_request(turn_env):
     with pytest.raises(wa.AssistantError) as info:
-        wa.run_turn(vendor="gemini", workflow=None, messages=[{"role": "user", "content": "x"}],
+        wa.run_turn(vendor="mistral", workflow=None, messages=[{"role": "user", "content": "x"}],
                     pending_yaml=None, request_id="r", call=FakeCall(_reply()))
     assert info.value.code == "bad_request"
 
@@ -609,6 +618,7 @@ def test_list_providers(monkeypatch):
         {"vendor": "anthropic", "label": "Claude", "connection_id": "claude-2", "model": "claude-2-model",
          "available": True},
         {"vendor": "openai", "label": "Codex", "connection_id": None, "model": None, "available": False},
+        {"vendor": "gemini", "label": "Gemini", "connection_id": None, "model": None, "available": False},
     ]
 
 
@@ -1136,3 +1146,27 @@ def test_neutralise_markers_case_insensitive():
     out = prompt_mod.neutralise_markers(text)
     assert "[the user's" not in out.lower() and "[app context" not in out.lower()
     assert out.startswith("a ") and out.endswith(" c")
+
+
+def test_gemini_usage_and_signed_out():
+    from agentdev.connections.resolver import ConnectionResolutionError
+
+    raw = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=10, candidates_token_count=3,
+                                                         cached_content_token_count=None))
+    assert wa.usage_from_raw(raw) == {"input_tokens": 10, "output_tokens": 3, "cache_read_tokens": None}
+    assert wa._is_signed_out(ConnectionResolutionError("sign-in expired"))
+
+
+def test_model_not_found_maps_to_model_unavailable(turn_env):
+    class ClientError(Exception):
+        code = 404
+
+    for exc in (ClientError("404 NOT_FOUND. models/gemini-2.5-pro is no longer available"),
+                RuntimeError("Model not found: secret-path C:\\x")):
+        def call(system, messages, exc=exc):
+            raise exc
+
+        with pytest.raises(wa.AssistantError) as info:
+            _turn(call)
+        assert info.value.code == "model_unavailable"
+        assert "gemini-2.5" not in info.value.message and "C:\\" not in info.value.message

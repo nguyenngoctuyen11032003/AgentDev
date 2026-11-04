@@ -48,6 +48,25 @@ def _json_safe(value: Any) -> Any:
     return str(value)
 
 
+# Long values (whole prompts, model replies, tool output) stay complete in the in-memory entries (the run's
+# timeline) but are clipped on the console and in the structured log file, which every INFO entry is
+# written to: an agent run used to append its full conversation again on every step.
+_SINK_STRING_LIMIT = 1500
+_CONSOLE_STRING_LIMIT = 300
+
+
+def _clip_for_sink(value: Any, limit: int, depth: int = 0) -> Any:
+    if isinstance(value, str):
+        return value if len(value) <= limit else f"{value[:limit]}... [+{len(value) - limit} chars]"
+    if depth >= 6:
+        return value
+    if isinstance(value, dict):
+        return {key: _clip_for_sink(val, limit, depth + 1) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_clip_for_sink(item, limit, depth + 1) for item in value[:50]]
+    return value
+
+
 @dataclass
 class LogEntry:
     """Single log entry that captures execution details."""
@@ -123,7 +142,7 @@ class WorkflowLogger:
                            f"{f'Node {node_id} - ' if node_id else ''}"
                            f"{f'Event {event_type} - ' if event_type else ''}"
                            f"{message} "
-                           f"{f'Details: {details} ' if details else ''}"
+                           f"{f'Details: {_clip_for_sink(safe_details, _CONSOLE_STRING_LIMIT)} ' if details else ''}"
                            f"{f'Duration: {duration}' if duration else ''}")
         
         # Log using structured logger if enabled
@@ -134,7 +153,7 @@ class WorkflowLogger:
                 "event_type": event_type.value if event_type else None,
                 "execution_path": execution_path,
                 "duration": duration,
-                **safe_details
+                **_clip_for_sink(safe_details, _SINK_STRING_LIMIT),
             }
             
             if level == LogLevel.DEBUG:
@@ -281,7 +300,10 @@ class WorkflowLogger:
         if stage_value:
             tool_details["stage"] = stage_value
 
-        level = LogLevel.INFO if success is not False else LogLevel.ERROR
+        # A failure the agent sees and handles itself (``recoverable``) stays an INFO timeline entry
+        # (with ``success: False`` and the reason in ``error``); only unhandled failures are ERROR.
+        recoverable = bool(tool_details.get("recoverable"))
+        level = LogLevel.INFO if success is not False or recoverable else LogLevel.ERROR
         self.add_log(
             level,
             f"Tool call {tool_name} for node {node_id}",

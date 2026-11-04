@@ -17,6 +17,7 @@ from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.api.services.session_history import SessionHistoryStore
 from agentdev.api.services.session_store import WorkflowSessionStore, SessionStatus
 from agentdev.api.services.workflow_run_service import WorkflowRunService
+from agentdev.api.services.websocket_logger import client_entry
 from agentdev.utils.exceptions import ValidationError
 from agentdev.utils.workspace_paths import validate_path_component
 
@@ -69,6 +70,7 @@ class WebSocketManager:
         self.connection_timestamps: Dict[str, float] = {}
         self._owner_loop: Optional[asyncio.AbstractEventLoop] = None
         self._gc_task: Optional[asyncio.Task] = None
+        self._sync_tasks: set = set()  # send tasks started from the loop thread (kept referenced until done)
         # Live messages for a socket that is still replaying the buffer, keyed by id(socket);
         # flushed in order once the replay is done so nothing overtakes older history.
         self._replay_queues: Dict[int, list] = {}
@@ -141,6 +143,10 @@ class WebSocketManager:
                 for msg in messages_to_replay:
                     if not still_current():
                         return session_id
+                    # Sessions saved before log entries were trimmed for the client carry whole
+                    # model prompts; trim them on the way out too.
+                    if isinstance(msg, dict) and msg.get("type") == "log" and isinstance(msg.get("data"), dict):
+                        msg = {**msg, "data": client_entry(msg["data"])}
                     await self._send_to(websocket, session_id, msg)
 
                 snapshot = self.session_store.get_session_snapshot(session_id)
@@ -225,6 +231,11 @@ class WebSocketManager:
         message = _with_timestamp({"type": "user_message", "data": {"text": text or "", "attachments": names}})
         self.session_store.record_message(session_id, message, _encode_ws_message(message))
 
+    def record_user_note(self, session_id: str, text: str) -> None:
+        """Buffer a note the user wrote mid-run (stored, not sent: the browser shows it itself)."""
+        message = _with_timestamp({"type": "user_note", "data": {"text": text or ""}})
+        self.session_store.record_message(session_id, message, _encode_ws_message(message))
+
     async def _send_raw(self, session_id: str, message: Dict[str, Any]) -> None:
         """Send a message without buffering. Used for replay and connection management."""
         if session_id in self.active_connections:
@@ -261,6 +272,18 @@ class WebSocketManager:
                 "Cannot send sync message to %s: owner event loop unavailable",
                 session_id,
             )
+            return
+
+        try:
+            on_owner_loop = asyncio.get_running_loop() is loop
+        except RuntimeError:
+            on_owner_loop = False
+        if on_owner_loop:
+            # Called from the loop's own thread (e.g. while a run is being built): waiting on a
+            # future the blocked loop must complete would stall it for the whole timeout.
+            task = loop.create_task(self.send_message(session_id, message))
+            self._sync_tasks.add(task)
+            task.add_done_callback(self._sync_tasks.discard)
             return
 
         future = asyncio.run_coroutine_threadsafe(

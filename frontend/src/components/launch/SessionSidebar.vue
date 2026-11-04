@@ -140,6 +140,7 @@
                 <span class="session-sub">
                   <StatusPill compact :tone="statusTone(item.status)" :label="statusLabel(item.status)" />
                   <span v-if="waitsOnPlan(item)" class="plan-badge" :title="t('launch.plan.status')">{{ t('launch.sessions.awaiting_plan') }}</span>
+                  <span v-else-if="item.resumable && !['completed', 'running', 'waiting_for_input', 'cancelling'].includes(item.status)" class="plan-badge" :title="item.interrupt_reason || t('launch.resume.banner')">{{ t('launch.sessions.interrupted') }}</span>
                   <time v-if="item.updated_at" class="session-time">{{ timeAgo(item.updated_at) }}</time>
                 </span>
               </span>

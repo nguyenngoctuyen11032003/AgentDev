@@ -282,7 +282,7 @@ def test_skill_body_sent_once_at_the_end(tmp_path, scripted, skills_root, monkey
     final_convo = scripted.seen["A"][2]["messages"]
     assert sum(SKILL_BODY in t for _r, t in final_convo) == 1  # re-activation adds nothing
     assert not any(SKILL_BODY in t for r, t in final_convo if r == MessageRole.SYSTEM)
-    assert '"already_active": true' in [t for r, t in final_convo if r == MessageRole.TOOL][-1]
+    assert '"already_active":true' in [t for r, t in final_convo if r == MessageRole.TOOL][-1]
 
 
 # ---------------------------------------------------------------- 8. skill compatibility
@@ -329,11 +329,51 @@ def test_member_works_from_role_description_and_skills(tmp_path, scripted, skill
     fe_system = "\n".join(t for r, t in fe_first if r == MessageRole.SYSTEM)
     assert "You are the frontend engineer." in fe_system
     assert "Always mobile first; WCAG AA." in fe_system
-    assert "MUST be loaded first" in fe_system and "# Loaded skills" in fe_system
+    assert "Your skills are loaded below" in fe_system and "MUST be loaded first" not in fe_system
+    assert "# Loaded skills" in fe_system
     assert SKILL_BODY in fe_system and "reference/rules.md" in fe_system
     assert "Build the login page" in "\n".join(t for r, t in fe_first if r != MessageRole.SYSTEM)
 
     # Activating a preloaded skill only acknowledges it: the body is not sent a second time.
     after = scripted.seen["FE"][1]["messages"]
-    assert '"already_active": true' in after[-1][1]
+    assert '"already_active":true' in after[-1][1]
     assert sum(SKILL_BODY in t for _r, t in after) == 1
+
+
+# ---------------------------------------------------------------- 10. tool result size and stuck loops
+
+def test_tool_result_is_compact_and_a_huge_one_is_clipped():
+    executor = _bare_executor()
+    call = ToolCallPayload(id="c1", function_name="read_file", arguments="{}")
+    compact = executor._build_tool_message({"a": [1, 2], "b": {"c": "x"}}, call, node_id="n", tool_name="read_file")
+    assert compact.text_content() == '{"a":[1,2],"b":{"c":"x"}}'
+
+    huge = "S" * 30_000 + "M" * 30_000 + "E" * 30_000
+    clipped = executor._build_tool_message(huge, call, node_id="n", tool_name="read_file").text_content()
+    limit = agent_executor_module.MAX_TOOL_RESULT_CHARS
+    assert len(clipped) <= limit and clipped.startswith("S") and clipped.endswith("E") and "omitted" in clipped
+    small = executor._build_tool_message("short", call, node_id="n", tool_name="read_file").text_content()
+    assert small == "short"
+
+
+def test_identical_tool_batches_are_cut_off_after_three(tmp_path, scripted, monkeypatch):
+    from agentdev.runtime.sdk import run_workflow
+
+    runs = []
+    original = AgentNodeExecutor._execute_tool_batch
+
+    def counting(self, node, tool_calls, tool_specs, skill_manager):
+        runs.append(tool_calls[0].function_name)
+        return original(self, node, tool_calls, tool_specs, skill_manager)
+
+    same = [("read_file_segment", {"path": "a.txt"})]
+    other = [("read_file_segment", {"path": "b.txt"})]
+    scripted.scripts = {"A": [same, same, same, same, other, "done"]}
+    path = _write(tmp_path, [_agent("A", "worker")], start="A")
+    monkeypatch.setattr(AgentNodeExecutor, "_execute_tool_batch", counting)
+    result = run_workflow(path, task_prompt="go")
+    assert result.final_message.text_content() == "done"
+    # three identical batches run, the 4th is refused, a different call runs again
+    assert len(runs) == 4
+    refused = [t for r, t in scripted.seen["A"][4]["messages"] if r == MessageRole.TOOL and "Not executed" in t]
+    assert len(refused) == 1 and "3 times in a row" in refused[0]

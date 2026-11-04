@@ -189,10 +189,36 @@ class GeminiProvider(ModelProvider):
         parts: List[genai_types.Part] = []
         for block in message.blocks():
             parts.extend(self._block_to_parts(block))
+        # Rebuilding history (a later turn): keep the model's tool calls, or the matching
+        # function responses that follow would be rejected as orphans.
+        if message.tool_calls:
+            parts = [part for part in parts if part.text != ""]
+        for tool_call in message.tool_calls or []:
+            parts.append(self._tool_call_to_part(tool_call))
         if not parts:
             text = message.text_content()
             parts.append(genai_types.Part(text=text))
         return genai_types.Content(role=role, parts=parts)
+
+    def _tool_call_to_part(self, tool_call: ToolCallPayload) -> genai_types.Part:
+        try:
+            args = json.loads(tool_call.arguments) if tool_call.arguments else {}
+        except (TypeError, ValueError):
+            args = {}
+        signature: Any = None
+        encoded = (tool_call.metadata or {}).get("gemini_thought_signature_b64")
+        if encoded:
+            try:
+                signature = base64.b64decode(encoded)
+            except (ValueError, binascii.Error):
+                signature = None
+        # Gemini 3 insists on a signature for a replayed call; this is its documented dummy value.
+        return genai_types.Part(
+            function_call=genai_types.FunctionCall(
+                name=tool_call.function_name, args=args if isinstance(args, dict) else {}
+            ),
+            thought_signature=signature or b"skip_thought_signature_validator",
+        )
 
     def _function_output_event_to_content(
         self,
@@ -702,22 +728,40 @@ class GeminiProvider(ModelProvider):
     def _deserialize_response(self, response: Any) -> Message:
         candidate = self._select_primary_candidate(response)
         if not candidate:
-            return Message(role=MessageRole.ASSISTANT, content="")
+            return Message(role=MessageRole.ASSISTANT, content=self._empty_reason(response, None))
 
         content = getattr(candidate, "content", None)
         if not content:
-            return Message(role=MessageRole.ASSISTANT, content=response.text if hasattr(response, "text") else "")
+            return Message(role=MessageRole.ASSISTANT, content=self._empty_reason(response, candidate))
 
         blocks, tool_calls = self._parse_candidate_parts(getattr(content, "parts", []) or [])
         if not blocks:
             fallback = getattr(response, "text", None) or ""
             blocks = [MessageBlock(MessageBlockType.TEXT, text=fallback)] if fallback else []
 
+        if not blocks and not tool_calls:
+            blocks = [MessageBlock(MessageBlockType.TEXT, text=self._empty_reason(response, candidate))]
+
         return Message(
             role=MessageRole.ASSISTANT,
             content=blocks or "",
             tool_calls=tool_calls,
         )
+
+    @staticmethod
+    def _empty_reason(response: Any, candidate: Any) -> str:
+        """Say why Gemini gave no answer (blocked prompt, safety stop, ...) instead of returning nothing."""
+        feedback = getattr(response, "prompt_feedback", None)
+        block = getattr(feedback, "block_reason", None)
+        if block:
+            detail = getattr(feedback, "block_reason_message", None) or ""
+            return f"Gemini blocked the request ({getattr(block, 'name', block)}). {detail}".strip()
+        finish = getattr(candidate, "finish_reason", None)
+        finish_name = getattr(finish, "name", finish)
+        if finish_name and str(finish_name) not in ("STOP", "FINISH_REASON_UNSPECIFIED"):
+            message = getattr(candidate, "finish_message", None) or ""
+            return f"Gemini returned no answer (finish reason: {finish_name}). {message}".strip()
+        return "Gemini returned an empty answer."
 
     def _select_primary_candidate(self, response: Any) -> Any:
         candidates = getattr(response, "candidates", None) or []

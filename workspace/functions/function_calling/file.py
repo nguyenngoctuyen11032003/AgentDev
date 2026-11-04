@@ -23,7 +23,6 @@ from typing import (
 
 from agentdev.entity.messages import MessageBlock, MessageBlockType
 from agentdev.utils.attachments import AttachmentStore
-from agentdev.utils.workspace_scanner import iter_workspace_entries
 from agentdev.utils.function_catalog import ParamMeta
 
 
@@ -101,6 +100,222 @@ def _check_attachments_not_modified(path: str) -> None:
     if path.startswith("attachments"):
         raise ValueError("Modifications to the attachments directory are not allowed")
 
+
+# ---------------------------------------------------------------------------
+# Token economy: every tool result is re-read by each later model call of the agent's
+# loop, so listings stay compact and errors say how to fix the call in one step.
+# ---------------------------------------------------------------------------
+
+# Dependency / build / VCS folders: walked only when the agent names them explicitly.
+# (Same list as attachment_service.IGNORED_PROJECT_DIRS, which the web upload already filters.)
+_SKIP_DIRS = frozenset(
+    {
+        ".git", ".hg", ".svn", "node_modules", "bower_components", ".venv", "venv",
+        "env", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox",
+        "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
+        ".cache", "coverage", ".gradle", ".idea", "target", "Pods", "DerivedData",
+    }
+)
+# Files never worth a text search (and a 200 MB video is slow to decode).
+_BINARY_EXTS = frozenset(
+    {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico", ".tif", ".tiff", ".psd",
+        ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".mp4", ".mov", ".webm", ".mkv", ".avi",
+        ".glb", ".gltf", ".fbx", ".obj", ".blend", ".ktx2", ".hdr", ".exr",
+        ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".tar", ".jar", ".war",
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".woff", ".woff2", ".ttf", ".otf", ".eot",
+        ".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a", ".class", ".pyc", ".wasm",
+        ".db", ".sqlite", ".sqlite3", ".lock.bin",
+    }
+)
+_MAX_SEARCH_FILE_BYTES = 2 * 1024 * 1024
+# describe_available_files / recursive list_directory: a folder with more direct files than this
+# is summarised in one line (count, extensions, size) instead of one line per file.
+_COLLAPSE_FILES = 25
+_HINT_TOP_LEVEL = 25
+
+
+def _human_size(size: Optional[int]) -> str:
+    if size is None:
+        return ""
+    value = float(size)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{size} B"
+
+
+def _walk_workspace(
+    root: Path,
+    start: Path | None = None,
+    *,
+    include_hidden: bool = False,
+    max_depth: int | None = None,
+    skip_dirs: frozenset[str] = _SKIP_DIRS,
+) -> Iterable[tuple[Path, int, List[Path], List[Path], List[Path]]]:
+    """Breadth-first walk yielding ``(dir, depth, subdirs, files, skipped_dirs)``, sorted by name.
+
+    Hidden entries and dependency/build folders are pruned (reported in ``skipped_dirs``), so an
+    opened project with ``node_modules`` does not turn one listing or search into 25,000 files.
+    """
+    queue: List[tuple[Path, int]] = [(start or root, 0)]
+    while queue:
+        current, depth = queue.pop(0)
+        try:
+            children = sorted(current.iterdir(), key=lambda p: p.name.lower())
+        except (FileNotFoundError, PermissionError, NotADirectoryError, OSError):
+            continue
+        subdirs: List[Path] = []
+        files: List[Path] = []
+        skipped: List[Path] = []
+        for child in children:
+            if not include_hidden and child.name.startswith("."):
+                continue
+            try:
+                is_dir = child.is_dir()
+            except OSError:
+                continue
+            if is_dir:
+                (skipped if child.name in skip_dirs else subdirs).append(child)
+            else:
+                files.append(child)
+        yield current, depth, subdirs, files, skipped
+        if max_depth is None or depth + 1 < max_depth:
+            queue.extend((sub, depth + 1) for sub in subdirs)
+
+
+def _file_size(path: Path) -> Optional[int]:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
+def _extension_summary(files: Sequence[Path], top: int = 4) -> str:
+    counts: Dict[str, int] = {}
+    for item in files:
+        ext = item.suffix.lower() or "(no ext)"
+        counts[ext] = counts.get(ext, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    parts = [f"{count} {ext}" for ext, count in ranked[:top]]
+    if len(ranked) > top:
+        parts.append(f"{sum(count for _, count in ranked[top:])} other")
+    return ", ".join(parts)
+
+
+def _top_level_hint(ctx: "FileToolContext") -> str:
+    """``top-level entries: a/, b/, c.json`` of the workspace, for not-found errors."""
+    try:
+        children = sorted(ctx.workspace_root.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+    except OSError:
+        return ""
+    names = [f"{c.name}/" if c.is_dir() else c.name for c in children if not c.name.startswith(".")]
+    if not names:
+        return "The workspace is empty."
+    more = f", ... (+{len(names) - _HINT_TOP_LEVEL})" if len(names) > _HINT_TOP_LEVEL else ""
+    return "Top-level entries: " + ", ".join(names[:_HINT_TOP_LEVEL]) + more + "."
+
+
+def _similar_paths(ctx: "FileToolContext", path: str, *, want_dir: bool, limit: int = 5) -> List[str]:
+    """Existing workspace paths whose name matches the missing one (bounded walk, skips dependencies)."""
+    import difflib
+
+    wanted = Path(path.replace("\\", "/")).name.lower()
+    if not wanted:
+        return []
+    exact: List[str] = []
+    names: Dict[str, List[str]] = {}
+    seen = 0
+    for current, _depth, subdirs, files, _skipped in _walk_workspace(ctx.workspace_root):
+        for item in subdirs if want_dir else files:
+            rel = item.relative_to(ctx.workspace_root).as_posix()
+            lowered = item.name.lower()
+            if lowered == wanted:
+                exact.append(rel)
+            names.setdefault(lowered, []).append(rel)
+        seen += len(subdirs) + len(files)
+        if len(exact) >= limit or seen > 20000:
+            break
+    if exact:
+        return exact[:limit]
+    close = difflib.get_close_matches(wanted, list(names), n=limit, cutoff=0.75)
+    return [rel for name in close for rel in names[name]][:limit]
+
+
+def _not_found(ctx: "FileToolContext", path: str, *, want_dir: bool) -> FileNotFoundError:
+    """A not-found error that tells the model how to fix its next call (no extra listing round)."""
+    kind = "Directory" if want_dir else "File"
+    parts = [f"{kind} not found: {path}."]
+    root_name = ctx.workspace_root.name
+    parts.append(
+        "Paths are relative to the workspace root ('.')"
+        + (f"; do not prefix them with the folder name '{root_name}/'." if root_name else ".")
+    )
+    similar = _similar_paths(ctx, path, want_dir=want_dir)
+    if similar:
+        parts.append("Did you mean: " + ", ".join(similar) + "?")
+    hint = _top_level_hint(ctx)
+    if hint:
+        parts.append(hint)
+    return FileNotFoundError(" ".join(parts))
+
+
+def _resolve_existing(ctx: "FileToolContext", path: str) -> tuple[Path, Optional[str]]:
+    """Resolve ``path`` under the workspace, repairing the two path mistakes agents make most.
+
+    * ``<root folder name>/src/x.ts`` for a project opened in place (the workspace IS that folder);
+    * ``<project id>/src/x.ts`` for an uploaded project that lives under ``projects/<id>/``.
+
+    Only applied when the path as given does not exist and the repaired one does, so a real
+    sub-folder that happens to share the name always wins. Returns ``(target, note)``; ``note`` tells
+    the model which path was used so its next call is right the first time.
+    """
+    target = ctx.resolve_under_workspace(path)
+    if target.exists():
+        return target, None
+    normalized = str(path).replace("\\", "/").strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    parts = [part for part in normalized.split("/") if part]
+    if not parts or Path(normalized).is_absolute():
+        return target, None
+    candidates: List[List[str]] = []
+    if parts[0].lower() == ctx.workspace_root.name.lower():
+        candidates.append(parts[1:])
+    candidates.append(["projects", *parts])
+    for candidate in candidates:
+        rel = "/".join(candidate) or "."
+        try:
+            repaired = ctx.resolve_under_workspace(rel)
+        except ValueError:
+            continue
+        if repaired.exists():
+            return repaired, f"'{path}' does not exist; used '{rel}' (paths are relative to the workspace root)."
+    return target, None
+
+
+def _resolve_for_write(ctx: "FileToolContext", path: str) -> tuple[Path, Optional[str]]:
+    """Like :func:`_resolve_existing` for a file that may not exist yet.
+
+    ``<root folder name>/x`` would otherwise create a stray nested copy of the project folder
+    inside the user's project; it is written to ``x`` unless that sub-folder really exists.
+    """
+    target, note = _resolve_existing(ctx, path)
+    if target.exists() or note:
+        return target, note
+    parts = [part for part in str(path).replace("\\", "/").split("/") if part and part != "."]
+    root_name = ctx.workspace_root.name
+    if len(parts) > 1 and root_name and parts[0].lower() == root_name.lower():
+        if not (ctx.workspace_root / parts[0]).exists():
+            rel = "/".join(parts[1:])
+            return ctx.resolve_under_workspace(rel), (
+                f"Wrote to '{rel}': paths are relative to the workspace root, which is the folder '{root_name}' itself."
+            )
+    return target, None
+
+
 def describe_available_files(
     *,
     recursive: bool = True,
@@ -110,75 +325,66 @@ def describe_available_files(
     _context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """
-    List accessible files from the attachment store and the current code_workspace.
+    Overview of the workspace files as a compact tree of paths relative to the workspace root.
+    Big folders are summarised (file count, extensions); dependency/build folders are skipped.
     """
 
-    max_depth = 8
     ctx = FileToolContext(_context)
-    entries: List[Dict[str, Any]] = []
-    total_limit = max(1, limit)
-
-    # # Attachment store (user uploads or files registered via load_file)
-    # for attachment_id, record in ctx.attachment_store.list_records().items():
-    #     ref = record.ref
-    #     workspace_path = ctx.to_workspace_relative(ref.local_path)
-    #     session_path = ctx.to_session_relative(ref.local_path)
-    #     display_path = workspace_path or session_path or ref.local_path
-    #     entries.append(
-    #         {
-    #             "id": attachment_id,
-    #             "name": ref.name,
-    #             "source": record.extra.get("source") if record.extra else "attachment",
-    #             "mime": ref.mime_type,
-    #             "size": ref.size,
-    #             "type": "file",
-    #             "path": display_path,
-    #         }
-    #     )
-    #     if len(entries) >= total_limit:
-    #         return {"files": entries}
-
-    # Workspace files (includes attachments directory because it sits inside workspace)
-    for entry in iter_workspace_entries(
-        ctx.workspace_root,
-        recursive=recursive,
-        max_depth=max_depth,
-        include_hidden=include_hidden,
+    root = ctx.workspace_root
+    budget = max(1, limit)
+    lines: List[str] = []
+    total_files = 0
+    truncated = False
+    for current, _depth, subdirs, files, skipped in _walk_workspace(
+        root, include_hidden=include_hidden, max_depth=None if recursive else 1
     ):
-        if len(entries) >= total_limit:
-            break
-        abs_path = (ctx.workspace_root / entry.path).resolve()
-        workspace_path = Path(entry.path)
-        # session_path = ctx.to_session_relative(abs_path)
-        entries.append(
-            {
-                "id": entry.path,
-                "name": Path(entry.path).name,
-                "source": "workspace",
-                "path": workspace_path,
-                "absolute_path": abs_path,
-                "type": entry.type,
-                "size": entry.size,
-                "depth": entry.depth,
-            }
-        )
-
-    return {"files": entries[:total_limit]}
+        rel_dir = current.relative_to(root).as_posix()
+        prefix = "" if rel_dir == "." else rel_dir + "/"
+        total_files += len(files)
+        if len(lines) >= budget:
+            truncated = True
+            continue  # keep counting files for the total
+        if prefix:
+            size = sum(_file_size(item) or 0 for item in files)
+            detail = (f"{len(files)} file" if len(files) == 1 else f"{len(files)} files") + (f", {_human_size(size)}" if files else "")
+            if subdirs:
+                detail += f", {len(subdirs)} folder" + ("" if len(subdirs) == 1 else "s")
+            if len(files) > _COLLAPSE_FILES:
+                lines.append(f"{prefix} ({detail}: {_extension_summary(files)}; list it to see the files)")
+            else:
+                lines.append(f"{prefix} ({detail})")
+                lines.extend(f"{prefix}{item.name}  {_human_size(_file_size(item))}" for item in files)
+        else:
+            lines.extend(f"{item.name}  {_human_size(_file_size(item))}" for item in files)
+        lines.extend(f"{prefix}{item.name}/ (skipped: dependency/build folder)" for item in skipped)
+    if len(lines) > budget:
+        lines = lines[:budget]
+        truncated = True
+    result: Dict[str, Any] = {
+        "root": ".",
+        "total_files": total_files,
+        "tree": "\n".join(lines),
+        "truncated": truncated,
+    }
+    if truncated:
+        result["note"] = "Listing cut at the limit: use list_directory on a sub-folder for the rest."
+    return result
 
 
 def list_directory(
-    path: Annotated[str, ParamMeta(description="Workspace-relative directory path")]=".",
+    path: Annotated[str, ParamMeta(description="Directory path relative to the workspace root ('.' = root)")]=".",
     *,
     recursive: Annotated[bool, ParamMeta(description="Traverse subdirectories")] = False,
     max_depth: Annotated[int, ParamMeta(description="Maximum depth when recursive=True")] = 3,
     include_hidden: Annotated[bool, ParamMeta(description="Include entries starting with '.'")] = False,
-    limit: Annotated[int, ParamMeta(description="Maximum entries to return")] = 500,
+    limit: Annotated[int, ParamMeta(description="Maximum entries to return")] = 300,
     _context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    """List contents of a workspace-relative directory."""
+    """List a directory. Entries are paths relative to the workspace root (folders end with '/',
+    files show their size), ready to pass to the other file tools."""
 
     ctx = FileToolContext(_context)
-    target = ctx.resolve_under_workspace(path)
+    target, note = _resolve_existing(ctx, path)
     if not target.exists():
         # Agents routinely probe the reserved "attachments" folder. It only exists in
         # sessions with uploads; a folder opened in place has none, so report it empty.
@@ -190,59 +396,51 @@ def list_directory(
                 "recursive": recursive,
                 "note": "No uploaded attachments in this session.",
             }
-        raise FileNotFoundError(f"Directory not found: {path}")
+        raise _not_found(ctx, path, want_dir=True)
     if not target.is_dir():
-        raise NotADirectoryError(f"Path is not a directory: {path}")
+        raise NotADirectoryError(
+            f"Path is not a directory: {path}. Read it with read_file_segment, or list its folder."
+        )
 
     if limit <= 0:
         raise ValueError("limit must be positive")
     if recursive and max_depth < 1:
         raise ValueError("max_depth must be >= 1 when recursive")
 
-    entries: List[Dict[str, Any]] = []
-    stack: List[tuple[Path, int]] = [(target, 0)]
+    root = ctx.workspace_root
     base_relative = ctx.to_workspace_relative(target) or "."
 
-    while stack and len(entries) < limit:
-        current, depth = stack.pop()
-        try:
-            children = sorted(current.iterdir(), key=lambda p: p.name.lower())
-        except (FileNotFoundError, PermissionError):
-            continue
-        for child in children:
-            rel = child.relative_to(target)
-            if not include_hidden and _path_is_hidden(rel):
-                continue
-            stat_size = None
-            modified = None
-            try:
-                stat = child.stat()
-                modified = stat.st_mtime
-                if child.is_file():
-                    stat_size = stat.st_size
-            except (FileNotFoundError, PermissionError, OSError):
-                pass
-            entry = {
-                "name": child.name,
-                "relative_path": rel.as_posix(),
-                "absolute_path": str(child),
-                "type": "directory" if child.is_dir() else "file",
-                "size": stat_size,
-                "modified_ts": modified,
-                "depth": depth,
-            }
-            entries.append(entry)
-            if len(entries) >= limit:
-                break
-            if recursive and child.is_dir() and depth + 1 < max_depth:
-                stack.append((child, depth + 1))
+    def rel(item: Path) -> str:
+        return item.relative_to(root).as_posix()
 
-    return {
+    entries: List[str] = []
+    truncated = False
+    for current, depth, subdirs, files, skipped in _walk_workspace(
+        root, target, include_hidden=include_hidden, max_depth=max_depth if recursive else 1
+    ):
+        if len(entries) >= limit:
+            truncated = True
+            break
+        if depth > 0 and len(files) > _COLLAPSE_FILES:
+            size = sum(_file_size(item) or 0 for item in files)
+            entries.append(
+                f"{rel(current)}/* ({len(files)} files, {_human_size(size)}: {_extension_summary(files)};"
+                " list this folder to see them)"
+            )
+        else:
+            entries.extend(f"{rel(item)}  {_human_size(_file_size(item))}" for item in files)
+        entries.extend(f"{rel(item)}/" for item in subdirs)
+        entries.extend(f"{rel(item)}/ (dependency/build folder, not expanded)" for item in skipped)
+    truncated = truncated or len(entries) > limit
+    result: Dict[str, Any] = {
         "directory": base_relative,
         "entries": entries[:limit],
-        "truncated": len(entries) >= limit,
+        "truncated": truncated,
         "recursive": recursive,
     }
+    if note:
+        result["note"] = note
+    return result
 
 
 def create_folder(
@@ -342,9 +540,9 @@ def load_file(
         return [record.as_message_block()]
 
     # Otherwise treat as workspace path
-    target = ctx.resolve_under_workspace(path_or_id)
+    target, _note = _resolve_existing(ctx, path_or_id)
     if not target.exists() or not target.is_file():
-        raise ValueError(f"Workspace file not found: {path_or_id}")
+        raise _not_found(ctx, path_or_id, want_dir=False)
 
     # mime_type = mime_override or (mimetypes.guess_type(target.name)[0] or "application/octet-stream")
     mime_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
@@ -395,7 +593,7 @@ def save_file(
         raise ValueError("mode must be either 'overwrite' or 'append'")
 
     ctx = FileToolContext(_context)
-    target = ctx.resolve_under_workspace(path)
+    target, note = _resolve_for_write(ctx, path)
     if target.exists() and target.is_dir():
         raise ValueError("Target path points to a directory")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -410,13 +608,14 @@ def save_file(
         raise OSError(f"Failed to write file '{target}': {exc}") from exc
 
     size = target.stat().st_size if target.exists() else None
-    return {
+    result = {
         "path": ctx.to_workspace_relative(target),
         "absolute_path": str(target),
         "size": size,
-        # "mode": mode,
-        # "encoding": encoding if content is not None else None,
     }
+    if note:
+        result["note"] = note
+    return result
 
 
 def read_text_file_snippet(
@@ -432,7 +631,7 @@ def read_text_file_snippet(
     ctx = FileToolContext(_context)
     target: Path | None = None
     try:
-        candidate = ctx.resolve_under_workspace(path)
+        candidate, _note = _resolve_existing(ctx, path)
     except ValueError:
         candidate = None
 
@@ -442,7 +641,7 @@ def read_text_file_snippet(
     if target is None:
         target = ctx.resolve_under_session(path)
         if not target.exists() or not target.is_file():
-            raise ValueError(f"File not found in session attachments/workspace: {path}")
+            raise _not_found(ctx, path, want_dir=False)
 
     data = target.read_text(encoding=encoding, errors="replace")
     snippet = data[offset : offset + limit]
@@ -478,9 +677,17 @@ def read_file_segment(
         raise ValueError("line_count must be >= 1")
 
     ctx = FileToolContext(_context)
-    target = ctx.resolve_under_workspace(path)
-    if not target.exists() or not target.is_file():
-        raise FileNotFoundError(f"File not found: {path}")
+    try:
+        target, note = _resolve_existing(ctx, path)
+    except ValueError:
+        # An absolute path outside the workspace: the conversation history points at attachments
+        # (e.g. a project overview) by their stored path, which lives in the session folder when
+        # the project folder is opened in place. Reading them is allowed; writing is not.
+        target, note = ctx.resolve_under_session(path), None
+    if target.is_dir():
+        raise IsADirectoryError(f"Path is a directory, not a file: {path}. List it with list_directory.")
+    if not target.is_file():
+        raise _not_found(ctx, path, want_dir=False)
 
     text, used_encoding = _read_text_content(target, encoding)
     newline_style = _detect_newline(text)
@@ -492,7 +699,7 @@ def read_file_segment(
     total_lines = len(lines_with_breaks)
     start_idx = start_line - 1
     if start_idx >= total_lines:
-        raise ValueError("start_line is beyond the total number of lines in the file")
+        raise ValueError(f"start_line {start_line} is beyond the end of the file ({total_lines} lines)")
 
     lines_returned = min(line_count, total_lines - start_idx)
     end_idx = start_idx + lines_returned
@@ -505,21 +712,19 @@ def read_file_segment(
         line_starts.append(line_starts[-1] + len(line))
     start_char = line_starts[start_idx]
 
+    # Lean metadata: this dict is re-read by every later model call of the loop. Encoding and
+    # newline style only matter to apply_text_edits, which detects and preserves them itself.
     response: Dict[str, Any] = {
         "path": ctx.to_workspace_relative(target),
-        "encoding": used_encoding,
-        "newline": newline_style,
         "start_line": start_line,
         "end_line": start_line + lines_returned - 1,
-        "line_count": line_count,
-        "lines_returned": lines_returned,
         "total_lines": total_lines,
-        "snippet": raw_snippet,
         "truncated": end_idx < total_lines,
         "file_size": stat.st_size,
-        "modified_ts": stat.st_mtime,
-        "mode": "line_range",
+        "snippet": raw_snippet,
     }
+    if note:
+        response["note"] = note
 
     if inline_line_numbers:
         snippet = _render_snippet_with_line_numbers(
@@ -571,11 +776,11 @@ def apply_text_edits(
     """Apply ordered line edits with newline and encoding preservation."""
 
     ctx = FileToolContext(_context)
-    target = ctx.resolve_under_workspace(path)
-    if not target.exists() or not target.is_file():
-        raise FileNotFoundError(f"File not found: {path}")
+    target, note = _resolve_existing(ctx, path)
+    if not target.is_file():
+        raise _not_found(ctx, path, want_dir=False)
 
-    _check_attachments_not_modified(path)
+    _check_attachments_not_modified(ctx.to_workspace_relative(target) or path)
 
     normalized = _normalize_edits(_build_single_edit(start_line, end_line, replacement))
     original_text, used_encoding = _read_text_content(target, encoding)
@@ -604,7 +809,7 @@ def apply_text_edits(
         "applied_edits": len(normalized),
         "trailing_newline": final_trailing,
         "file_size": stat.st_size,
-        "modified_ts": stat.st_mtime,
+        **({"note": note} if note else {}),
     }
 
 
@@ -722,7 +927,7 @@ def search_in_files(
     *,
     globs: Annotated[
         Optional[Sequence[str]],
-        ParamMeta(description="Restrict search to these glob patterns"),
+        ParamMeta(description="Globs relative to the workspace root, e.g. ['src/**/*.ts', '*.md']"),
     ] = None,
     exclude_globs: Annotated[
         Optional[Sequence[str]],
@@ -736,7 +941,7 @@ def search_in_files(
     include_hidden: Annotated[bool, ParamMeta(description="Search hidden files/folders")]=False,
     _context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    """Search workspace files and return structured matches."""
+    """Search text files of the workspace (dependency/build folders and binaries skipped)."""
 
     if max_results <= 0:
         raise ValueError("max_results must be positive")
@@ -755,11 +960,13 @@ def search_in_files(
             flags |= re.IGNORECASE
         compiled_regex = re.compile(pattern, flags)
 
+    skipped: Dict[str, int] = {}
     for candidate in _iter_candidate_files(
         ctx.workspace_root,
         include_patterns,
         exclude_patterns,
         include_hidden,
+        skipped,
     ):
         searched_files += 1
         lines = _read_file_lines_for_search(candidate)
@@ -780,25 +987,44 @@ def search_in_files(
                     "file": ctx.to_workspace_relative(candidate),
                     "line": match["line_number"],
                     "column": match["column"],
-                    "line_text": match["line_text"],
-                    "before": before,
-                    "after": after,
+                    "line_text": _clip_line(match["line_text"]),
+                    "before": [_clip_line(line) for line in before],
+                    "after": [_clip_line(line) for line in after],
                 }
             )
             if len(matches) >= max_results:
-                return {
-                    "matches": matches,
-                    "limited": True,
-                    "engine": "python",
-                    "searched_files": searched_files,
-                }
+                return _search_result(matches, True, searched_files, skipped)
 
-    return {
+    return _search_result(matches, False, searched_files, skipped)
+
+
+# A match in minified code would otherwise send a whole 500 KB line to the model.
+_MAX_MATCH_LINE_CHARS = 300
+
+
+def _clip_line(line: str) -> str:
+    if len(line) <= _MAX_MATCH_LINE_CHARS:
+        return line
+    return line[:_MAX_MATCH_LINE_CHARS] + f"... [+{len(line) - _MAX_MATCH_LINE_CHARS} chars]"
+
+
+def _search_result(
+    matches: List[Dict[str, Any]], limited: bool, searched_files: int, skipped: Dict[str, int]
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
         "matches": matches,
-        "limited": False,
+        "limited": limited,
         "engine": "python",
         "searched_files": searched_files,
     }
+    if skipped.get("binary_or_large"):
+        result["skipped_binary_or_large_files"] = skipped["binary_or_large"]
+    if not matches and searched_files == 0:
+        result["note"] = (
+            "No file matched the globs. Globs are relative to the workspace root; '*.ts' matches at any depth, "
+            "'src/**/*.ts' only under src/. Dependency/build folders are searched only when a glob names them."
+        )
+    return result
 
 
 def _read_text_content(path: Path, encoding: str) -> tuple[str, str]:
@@ -1008,6 +1234,8 @@ def _clear_destination(destination: Path, overwrite: bool) -> None:
 def _normalize_globs(patterns: Optional[Sequence[str]]) -> List[str]:
     if not patterns:
         return []
+    if isinstance(patterns, str):  # a single glob passed as a string, not a list of characters
+        patterns = [patterns]
     normalized: List[str] = []
     for raw in patterns:
         if not raw:
@@ -1016,27 +1244,130 @@ def _normalize_globs(patterns: Optional[Sequence[str]]) -> List[str]:
     return normalized
 
 
+def _translate_glob(fragment: str) -> str:
+    out: List[str] = []
+    i = 0
+    while i < len(fragment):
+        if fragment.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+            continue
+        if fragment.startswith("**", i):
+            out.append(".*")
+            i += 2
+            continue
+        char = fragment[i]
+        if char == "*":
+            out.append("[^/]*")
+        elif char == "?":
+            out.append("[^/]")
+        elif char == "[":
+            end = fragment.find("]", i + 1)
+            if end == -1:
+                out.append(re.escape(char))
+            else:
+                body = fragment[i + 1 : end]
+                if body.startswith("!"):
+                    body = "^" + body[1:]
+                out.append(f"[{body}]")
+                i = end
+        elif char == "{":
+            end = fragment.find("}", i + 1)
+            if end == -1:
+                out.append(re.escape(char))
+            else:
+                options = fragment[i + 1 : end].split(",")
+                out.append("(?:" + "|".join(_translate_glob(option) for option in options) + ")")
+                i = end
+        else:
+            out.append(re.escape(char))
+        i += 1
+    return "".join(out)
+
+
+def _clean_glob(pattern: str) -> str:
+    text = pattern.replace("\\", "/").strip()
+    while text.startswith("./"):
+        text = text[2:]
+    return text.lstrip("/")
+
+
+def _compile_glob(pattern: str) -> re.Pattern[str]:
+    """Glob over workspace-relative POSIX paths: ``**`` spans folders, ``{a,b}`` alternates, and a
+    pattern without ``/`` (``*.tsx``) matches the file name at any depth, as in ripgrep/gitignore."""
+    text = _clean_glob(pattern)
+    if "/" not in text:
+        text = "**/" + text
+    flags = re.IGNORECASE if os.name == "nt" else 0
+    return re.compile("^" + _translate_glob(text) + "$", flags)
+
+
+def _glob_base(pattern: str) -> str:
+    """Literal leading folders of a glob (``src/app`` for ``src/app/**/*.tsx``): where its walk can start."""
+    parts = _clean_glob(pattern).split("/")
+    literal: List[str] = []
+    for part in parts[:-1]:
+        if any(ch in part for ch in "*?[{"):
+            break
+        literal.append(part)
+    return "/".join(literal)
+
+
+def _looks_binary(path: Path) -> bool:
+    if path.suffix.lower() in _BINARY_EXTS:
+        return True
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(4096)
+    except OSError:
+        return True
+    if head.startswith((b"\xff\xfe", b"\xfe\xff")):  # UTF-16 text has NUL bytes but is text
+        return False
+    return b"\0" in head
+
+
 def _iter_candidate_files(
     root: Path,
     include_patterns: Sequence[str],
     exclude_patterns: Sequence[str],
     include_hidden: bool,
+    skipped: Optional[Dict[str, int]] = None,
 ) -> Iterable[Path]:
+    """Text files matching the globs. Dependency/build folders are pruned unless a glob names them,
+    and binary or very large files are skipped (counted in ``skipped``)."""
+    compiled = [_compile_glob(pattern) for pattern in include_patterns]
+    named = {part for pattern in include_patterns for part in _clean_glob(pattern).split("/")}
+    skip_dirs = frozenset(name for name in _SKIP_DIRS if name not in named)
+    bases = sorted({_glob_base(pattern) for pattern in include_patterns})
+    starts: List[Path] = []
+    if "" in bases:
+        starts = [root]
+    else:
+        for base in bases:
+            candidate = (root / base).resolve()
+            if not candidate.is_dir() or not (root in candidate.parents or candidate == root):
+                continue
+            if any(parent in starts for parent in candidate.parents):
+                continue
+            starts.append(candidate)
     yielded: set[str] = set()
-    for pattern in include_patterns:
-        for candidate in root.glob(pattern):
-            if not candidate.is_file():
-                continue
-            rel = candidate.relative_to(root)
-            rel_key = rel.as_posix()
-            if rel_key in yielded:
-                continue
-            if not include_hidden and _path_is_hidden(rel):
-                continue
-            if _is_excluded(rel_key, exclude_patterns):
-                continue
-            yielded.add(rel_key)
-            yield candidate
+    for start in starts:
+        for _current, _depth, _subdirs, files, _skipped_dirs in _walk_workspace(
+            root, start, include_hidden=include_hidden, skip_dirs=skip_dirs
+        ):
+            for candidate in files:
+                rel_key = candidate.relative_to(root).as_posix()
+                if rel_key in yielded or not any(regex.match(rel_key) for regex in compiled):
+                    continue
+                if _is_excluded(rel_key, exclude_patterns):
+                    continue
+                yielded.add(rel_key)
+                size = _file_size(candidate)
+                if size is None or size > _MAX_SEARCH_FILE_BYTES or _looks_binary(candidate):
+                    if skipped is not None:
+                        skipped["binary_or_large"] = skipped.get("binary_or_large", 0) + 1
+                    continue
+                yield candidate
 
 
 def _path_is_hidden(path: Path) -> bool:

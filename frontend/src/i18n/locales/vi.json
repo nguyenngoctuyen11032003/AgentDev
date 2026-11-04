@@ -292,6 +292,60 @@
     "hint_connecting": "Đang kết nối tới máy chủ..."
   },
   "launch": {
+    "live": {
+      "starting": "Đội đang bắt đầu…",
+      "stopping": "Đang dừng lượt chạy…",
+      "waiting_you": "Đang chờ bạn trả lời",
+      "waiting_answer": "đang chờ bạn trả lời",
+      "others": "+{n} người khác",
+      "elapsed": "Thời gian đã chạy",
+      "steps": "{n} bước",
+      "issues": "{n} lỗi công cụ đang xử lý",
+      "issues_hint": "Xem các lỗi công cụ mà tác tử đang tự khắc phục",
+      "finished_completed": "Lượt này đã xong",
+      "finished_error": "Lượt này gặp lỗi",
+      "finished_cancelled": "Lượt này đã dừng"
+    },
+    "quick": {
+      "label": "Gợi ý trả lời nhanh",
+      "approve_hint": "Duyệt kế hoạch và để đội bắt đầu (Ctrl+Enter)",
+      "explain_plan": "Giải thích rõ hơn",
+      "explain_plan_text": "Giải thích rõ hơn từng bước của kế hoạch: ai làm gì, kết quả là gì và rủi ro ở đâu?",
+      "smaller_plan": "Thu gọn phạm vi",
+      "smaller_plan_text": "Thu gọn kế hoạch: chỉ giữ phần cốt lõi làm được trước, phần còn lại để sau.",
+      "progress": "Tiến độ thế nào?",
+      "progress_text": "Tiến độ thế nào rồi?",
+      "progress_hint": "Trả lời ngay từ tiến độ thật, không tốn lượt gọi mô hình",
+      "note": "Nhắn thêm cho trưởng nhóm",
+      "note_text": "Lưu ý thêm: ",
+      "summary": "Tóm tắt kết quả",
+      "summary_text": "Tóm tắt ngắn gọn những gì đội đã làm, các tệp đã thay đổi và việc còn lại.",
+      "next": "Làm bước tiếp theo",
+      "next_text": "Tiếp tục với bước tiếp theo hợp lý nhất.",
+      "tests": "Kiểm thử lại",
+      "tests_text": "Viết và chạy kiểm thử cho phần vừa làm, sửa nếu có lỗi.",
+      "why_failed": "Vì sao lỗi?",
+      "why_failed_text": "Giải thích vì sao lượt vừa rồi bị lỗi và đề xuất cách khắc phục.",
+      "other_way": "Thử cách khác",
+      "other_way_text": "Thử lại theo một cách khác, tránh nguyên nhân gây lỗi vừa rồi."
+    },
+    "tool_issues": {
+      "open_one": "{name} gặp lỗi công cụ, đang tự xử lý · {last}",
+      "open_many": "{name} gặp {n} lỗi công cụ, đang tự xử lý · {last}",
+      "recovered": "{name} đã tự khắc phục {n} lỗi công cụ"
+    },
+    "history": {
+      "show_older": "Hiện {n} tin cũ hơn",
+      "hidden": "{n} tin cũ đang được ẩn để trang chạy nhanh"
+    },
+    "shortcuts": {
+      "hint": "Enter: gửi · Shift+Enter: xuống dòng · ↑: sửa lại tin vừa gửi · /: gõ tin nhắn · Alt+1–9: chọn gợi ý · Ctrl+Enter: duyệt kế hoạch"
+    },
+    "resume": {
+      "banner": "Lượt trước bị gián đoạn trước khi xong.",
+      "action": "Tiếp tục",
+      "message": "Tiếp tục làm"
+    },
     "plan": {
       "title": "Kế hoạch",
       "awaiting": "Kế hoạch chờ duyệt",
@@ -306,6 +360,7 @@
     },
     "sessions": {
       "awaiting_plan": "Chờ duyệt KH",
+      "interrupted": "Bị gián đoạn",
       "title": "Phiên làm việc",
       "new": "Phiên mới",
       "new_in": "Phiên mới với {name}",
@@ -323,7 +378,7 @@
       "expand": "Mở danh sách phiên",
       "history": "Lịch sử phiên",
       "pick_workflow": "Chọn quy trình ở khung bên phải để bắt đầu phiên mới",
-      "interrupted": "Phiên bị gián đoạn vì server khởi động lại. Bạn vẫn xem được toàn bộ lịch sử; nhấn Chạy lại để tiếp tục trong phiên mới.",
+      "interrupted_notice": "Phiên bị gián đoạn vì server khởi động lại. Bạn vẫn xem được toàn bộ lịch sử; nhấn Chạy lại để tiếp tục trong phiên mới.",
       "count": "{n} phiên",
       "status": {
         "idle": "Chưa chạy",
@@ -384,6 +439,8 @@
     "expand_panel": "Mở rộng bảng",
     "loading_image": "Đang tải hình ảnh...",
     "preparing": "Đang chuẩn bị...",
+    "open_file": "Mở file",
+    "open_file_failed": "Không mở được file: {error}",
     "upload_file": "Tải tệp lên",
     "uploading": "Đang tải lên...",
     "no_files_uploaded": "Chưa có tệp nào được tải lên",
@@ -596,6 +653,7 @@
       "backend_error": "Lỗi từ máy chủ: {detail}"
     },
     "error_hints": {
+      "cli_slow": "Gợi ý: model trả lời quá lâu (thường do viết một file rất dài trong một bước), không phải lỗi mạng. Hệ thống tự thử lại; nếu lặp lại, hãy yêu cầu chia nhỏ việc.",
       "invalid_api_key": "Gợi ý: tài khoản bị từ chối xác thực. Hãy mở trang Kết nối, bấm Kiểm tra và đăng nhập lại tài khoản nếu cần.",
       "rate_limit": "Gợi ý: nhà cung cấp đang giới hạn tần suất gọi hoặc bạn đã hết hạn mức. Hãy đợi một lát rồi thử lại, hoặc kiểm tra gói dịch vụ/thanh toán.",
       "model_not_found": "Gợi ý: không tìm thấy model. Hãy chọn lại model trong biểu mẫu của nút agent (danh sách lấy từ tài khoản đã kết nối).",
@@ -987,6 +1045,13 @@
     "replaced_by_other_tab": "Phiên này đang mở ở tab khác. Bấm \"Mở ở đây\" để tiếp tục trong tab này.",
     "run_in_progress": "Lượt trước vẫn đang chạy. Hãy chờ xong hoặc bấm Dừng rồi gửi lại.",
     "jump_to_latest": "Tin nhắn mới",
+    "interject": {
+      "send": "Gửi cho trưởng nhóm",
+      "placeholder": "Đang làm việc… nhắn thêm cho {name} bất cứ lúc nào, Enter để gửi",
+      "placeholder_agent": "Đang làm việc… bạn có thể nhắn thêm, Enter để gửi",
+      "applied": "{name} đã nhận ghi chú của bạn và sẽ xử lý ngay, đội không bị dừng.",
+      "moved_to_box": "Lượt chạy đã kết thúc: các ghi chú chưa được xử lý đã được đưa vào ô soạn, bấm gửi để tiếp tục."
+    },
     "chat_ui": {
       "composer_label": "Nhập tin nhắn cho trưởng nhóm",
       "running_draft_placeholder": "Đội đang làm việc… bạn có thể soạn tin tiếp theo hoặc dừng lượt chạy",
@@ -2542,7 +2607,7 @@
     "input_label": "Tin nhắn gửi trợ lý",
     "model_label": "Mô hình",
     "not_signed_in_option": "{vendor} (chưa đăng nhập)",
-    "no_provider": "Chưa đăng nhập tài khoản Claude hoặc Codex nào.",
+    "no_provider": "Chưa đăng nhập tài khoản Claude, Codex hoặc Gemini nào.",
     "open_connections": "Mở trang Kết nối",
     "enter_hint": "Enter để gửi, Shift+Enter để xuống dòng",
     "send": "Gửi",
@@ -2562,7 +2627,11 @@
       "not_signed_in": "Mô hình này chưa có tài khoản đăng nhập. Hãy đăng nhập ở trang Kết nối.",
       "timeout": "Mô hình phản hồi quá lâu. Hãy thử lại.",
       "provider_error": "Nhà cung cấp mô hình trả về lỗi.",
-      "bad_request": "Yêu cầu không hợp lệ."
+      "bad_request": "Yêu cầu không hợp lệ.",
+      "quota_exhausted": "Tài khoản này đã hết hạn mức sử dụng. Hãy chuyển sang mô hình khác hoặc thử lại sau.",
+      "model_unavailable": "Mô hình đang chọn không còn dùng được. Hãy chọn mô hình khác hoặc kết nối lại tài khoản ở trang Kết nối.",
+      "busy": "Trợ lý đang xử lý quá nhiều yêu cầu. Đợi một yêu cầu xong rồi thử lại.",
+      "internal": "Trợ lý gặp lỗi không mong muốn. Chi tiết nằm trong nhật ký máy chủ."
     },
     "preview": {
       "aria": "Xem trước quy trình: {nodes} nút, {edges} liên kết",

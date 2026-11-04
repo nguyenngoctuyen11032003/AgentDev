@@ -112,6 +112,16 @@ def _tool_result_text(content: Any) -> str:
     return "" if content is None else str(content)
 
 
+def describe_tool_failure(name: str, result: Any, arguments: Any, limit: int = 300) -> str:
+    """Why a built-in tool call failed: the command (or file) and the first lines of its error output."""
+    args = arguments if isinstance(arguments, dict) else {}
+    target = args.get("command") or args.get("file_path") or args.get("path") or args.get("pattern") or ""
+    target = trim(" ".join(str(target).split()), 120)
+    text = " | ".join(line.strip() for line in str(result or "").splitlines() if line.strip())
+    reason = trim(text, limit) or "no error output (non-zero exit or tool error)"
+    return f"`{target}` -> {reason}" if target else reason
+
+
 class ClaudeStreamReader:
     """Incremental parser of ``--output-format stream-json`` events.
 

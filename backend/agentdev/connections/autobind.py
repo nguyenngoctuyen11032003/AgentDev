@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Any, List, Mapping, MutableMapping, Optional
 
-from agentdev.connections.catalog import AUTH_CLI, AUTH_OAUTH, get_vendor
+from agentdev.connections.catalog import AUTH_CLI, AUTH_OAUTH, get_vendor, is_retired_model, replace_retired_model
 from agentdev.connections.store import Connection, get_store
 from agentdev.entity.configs import ConfigError
 
@@ -80,11 +80,20 @@ def bind_default_connections(
             logger.info("%s: %s is not set; using the account's default model %s", path, match.group(0), model)
             node["name"] = model
 
+    def swap_retired_model(node: MutableMapping[str, Any], path: str) -> None:
+        conn = next((c for c in connections if c.id == node.get("connection")), None)
+        name = node.get("name")
+        if conn is not None and isinstance(name, str) and is_retired_model(conn.vendor, name):
+            replacement = replace_retired_model(conn.vendor, name)
+            logger.warning("%s: model %s is retired; using %s", path, name, replacement)
+            node["name"] = replacement
+
     def handle(node: MutableMapping[str, Any], path: str) -> None:
         for key in _LEGACY_KEYS:
             node.pop(key, None)
         if node.get("connection"):
             fill_unset_model(node, path)
+            swap_retired_model(node, path)
             return
         provider = node.get("provider") or ""
         vendor_id = _VENDOR_OF.get(provider, provider)
@@ -115,6 +124,7 @@ def bind_default_connections(
                 )
                 node["name"] = _default_model(chosen) or vendor.models[0]
         fill_unset_model(node, path)
+        swap_retired_model(node, path)
 
     def walk(value: Any, path: str) -> None:
         if isinstance(value, MutableMapping):

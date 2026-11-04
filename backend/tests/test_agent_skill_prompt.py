@@ -194,3 +194,36 @@ def test_codex_prompt_carries_skill_body_once_in_the_stable_prefix(monkeypatch, 
     assert prompt.count(FE_RULE) == 1 and FE_ROLE in prompt and FE_DESC in prompt
     assert prompt.index(FE_RULE) < prompt.index(TASK)  # before the conversation: a cacheable prefix
     assert flatten_conversation(conv, build_tool_preamble([TOOL], True)).count(FE_RULE) == 1
+
+
+# ---------------------------------------------------------------- token efficiency
+
+
+def test_activation_sends_the_body_without_frontmatter(monkeypatch, tmp_path):
+    _skill(tmp_path, "fe-rules", FE_RULE)
+    mgr = _skills(monkeypatch, tmp_path, [])
+    instructions = mgr.activate_skill("fe-rules")["instructions"]
+    assert instructions == FE_RULE and "description:" not in instructions
+
+
+def test_huge_skills_carry_a_size_hint_in_the_catalog(monkeypatch, tmp_path):
+    from agentdev.runtime.node.agent.skills.manager import LARGE_SKILL_CHARS
+
+    _skill(tmp_path, "huge", "H" * (LARGE_SKILL_CHARS + 100))
+    _skill(tmp_path, "small", "S" * 100)
+    catalog = _skills(monkeypatch, tmp_path, []).build_available_skills_xml()
+    assert catalog.count("<size>") == 1 and "only when the task really needs it" in catalog
+
+
+def test_skill_rules_are_short_when_every_skill_is_preloaded(monkeypatch, tmp_path):
+    from agentdev.runtime.node.executor.agent_executor import PRELOADED_SKILL_RULES, SKILL_USAGE_RULES
+
+    _skill(tmp_path, "fe-rules", FE_RULE)
+    all_loaded = _bare_executor()._build_system_prompt(_fe_node(), _skills(monkeypatch, tmp_path, ["fe-rules"]))
+    assert PRELOADED_SKILL_RULES in all_loaded and SKILL_USAGE_RULES not in all_loaded
+
+    _skill(tmp_path, "huge", "H" * 40_000)
+    with_catalog = _bare_executor()._build_system_prompt(
+        _fe_node(), _skills(monkeypatch, tmp_path, ["fe-rules", "huge"])
+    )
+    assert SKILL_USAGE_RULES in with_catalog and PRELOADED_SKILL_RULES not in with_catalog

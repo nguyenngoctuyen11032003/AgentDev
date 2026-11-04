@@ -197,3 +197,14 @@ def test_earlier_attachments_keep_paths_not_contents():
     turn = make_turn("xem file", "ok", refs)
     text = build_transcript([turn])
     assert "spec.pdf (path: /w/att/a1/spec.pdf)" in text and "a2" in text and "re-read" in text
+
+
+# ---------------------------------------------------------------- 7. briefs that prevent re-exploring
+
+def test_briefs_and_protocols_steer_towards_context_and_away_from_repeats():
+    briefs = []
+    team = _team(lambda m, i, l: briefs.append(i[0].text_content()) or _ok(m, i, l))
+    team.execute("delegate_task", {"member": "be", "task": "Build"})
+    assert "Start from the files, decisions and results the brief gives you" in briefs[0]
+    lead = team.system_prompt_section()
+    assert "files or paths to start from" in lead and "same task again" in lead

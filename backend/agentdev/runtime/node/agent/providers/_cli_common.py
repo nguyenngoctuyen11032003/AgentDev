@@ -18,7 +18,12 @@ from agentdev.connections import cli_auth
 from agentdev.connections.security import MODEL_NAME_RE
 from agentdev.entity.messages import Message, MessageRole, ToolCallPayload
 from agentdev.entity.tool_spec import ToolSpec
-from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled, current_cancel_event  # noqa: F401
+from agentdev.runtime.node.agent.providers.cli_cancel import (  # noqa: F401
+    CliCancelled,
+    current_cancel_event,
+    current_idle_listener,
+    idle_limits,
+)
 
 _LABELS = {MessageRole.USER: "User", MessageRole.ASSISTANT: "Assistant", MessageRole.TOOL: "Tool"}
 
@@ -29,6 +34,10 @@ class CliProviderError(RuntimeError):
 
 class CliTimeoutError(CliProviderError, TimeoutError):
     """The CLI did not answer in time. A ``TimeoutError`` so the agent retry policy retries it."""
+
+
+class CliIdleTimeoutError(CliTimeoutError):
+    """A streaming CLI went silent (no output, no running tool) and was killed by the idle watchdog."""
 
 
 class CliClient:
@@ -255,16 +264,91 @@ def trim(text: str, limit: int = 500) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
 
 
+class _BusyTracker:
+    """Tells whether a tool call is running, from the JSON-lines stream of claude / codex.
+
+    Open calls: claude ``tool_use`` blocks until their ``tool_result``; codex ``item.started`` until
+    ``item.completed``. While one is open the CLI is silent for as long as the tool runs (build, tests),
+    which is not a hang."""
+
+    def __init__(self) -> None:
+        self._open: set = set()
+        self._lock = threading.Lock()
+
+    def feed(self, line: str) -> None:
+        line = (line or "").strip()
+        if not line.startswith("{") or ("tool_use" not in line and "tool_result" not in line and "item." not in line):
+            return
+        try:
+            event = json.loads(line)
+        except ValueError:
+            return
+        if not isinstance(event, dict):
+            return
+        kind = event.get("type")
+        with self._lock:
+            if kind in ("item.started", "item.completed"):
+                item = event.get("item") if isinstance(event.get("item"), dict) else {}
+                key = str(item.get("id") or "")
+                if kind == "item.started":
+                    self._open.add(key)
+                else:
+                    self._open.discard(key)
+                return
+            message = event.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            for block in content if isinstance(content, list) else []:
+                if not isinstance(block, dict):
+                    continue
+                if kind == "assistant" and block.get("type") == "tool_use":
+                    self._open.add(str(block.get("id") or ""))
+                elif kind == "user" and block.get("type") == "tool_result":
+                    self._open.discard(str(block.get("tool_use_id") or ""))
+
+    def busy(self) -> bool:
+        with self._lock:
+            return bool(self._open)
+
+
 def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str,
             on_line: Optional[Callable[[str], None]] = None) -> subprocess.CompletedProcess:
     """Run a vendor CLI. Raises ``CliCancelled`` (CLI tree killed) when the enclosing
-    ``cli_cancel_scope`` event is set while it runs. ``on_line`` gets each stdout line live (reader thread)."""
-    extra: Dict[str, Any] = {"on_stdout_line": on_line} if on_line is not None else {}
+    ``cli_cancel_scope`` event is set while it runs. ``on_line`` gets each stdout line live (reader thread).
+
+    A CLI that streams (``on_line`` given) is watched: with no output for the idle notice (default 180s,
+    ``AGENTDEV_CLI_IDLE_NOTICE``) the enclosing ``cli_idle_scope`` listener is told it is thinking long; with
+    no output and no tool running for the kill limit (default 600s, ``AGENTDEV_CLI_IDLE_KILL``) the CLI tree
+    is killed and ``CliIdleTimeoutError`` (a ``CliTimeoutError``, so retried once) is raised."""
+    extra: Dict[str, Any] = {}
+    listener = current_idle_listener()
+    if on_line is not None:
+        tracker = _BusyTracker()
+        notice, kill = idle_limits()
+
+        def _line(text: str) -> None:
+            tracker.feed(text)
+            on_line(text)
+
+        def _idle(seconds: float, busy: bool) -> None:
+            if listener is not None:
+                listener(seconds, busy, False)
+
+        extra = {"on_stdout_line": _line, "idle_notice": notice, "idle_kill": kill,
+                 "is_busy": tracker.busy, "on_idle": _idle}
     try:
         return cli_auth.run_capture(
             cmd, input=prompt, timeout=timeout, cwd=cwd, env=cli_auth.cli_env(), cancel_event=current_cancel_event(),
             **extra,
         )
+    except cli_auth.CliIdle as exc:
+        if listener is not None:
+            try:
+                listener(exc.idle_seconds, False, True)
+            except Exception:  # noqa: BLE001
+                pass
+        raise CliIdleTimeoutError(
+            f"`{name}` CLI produced no output for {exc.idle_seconds:.0f}s and was stopped"
+        ) from exc
     except subprocess.TimeoutExpired as exc:
         raise CliTimeoutError(f"`{name}` CLI timed out after {timeout}s") from exc
     except (FileNotFoundError, PermissionError) as exc:

@@ -16,7 +16,7 @@ import urllib.request
 from typing import Any, Dict, List
 
 from agentdev.connections.account_info import account_info
-from agentdev.connections.catalog import AUTH_CLI, AUTH_OAUTH, get_vendor
+from agentdev.connections.catalog import AUTH_CLI, AUTH_OAUTH, get_vendor, is_retired_model
 from agentdev.connections.resolver import ConnectionResolutionError, resolve_connection
 from agentdev.connections.store import Connection
 
@@ -33,6 +33,16 @@ def _fallback(vendor_id: str) -> List[Dict[str, Any]]:
     return [_model(mid, primary=True) for mid in (vendor.models if vendor else ())]
 
 
+# Models that answer generateContent but are not usable as an agent's chat/coding model:
+# speech, image, transcription, robotics, computer-use and the like.
+_NON_CHAT_MARKERS = ("tts", "image", "transcribe", "robotics", "computer-use", "nano-banana", "omni", "live", "audio", "embedding")
+
+
+def _is_non_chat(model_id: str) -> bool:
+    lowered = model_id.lower()
+    return any(marker in lowered for marker in _NON_CHAT_MARKERS)
+
+
 def _gemini(headers: Dict[str, str], base_url: str) -> List[Dict[str, Any]]:
     root = (base_url or _GEMINI_BASE).rstrip("/")
     models: List[Dict[str, Any]] = []
@@ -44,7 +54,12 @@ def _gemini(headers: Dict[str, str], base_url: str) -> List[Dict[str, Any]]:
             data = json.loads(response.read().decode("utf-8"))
         for item in data.get("models", []):
             name = str(item.get("name", "")).split("/", 1)[-1]
-            if name.startswith("gemini") and "generateContent" in (item.get("supportedGenerationMethods") or []):
+            if (
+                name.startswith("gemini")
+                and "generateContent" in (item.get("supportedGenerationMethods") or [])
+                and not _is_non_chat(name)
+                and not is_retired_model("gemini", name)
+            ):
                 models.append(_model(name, item.get("displayName")))
         page = data.get("nextPageToken") or ""
         if not page:

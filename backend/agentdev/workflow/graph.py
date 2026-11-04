@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from agentdev.runtime.node.agent.memory import MemoryBase, MemoryFactory, MemoryManager
 from agentdev.runtime.node.agent.thinking import ThinkingManagerBase, ThinkingManagerFactory
+from agentdev.runtime.node.agent.interject import get_run_progress
 from agentdev.entity.configs import Node, EdgeLink, AgentConfig, ConfigError
 from agentdev.entity.configs.edge import EdgeConditionConfig
 from agentdev.entity.configs.node.memory import (
@@ -605,6 +606,7 @@ class GraphExecutor:
                 "successors": [s.id for s in node.successors]
             })
 
+            get_run_progress(self.runtime_context.global_state).start(node.id)
             self.log_manager.debug(f"Processing {len(input_results)} inputs together for node {node.id}")
 
             # Check if any incoming edge has dynamic configuration
@@ -653,6 +655,8 @@ class GraphExecutor:
                 self.log_manager.debug(
                     f"Node {node.id} produced no output; downstream edges suppressed"
                 )
+
+            get_run_progress(self.runtime_context.global_state).finish(node.id)
 
             # Record node end
             output_text = ""
@@ -713,11 +717,14 @@ class GraphExecutor:
             node.node_type,
             {"input_count": len(inputs), "delegated_by": lead_id, "predecessors": [lead_id], "successors": [lead_id]},
         )
+        progress = get_run_progress(self.runtime_context.global_state)
+        progress.start(member_id, lead_id)
         outputs: List[Message] = []
         try:
             with self.log_manager.node_timer(member_id):
                 outputs = [self._ensure_source_output(raw, member_id) for raw in self._process_result(node, inputs)]
         finally:
+            progress.finish(member_id, failed=not outputs)
             text = "\n\n".join(msg.text_content() for msg in outputs)
             self.log_manager.record_node_end(member_id, text if node.log_output else "", {
                 "output_size": len(text),

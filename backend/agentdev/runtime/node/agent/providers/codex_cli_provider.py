@@ -101,7 +101,12 @@ def _error_events_text(stdout: str) -> str:
             continue
         kind = str(event.get("type") or "")
         if "error" in kind or "failed" in kind:
-            parts.append(json.dumps(event, ensure_ascii=False))
+            # Readable text (``error`` and ``turn.failed`` repeat the same message), not the raw event JSON.
+            err = event.get("error")
+            msg = (err.get("message") if isinstance(err, dict) else err) or event.get("message")
+            text = str(msg) if isinstance(msg, str) and msg.strip() else json.dumps(event, ensure_ascii=False)
+            if text not in parts:
+                parts.append(text)
     return chr(10).join(parts)
 
 

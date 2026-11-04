@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict
 
+from agentdev.runtime.node.agent.interject import get_run_inbox, route_note
 from agentdev.utils.exceptions import ValidationError
 
 from agentdev.api.services.session_execution import SessionExecutionController
@@ -18,6 +19,7 @@ from agentdev.api.services.session_store import WorkflowSessionStore
 #   invalid_input     - other rejected human_input
 #   message_failed    - unexpected error while handling a socket message
 #   run_in_progress   - a launch while a run is already live in this session
+#   not_running       - interject while no run is live (carries ``note_id``): send it as a normal message
 # Fatal ``code`` values: start_failed, validation_error, run_failed.
 
 
@@ -53,6 +55,8 @@ class MessageHandler:
         message_type = data.get("type")
         if message_type == "human_input":
             await self._handle_human_input(session_id, data, websocket_manager)
+        elif message_type == "interject":
+            await self._handle_interject(session_id, data, websocket_manager)
         elif message_type == "ping":
             await self._handle_ping(session_id, websocket_manager)
         elif message_type == "get_status":
@@ -99,6 +103,48 @@ class MessageHandler:
         except Exception as exc:
             self.logger.error("Error handling human input for session %s: %s", session_id, exc)
             await websocket_manager.send_message(session_id, client_error(str(exc), "message_failed"))
+
+    async def _handle_interject(self, session_id: str, data: Dict[str, Any], websocket_manager):
+        """A message the user sent while the team works: answered at once (status) or handed to the lead."""
+        payload = data.get("data", {}) or {}
+        text = str(payload.get("text") or "").strip()
+        note_id = str(payload.get("id") or "")[:64]
+        if not text:
+            await websocket_manager.send_message(session_id, client_error("Empty input", "empty_input"))
+            return
+        session = self.session_store.get_session(session_id)
+        executor = getattr(session, "executor", None) if session else None
+        global_state = getattr(getattr(executor, "runtime_context", None), "global_state", None)
+        if global_state is None or getattr(session, "cancel_event", None) is not None and session.cancel_event.is_set():
+            error = client_error("No run is going on in this session", "not_running")
+            error["data"]["note_id"] = note_id
+            await websocket_manager.send_message(session_id, error)
+            return
+
+        lead = self._lead_id(session)
+        kind, reply, note = route_note(
+            text,
+            global_state,
+            note_id=note_id,
+            lead=lead,
+            locale=str(payload.get("locale") or ""),
+            waiting=bool(session.waiting_for_input),
+        )
+        if note is not None:
+            # Tell the user when the lead really picks the note up (it runs in a worker thread)
+            get_run_inbox(global_state).on_event = lambda message: websocket_manager.send_message_sync(session_id, message)
+        websocket_manager.record_user_note(session_id, text)
+        await websocket_manager.send_message(
+            session_id,
+            {"type": "lead_note_reply", "data": {"note_id": note_id, "lead": lead, "kind": kind, "text": reply}},
+        )
+
+    @staticmethod
+    def _lead_id(session) -> str:
+        """The entry agent that answers the user: the first start node of the graph."""
+        graph = getattr(session, "graph", None)
+        starts = list(getattr(graph, "start_nodes", None) or [])
+        return str(starts[0]) if starts else ""
 
     async def _handle_ping(self, session_id: str, websocket_manager):
         await websocket_manager.handle_heartbeat(session_id)

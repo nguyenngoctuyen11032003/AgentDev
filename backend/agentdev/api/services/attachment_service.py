@@ -39,8 +39,98 @@ IGNORED_PROJECT_DIRS = frozenset(
 )
 IGNORED_PROJECT_FILES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
 
-_PROJECT_TREE_LINE_LIMIT = 400
 _PROJECT_FAILED_REPORT_LIMIT = 20
+
+# The project overview goes into the lead's prompt (and is re-read by every model call of its loop),
+# so its folder tree is a map, not an inventory: at most this many lines, folders first, big or
+# media-only folders summarised in one line, and deeper levels folded when the tree is too big.
+_OVERVIEW_TREE_LINES = 160
+_OVERVIEW_DIR_FILES = 15
+_OVERVIEW_MAX_DEPTH = 6
+_MEDIA_EXTS = frozenset(
+    {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico", ".svg", ".tif", ".tiff",
+        ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".mp4", ".mov", ".webm", ".mkv",
+        ".glb", ".gltf", ".fbx", ".obj", ".ktx2", ".hdr", ".exr", ".woff", ".woff2", ".ttf", ".otf",
+        ".pdf", ".zip", ".sha256",
+    }
+)
+
+
+def _ext_summary(names: List[str], top: int = 3) -> str:
+    counts: Dict[str, int] = {}
+    for name in names:
+        ext = Path(name).suffix.lower() or "no ext"
+        counts[ext] = counts.get(ext, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    parts = [f"{count} {ext}" for ext, count in ranked[:top]]
+    if len(ranked) > top:
+        parts.append(f"{sum(count for _, count in ranked[top:])} other")
+    return ", ".join(parts)
+
+
+def _count(n: int) -> str:
+    return f"{n} file" if n == 1 else f"{n} files"
+
+
+def render_project_tree(relative_files: List[str], *, max_lines: int = _OVERVIEW_TREE_LINES) -> List[str]:
+    """Indented folder tree of ``relative_files`` (POSIX paths) that fits in ``max_lines``.
+
+    Folders come before files so the structure (``src/``, ``app/``...) is visible even in a huge
+    project; a folder with many files lists a few and counts the rest; a folder holding only media
+    is one line; when the tree is still too big, deeper levels are folded into ``name/ (N files)``.
+    """
+    tree: Dict[str, Any] = {}
+    for rel in relative_files:
+        parts = [part for part in rel.split("/") if part]
+        node = tree
+        for part in parts[:-1]:
+            node = node.setdefault(part + "/", {})
+        if parts:
+            node[parts[-1]] = None
+
+    def all_files(node: Dict[str, Any]) -> List[str]:
+        out: List[str] = []
+        for name, child in node.items():
+            out.extend(all_files(child) if isinstance(child, dict) else [name])
+        return out
+
+    def render(node: Dict[str, Any], depth: int, fold_depth: int) -> List[str]:
+        lines: List[str] = []
+        indent = "  " * depth
+        dirs = sorted((k for k, v in node.items() if isinstance(v, dict)), key=str.lower)
+        files = sorted((k for k, v in node.items() if v is None), key=str.lower)
+        if len(dirs) > _OVERVIEW_DIR_FILES:
+            hidden = dirs[_OVERVIEW_DIR_FILES - 5 :]
+            dirs = dirs[: _OVERVIEW_DIR_FILES - 5]
+        else:
+            hidden = []
+        for name in dirs:
+            child = node[name]
+            inner = all_files(child)
+            media_only = bool(inner) and all(Path(f).suffix.lower() in _MEDIA_EXTS for f in inner)
+            if depth + 1 >= fold_depth or media_only:
+                lines.append(f"{indent}{name} ({_count(len(inner))}: {_ext_summary(inner)})" if inner else f"{indent}{name}")
+            else:
+                lines.append(f"{indent}{name}")
+                lines.extend(render(child, depth + 1, fold_depth))
+        if hidden:
+            inner = [f for name in hidden for f in all_files(node[name])]
+            lines.append(f"{indent}... +{len(hidden)} more folders ({_count(len(inner))})")
+        shown = files if len(files) <= _OVERVIEW_DIR_FILES else files[: _OVERVIEW_DIR_FILES - 5]
+        lines.extend(f"{indent}{name}" for name in shown)
+        if len(shown) < len(files):
+            rest = files[len(shown):]
+            lines.append(f"{indent}... +{len(rest)} more files ({_ext_summary(rest)})")
+        return lines
+
+    lines: List[str] = []
+    for fold_depth in range(_OVERVIEW_MAX_DEPTH, 0, -1):
+        lines = render(tree, 0, fold_depth)
+        if len(lines) <= max_lines:
+            return lines
+    total = len(relative_files)
+    return lines[: max_lines - 1] + [f"... (tree cut; {total} files in total, list folders with the file tools)"]
 
 
 def _fs_path(path: Path) -> Path:
@@ -450,19 +540,13 @@ class AttachmentService:
         if file_count == 0:
             raise ValidationError("Project upload contains no files", field="project_id")
 
-        tree_lines: List[str] = []
-        truncated = False
-        for path in sorted(iter_tree_without_links(project_root), key=lambda p: p.relative_to(project_root).as_posix().lower()):
-            if is_link(path):
-                continue
-            rel = path.relative_to(project_root)
-            if len(tree_lines) >= _PROJECT_TREE_LINE_LIMIT:
-                truncated = True
-                break
-            indent = "  " * (len(rel.parts) - 1)
-            tree_lines.append(f"{indent}{rel.name}/" if path.is_dir() else f"{indent}{rel.name}")
-        if truncated:
-            tree_lines.append(f"... (tree truncated; {file_count} files in total)")
+        tree_lines = render_project_tree(
+            [
+                path.relative_to(project_root).as_posix()
+                for path in iter_tree_without_links(project_root)
+                if not is_link(path) and path.is_file()
+            ]
+        )
 
         size_mb = total_size / (1024 * 1024)
         overview = "\n".join(
@@ -552,19 +636,7 @@ class AttachmentService:
             except OSError:
                 pass
 
-        tree_lines: List[str] = []
-        seen_dirs: set = set()
-        for _path, rel in scan.files:
-            if len(tree_lines) >= _PROJECT_TREE_LINE_LIMIT:
-                tree_lines.append(f"... (tree truncated; {len(scan.files)} files in total)")
-                break
-            parts = rel.split("/")
-            for depth in range(len(parts) - 1):
-                folder_key = "/".join(parts[: depth + 1])
-                if folder_key not in seen_dirs:
-                    seen_dirs.add(folder_key)
-                    tree_lines.append(f"{'  ' * depth}{parts[depth]}/")
-            tree_lines.append(f"{'  ' * (len(parts) - 1)}{parts[-1]}")
+        tree_lines = render_project_tree([rel for _path, rel in scan.files])
 
         name = root.name or str(root)
         size_mb = total_size / (1024 * 1024)

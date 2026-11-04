@@ -50,7 +50,11 @@ SCRIPTS_DIR = BACKEND_ROOT / "scripts"
 
 # User workspace.
 WORKSPACE_DIR = PROJECT_ROOT / "workspace"
-WORKFLOWS_DIR = WORKSPACE_DIR / "workflows"
+# ``AGENTDEV_WORKFLOWS_DIR`` points the workflow folder elsewhere (the test suite uses a private copy).
+_workflows_override = os.environ.get("AGENTDEV_WORKFLOWS_DIR")
+WORKFLOWS_DIR = (
+    Path(_workflows_override).expanduser().resolve() if _workflows_override else WORKSPACE_DIR / "workflows"
+)
 FUNCTIONS_DIR = WORKSPACE_DIR / "functions"
 SKILLS_DIR = WORKSPACE_DIR / "skills"
 TEMPLATES_DIR = WORKSPACE_DIR / "templates"

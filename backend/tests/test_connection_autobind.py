@@ -127,3 +127,19 @@ def test_validation_does_not_require_a_signed_in_account(monkeypatch):
 
     with pytest.raises(ConfigError):
         autobind.bind_default_connections(data, {})
+
+
+def test_retired_gemini_model_is_replaced_with_catalog_default(store):
+    from agentdev.connections.catalog import get_vendor
+
+    gem = store.create(vendor="gemini", label="G", auth_type="oauth", secret="{}")
+    default = get_vendor("gemini").models[0]
+    for old in ("gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"):
+        doc = _doc(provider="gemini", name=old, connection=gem.id)
+        bind_default_connections(doc, {})
+        assert _cfg(doc)["name"] == default, old
+    # a valid or image model is left alone
+    for ok in ("gemini-3.1-pro-preview", "gemini-2.5-flash-image"):
+        doc = _doc(provider="gemini", name=ok, connection=gem.id)
+        bind_default_connections(doc, {})
+        assert _cfg(doc)["name"] == ok

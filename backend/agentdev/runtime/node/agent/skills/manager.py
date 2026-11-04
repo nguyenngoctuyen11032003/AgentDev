@@ -15,6 +15,9 @@ from agentdev.paths import SKILLS_ROOT
 DEFAULT_SKILLS_ROOT = SKILLS_ROOT
 MAX_SKILL_FILE_BYTES = 128 * 1024
 MAX_LISTED_SKILL_FILES = 60
+# A skill whose SKILL.md is longer than this many characters gets a size hint in the on-demand catalog:
+# once loaded it stays in the context of every later model call (~4 chars per token).
+LARGE_SKILL_CHARS = 30_000
 # Ticked skills whose instructions fit in this many characters (frontmatter stripped, in tick order)
 # go straight into the agent's system prompt: the agent follows them without first spending a model
 # call on activate_skill, and the system prompt is the static, prompt-cached part of every call.
@@ -274,6 +277,11 @@ class AgentSkillManager:
                     f"    <description>{escape(summarise_description(skill.description))}</description>",
                 ]
             )
+            size = self._skill_size(skill)
+            if size > LARGE_SKILL_CHARS:
+                lines.append(
+                    f"    <size>very large (~{size // 4000}k tokens): load it only when the task really needs it</size>"
+                )
             if skill.allowed_tools:
                 lines.append("    <allowed_tools>")
                 for tool_name in skill.allowed_tools:
@@ -283,18 +291,22 @@ class AgentSkillManager:
         lines.append("</available_skills>")
         return "\n".join(lines)
 
+    @staticmethod
+    def _skill_size(skill: SkillMetadata) -> int:
+        try:
+            return skill.skill_file.stat().st_size
+        except OSError:
+            return 0
+
     def activate_skill(self, skill_name: str) -> Dict[str, str | List[str]]:
         skill = self._get_skill(skill_name)
-        cached = self._skill_content_cache.get(skill.name)
-        if cached is None:
-            cached = skill.skill_file.read_text(encoding="utf-8")
-            self._skill_content_cache[skill.name] = cached
+        body = self.skill_body(skill.name)  # without the frontmatter: name and description are known already
         self._activation_state[skill.name] = True
         self._current_skill_name = skill.name
         # No absolute server path: the model loads skills by name and reads files via read_skill_file.
         return {
             "skill_name": skill.name,
-            "instructions": cached,
+            "instructions": body,
             "allowed_tools": list(self.enforced_tools(skill)),
             "files": self.skill_files(skill.name),
         }

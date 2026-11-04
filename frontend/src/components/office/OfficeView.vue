@@ -77,7 +77,7 @@
         v-for="agent in agents"
         :key="`label-${agent.id}`"
         class="office-agent-overlay"
-        :class="{ dim: focusId && focusId !== agent.id }"
+        :class="{ dim: focusId && focusId !== agent.id, 'has-bubble': !!agent.bubble, 'is-focus': focusId === agent.id }"
         :style="overlayStyle(agent)"
         :ref="(el) => bindEl(agent.id, 'overlay', el)"
       >
@@ -247,7 +247,7 @@
 </template>
 
 <script setup>
-import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, markRaw, onBeforeUnmount, onMounted, onUpdated, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { buildSpritePath, spriteFetcher } from '@/utils/spriteFetcher.js'
 import { isHeroSprite } from '@/utils/spriteCharacters.js'
@@ -408,6 +408,9 @@ const measure = () => {
   area.y = top
   area.w = Math.max(1, root.width - left - 24)
   area.h = Math.max(1, root.height - top - bottom)
+  // Bubbles never get wider than the free area (narrow windows)
+  el.style.setProperty('--bubble-max', `${Math.round(Math.max(120, Math.min(220, area.w - 24)))}px`)
+  measureCache.clear()
   fitScale = Math.min(area.w / OFFICE_WIDTH, area.h / OFFICE_HEIGHT)
   scale.value = fitScale * zoom.value
   clampOffset()
@@ -873,6 +876,7 @@ const tick = (time) => {
     paint(agent)
     if (isMoving(agent)) moving = true
   }
+  layoutOverlays()
   if (!props.visible) return
   if (moving) {
     rafId = requestAnimationFrame(tick)
@@ -958,6 +962,137 @@ const paint = (agent) => {
     setStyle(cardEl.value, 'transform', card.transform)
   }
 }
+
+// ---------------------------------------------------------------- bubble / tag placement
+// Bubbles sit above the head by default. Where that would leave the visible area (top row of
+// the map, zoomed in, panned) they flip below the person, slide sideways to stay inside the
+// free area, and step aside when they would cover another bubble or name tag. Only CSS
+// variables are written (--bx / --by / --tail-x / --tag-dy), read by transforms, so the
+// pass costs no layout; element sizes are measured once per content and cached.
+const TAG_H = 16
+const BUBBLE_GAP = 20 // default distance from the head to the bubble's bottom edge
+const measureCache = new Map()
+const placeMemory = new Map() // agent id -> index of the candidate chosen last frame (stability)
+
+const sizeOf = (id, part, el, sig) => {
+  const key = `${id}:${part}`
+  const cached = measureCache.get(key)
+  if (cached && cached.sig === sig) return cached
+  const next = { sig, w: el.offsetWidth, h: el.offsetHeight }
+  measureCache.set(key, next)
+  return next
+}
+
+const overlapArea = (a, b) => {
+  const w = Math.min(a.r, b.r) - Math.max(a.l, b.l)
+  const h = Math.min(a.b, b.b) - Math.max(a.t, b.t)
+  return w > 0 && h > 0 ? w * h : 0
+}
+
+const layoutOverlays = () => {
+  if (!rootRef.value || !agents.value.length) return
+  const k = scale.value
+  // Visible area in stage coordinates
+  const vis = { l: area.x + 4 - offset.x, r: area.x + area.w - 4 - offset.x, t: area.y + 2 - offset.y, b: area.y + area.h - offset.y }
+  const items = []
+  for (const agent of agents.value) {
+    const els = agentEls.get(agent.id)
+    if (!els?.overlay) continue
+    items.push({
+      agent,
+      overlay: els.overlay,
+      ax: agent.m.x * k,
+      ay: (footY(agent) - SPRITE_H + 3) * k,
+      feet: (SPRITE_H - 3) * k,
+    })
+  }
+  items.sort((a, b) => a.ay - b.ay || a.ax - b.ax)
+
+  // 1. Name tags: a tag that would cover a neighbour's steps up
+  const tagRects = []
+  for (const it of items) {
+    const tag = it.overlay.querySelector('.office-tag')
+    if (!tag) { it.tagTop = -TAG_H; continue }
+    const sig = `${it.agent.label}|${it.agent.step}|${tag.classList.contains('compact') ? 1 : 0}`
+    const { w } = sizeOf(it.agent.id, 'tag', tag, sig)
+    let dy = 0
+    const rect = () => ({ l: it.ax - w / 2, r: it.ax + w / 2, t: it.ay + dy - TAG_H, b: it.ay + dy })
+    for (let n = 0; n < 3 && tagRects.some((r) => overlapArea(r, rect()) > 0); n++) dy -= TAG_H + 2
+    setStyle(it.overlay, '--tag-dy', `${dy}px`)
+    it.tagTop = dy - TAG_H
+    tagRects.push(rect())
+  }
+
+  // 2. Bubbles, the person in focus first
+  const placed = []
+  const withBubble = items.filter((it) => it.agent.bubble)
+  withBubble.sort((a, b) => (focusId.value === b.agent.id) - (focusId.value === a.agent.id))
+  for (const it of withBubble) {
+    const el = it.overlay.querySelector('.office-bubble')
+    if (!el) continue
+    const { w, h } = sizeOf(it.agent.id, 'bubble', el, `${it.agent.bubble.key}|${rootRef.value.style.getPropertyValue('--bubble-max')}`)
+    if (!w || !h) continue
+    const aboveTop = Math.min(-BUBBLE_GAP, it.tagTop - 4) - h
+    const belowTop = it.feet + 8
+    const shift = w * 0.55 + 8
+    const cands = [
+      { top: aboveTop, shift: 0, side: 'above' },
+      { top: belowTop, shift: 0, side: 'below' },
+      { top: aboveTop, shift: -shift, side: 'above' },
+      { top: aboveTop, shift, side: 'above' },
+      { top: belowTop, shift: -shift, side: 'below' },
+      { top: belowTop, shift, side: 'below' },
+      { top: aboveTop - h - 6, shift: 0, side: 'float' },
+      { top: belowTop + h + 6, shift: 0, side: 'float' },
+    ]
+    const evaluate = (c) => {
+      let l = it.ax - w / 2 + c.shift
+      l = vis.r - vis.l < w ? vis.l : Math.min(vis.r - w, Math.max(vis.l, l))
+      const rect = { l, r: l + w, t: it.ay + c.top, b: it.ay + c.top + h }
+      let penalty = 0
+      for (const r of placed) penalty += overlapArea(rect, r) * 2
+      for (const r of tagRects) penalty += overlapArea(rect, r)
+      const over = Math.max(0, vis.t - rect.t) + Math.max(0, rect.b - vis.b)
+      penalty += over * w * 4
+      return { rect, penalty, l }
+    }
+    const memo = placeMemory.get(it.agent.id)
+    let best = null
+    const order = memo != null ? [memo, ...cands.map((_, i) => i).filter((i) => i !== memo)] : cands.map((_, i) => i)
+    for (const i of order) {
+      const res = evaluate(cands[i])
+      const cost = res.penalty + (i === memo ? 0 : i)
+      if (!best || cost < best.cost) best = { ...res, cost, i }
+      if (best.cost === 0) break
+    }
+    const c = cands[best.i]
+    placeMemory.set(it.agent.id, best.i)
+    placed.push(best.rect)
+    const bx = best.l - (it.ax - w / 2)
+    const tailX = Math.min(w - 12, Math.max(12, it.ax - best.l))
+    const anchored = it.ax >= best.l + 10 && it.ax <= best.l + w - 10
+    const side = anchored ? c.side : 'float'
+    setStyle(it.overlay, '--bx', `${Math.round(bx)}px`)
+    setStyle(it.overlay, '--by', `${Math.round(c.top + BUBBLE_GAP + h)}px`)
+    setStyle(it.overlay, '--tail-x', `${Math.round(tailX)}px`)
+    if (it.overlay.dataset.side !== side) it.overlay.dataset.side = side
+  }
+  for (const id of [...placeMemory.keys()]) {
+    if (!withBubble.some((it) => it.agent.id === id)) placeMemory.delete(id)
+  }
+}
+
+let layoutQueued = false
+const scheduleLayout = () => {
+  if (layoutQueued || typeof requestAnimationFrame === 'undefined') return
+  layoutQueued = true
+  requestAnimationFrame(() => {
+    layoutQueued = false
+    if (props.visible) layoutOverlays()
+  })
+}
+watch([scale, () => offset.x, () => offset.y], scheduleLayout)
+onUpdated(scheduleLayout)
 
 // ---------------------------------------------------------------- rendering helpers
 const spriteSrc = (agent) => buildSpritePath(agent.character, agent.facing, agent.pose === 'walk' ? agent.m.frame : 1)
@@ -1438,6 +1573,10 @@ onBeforeUnmount(() => {
   transition: opacity 0.2s ease;
 }
 
+/* A speech / thought bubble is read before neighbouring names; the focused person's wins */
+.office-agent-overlay.has-bubble { z-index: calc(var(--z-sticky) + 1); }
+.office-agent-overlay.is-focus { z-index: calc(var(--z-sticky) + 2); }
+
 .office-agent-overlay.dim {
   opacity: 0.35;
 }
@@ -1446,7 +1585,7 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 0;
   bottom: 0;
-  transform: translateX(-50%);
+  transform: translate3d(-50%, var(--tag-dy, 0px), 0);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1515,11 +1654,12 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 0;
   bottom: 20px;
-  transform: translateX(-50%);
+  /* --bx / --by: placement from layoutOverlays() (flip below, clamp to the visible area) */
+  transform: translate3d(calc(-50% + var(--bx, 0px)), var(--by, 0px), 0);
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  max-width: 200px;
+  max-width: var(--bubble-max, 200px);
   padding: 4px 9px;
   border-radius: 10px;
   font-size: var(--fs-xs);
@@ -1534,7 +1674,7 @@ onBeforeUnmount(() => {
 .office-bubble::after {
   content: '';
   position: absolute;
-  left: 50%;
+  left: var(--tail-x, 50%);
   bottom: -4px;
   width: 8px;
   height: 8px;
@@ -1542,6 +1682,11 @@ onBeforeUnmount(() => {
   transform: translateX(-50%) rotate(45deg);
   border-radius: 1px;
 }
+
+/* Below the person: the tail moves to the top edge; floating bubbles have no tail */
+.office-agent-overlay[data-side='below'] .office-bubble::after { bottom: auto; top: -4px; }
+.office-agent-overlay[data-side='float'] .office-bubble::after,
+.office-agent-overlay[data-side='float'] .office-bubble::before { display: none; }
 
 .bubble-text {
   overflow: hidden;
@@ -1551,7 +1696,7 @@ onBeforeUnmount(() => {
 .bubble-say {
   white-space: normal;
   width: max-content;
-  max-width: 210px;
+  max-width: var(--bubble-max, 210px);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   line-clamp: 3;
@@ -1570,7 +1715,7 @@ onBeforeUnmount(() => {
 .bubble-waiting {
   white-space: normal;
   width: max-content;
-  max-width: 220px;
+  max-width: var(--bubble-max, 220px);
   padding: 6px 11px;
   border-radius: 14px;
   align-items: flex-start;
@@ -1581,8 +1726,8 @@ onBeforeUnmount(() => {
 .bubble-delegate .bubble-text,
 .bubble-waiting .bubble-text {
   display: -webkit-box;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: clip;
@@ -1600,6 +1745,9 @@ onBeforeUnmount(() => {
   font-size: var(--fs-xs);
   font-weight: 700;
   opacity: 0.72;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bubble-body .bubble-text {
@@ -1631,7 +1779,7 @@ onBeforeUnmount(() => {
 .bubble-waiting::before {
   content: '';
   position: absolute;
-  left: calc(50% + 6px);
+  left: calc(var(--tail-x, 50%) + 6px);
   bottom: -14px;
   width: 4px;
   height: 4px;
@@ -1713,8 +1861,15 @@ onBeforeUnmount(() => {
 .office-bubble-enter-from,
 .office-bubble-leave-to {
   opacity: 0;
-  transform: translate(-50%, 4px) scale(0.92);
+  transform: translate3d(calc(-50% + var(--bx, 0px)), calc(var(--by, 0px) + 4px), 0) scale(0.92);
 }
+
+.office-agent-overlay[data-side='below'] .bubble-thinking::after,
+.office-agent-overlay[data-side='below'] .bubble-delegate::after,
+.office-agent-overlay[data-side='below'] .bubble-waiting::after { bottom: auto; top: -9px; }
+.office-agent-overlay[data-side='below'] .bubble-thinking::before,
+.office-agent-overlay[data-side='below'] .bubble-delegate::before,
+.office-agent-overlay[data-side='below'] .bubble-waiting::before { bottom: auto; top: -14px; }
 
 /* ---------- info card ---------- */
 .office-card {

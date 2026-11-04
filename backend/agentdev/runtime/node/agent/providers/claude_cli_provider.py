@@ -75,6 +75,10 @@ _NATIVE_OPTIONAL_FLAGS = (("--restricted",), ("--permission-prompts", "none"))
 _NATIVE_SETTINGS = {"autoMemoryEnabled": False, "disableAllHooks": True}
 
 
+def _ignore_line(_line: str) -> None:
+    """Streamed lines are only watched for liveness; the whole output is parsed once the CLI exits."""
+
+
 def _session_scope(model: Optional[str], tool_specs: List[ToolSpec], schema_enforced: bool) -> str:
     """A session is resumed only by calls offering the same model, tools and reply mode."""
     specs = [[spec.name, spec.description, spec.parameters] for spec in tool_specs]
@@ -232,7 +236,11 @@ class ClaudeCliProvider(ModelProvider):
     ) -> ModelResponse:
         """One ``claude -p`` call: stateless (no session), first step of ``session`` (persisted under its
         id), or ``resume_from`` = index of the first message the resumed ``session`` has not seen."""
-        timeout = self.params.get("timeout", 300)
+        # The reply streams (stream-json + partial messages), so a stuck CLI is caught by the idle watchdog
+        # in run_cli (no output for AGENTDEV_CLI_IDLE_KILL s). The wall-clock limit is only a backstop: a
+        # flat 300 s killed agents that were still writing a long file into one tool call, and the retry
+        # then redid the same work and timed out again.
+        timeout = self.params.get("timeout", DEFAULT_NATIVE_TIMEOUT)
         cwd = state.workdir()
         resuming = session is not None and resume_from is not None
         # Images / PDFs the user attached are copied next to the call; Claude Code's Read tool (and
@@ -244,7 +252,7 @@ class ClaudeCliProvider(ModelProvider):
             needs_read = any(item.rel_path and item.kind in ("image", "pdf", "file", "text") for item in staged)
             if session is not None:
                 session.options["read_tool"] = needs_read
-        cmd = [client.path, "-p", "--output-format", "json"]
+        cmd = [client.path, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
         if session is None:
             cmd.append("--no-session-persistence")
         elif resuming:
@@ -283,18 +291,22 @@ class ClaudeCliProvider(ModelProvider):
         if self.model_name:
             cmd += ["--model", validate_model_name(self.model_name)]
         try:
-            proc = run_cli(cmd, prompt, timeout, "claude", cwd)
+            # on_line turns on the idle watchdog; each streamed delta counts as output.
+            proc = run_cli(cmd, prompt, timeout, "claude", cwd, on_line=_ignore_line)
         finally:
             try:
                 os.remove(system_file)
             except OSError:
                 pass
         out, err = proc.stdout or "", proc.stderr or ""
-        data: Any = None
-        try:
-            data = json.loads(out)
-        except (ValueError, TypeError):
-            pass
+        # The final stream-json ``result`` event carries the same fields as ``--output-format json``
+        # (result, structured_output, is_error, usage, total_cost_usd); a plain JSON reply is still read.
+        data: Any = read_claude_stream(out, None)[0]
+        if data is None:
+            try:
+                data = json.loads(out)
+            except (ValueError, TypeError):
+                pass
         if isinstance(data, dict) and data.get("is_error"):
             _raise_claude_error(str(data.get("result") or err))
         if proc.returncode != 0:

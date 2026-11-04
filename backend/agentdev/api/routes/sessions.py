@@ -40,7 +40,7 @@ def _require_session_id(session_id: str) -> None:
 
 
 @router.get("/api/sessions")
-async def list_sessions():
+def list_sessions():
     """Every saved or live workflow session, newest first (for the session sidebar)."""
     store = get_websocket_manager().session_store
     return {"sessions": store.list_summaries()}

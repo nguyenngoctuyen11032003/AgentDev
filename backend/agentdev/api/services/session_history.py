@@ -15,8 +15,9 @@ import logging
 import os
 import shutil
 import threading
+import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agentdev.paths import STORAGE_DIR
 from agentdev.utils.exceptions import ValidationError
@@ -31,7 +32,12 @@ MESSAGES_FILE = "messages.jsonl"
 REVIEW_FILE = "review.json"
 # Finished conversation turns (user message + final answer), fed to follow-up runs
 TURNS_FILE = "turns.json"
+# Progress of the latest run (finished nodes, notes), used to resume an interrupted run
+CHECKPOINT_FILE = "checkpoint.json"
 TITLE_MAX_CHARS = 80
+# An open replay-log handle that has not been written to for this long is closed (see _stream_for)
+STREAM_IDLE_SECONDS = 5.0
+MAX_OPEN_STREAMS = 16
 # Written once the greeting-title backfill has scanned the folder (see retitle_small_talk_sessions)
 RETITLE_MARKER = ".retitled_small_talk_v1"
 
@@ -51,6 +57,12 @@ class SessionHistoryStore:
         self.root = Path(root) if root is not None else SESSIONS_DIR
         self._lock = threading.Lock()
         self.logger = logging.getLogger(__name__)
+        # Open append handles of messages.jsonl by session id -> (handle, last used). A run writes
+        # hundreds of messages; reopening the file for each one costs far more than the write itself.
+        self._streams: Dict[str, Tuple[Any, float]] = {}
+        # list_meta cache: session folder -> ((meta stat, review stat), item). The sidebar lists every
+        # session often; re-parsing unchanged JSON files each time is wasted work.
+        self._meta_cache: Dict[str, Tuple[tuple, Dict[str, Any]]] = {}
 
     # ------------------------------------------------------------------ paths
     def _dir(self, session_id: str, *, create: bool = False) -> Optional[Path]:
@@ -84,14 +96,76 @@ class SessionHistoryStore:
             self.logger.warning("Failed to save session meta %s: %s", meta.get("session_id"), exc)
 
     def append_message(self, session_id: str, encoded: str) -> None:
-        path = self._dir(session_id, create=True)
-        if path is None:
-            return
         try:
-            with self._lock, open(path / MESSAGES_FILE, "a", encoding="utf-8") as handle:
-                handle.write(encoded.replace("\n", " ") + "\n")
-        except OSError as exc:
+            validate_path_component(session_id, field="session_id")
+        except ValidationError:
+            return
+        line = encoded.replace("\n", " ") + "\n"
+        try:
+            with self._lock:
+                handle = self._stream_for(session_id)
+                if handle is None:
+                    return
+                handle.write(line)
+                handle.flush()  # visible to other readers at once; no per-message open/close
+        except (OSError, ValueError) as exc:
+            self._drop_stream(session_id)
             self.logger.warning("Failed to append session message %s: %s", session_id, exc)
+
+    def _stream_for(self, session_id: str):
+        """The open append handle of a session's replay log (caller holds the lock); None if unusable."""
+        now = time.monotonic()
+        for other, (handle, used) in list(self._streams.items()):
+            if other != session_id and now - used > STREAM_IDLE_SECONDS:
+                self._close_quietly(handle)
+                del self._streams[other]
+        entry = self._streams.get(session_id)
+        if entry is not None and entry[0].closed:
+            entry = None
+        if entry is None:
+            path = self._dir(session_id, create=True)
+            if path is None:
+                return None
+            while len(self._streams) >= MAX_OPEN_STREAMS:
+                oldest = min(self._streams, key=lambda key: self._streams[key][1])
+                self._close_quietly(self._streams.pop(oldest)[0])
+            entry = (open(path / MESSAGES_FILE, "a", encoding="utf-8"), now)
+        self._streams[session_id] = (entry[0], now)
+        return entry[0]
+
+    @staticmethod
+    def _close_quietly(handle) -> None:
+        try:
+            handle.close()
+        except OSError:
+            pass
+
+    def _drop_stream(self, session_id: str) -> None:
+        with self._lock:
+            entry = self._streams.pop(session_id, None)
+        if entry is not None:
+            self._close_quietly(entry[0])
+
+    def close_stream(self, session_id: str) -> None:
+        """Release the replay-log handle of a session whose run ended (reopened on the next message)."""
+        self._drop_stream(session_id)
+
+    def rewrite_messages(self, session_id: str, messages: List[Dict[str, Any]]) -> None:
+        """Replace the replay log with ``messages`` (drops what the in-memory buffer already evicted)."""
+        path = self._dir(session_id)
+        if path is None or not path.is_dir():
+            return
+        tmp = path / (MESSAGES_FILE + ".tmp")
+        try:
+            body = "".join(json.dumps(m, ensure_ascii=False, default=str).replace("\n", " ") + "\n" for m in messages)
+            with self._lock:
+                entry = self._streams.pop(session_id, None)
+                if entry is not None:
+                    self._close_quietly(entry[0])
+                tmp.write_text(body, encoding="utf-8")
+                os.replace(tmp, path / MESSAGES_FILE)
+        except (OSError, TypeError, ValueError) as exc:
+            self.logger.warning("Failed to compact session messages %s: %s", session_id, exc)
 
     def rename(self, session_id: str, title: str) -> Optional[Dict[str, Any]]:
         path = self._dir(session_id)
@@ -142,12 +216,32 @@ class SessionHistoryStore:
         turns = (data or {}).get("turns")
         return [t for t in turns if isinstance(t, dict)] if isinstance(turns, list) else []
 
+    def save_checkpoint(self, session_id: str, checkpoint: Dict[str, Any]) -> None:
+        path = self._dir(session_id, create=True)
+        if path is None:
+            return
+        tmp = path / (CHECKPOINT_FILE + ".tmp")
+        try:
+            with self._lock:
+                tmp.write_text(json.dumps(checkpoint, ensure_ascii=False, default=str), encoding="utf-8")
+                os.replace(tmp, path / CHECKPOINT_FILE)
+        except (OSError, TypeError, ValueError) as exc:
+            self.logger.warning("Failed to save checkpoint %s: %s", session_id, exc)
+
+    def load_checkpoint(self, session_id: str) -> Optional[Dict[str, Any]]:
+        path = self._dir(session_id)
+        return self._read_json(path / CHECKPOINT_FILE) if path else None
+
     def delete(self, session_id: str) -> bool:
         path = self._dir(session_id)
         if path is None or not path.is_dir():
             return False
         with self._lock:
+            entry = self._streams.pop(session_id, None)
+            if entry is not None:
+                self._close_quietly(entry[0])
             shutil.rmtree(path, ignore_errors=True)
+        self._meta_cache.pop(session_id, None)
         return True
 
     # ------------------------------------------------------------------ reads
@@ -166,16 +260,40 @@ class SessionHistoryStore:
     def has(self, session_id: str) -> bool:
         return self.get_meta(session_id) is not None
 
+    @staticmethod
+    def _stat_key(path: Path) -> Optional[Tuple[int, int]]:
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        return (stat.st_mtime_ns, stat.st_size)
+
     def list_meta(self) -> List[Dict[str, Any]]:
         if not self.root.is_dir():
             return []
         items = []
+        seen = set()
         for child in self.root.iterdir():
-            if child.is_dir() and not is_link(child):
+            if not child.is_dir() or is_link(child):
+                continue
+            key = (self._stat_key(child / META_FILE), self._stat_key(child / REVIEW_FILE))
+            if key[0] is None:
+                continue
+            seen.add(child.name)
+            cached = self._meta_cache.get(child.name)
+            if cached is not None and cached[0] == key:
+                item = cached[1]
+            else:
                 meta = self._read_json(child / META_FILE)
-                if meta and meta.get("session_id") == child.name:
-                    review = self._read_json(child / REVIEW_FILE)
-                    items.append({**meta, "review": review} if review else meta)
+                if not meta or meta.get("session_id") != child.name:
+                    self._meta_cache.pop(child.name, None)
+                    continue
+                review = self._read_json(child / REVIEW_FILE)
+                item = {**meta, "review": review} if review else meta
+                self._meta_cache[child.name] = (key, item)
+            items.append(dict(item))  # callers add fields to what they get
+        for stale in [name for name in self._meta_cache if name not in seen]:
+            del self._meta_cache[stale]
         items.sort(key=lambda item: item.get("updated_at") or 0, reverse=True)
         return items
 

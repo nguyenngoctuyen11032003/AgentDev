@@ -2,10 +2,14 @@ import asyncio
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from fastapi.responses import FileResponse
 
+from agentdev.api.services.local_projects import open_on_machine, opened_project_folder, resolve_project_file
 from agentdev.api.state import get_websocket_manager
+from agentdev.connections.security import require_local_origin
+from agentdev.utils.exceptions import ValidationError
 from agentdev.utils.attachments import encode_file_to_data_uri
 
 router = APIRouter()
@@ -100,7 +104,10 @@ async def get_artifact(
     if not data_uri and ref.local_path and (ref.size or 0) <= MAX_FILE_SIZE:
         local_path = Path(ref.local_path)
         if local_path.exists():
-            data_uri = encode_file_to_data_uri(local_path, ref.mime_type or "application/octet-stream")
+            # Up to 20 MB read + base64: not on the event loop
+            data_uri = await asyncio.to_thread(
+                encode_file_to_data_uri, local_path, ref.mime_type or "application/octet-stream"
+            )
     return {
         "artifact_id": artifact_id,
         "name": ref.name,
@@ -111,3 +118,31 @@ async def get_artifact(
         "local_path": ref.local_path,
         "extra": record.extra,
     }
+
+
+class OpenLocalFileRequest(BaseModel):
+    relative_path: str
+    reveal: bool = False
+
+
+@router.post("/api/sessions/{session_id}/local-files/open", dependencies=[Depends(require_local_origin)])
+async def open_local_file(session_id: str, body: OpenLocalFileRequest):
+    """Open a file of the session's opened project on this machine (default app or file manager).
+
+    Only paths inside the project folder registered for the session are accepted.
+    """
+    manager = get_websocket_manager()
+    session = manager.session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    root = opened_project_folder(session)
+    if root is None:
+        raise HTTPException(status_code=404, detail="This session has no opened project folder")
+    try:
+        target = resolve_project_file(root, body.relative_path)
+        action = await asyncio.to_thread(open_on_machine, target, reveal=body.reveal)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not open the file: {exc}") from exc
+    return {"status": action, "path": str(target)}

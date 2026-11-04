@@ -1,4 +1,4 @@
-"""Workflow assistant: one chat turn with Claude or Codex.
+"""Workflow assistant: one chat turn with Claude, Codex or Gemini.
 
 A turn builds the system prompt, calls the model once through a signed-in CLI connection, parses the
 JSON reply and validates any proposed workflow. A proposal that fails validation is sent back to the
@@ -30,13 +30,14 @@ from agentdev.api.services.workflow_diff import diff_workflows, new_dangerous_to
 from agentdev.api.services.workflow_lab import FAIL, WARN, SimpleConfig, static_check_data
 from agentdev.api.services.workflow_storage import validate_workflow_filename
 from agentdev.api.settings import YAML_DIR
+from agentdev.connections.resolver import ConnectionResolutionError
 from agentdev.runtime.node.agent import account_fallback
 from agentdev.runtime.node.agent.providers._cli_common import CliProviderError
 from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled, cli_cancel_scope
 
 logger = logging.getLogger(__name__)
 
-VENDOR_LABELS = {"anthropic": "Claude", "openai": "Codex"}
+VENDOR_LABELS = {"anthropic": "Claude", "openai": "Codex", "gemini": "Gemini"}
 MAX_REPAIRS = 2
 HISTORY_LIMIT = 40  # (20 turns) longer histories are trimmed
 HISTORY_TAIL = 24  # messages kept, after the first user message, once trimmed
@@ -45,8 +46,8 @@ MAX_QUICK_REPLIES = 4
 MAX_CONCURRENT_TURNS = 4  # each turn runs a CLI for up to (MAX_REPAIRS + 1) x CALL_TIMEOUT
 MAX_REQUEST_CHARS = 400_000  # sum of message contents and pending_yaml
 
-ERROR_CODES = ("quota_exhausted", "not_signed_in", "timeout", "cancelled", "provider_error", "bad_request",
-               "busy")
+ERROR_CODES = ("quota_exhausted", "not_signed_in", "timeout", "model_unavailable", "cancelled",
+               "provider_error", "bad_request", "busy")
 
 # A model call returns the reply text, or (text, usage) where usage is a dict with any of
 # ``input_tokens``, ``output_tokens``, ``cache_read_tokens`` (None values when unknown).
@@ -79,7 +80,7 @@ def _signed_in(conn: Any) -> bool:
 
 
 def list_providers() -> List[dict]:
-    """One entry per assistant vendor (always both), with the signed-in connection it would use."""
+    """One entry per assistant vendor (always all of them), with the signed-in connection it would use."""
     from agentdev.connections.store import get_store
 
     store = get_store()
@@ -111,6 +112,11 @@ def usage_from_raw(raw: Any) -> Optional[dict]:
     Claude CLI (``--output-format json``): ``usage.input_tokens`` counts only uncached input, so the
     total input is that plus cache writes and cache reads. Codex CLI: ``usage.input_tokens`` already
     includes ``cached_input_tokens``."""
+    meta = getattr(raw, "usage_metadata", None)
+    if meta is not None and not isinstance(raw, dict):  # Gemini SDK response
+        return {"input_tokens": _int_or_none(getattr(meta, "prompt_token_count", None)),
+                "output_tokens": _int_or_none(getattr(meta, "candidates_token_count", None)),
+                "cache_read_tokens": _int_or_none(getattr(meta, "cached_content_token_count", None))}
     usage = raw.get("usage") if isinstance(raw, dict) else None
     if not isinstance(usage, dict) or not usage:
         return None
@@ -146,7 +152,9 @@ def _provider_call(connection_id: str, model: str) -> ModelCall:
         roles = {"user": MessageRole.USER, "assistant": MessageRole.ASSISTANT}
         history = [Message(role=MessageRole.SYSTEM, content=system)]
         history += [Message(role=roles[m["role"]], content=m["content"]) for m in messages]
-        response = provider.call_model(provider.create_client(), history, [])
+        # The Gemini provider builds its request from the timeline; the CLI providers read the conversation.
+        timeline = list(history) if provider_name == "gemini" else []
+        response = provider.call_model(provider.create_client(), history, timeline)
         return response.message.text_content(), usage_from_raw(response.raw_response)
 
     return call
@@ -172,6 +180,24 @@ def _is_timeout(exc: BaseException) -> bool:
     return isinstance(exc, (TimeoutError, subprocess.TimeoutExpired))
 
 
+_MODEL_GONE_MARKERS = ("no longer available", "is not found for api version", "model not found")
+
+
+def _is_model_unavailable(exc: BaseException) -> bool:
+    """Gemini answers a retired or unknown model with HTTP 404 (``ClientError``/``APIError`` with code 404)."""
+    seen = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        text = str(current).lower()
+        if getattr(current, "code", None) == 404 and type(current).__name__ in ("ClientError", "APIError"):
+            return True
+        if any(m in text for m in _MODEL_GONE_MARKERS):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 _SIGNED_OUT_MARKERS = ("not logged in", "not installed")
 
 
@@ -184,6 +210,10 @@ def _is_signed_out(exc: BaseException) -> bool:
         seen.add(id(current))
         if isinstance(current, CliProviderError) and any(m in str(current).lower() for m in _SIGNED_OUT_MARKERS):
             return True
+        if isinstance(current, ConnectionResolutionError):  # Gemini: sign-in expired or connection gone
+            return True
+        if type(current).__name__ in ("ClientError", "APIError") and getattr(current, "code", None) in (401, 403):
+            return True  # Gemini: the OAuth token was rejected
         current = current.__cause__ or current.__context__
     return False
 
@@ -194,6 +224,7 @@ _PUBLIC_MESSAGES = {
     "quota_exhausted": "The account has reached its usage limit.",
     "timeout": "The model took too long to answer.",
     "not_signed_in": "The CLI is not signed in or not installed.",
+    "model_unavailable": "The selected model is no longer available. Pick another model or reconnect the account.",
     "provider_error": "The model call failed. Details are in the server log.",
 }
 
@@ -226,6 +257,8 @@ def _guarded_call(call: ModelCall, system: str, messages: List[dict],
             raise _provider_failure("timeout", exc) from exc
         if _is_signed_out(exc):
             raise _provider_failure("not_signed_in", exc) from exc
+        if _is_model_unavailable(exc):
+            raise _provider_failure("model_unavailable", exc) from exc
         raise _provider_failure("provider_error", exc) from exc
     if event.is_set():
         raise AssistantError("cancelled", "Stopped")
@@ -379,6 +412,15 @@ def _dangerous_tools_check(old: Optional[dict], data: Any) -> Optional[dict]:
     return {"id": "dangerous_tools", "status": WARN, "detail": detail, "items": items}
 
 
+def _normalise_extension(filename: str) -> str:
+    """``name.yml`` / ``name`` -> ``name.yaml``; anything else unchanged (it is validated next)."""
+    if filename.lower().endswith(".yml"):
+        return filename[:-4] + ".yaml"
+    if filename and "." not in filename:
+        return filename + ".yaml"
+    return filename
+
+
 def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str], saved_doc: Optional[dict],
                     user_texts: List[str]) -> Tuple[Optional[dict], List[str]]:
     """(proposal for the client, []) when valid, else (None, errors to send back to the model).
@@ -393,6 +435,9 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
     if not isinstance(text, str) or not text.strip():
         return None, ["`proposal.yaml` must be the whole workflow YAML as a string."]
 
+    # A missing or ``.yml`` extension is fixed here rather than costing a repair round trip (a whole
+    # second model call that resends the full YAML).
+    filename = _normalise_extension(filename)
     # A "create" that reuses the open workflow's own file name is an edit of it.
     if workflow and kind == "create" and filename == workflow:
         kind = "edit"

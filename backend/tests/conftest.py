@@ -1,11 +1,22 @@
 """Shared pytest fixtures for the backend test suite."""
 
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+
+# The suite works on a private copy of the workflow folder (the shipped workflows plus the demo
+# fixtures in tests/fixtures/), so it never writes into workspace/workflows and parallel runs do
+# not step on each other. Set before anything imports ``agentdev.paths``.
+_REAL_WORKFLOWS = Path(__file__).resolve().parents[2] / "workspace" / "workflows"
+_TEST_WORKFLOWS = Path(tempfile.mkdtemp(prefix="agentdev_test_workflows_"))
+for _source in [*_REAL_WORKFLOWS.glob("*.yaml"), *(Path(__file__).parent / "fixtures").glob("*.yaml")]:
+    shutil.copyfile(_source, _TEST_WORKFLOWS / _source.name)
+os.environ["AGENTDEV_WORKFLOWS_DIR"] = str(_TEST_WORKFLOWS)
 
 # Never read the developer's ``.env`` into ``os.environ``: a clean checkout has none,
 # so tests must not depend on it. Marking the loader as done keeps it a no-op.
@@ -155,3 +166,9 @@ def is_link(path) -> bool:
 def link():
     """Factory fixture: ``link(path, target, directory=False)``."""
     return make_link
+
+
+
+
+def pytest_unconfigure(config):
+    shutil.rmtree(_TEST_WORKFLOWS, ignore_errors=True)

@@ -329,7 +329,7 @@ def test_lead_runs_members_in_parallel_end_to_end(parallel_workflow):
     assert "delegate_parallel" in cto_calls[0]["tools"]
     tool_result = next(text for text in cto_calls[1]["conversation"] if "API /orders done" in text)
     assert "Orders page done" in tool_result and "orders table created" in tool_result
-    assert '"failed": []' in tool_result
+    assert '"failed":[]' in tool_result
     for member, task in (("Backend Dev", "Build /orders API"), ("Frontend Dev", "Build orders page")):
         convo = ParallelProvider.seen[member][0]["conversation"]
         assert any(task in text for text in convo)
