@@ -18,12 +18,14 @@ import logging
 import re
 import subprocess
 import threading
+import time
+import unicodedata
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import yaml
 
-from agentdev.api.services.workflow_assistant_prompt import build_system_prompt, load_context
+from agentdev.api.services.workflow_assistant_prompt import load_context, stable_prefix, turn_context, with_context
 from agentdev.api.services.workflow_diff import diff_workflows, new_dangerous_tool_items, unrequested_changes
 from agentdev.api.services.workflow_lab import FAIL, WARN, SimpleConfig, static_check_data
 from agentdev.api.services.workflow_storage import validate_workflow_filename
@@ -46,7 +48,11 @@ MAX_REQUEST_CHARS = 400_000  # sum of message contents and pending_yaml
 ERROR_CODES = ("quota_exhausted", "not_signed_in", "timeout", "cancelled", "provider_error", "bad_request",
                "busy")
 
-ModelCall = Callable[[str, List[dict]], str]
+# A model call returns the reply text, or (text, usage) where usage is a dict with any of
+# ``input_tokens``, ``output_tokens``, ``cache_read_tokens`` (None values when unknown).
+ModelCall = Callable[[str, List[dict]], Union[str, Tuple[str, Optional[dict]]]]
+INTENTS = ("ask", "explain", "propose")
+USAGE_TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_read_tokens")
 
 
 class AssistantError(Exception):
@@ -95,10 +101,37 @@ def list_providers() -> List[dict]:
     return providers
 
 
-def _provider_call(connection_id: str, model: str) -> ModelCall:
-    """A ``call(system, messages)`` that asks the given connection once (no tools), like the Lab judge."""
+def _int_or_none(value: Any) -> Optional[int]:
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
-    def call(system: str, messages: List[dict]) -> str:
+
+def usage_from_raw(raw: Any) -> Optional[dict]:
+    """Token counts from a CLI provider's raw response, or None when it reports none.
+
+    Claude CLI (``--output-format json``): ``usage.input_tokens`` counts only uncached input, so the
+    total input is that plus cache writes and cache reads. Codex CLI: ``usage.input_tokens`` already
+    includes ``cached_input_tokens``."""
+    usage = raw.get("usage") if isinstance(raw, dict) else None
+    if not isinstance(usage, dict) or not usage:
+        return None
+    if "cache_read_input_tokens" in usage or "cache_creation_input_tokens" in usage:
+        parts = [_int_or_none(usage.get(k)) for k in
+                 ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
+        known = [p for p in parts if p is not None]
+        input_tokens = sum(known) if known else None
+        cache_read = _int_or_none(usage.get("cache_read_input_tokens"))
+    else:
+        input_tokens = _int_or_none(usage.get("input_tokens"))
+        cache_read = _int_or_none(usage.get("cached_input_tokens"))
+    return {"input_tokens": input_tokens, "output_tokens": _int_or_none(usage.get("output_tokens")),
+            "cache_read_tokens": cache_read}
+
+
+def _provider_call(connection_id: str, model: str) -> ModelCall:
+    """A ``call(system, messages)`` that asks the given connection once (no tools), like the Lab judge.
+    Returns ``(text, usage)``."""
+
+    def call(system: str, messages: List[dict]) -> Tuple[str, Optional[dict]]:
         from agentdev.connections.resolver import resolve_connection
         from agentdev.entity.messages import Message, MessageRole
         from agentdev.runtime.node.agent import ProviderRegistry
@@ -114,7 +147,7 @@ def _provider_call(connection_id: str, model: str) -> ModelCall:
         history = [Message(role=MessageRole.SYSTEM, content=system)]
         history += [Message(role=roles[m["role"]], content=m["content"]) for m in messages]
         response = provider.call_model(provider.create_client(), history, [])
-        return response.message.text_content()
+        return response.message.text_content(), usage_from_raw(response.raw_response)
 
     return call
 
@@ -170,9 +203,11 @@ def _provider_failure(code: str, exc: BaseException) -> AssistantError:
     return AssistantError(code, _PUBLIC_MESSAGES[code])
 
 
-def _guarded_call(call: ModelCall, system: str, messages: List[dict], event: threading.Event) -> str:
+def _guarded_call(call: ModelCall, system: str, messages: List[dict],
+                  event: threading.Event) -> Tuple[str, Optional[dict]]:
     """Run one model call inside the cancel scope and map failures to ``AssistantError`` (with a short
-    message safe to show in the browser; the provider's own text goes to the server log)."""
+    message safe to show in the browser; the provider's own text goes to the server log).
+    Returns ``(text, usage or None)``."""
     if event.is_set():
         raise AssistantError("cancelled", "Stopped")
     try:
@@ -194,7 +229,10 @@ def _guarded_call(call: ModelCall, system: str, messages: List[dict], event: thr
         raise _provider_failure("provider_error", exc) from exc
     if event.is_set():
         raise AssistantError("cancelled", "Stopped")
-    return text or ""
+    usage: Optional[dict] = None
+    if isinstance(text, tuple):
+        text, usage = text
+    return text or "", usage if isinstance(usage, dict) else None
 
 
 # ---------------------------------------------------------------------------- parsing
@@ -243,28 +281,62 @@ def _json_error(text: str) -> str:
     return f"Your reply was not valid JSON or was cut off ({reason})."
 
 
+_TRAILING_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```\s*\Z", re.DOTALL)
+_META_KEYS = {"intent", "quick_replies"}
+
+
+def _trailing_meta(text: str) -> Optional[Tuple[str, dict]]:
+    """(prose, meta) when ``text`` is a prose reply followed by a JSON object holding only ``intent`` /
+    ``quick_replies`` (fenced or bare). Seen in a real run: the model answered in prose and then sent
+    ```json {"intent": "explain"}``` on its own."""
+    stripped = text.rstrip()
+    fence = _TRAILING_FENCE_RE.search(stripped)
+    if fence:
+        start, payload = fence.start(), fence.group(1)
+    else:
+        start = stripped.rfind("{")
+        payload = stripped[start:] if start >= 0 else ""
+    try:
+        data = _DECODER.decode(payload)
+    except ValueError:
+        return None
+    prose = stripped[:start].strip()
+    if not prose or not isinstance(data, dict) or not data or not set(data) <= _META_KEYS:
+        return None
+    return prose, data
+
+
 def _parse(text: str) -> Tuple[dict, Optional[str]]:
     """(parsed reply, None), or (empty reply, error) when the text was meant as the JSON reply but is
     broken or truncated: showing it raw would put braces and escaped YAML in the chat bubble."""
     text = text or ""
     data = _json_object(text)
     if data is None or not ({"reply", "proposal"} & data.keys()):
+        meta = _trailing_meta(text)
+        if meta is not None:
+            prose, data = meta
+            data = {**data, "reply": prose, "proposal": None}
+            return _parse(json.dumps(data, ensure_ascii=False))
         if _JSON_LIKE_RE.search(text):
-            return {"reply": "", "quick_replies": [], "proposal": None}, _json_error(text)
-        return {"reply": text.strip(), "quick_replies": [], "proposal": None}, None
+            return {"reply": "", "quick_replies": [], "proposal": None, "intent": None}, _json_error(text)
+        return {"reply": text.strip(), "quick_replies": [], "proposal": None, "intent": None}, None
     quick = data.get("quick_replies")
     quick_replies = [str(q) for q in quick if isinstance(q, (str, int, float)) and str(q).strip()] \
         if isinstance(quick, list) else []
     proposal = data.get("proposal")
+    intent = data.get("intent")
+    intent = intent.strip().lower() if isinstance(intent, str) else None
     return {
         "reply": str(data.get("reply") or ""),
         "quick_replies": quick_replies[:MAX_QUICK_REPLIES],
         "proposal": proposal if proposal not in (None, {}, "") else None,
+        "intent": intent if intent in INTENTS else None,
     }, None
 
 
 def parse_model_output(text: str) -> dict:
-    """``{reply, quick_replies, proposal}`` from the model's text. Text that holds no JSON object is
+    """``{reply, quick_replies, proposal, intent}`` from the model's text (``intent``: "ask", "explain",
+    "propose" or None when absent or unknown). Text that holds no JSON object is
     the reply itself (``proposal`` None), unless it was meant as the JSON reply and is broken: the reply
     is then empty. ``proposal`` is returned as sent (validated later)."""
     return _parse(text)[0]
@@ -385,13 +457,57 @@ _REPAIR_FOOTER = "\nThe user does not see this check: your new `reply` replaces 
     "\nReturn the corrected full JSON."
 
 
-def _repair_request(errors: List[str], *, bad_json: bool = False) -> str:
+# Seen in a real run: on both "build it now" turns the reply said "see the card below, click Apply" but
+# ``proposal`` was null. The contract's ``intent`` makes that detectable without matching phrases.
+MISSING_PROPOSAL_ERROR = 'The reply said a proposal is attached (`intent: "propose"`) but `proposal` is null.'
+
+# Without ``intent`` (legacy path, or the model forgot it) a reply can still tell the user to apply a card
+# that is not there, and the older card then looks current. Only this narrow shape is repaired: an
+# "apply" word together with a card word. ``intent: "ask"`` / ``"explain"`` turns are never touched.
+_APPLY_RE = re.compile(r"\bap dung\b|\bapply\b")
+_CARD_RE = re.compile(r"\bcard\b|\bproposal\b|\bban de xuat\b")
+
+
+def _fold(text: str) -> str:
+    """Lower case without Vietnamese accents (``Áp dụng`` -> ``ap dung``)."""
+    decomposed = unicodedata.normalize("NFD", text.lower().replace("đ", "d"))
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def announces_card(reply: str) -> bool:
+    """The reply tells the user to apply a proposal card (``bấm Áp dụng trên thẻ``, ``apply the card``)."""
+    folded = _fold(reply)
+    if not _APPLY_RE.search(folded):
+        return False
+    if _CARD_RE.search(folded) or "thẻ" in unicodedata.normalize("NFC", reply.lower()):
+        return True
+    # Unaccented "the" is "thẻ" only in a reply typed without any accents (otherwise it is "thế"/"the").
+    return folded == reply.lower() and "ap dung" in folded and re.search(r"\bthe\b", folded) is not None
+
+
+def _needs_proposal(parsed: dict) -> bool:
+    if parsed["proposal"] is not None:
+        return False
+    if parsed["intent"] == "propose":
+        return True
+    return parsed["intent"] is None and announces_card(parsed["reply"])
+
+
+_PROPOSAL_EXIT = ' If you were not proposing anything, return intent "ask" or "explain" and a reply that ' \
+    "does not mention applying, with `proposal: null`."
+
+
+def _repair_request(errors: List[str], *, bad_json: bool = False, missing_proposal: bool = False) -> str:
     # The user never sees this exchange: the corrected ``reply`` replaces the first one, so it must still
     # be written for them (seen in a real run: "Merged the duplicate connections..." in English).
     if bad_json:
         return errors[0] + " Return the complete JSON object (`reply`, `quick_replies`, `proposal`), with " \
             "newlines inside strings written as \\n. If the workflow is large, keep `reply` short." + \
             _REPAIR_FOOTER
+    if missing_proposal:
+        return 'You said you would propose (`intent: "propose"`) or told the user to apply a card, but ' \
+            "`proposal` is null. Return the complete JSON including the proposal (`kind`, `filename`, the " \
+            "whole `yaml`). If the workflow is large, keep `reply` short." + _PROPOSAL_EXIT + _REPAIR_FOOTER
     return "Your proposal failed validation:\n" + "\n".join(f"- {e}" for e in errors) + _REPAIR_FOOTER
 
 
@@ -440,11 +556,38 @@ def _read_workflow(workflow: str) -> str:
         raise AssistantError("bad_request", f"The workflow file {name} is not UTF-8 text") from exc
 
 
+def _add_usage(total: Optional[dict], usage: Optional[dict]) -> Optional[dict]:
+    """Sum token counts over the calls of one turn; a count stays None while no call reported it."""
+    if usage is None:
+        return total
+    total = dict(total or {k: None for k in USAGE_TOKEN_KEYS})
+    for key in USAGE_TOKEN_KEYS:
+        value = usage.get(key)
+        if isinstance(value, int):
+            total[key] = (total[key] or 0) + value
+    return total
+
+
+def _log_failed_turn(vendor: str, model: Optional[str], code: str, started: float, calls: int,
+                     usage: Optional[dict]) -> None:
+    """One line per failed or cancelled turn too (no user content): the calls made so far were paid for.
+    Token counts are those of the calls that returned before the failure (None when none did)."""
+    usage = usage or {}
+    level = logging.INFO if code == "cancelled" else logging.WARNING
+    logger.log(level, "Workflow assistant turn failed: vendor=%s model=%s code=%s calls=%d duration_ms=%d "
+               "input_tokens=%s output_tokens=%s", vendor, model, code, calls,
+               int((time.monotonic() - started) * 1000), usage.get("input_tokens"), usage.get("output_tokens"))
+
+
 def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pending_yaml: Optional[str],
              request_id: str, call: Optional[ModelCall] = None) -> dict:
-    """One chat turn: ``{reply, quick_replies, proposal, model_used, validation_errors}``; raises
-    ``AssistantError``. ``validation_errors`` lists what was still wrong when the repair loop gave up
-    (``proposal`` is then None); it is empty otherwise.
+    """One chat turn: ``{reply, quick_replies, proposal, intent, model_used, validation_errors, usage}``;
+    raises ``AssistantError``. ``validation_errors`` lists what was still wrong when the repair loop gave
+    up (``proposal`` is then None); it is empty otherwise. ``intent`` is what the model said the turn
+    does ("ask", "explain", "propose", or None when it did not say); a "propose" turn without a proposal
+    is sent back for repair like an invalid proposal. ``usage``: ``{input_tokens, output_tokens,
+    cache_read_tokens, duration_ms, calls}`` summed over the turn's model calls (repairs included);
+    token counts are None when the provider does not report them.
 
     ``call`` replaces the provider (tests); ``model_used`` is then None. Blocking: run it in a worker
     thread. ``cancel(request_id)`` from another thread stops it with code ``cancelled``."""
@@ -471,8 +614,14 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
         model_used = provider["model"] or ""
         call = _provider_call(provider["connection_id"], model_used)
 
-    system = build_system_prompt(current_yaml=saved_text, current_name=workflow if workflow else None,
-                                 pending_yaml=pending_yaml or None, chat_vendor=vendor, **load_context())
+    # The system prompt is the same bytes on every turn (a prompt-cache hit); what varies per chat or turn
+    # goes in front of the latest user message only (earlier turns are sent as the user wrote them).
+    context = load_context()
+    system = stable_prefix(skills=context["skills"], tools=context["tools"], models=context["models"])
+    turn = turn_context(current_yaml=saved_text, current_name=workflow if workflow else None,
+                        pending_yaml=pending_yaml or None, existing_files=context["existing_files"],
+                        chat_vendor=vendor)
+    history = history[:-1] + [{"role": "user", "content": with_context(history[-1]["content"], turn)}]
 
     event = threading.Event()
     with _cancel_lock:
@@ -481,27 +630,60 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
         if len(_cancel_events) >= MAX_CONCURRENT_TURNS:
             raise AssistantError("busy", "Too many concurrent requests; try again when one has finished")
         _cancel_events[request_id] = event
+    started = time.monotonic()
+    usage: Optional[dict] = None
+    calls = 0
+
+    def finish(result: dict, outcome: str) -> dict:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        turn_usage = {**(usage or {k: None for k in USAGE_TOKEN_KEYS}), "duration_ms": duration_ms,
+                      "calls": calls}
+        logger.info("Workflow assistant turn: vendor=%s model=%s prompt_chars=%d calls=%d duration_ms=%d "
+                    "input_tokens=%s output_tokens=%s cache_read_tokens=%s intent=%s outcome=%s",
+                    vendor, model_used, len(system) + len(turn), calls, duration_ms, turn_usage["input_tokens"],
+                    turn_usage["output_tokens"], turn_usage["cache_read_tokens"], result.get("intent"), outcome)
+        return {**result, "model_used": model_used, "usage": turn_usage}
+
     try:
         errors: List[str] = []
         for attempt in range(MAX_REPAIRS + 1):
-            text = _guarded_call(call, system, history, event)
+            calls += 1  # counted before the call, so a failed or cancelled call is in the log line
+            text, call_usage = _guarded_call(call, system, history, event)
+            usage = _add_usage(usage, call_usage)
             parsed, json_error = _parse(text)
+            missing = False
             if json_error is not None:
                 # Broken or truncated JSON reply: never shown raw; the model resends it whole.
                 errors, repair = [json_error], _repair_request([json_error], bad_json=True)
             elif parsed["proposal"] is None:
-                return {**parsed, "model_used": model_used, "validation_errors": []}
+                if not _needs_proposal(parsed):
+                    return finish({**parsed, "validation_errors": []}, "reply")
+                # The reply announces a proposal card that is not there: ask for the proposal itself.
+                missing = True
+                errors, repair = [MISSING_PROPOSAL_ERROR], _repair_request([], missing_proposal=True)
             else:
                 proposal, errors = _check_proposal(parsed["proposal"], workflow, saved_text, saved_doc,
                                                    user_texts)
                 if proposal is not None:
-                    return {**parsed, "proposal": proposal, "model_used": model_used, "validation_errors": []}
+                    return finish({**parsed, "proposal": proposal, "validation_errors": []}, "proposal")
                 repair = _repair_request(errors)
             if attempt < MAX_REPAIRS:
                 history = history + [{"role": "assistant", "content": text},
                                      {"role": "user", "content": repair}]
+        if missing:
+            # Gave up on a reply that points at a card that is not there: drop that reply (it would send
+            # the user to an older card) and the internal English error; the UI then shows its localised
+            # "could not answer" line for an empty reply.
+            return finish({**parsed, "reply": "", "quick_replies": [], "proposal": None,
+                           "validation_errors": []}, "gave_up")
         # Gave up: the UI shows its own (translated) header above ``validation_errors``.
-        return {**parsed, "proposal": None, "model_used": model_used, "validation_errors": errors}
+        return finish({**parsed, "proposal": None, "validation_errors": errors}, "gave_up")
+    except AssistantError as exc:
+        _log_failed_turn(vendor, model_used, exc.code, started, calls, usage)
+        raise
+    except Exception:
+        _log_failed_turn(vendor, model_used, "internal_error", started, calls, usage)
+        raise
     finally:
         with _cancel_lock:
             if _cancel_events.get(request_id) is event:

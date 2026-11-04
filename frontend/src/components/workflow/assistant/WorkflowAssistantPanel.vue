@@ -76,6 +76,9 @@
             <span class="sr-only">{{ $t('workflow_assistant.sender_assistant') }}</span>
             <!-- eslint-disable-next-line vue/no-v-html -- markdown-it with html: false escapes raw HTML -->
             <div v-if="m.content" class="reply markdown-body" v-html="render(m.content)"></div>
+            <p v-else-if="!m.proposal && !m.validationErrors?.length" class="reply reply-empty">
+              {{ $t('workflow_assistant.empty_reply') }}
+            </p>
             <div v-if="m.validationErrors?.length" class="notice error" :role="alertRole(index)">
               <div class="notice-title">{{ $t('workflow_assistant.validation_failed') }}</div>
               <ul class="notice-list">
@@ -85,11 +88,13 @@
             <ProposalCard
               v-if="m.proposal"
               :proposal="m.proposal"
+              :number="m.proposalNumber || 0"
               :superseded="!!m.superseded"
               :conflicted="!!m.conflicted"
               :applied="!!m.applied"
               :can-undo="!!m.applied && m.id === undoMessageId"
               :active="m.proposal === thread.pendingProposal"
+              :earlier-turn="m.proposal === thread.pendingProposal && answeredSince(index)"
               :busy="thread.status !== 'idle'"
               :applying="thread.status === 'applying'"
               @apply="emit('apply')"
@@ -97,7 +102,7 @@
               @undo="emit('undo', workflowKey(m.proposal.filename))"
             />
             <div
-              v-if="m.quickReplies?.length && index === thread.messages.length - 1 && thread.status === 'idle'"
+              v-if="showQuickReplies(m, index)"
               class="quick-replies"
               role="group"
               :aria-label="$t('workflow_assistant.quick_replies_label')"
@@ -130,6 +135,17 @@
                 {{ $t('workflow_assistant.redo') }}
               </button>
             </div>
+          </div>
+          <!-- Stopped by the user: neutral, not an error (and not an alert for screen readers). -->
+          <div v-else-if="m.kind === 'stopped'" class="notice stopped">
+            <span class="notice-title">{{ $t('workflow_assistant.stopped') }}</span>
+            <button
+              v-if="index === thread.messages.length - 1 && m.retryText"
+              type="button"
+              class="btn-small"
+              :disabled="!canRetry"
+              @click="retryStopped(m)"
+            >{{ $t('workflow_assistant.retry') }}</button>
           </div>
           <div v-else class="notice error" :role="alertRole(index)">
             <div class="notice-title">{{ errorTitle(m) }}</div>
@@ -288,6 +304,22 @@ const otherProviders = (code) => providers.value.filter((p) => p.available && p.
 // Only the newest notice is an alert; older ones would otherwise be announced again on re-render.
 const alertRole = (index) => (index === thread.value.messages.length - 1 ? 'alert' : undefined)
 
+// Quick replies belong to the newest assistant turn only, and only while they still fit: not while
+// a request runs, not next to a proposal card (Apply / Discard are the answers there), and not
+// after a proposal was applied (a chip like "Applied, thanks" would only send a chat message).
+const showQuickReplies = (m, index) =>
+  !!m.quickReplies?.length &&
+  !m.proposal &&
+  index === thread.value.messages.length - 1 &&
+  thread.value.status === 'idle' &&
+  !thread.value.appliedSinceUserMessage
+
+// The assistant has replied again after this message (a turn without a new card can still have
+// changed what was agreed, so the pending card may not include it).
+const answeredSince = (index) => thread.value.messages.slice(index + 1).some((m) => m.role === 'assistant')
+
+const canRetry = computed(() => !!vendor.value && thread.value.status === 'idle')
+
 // Short status line for screen readers (the message list itself is not a live region).
 const announcement = ref('')
 watch(
@@ -300,9 +332,16 @@ watch(
   () => [thread.value, thread.value.messages.at(-1)],
   ([current, last], [before, previous]) => {
     // Switching to another thread is not a new reply.
-    if (current !== before || !last || last === previous || last.role !== 'assistant') return
+    if (current !== before || !last || last === previous) return
+    // Stop is the user's own action: a plain status, never an error.
+    if (last.kind === 'stopped') {
+      announcement.value = t('workflow_assistant.stopped')
+      return
+    }
+    if (last.role !== 'assistant') return
     const status = last.proposal ? t('workflow_assistant.announce_proposal') : t('workflow_assistant.announce_reply')
-    const text = replySnippet(last.content)
+    const emptyReply = !last.content && !last.proposal && !last.validationErrors?.length
+    const text = emptyReply ? t('workflow_assistant.empty_reply') : replySnippet(last.content)
     announcement.value = text ? `${status} ${text}` : status
   }
 )
@@ -386,6 +425,13 @@ const useStarter = (text) => {
 const switchAndRetry = (code, retryText) => {
   vendor.value = code
   send(retryText)
+}
+
+// Resends the stopped message with the model it was sent to, when that one is still signed in.
+const retryStopped = (m) => {
+  if (providers.value.some((p) => p.available && p.vendor === m.vendor)) vendor.value = m.vendor
+  send(m.retryText)
+  focusInput()
 }
 
 // The Stop button disappears with the waiting row: keep the keyboard focus in the panel.
@@ -672,6 +718,26 @@ onBeforeUnmount(() => {
 .notice.error {
   background: color-mix(in srgb, var(--danger) 9%, transparent);
   border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.notice.stopped {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px 6px 11px;
+  background: rgb(var(--ink) / 0.03);
+  color: var(--text-muted-1);
+}
+
+.notice.stopped .notice-title {
+  font-weight: 500;
+}
+
+.reply-empty {
+  margin: 0;
+  color: var(--text-muted-1);
+  font-style: italic;
 }
 
 .notice-title {

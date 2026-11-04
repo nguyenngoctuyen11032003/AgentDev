@@ -83,7 +83,10 @@ const createThread = (workflow) => ({
   messages: [],
   pendingProposal: null,
   status: 'idle', // 'idle' | 'sending' | 'applying'
-  requestId: null
+  requestId: null,
+  // A proposal was applied after the last user message: quick replies stay hidden until the user
+  // writes again (they were offered before the apply and no longer fit).
+  appliedSinceUserMessage: false
 })
 
 // ---------------------------------------------------------------------------- module state
@@ -113,6 +116,8 @@ const canUndo = computed(() => !!lastApplied.value)
 const undoMessageId = computed(() => lastApplied.value?.message?.id ?? null)
 
 const systemNotice = (fields) => ({ id: nextId(), role: 'system', ...fields })
+
+const ASSISTANT_INTENTS = ['ask', 'explain', 'propose']
 
 const findProposalMessage = (thread, proposal) =>
   proposal ? thread.messages.find((m) => m.proposal === proposal) : undefined
@@ -144,14 +149,15 @@ async function send(text) {
   const thread = currentThread.value
   if (!content || !vendor.value || thread.status !== 'idle') return false
 
-  // Retrying after "quota exhausted": drop the notice and resend the same user message.
+  // Retrying after "quota exhausted" or Stop: drop the notice and resend the same user message.
   const last = thread.messages[thread.messages.length - 1]
   const previous = thread.messages[thread.messages.length - 2]
   const isRetry =
-    last?.role === 'system' && last.kind === 'quota' && last.retryText === content &&
+    last?.role === 'system' && (last.kind === 'quota' || last.kind === 'stopped') && last.retryText === content &&
     previous?.role === 'user' && previous.content === content
   if (isRetry) thread.messages.pop()
   else thread.messages.push({ id: nextId(), role: 'user', content })
+  thread.appliedSinceUserMessage = false
 
   const requestId = newRequestId()
   const usedVendor = vendor.value
@@ -186,11 +192,19 @@ async function send(text) {
     if (Array.isArray(result.validation_errors) && result.validation_errors.length) {
       message.validationErrors = result.validation_errors
     }
+    // Optional fields (older backends omit them): what the turn was for, and the token usage.
+    if (ASSISTANT_INTENTS.includes(result.intent)) message.intent = result.intent
+    if (result.usage && typeof result.usage === 'object') message.usage = result.usage
     if (result.proposal) {
+      let count = 0
       for (const m of thread.messages) {
-        if (m.proposal && !m.applied) m.superseded = true
+        if (!m.proposal) continue
+        count += 1
+        if (!m.applied) m.superseded = true
       }
       message.proposal = result.proposal
+      // "Version N" of this thread, so the user can tell the cards apart.
+      message.proposalNumber = count + 1
     }
     thread.messages.push(message)
     if (result.proposal) thread.pendingProposal = message.proposal
@@ -209,7 +223,8 @@ async function send(text) {
 }
 
 // Drops the waiting state at once; the backend may not have registered the request yet, so its
-// answer to the cancel call does not matter.
+// answer to the cancel call does not matter. A neutral "Stopped." notice offers to resend the
+// last user message; send() ignores the late answer (the thread's requestId no longer matches).
 function stop() {
   const thread = currentThread.value
   const requestId = thread.requestId
@@ -217,6 +232,8 @@ function stop() {
   thread.requestId = null
   thread.status = 'idle'
   cancelAssistantRequest(requestId).catch(() => {})
+  const lastUser = [...thread.messages].reverse().find((m) => m.role === 'user')
+  if (lastUser) thread.messages.push(systemNotice({ kind: 'stopped', vendor: vendor.value, retryText: lastUser.content }))
 }
 
 function newConversation() {
@@ -224,6 +241,7 @@ function newConversation() {
   const thread = currentThread.value
   thread.messages = []
   thread.pendingProposal = null
+  thread.appliedSinceUserMessage = false
 }
 
 function discardProposal() {
@@ -237,6 +255,7 @@ async function applyCreate(thread, proposal) {
   const message = findProposalMessage(thread, proposal)
   if (message) message.applied = true
   thread.pendingProposal = null
+  thread.appliedSinceUserMessage = true
 
   // The conversation goes on in the new workflow's thread; "create" starts fresh.
   const name = workflowKey(proposal.filename)
@@ -283,6 +302,7 @@ async function applyEdit(thread, proposal, formOpen) {
   const message = findProposalMessage(thread, proposal)
   if (message) message.applied = true
   thread.pendingProposal = null
+  thread.appliedSinceUserMessage = true
   lastApplied.value = { workflow: name, oldYaml, oldLayout, appliedHash: null, thread, message, proposal }
   // Read back through the ref: the reactive proxy, so canUndo / undoMessageId stay in sync.
   const applied = lastApplied.value

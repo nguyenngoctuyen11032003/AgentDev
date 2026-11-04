@@ -7,11 +7,14 @@
       <span :class="['proposal-kind', proposal.kind]">
         {{ proposal.kind === 'create' ? $t('workflow_assistant.proposal.kind_create') : $t('workflow_assistant.proposal.kind_edit') }}
       </span>
+      <span v-if="number" class="proposal-version">{{ $t('workflow_assistant.proposal.version', { n: number }) }}</span>
       <code class="proposal-file" :title="proposal.filename">{{ proposal.filename }}</code>
       <span v-if="applied" class="proposal-state ok">{{ $t('workflow_assistant.proposal.applied') }}</span>
       <span v-else-if="conflicted" class="proposal-state">{{ $t('workflow_assistant.proposal.conflicted') }}</span>
-      <span v-else-if="superseded" class="proposal-state">{{ $t('workflow_assistant.proposal.superseded') }}</span>
+      <span v-else-if="superseded" class="proposal-state old">{{ $t('workflow_assistant.proposal.superseded') }}</span>
       <span v-else-if="!active" class="proposal-state">{{ $t('workflow_assistant.proposal.discarded') }}</span>
+      <span v-else-if="earlierTurn" class="proposal-state old wide">{{ $t('workflow_assistant.proposal.earlier_turn') }}</span>
+      <span v-else class="proposal-state latest">{{ $t('workflow_assistant.proposal.latest') }}</span>
     </header>
 
     <!-- Replaced, discarded or out of date: one line is enough, the full card stays above/below. -->
@@ -60,6 +63,14 @@
 
       <details class="proposal-yaml">
         <summary>{{ $t('workflow_assistant.proposal.show_yaml') }}</summary>
+        <div class="yaml-actions">
+          <button type="button" class="btn-ghost btn-compact" @click="copyYaml">
+            {{ $t('workflow_assistant.proposal.copy_yaml') }}
+          </button>
+          <button type="button" class="btn-ghost btn-compact" @click="downloadYaml">
+            {{ $t('workflow_assistant.proposal.download_yaml') }}
+          </button>
+        </div>
         <pre><code>{{ proposal.yaml }}</code></pre>
       </details>
     </template>
@@ -68,13 +79,29 @@
       <button type="button" class="btn-ghost" :disabled="busy" @click="emit('discard')">
         {{ $t('workflow_assistant.proposal.discard') }}
       </button>
+      <!-- A card from an earlier turn stays applicable (the user may want exactly it), but looks secondary. -->
       <button
         type="button"
-        :class="['btn-primary', { danger: confirming }]"
+        :class="[earlierTurn && !confirming ? 'btn-ghost' : 'btn-primary', { danger: confirming }]"
         :disabled="busy"
+        :title="earlierTurn ? $t('workflow_assistant.proposal.earlier_turn') : undefined"
         @click="onApply"
       >
         {{ applyLabel }}
+      </button>
+    </footer>
+    <!-- An older version: Apply stays visible but unavailable, so it is clear this one cannot be saved.
+         aria-disabled (not disabled) keeps it focusable, so keyboard and screen-reader users get the reason. -->
+    <footer v-else-if="superseded && !applied && !conflicted" class="proposal-actions">
+      <button
+        type="button"
+        class="btn-ghost btn-compact"
+        aria-disabled="true"
+        :title="$t('workflow_assistant.proposal.superseded')"
+        :aria-description="$t('workflow_assistant.proposal.superseded')"
+        @click.prevent
+      >
+        {{ $t('workflow_assistant.proposal.apply') }}
       </button>
     </footer>
     <footer v-else-if="applied && canUndo" class="proposal-actions">
@@ -90,9 +117,12 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import yaml from 'js-yaml'
 import WorkflowGraphPreview from './WorkflowGraphPreview.vue'
+import { toast } from '@/utils/toast.js'
 
 const props = defineProps({
   proposal: { type: Object, required: true },
+  // "Version N" of the thread (1-based); 0 hides the label.
+  number: { type: Number, default: 0 },
   // A newer proposal replaced this one.
   superseded: { type: Boolean, default: false },
   // The file changed after this proposal was made, so it was not saved (and is no longer pending).
@@ -103,6 +133,9 @@ const props = defineProps({
   applying: { type: Boolean, default: false },
   // This is the thread's pending proposal: Apply / Discard are offered.
   active: { type: Boolean, default: false },
+  // The pending proposal, but the assistant has answered again since (without a new card): it may not
+  // include what was said after it, so it is labelled "from an earlier turn" and Apply looks secondary.
+  earlierTurn: { type: Boolean, default: false },
   applied: { type: Boolean, default: false },
   // This applied proposal is the one Undo would revert: the card offers Undo too.
   canUndo: { type: Boolean, default: false }
@@ -120,6 +153,62 @@ const graph = computed(() => {
     return null
   }
 })
+
+// ---------------------------------------------------------------- copy / download the YAML
+// navigator.clipboard needs a secure context (https, localhost); over http on a LAN address fall
+// back to a hidden textarea + execCommand('copy').
+function copyWithTextarea(text) {
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.top = '0'
+  area.style.left = '0'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  const active = document.activeElement
+  area.select()
+  let ok = false
+  try {
+    ok = document.execCommand('copy')
+  } catch {
+    ok = false
+  }
+  document.body.removeChild(area)
+  active?.focus?.()
+  return ok
+}
+
+async function copyYaml() {
+  const text = props.proposal.yaml ?? ''
+  let ok = false
+  try {
+    if (typeof navigator.clipboard?.writeText === 'function') {
+      await navigator.clipboard.writeText(text)
+      ok = true
+    }
+  } catch {
+    ok = false
+  }
+  if (!ok) ok = copyWithTextarea(text)
+  if (ok) toast.success(t('workflow_assistant.proposal.copied'))
+  else toast.error(t('workflow_assistant.proposal.copy_failed'))
+}
+
+function downloadYaml() {
+  const name = String(props.proposal.filename || 'workflow.yaml')
+  const filename = /\.ya?ml$/i.test(name) ? name : `${name}.yaml`
+  const url = URL.createObjectURL(new Blob([props.proposal.yaml ?? ''], { type: 'application/x-yaml' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  // Revoke later: some browsers start the download only after the click handler returns.
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 
 const edgeLabel = (e) => `${e?.from} → ${e?.to}`
 
@@ -282,6 +371,7 @@ const onApply = (event) => {
 
 .proposal-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -317,6 +407,43 @@ const onApply = (event) => {
 .proposal-state.ok {
   color: var(--accent-green-1);
   font-weight: 600;
+}
+
+.proposal-state.latest {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgb(var(--accent-sky-rgb) / 0.14);
+  color: var(--accent-sky);
+  font-weight: 600;
+}
+
+.proposal-state.old {
+  color: var(--warn-soft-1);
+  font-weight: 600;
+}
+
+/* A sentence, not a pill: its own line under the file name. */
+.proposal-state.wide {
+  flex-basis: 100%;
+}
+
+.proposal-version {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-soft-1);
+}
+
+.yaml-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.btn-ghost.btn-compact {
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .proposal-changes {
@@ -523,7 +650,7 @@ const onApply = (event) => {
   color: var(--text-1);
 }
 
-.btn-ghost:hover:not(:disabled) {
+.btn-ghost:hover:not(:disabled):not([aria-disabled="true"]) {
   background: rgb(var(--ink) / 0.06);
 }
 
@@ -551,7 +678,8 @@ const onApply = (event) => {
 }
 
 .btn-ghost:disabled,
-.btn-primary:disabled {
+.btn-primary:disabled,
+.btn-ghost[aria-disabled="true"] {
   opacity: 0.5;
   cursor: not-allowed;
 }
