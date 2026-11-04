@@ -58,6 +58,8 @@ graph:
             - name: spec-driven-development
             - name: doubt-driven-development
             - name: brainstorming
+            - name: delegate-reading
+            - name: context-efficiency
         team:
           enabled: true
           plan_approval: true
@@ -80,12 +82,11 @@ graph:
                 - name: read_file_segment
                 - name: search_in_files
         params:
-          effort: high
+          effort: medium
           max_tokens: 32000
           tool_loop_limit: 80
 
     # ------------------------------------------------------------------ staff (no edges: called by the CTO)
-      mascot: 13
     - id: Project Manager
       type: agent
       description: Yêu cầu, user story, tiêu chí nghiệm thu, chia việc và tiến độ
@@ -180,7 +181,7 @@ graph:
             - name: performance-optimization
             - name: security-and-hardening
             - name: incremental-implementation
-        tooling: &code_tools
+        tooling:
           - type: function
             config:
               tools:
@@ -194,8 +195,6 @@ graph:
                 - name: move_path
                 - name: rename_path
                 - name: delete_path
-                - name: execute_code
-                - name: run_shell_command
         native_mode:
           enabled: true
           allow_commands: false
@@ -229,7 +228,22 @@ graph:
             - name: code-review-and-quality
             - name: security-and-hardening
             - name: source-driven-development
-        tooling: *code_tools
+        tooling: &code_tools
+          - type: function
+            config:
+              tools:
+                - name: describe_available_files
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+                - name: create_folder
+                - name: save_file
+                - name: apply_text_edits
+                - name: move_path
+                - name: rename_path
+                - name: delete_path
+                - name: execute_code
+                - name: run_shell_command
         params:
           effort: high
           max_tokens: 32000
@@ -250,6 +264,7 @@ graph:
             - name: incremental-implementation
             - name: test-driven-development
             - name: source-driven-development
+            - name: verification-before-completion
         tooling: *code_tools
         native_mode:
           enabled: true
@@ -275,6 +290,8 @@ graph:
             - name: incremental-implementation
             - name: source-driven-development
             - name: test-driven-development
+            - name: verification-before-completion
+            - name: design-taste-frontend
         tooling: *code_tools
         native_mode:
           enabled: true
@@ -334,11 +351,18 @@ graph:
           You fix bugs and make small changes. Reproduce the problem, find the root cause (not the symptom),
           make the smallest correct fix, and add a regression test when practical. If an analysis is
           provided, verify it before following it. Report briefly: cause, fix, changed files, tests run.
+
+          Before changing code in an existing project, make the change undoable: work on a new git branch
+          (e.g. fix/<short-name>) and never commit straight to the main branch; if the project is not a git
+          repository, back up the files you will change first. Never force-push or rewrite history. Name the
+          branch (or the backup location) in your report.
         skills:
           enabled: true
           allow:
             - name: systematic-debugging
             - name: test-driven-development
+            - name: verification-before-completion
+            - name: git-workflow-and-versioning
         tooling: *code_tools
         native_mode:
           enabled: true
@@ -388,11 +412,15 @@ graph:
       description: "Nghiệm thu cuối: kết quả đúng yêu cầu và đạt chất lượng"
       config:
         provider: anthropic
-        name: claude-opus-5-5
+        name: claude-sonnet-5-5
         role: |-
           You do the final acceptance review. Check that the delivered work does what the client asked,
           follows the agreed stack and architecture, passed QA, and has no obvious security or quality
           problems. Answer ACCEPTED or REJECTED with the specific reasons and what must change.
+
+          Nobody else reviews frontend code, so when the delivery includes frontend changes, also review that
+          code itself: structure and reuse, duplication, state and error handling, accessibility, and
+          consistency with the API contract. Give file-level findings.
         skills:
           enabled: true
           allow:
