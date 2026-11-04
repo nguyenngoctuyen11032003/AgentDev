@@ -259,3 +259,113 @@ def scan_project(
     for _ in walk(root, "", []):
         pass
     return result
+
+
+# ------------------------------------------------- files shown / opened in place
+# A run inside an opened project edits the real files, so they are not re-listed in the
+# chat as downloads. Only when the user explicitly asks to see a file is it listed, and
+# then it is opened on this machine instead of copied.
+
+NOISE_DIRS = frozenset(
+    {
+        ".git", ".hg", ".svn", "node_modules", ".next", ".nuxt", ".cache", ".idea", ".vscode",
+        "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv", "venv", "env",
+        "dist", "build", "out", "target", "coverage", ".turbo", ".parcel-cache", ".gradle",
+        ".playwright-cli", "logs", "log", "tmp", "temp", "trace", "traces", ".terraform",
+    }
+)
+NOISE_NAMES = frozenset(
+    {
+        "current", "log", "lock", "manifest", "identity", "options", "log.old", ".ds_store",
+        "thumbs.db", "desktop.ini", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+        "poetry.lock", "cargo.lock",
+    }
+)
+NOISE_EXTS = frozenset(
+    {
+        ".sst", ".meta", ".log", ".ldb", ".wal", ".db", ".sqlite", ".sqlite3", ".lock", ".tmp",
+        ".bak", ".swp", ".pyc", ".pyo", ".class", ".o", ".obj", ".so", ".dll", ".exe", ".bin",
+        ".map", ".trace", ".pid", ".cache", ".idx", ".pack",
+    }
+)
+_NOISE_NAME_PREFIXES = ("manifest-", "options-", "~$", ".#")
+# Never launched by "open": a double click would run them.
+_RUNNABLE_EXTS = frozenset(
+    {".exe", ".bat", ".cmd", ".com", ".msi", ".ps1", ".vbs", ".vbe", ".jar", ".scr", ".lnk", ".reg",
+     ".sh", ".command", ".app", ".dll", ".hta", ".wsf"}
+)
+
+_SHOW_FILE_INTENT = re.compile(
+    r"(cho\s+(tôi|mình|em|anh|chị)?\s*xem|xem\s+(lại\s+)?(file|tệp|tập tin|ảnh|hình)|hiển thị|hiện\s+(file|tệp|ảnh|hình)|"
+    r"mở\s+(file|tệp|tập tin|ảnh|hình)|đưa\s+(file|tệp)|gửi\s+(lại\s+)?(file|tệp|ảnh)|đính kèm|"
+    r"\bshow\b|\bdisplay\b|\bopen\s+(the\s+)?(file|image|picture|screenshot)|\bpreview\b|\battach\b|\bsend me\b)",
+    re.IGNORECASE,
+)
+
+
+def is_noise_path(relative_path: str) -> bool:
+    """Internal / generated / binary files that are never worth showing in the chat."""
+    parts = [p for p in re.split(r"[\\/]+", relative_path or "") if p and p != "."]
+    if not parts:
+        return True
+    name = parts[-1].lower()
+    if any(part.lower() in NOISE_DIRS for part in parts[:-1]):
+        return True
+    if any(part.startswith(".") and part.lower() != ".github" for part in parts[:-1]):
+        return True
+    if name in NOISE_NAMES or name.startswith(_NOISE_NAME_PREFIXES):
+        return True
+    if name.endswith(".log") or re.search(r"\.log\.\d+$", name):
+        return True
+    return Path(name).suffix in NOISE_EXTS
+
+
+def wants_files_shown(text: Optional[str]) -> bool:
+    """True when the user explicitly asks to see / open / get a file."""
+    return bool(text and _SHOW_FILE_INTENT.search(text))
+
+
+def mentioned_in(text: Optional[str], relative_path: str) -> bool:
+    lowered = (text or "").lower()
+    rel = (relative_path or "").replace("\\", "/").lower()
+    return bool(rel and (rel in lowered or rel.rsplit("/", 1)[-1] in lowered))
+
+
+def resolve_project_file(root: Path, relative_path: str) -> Path:
+    """The file ``relative_path`` inside ``root``; refuses traversal, absolute paths and noise files."""
+    text = (relative_path or "").strip()
+    if not text or "\x00" in text:
+        raise ValidationError("File path is required", field="path")
+    candidate = Path(text.replace("\\", "/"))
+    if candidate.is_absolute() or candidate.drive or any(part == ".." for part in candidate.parts):
+        raise ValidationError("Path must be relative to the project folder", field="path")
+    root_resolved = root.resolve()
+    target = (root_resolved / candidate).resolve()
+    try:
+        rel = target.relative_to(root_resolved).as_posix()
+    except ValueError:
+        raise ValidationError("Path is outside the project folder", field="path") from None
+    if not target.exists():
+        raise ValidationError("File not found in the project folder", field="path")
+    if target.is_file() and is_noise_path(rel):
+        raise ValidationError("This file cannot be opened from the chat", field="path")
+    return target
+
+
+def open_on_machine(target: Path, *, reveal: bool = False) -> str:
+    """Open ``target`` with the default app, or show it in the file manager. Returns the action taken."""
+    import subprocess
+    import sys
+
+    reveal = reveal or target.is_dir() or target.suffix.lower() in _RUNNABLE_EXTS
+    if sys.platform.startswith("win"):
+        if reveal:
+            subprocess.Popen(["explorer", f"/select,{target}"] if target.is_file() else ["explorer", str(target)])
+            return "revealed"
+        os.startfile(str(target))  # type: ignore[attr-defined]  # noqa: S606
+        return "opened"
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", str(target)] if reveal else ["open", str(target)])
+    else:
+        subprocess.Popen(["xdg-open", str(target.parent if reveal else target)])
+    return "revealed" if reveal else "opened"

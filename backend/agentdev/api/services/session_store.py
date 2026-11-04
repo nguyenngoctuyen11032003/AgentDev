@@ -8,6 +8,7 @@ from threading import Event
 from typing import Any, Dict, List, Optional
 
 from agentdev.api.services.artifact_events import ArtifactEventQueue
+from agentdev.api.services.run_checkpoint import STATE_INTERRUPTED, STATE_RUNNING, is_interrupted
 from agentdev.api.services.session_history import SessionHistoryStore, make_title
 
 
@@ -17,6 +18,8 @@ class SessionBusyError(RuntimeError):
 
 # Older turns are never shown to a follow-up run, so there is no point keeping them
 MAX_STORED_TURNS = 50
+# A saved replay log with more than this many times the in-memory buffer size is rewritten on restore
+COMPACT_LOG_FACTOR = 2
 
 
 class SessionStatus(Enum):
@@ -83,6 +86,11 @@ class WorkflowSession:
     # True once a run of this session changed files (an ``artifact_created`` message was recorded).
     files_changed: bool = False
 
+    # Progress of the latest run (see run_checkpoint.py) and, for a run that continues an
+    # interrupted one, the interrupted checkpoint it was given.
+    checkpoint: Optional[Dict[str, Any]] = None
+    prior_checkpoint: Optional[Dict[str, Any]] = None
+
     MAX_BUFFER_SIZE: int = 1000
 
     def append_message(self, message: Dict[str, Any]) -> None:
@@ -109,6 +117,14 @@ def _changes_files(message: Any) -> bool:
     return isinstance(data, dict) and bool(data.get("events"))
 
 
+_RUN_END_MESSAGES = ("workflow_completed", "workflow_cancelled")
+
+
+def _is_fatal_error(message: Any) -> bool:
+    data = message.get("data") if isinstance(message, dict) and message.get("type") == "error" else None
+    return isinstance(data, dict) and data.get("fatal") is not False
+
+
 _LIVE_STATUSES = (SessionStatus.RUNNING, SessionStatus.WAITING_FOR_INPUT, SessionStatus.CANCELLING)
 
 
@@ -122,6 +138,23 @@ def awaiting_plan(session: WorkflowSession) -> bool:
         return False
     turns = session.turns
     return bool(turns) and isinstance(turns[-1], dict) and turns[-1].get("kind") == "plan"
+
+
+def is_resumable(session: WorkflowSession) -> bool:
+    """The latest run stopped before it finished and can be continued ("Tiếp tục")."""
+    if session.status in _LIVE_STATUSES:
+        return False
+    if is_interrupted(session.checkpoint):
+        return True
+    # Sessions stopped before checkpoints existed: judged by how their last turn ended.
+    turns = session.turns
+    return (
+        session.checkpoint is None
+        and session.status in (SessionStatus.CANCELLED, SessionStatus.ERROR)
+        and bool(turns)
+        and isinstance(turns[-1], dict)
+        and turns[-1].get("status") in ("cancelled", "error")
+    )
 
 
 def has_work(session: WorkflowSession) -> bool:
@@ -157,6 +190,10 @@ class WorkflowSessionStore:
             "projects": list(session.projects),
             "awaiting_plan": awaiting_plan(session),
             "has_work": has_work(session),
+            "resumable": is_resumable(session),
+            "interrupt_reason": (session.checkpoint or {}).get("reason") or session.error_message,
+            # Saved so a compacted replay log (restore_session) does not forget that files changed
+            "files_changed": session.files_changed,
         }
 
     def _persist(self, session: WorkflowSession) -> None:
@@ -172,6 +209,8 @@ class WorkflowSessionStore:
         session.updated_at = time.time()
         if self.history is not None:
             self.history.append_message(session_id, encoded)
+            if message.get("type") in _RUN_END_MESSAGES or _is_fatal_error(message):
+                self.history.close_stream(session_id)  # nothing more is written until the next run
         if not session.files_changed and _changes_files(message):
             session.files_changed = True
             self._persist(session)
@@ -209,10 +248,22 @@ class WorkflowSessionStore:
             projects=list(meta.get("projects") or []),
         )
         # Load everything and apply the same eviction as live, so turn-start user messages survive.
-        for message in self.history.load_messages(session_id, 0):
+        session.files_changed = bool(meta.get("files_changed"))
+        loaded = self.history.load_messages(session_id, 0)
+        for message in loaded:
             session.append_message(message)
             session.files_changed = session.files_changed or _changes_files(message)
+        if len(loaded) > COMPACT_LOG_FACTOR * session.MAX_BUFFER_SIZE:
+            # The log only grows; what the buffer evicted is never replayed. Trim it so the next
+            # restore does not parse (and the disk does not keep) thousands of dead lines.
+            self.history.rewrite_messages(session_id, session.message_buffer)
         session.turns = self.history.load_turns(session_id)
+        session.checkpoint = self.history.load_checkpoint(session_id)
+        if interrupted and isinstance(session.checkpoint, dict) and session.checkpoint.get("state") == STATE_RUNNING:
+            # The run died with the process: what it had done so far is what a "continue" resumes from.
+            session.checkpoint["state"] = STATE_INTERRUPTED
+            session.checkpoint["reason"] = "Interrupted by a server restart"
+            self.history.save_checkpoint(session_id, session.checkpoint)
         self._sessions[session_id] = session
         if interrupted:
             self._persist(session)
@@ -235,6 +286,7 @@ class WorkflowSessionStore:
         for item in merged.values():  # sessions saved before these fields existed
             item.setdefault("awaiting_plan", False)
             item.setdefault("has_work", False)
+            item.setdefault("resumable", item.get("status") in (SessionStatus.CANCELLED.value, SessionStatus.ERROR.value))
             # Older saved meta can keep a plan flag after the run was stopped or failed
             if item.get("status") in (SessionStatus.CANCELLED.value, SessionStatus.ERROR.value):
                 item["awaiting_plan"] = False
@@ -291,6 +343,7 @@ class WorkflowSessionStore:
             session.message_buffer = list(draft.message_buffer)
             session.turns = list(draft.turns)
             session.files_changed = draft.files_changed
+            session.checkpoint = draft.checkpoint
             if draft.turns and draft.title and not self._retitle_after_small_talk(draft, session.title):
                 # A follow-up message keeps the conversation's title
                 session.title = draft.title
@@ -349,6 +402,25 @@ class WorkflowSessionStore:
             self.history.save_turns(session_id, list(session.turns))
         self._persist(session)  # awaiting_plan / has_work follow the turns
 
+    def begin_checkpoint(self, session_id: str, checkpoint: Dict[str, Any]) -> None:
+        """A run starts: keep an interrupted checkpoint as ``prior_checkpoint`` and save the new one."""
+        session = self._sessions.get(session_id)
+        if not session:
+            return
+        session.prior_checkpoint = session.checkpoint if is_interrupted(session.checkpoint) else None
+        self.save_checkpoint(session_id, checkpoint, persist_meta=True)
+
+    def save_checkpoint(self, session_id: str, checkpoint: Dict[str, Any], *, persist_meta: bool = False) -> None:
+        """Remember the run's progress (in memory and on disk); ``persist_meta`` when its state changed."""
+        session = self._sessions.get(session_id)
+        if not session:
+            return
+        session.checkpoint = checkpoint
+        if self.history is not None:
+            self.history.save_checkpoint(session_id, checkpoint)
+        if persist_meta:
+            self._persist(session)  # the sidebar's "resumable" flag follows the checkpoint state
+
     def get_session(self, session_id: str) -> Optional[WorkflowSession]:
         return self._sessions.get(session_id)
 
@@ -365,6 +437,8 @@ class WorkflowSessionStore:
             if hasattr(session, key):
                 setattr(session, key, value)
         self._persist(session)
+        if self.history is not None and status not in _LIVE_STATUSES:
+            self.history.close_stream(session_id)  # the run is over: free the replay-log handle
         self.logger.info("Updated session %s status to %s", session_id, status.value)
 
     def set_session_error(self, session_id: str, error_message: str) -> None:
@@ -417,4 +491,6 @@ class WorkflowSessionStore:
             "projects": list(session.projects),
             "awaiting_plan": awaiting_plan(session),
             "has_work": has_work(session),
+            "resumable": is_resumable(session),
+            "interrupt_reason": (session.checkpoint or {}).get("reason") or session.error_message,
         }

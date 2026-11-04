@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from agentdev.paths import WORKFLOWS_DIR
 import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -76,7 +78,7 @@ def test_static_check_template_passes_structure(no_skills):
 @pytest.mark.parametrize("name", ["software_company.yaml", "demo_loop_counter.yaml"])
 def test_static_check_data_matches_file_check(tmp_path, no_skills, name):
     path = tmp_path / name
-    path.write_text((REPO / "workspace" / "workflows" / name).read_text(encoding="utf-8"), encoding="utf-8")
+    path.write_text((WORKFLOWS_DIR / name).read_text(encoding="utf-8"), encoding="utf-8")
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert static_check_data(data) == static_check(path)
 

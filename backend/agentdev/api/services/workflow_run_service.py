@@ -1,5 +1,6 @@
 """Service responsible for executing workflows for WebSocket sessions."""
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -16,7 +17,23 @@ from agentdev.workflow.graph_context import GraphContext
 
 from agentdev.api.services.attachment_service import AttachmentService
 from agentdev.api.services.conversation_turns import attachment_refs, compose_follow_up_prompt, make_turn
-from agentdev.runtime.node.agent.team import PLAN_PENDING_KEY, PLAN_PROPOSED_EVENT, user_exchanges
+from agentdev.api.services.run_checkpoint import (
+    STATE_COMPLETED,
+    STATE_INTERRUPTED,
+    STATE_RUNNING,
+    RunCheckpointRecorder,
+    build_resume_note,
+    build_turn_resume_note,
+    is_interrupted,
+    is_resume_intent,
+    new_checkpoint,
+)
+from agentdev.runtime.node.agent.team import (
+    PLAN_PENDING_KEY,
+    PLAN_PROPOSED_EVENT,
+    team_digest_from_state,
+    user_exchanges,
+)
 from agentdev.api.services.local_projects import opened_project_folder
 from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.api.services.session_store import SessionBusyError, SessionStatus, WorkflowSessionStore
@@ -118,6 +135,7 @@ class WorkflowRunService:
             )
             session.starting = True
             self.session_store.update_session_status(session_id, SessionStatus.RUNNING)
+            self._begin_checkpoint(session_id, session, task_prompt, attachments)
             websocket_manager.record_user_message(session_id, task_prompt, attachments)
 
             await websocket_manager.send_message(
@@ -150,6 +168,7 @@ class WorkflowRunService:
                 validation_details=getattr(exc, "details", None),
             )
             self.session_store.set_session_error(session_id, str(exc))
+            self._close_checkpoint(session_id, None, interrupted_reason=str(exc))
             self._release(session_id, session)
             await websocket_manager.send_message(session_id, run_error(str(exc), "validation_error"))
         except Exception as exc:
@@ -162,6 +181,7 @@ class WorkflowRunService:
                 yaml_file=normalized_yaml_name,
             )
             self.session_store.set_session_error(session_id, str(exc))
+            self._close_checkpoint(session_id, None, interrupted_reason=str(exc))
             self._release(session_id, session)
             await websocket_manager.send_message(session_id, run_error(f"Failed to start workflow: {exc}", "start_failed"))
         finally:
@@ -179,44 +199,19 @@ class WorkflowRunService:
         session = self.session_store.get_session(session_id)
         cancel_event = session.cancel_event if session else None
         try:
-            design = load_config(yaml_path)
-            graph_config = GraphConfig.from_definition(
-                design.graph,
-                name=session_directory_name(session_id),
-                output_root=WARE_HOUSE_DIR,
-                source_path=str(yaml_path),
-                vars=design.vars,
-            )
-            if log_level:
-                graph_config.log_level = log_level
-                graph_config.definition.log_level = log_level
-            graph_context = GraphContext(config=graph_config)
-
-            executor = WebSocketGraphExecutor(
-                graph_context,
+            # Parsing the YAML, building the graph and the runtime, and reading attachments are
+            # blocking work: keep them off the event loop so other sessions' sockets stay responsive.
+            graph_context, executor, task_input = await asyncio.to_thread(
+                self._prepare_run,
                 session_id,
-                self.session_controller,
-                self.attachment_service,
-                websocket_manager,
-                self.session_store,
-                cancel_event=cancel_event,
-                workspace_root=opened_project_folder(session),
-            )
-
-            if session:
-                session.graph = graph_context
-                session.executor = executor
-                if session.cancel_event.is_set():
-                    executor.request_cancel(session.cancel_reason or "Cancellation requested")
-
-            task_input = self._build_initial_task_input(
-                session_id,
-                graph_context,
+                session,
+                yaml_path,
                 task_prompt,
+                websocket_manager,
                 attachments,
-                executor.attachment_store,
+                log_level,
+                cancel_event,
             )
-
             await executor.execute_graph_async(task_input)
 
             # If cancellation was requested during execution but not raised inside threads,
@@ -228,7 +223,8 @@ class WorkflowRunService:
             results = executor.get_results()
             self.session_store.complete_session(session_id, results)
             self._remember_turn(session_id, task_prompt, attachments, executor)
-            summary = self._final_answer(executor) or graph_context.final_message()
+            self._close_checkpoint(session_id, executor)
+            summary =self._final_answer(executor) or graph_context.final_message()
             token_usage = executor.token_tracker.get_token_usage()
             plan = self._pending_plan(executor)
             # Free the session before announcing the end, so a follow-up sent right away is accepted.
@@ -271,6 +267,7 @@ class WorkflowRunService:
                 return
             self.session_store.set_session_error(session_id, str(exc))
             self._remember_turn(session_id, task_prompt, attachments, self._current_executor(session_id), status="error")
+            self._close_checkpoint(session_id, self._current_executor(session_id), interrupted_reason=str(exc))
             self._release(session_id, session)
             await websocket_manager.send_message(session_id, run_error(str(exc), "validation_error"))
             logger = get_server_logger()
@@ -289,6 +286,7 @@ class WorkflowRunService:
                 return
             self.session_store.set_session_error(session_id, str(exc))
             self._remember_turn(session_id, task_prompt, attachments, self._current_executor(session_id), status="error")
+            self._close_checkpoint(session_id, self._current_executor(session_id), interrupted_reason=str(exc))
             self._release(session_id, session)
             await websocket_manager.send_message(session_id, run_error(f"Workflow execution error: {exc}", "run_failed"))
             logger = get_server_logger()
@@ -301,12 +299,71 @@ class WorkflowRunService:
         finally:
             self._release(session_id, session)
 
+    def _prepare_run(
+        self,
+        session_id: str,
+        session,
+        yaml_path: Path,
+        task_prompt: str,
+        websocket_manager,
+        attachments: List[str],
+        log_level: Optional[LogLevel],
+        cancel_event,
+    ):
+        """Build the graph, the executor and the first task input (blocking; runs in a worker thread)."""
+        design = load_config(yaml_path)
+        graph_config = GraphConfig.from_definition(
+            design.graph,
+            name=session_directory_name(session_id),
+            output_root=WARE_HOUSE_DIR,
+            source_path=str(yaml_path),
+            vars=design.vars,
+        )
+        if log_level:
+            graph_config.log_level = log_level
+            graph_config.definition.log_level = log_level
+        graph_context = GraphContext(config=graph_config)
+
+        executor = WebSocketGraphExecutor(
+            graph_context,
+            session_id,
+            self.session_controller,
+            self.attachment_service,
+            websocket_manager,
+            self.session_store,
+            cancel_event=cancel_event,
+            workspace_root=opened_project_folder(session),
+        )
+
+        if session:
+            executor.checkpoint_recorder = self._make_recorder(session_id, executor)
+            session.graph = graph_context
+            session.executor = executor
+            if session.cancel_event.is_set():
+                executor.request_cancel(session.cancel_reason or "Cancellation requested")
+
+        task_input = self._build_initial_task_input(
+            session_id,
+            graph_context,
+            task_prompt,
+            attachments,
+            executor.attachment_store,
+        )
+
+        dispatcher = getattr(executor, "artifact_dispatcher", None)
+        if dispatcher is not None:
+            dispatcher.set_request(task_prompt)
+        return graph_context, executor, task_input
+
     async def _finish_cancelled(
         self, session_id, session, reason, task_prompt, attachments, websocket_manager, yaml_path
     ) -> None:
         """The run has really ended after a cancel: only now report CANCELLED."""
         self.session_store.update_session_status(session_id, SessionStatus.CANCELLED, error_message=reason)
         self._remember_turn(session_id, task_prompt, attachments, self._current_executor(session_id), status="cancelled")
+        self._close_checkpoint(
+            session_id, self._current_executor(session_id), interrupted_reason=reason or "Stopped by the user"
+        )
         self._release(session_id, session)
         await websocket_manager.send_message(session_id, {"type": "workflow_cancelled", "data": {"message": reason}})
         get_server_logger().info(
@@ -357,12 +414,72 @@ class WorkflowRunService:
         user, and with several entry points a shared transcript would be ambiguous.
         """
         session = self.session_store.get_session(session_id)
-        if not session or not session.turns:
+        if not session or not (session.turns or session.prior_checkpoint):
             return prompt
         start_nodes = list(getattr(graph_context.config.definition, "start_nodes", None) or [])
         if len(start_nodes) != 1:
             return prompt
-        return compose_follow_up_prompt(session.turns, prompt)
+        return compose_follow_up_prompt(session.turns, prompt, self._resume_note(session, prompt))
+
+    @staticmethod
+    def _resume_note(session, prompt: str) -> str:
+        """What the interrupted run already did, for the prompt of the run that follows it ("" if none)."""
+        resume = is_resume_intent(prompt)
+        if session.prior_checkpoint:
+            last = session.turns[-1] if session.turns else None
+            # The stopped turn's own entry already lists the team's reports: do not repeat them.
+            has_team = isinstance(last, dict) and bool(last.get("team"))
+            return build_resume_note(session.prior_checkpoint, resume_requested=resume, include_team=not has_team)
+        return build_turn_resume_note(session.turns) if resume else ""
+
+    def _begin_checkpoint(self, session_id: str, session, prompt: str, attachment_ids: List[str]) -> None:
+        """Start the run's checkpoint; a "continue" message carries the interrupted run's finished nodes over."""
+        try:
+            previous = session.checkpoint if is_interrupted(session.checkpoint) else None
+            self.session_store.begin_checkpoint(
+                session_id,
+                new_checkpoint(
+                    prompt,
+                    self._attachment_names(session_id, attachment_ids),
+                    previous=previous if is_resume_intent(prompt) else None,
+                ),
+            )
+        except Exception as exc:  # never let the checkpoint break a launch
+            self.logger.warning("Could not start checkpoint for session %s: %s", session_id, exc)
+
+    def _make_recorder(self, session_id: str, executor) -> Optional[RunCheckpointRecorder]:
+        session = self.session_store.get_session(session_id)
+        if not session or not isinstance(session.checkpoint, dict):
+            return None
+
+        def team_source() -> Dict[str, List[Dict[str, str]]]:
+            state = executor._get_execution_context().global_state
+            return {"team": team_digest_from_state(state), "exchanges": self._plain_exchanges(state)}
+
+        return RunCheckpointRecorder(
+            session.checkpoint,
+            lambda cp: self.session_store.save_checkpoint(session_id, cp),
+            team_source,
+        )
+
+    @staticmethod
+    def _plain_exchanges(global_state) -> List[Dict[str, str]]:
+        return [e for e in user_exchanges(global_state) if e.get("kind") != "delegation"]
+
+    def _close_checkpoint(self, session_id: str, executor, *, interrupted_reason: Optional[str] = None) -> None:
+        """The run ended: ``completed``, or ``interrupted`` when ``interrupted_reason`` is given (idempotent)."""
+        try:
+            session = self.session_store.get_session(session_id)
+            cp = getattr(session, "checkpoint", None)
+            if not isinstance(cp, dict) or cp.get("state") != STATE_RUNNING:
+                return
+            recorder = getattr(executor, "checkpoint_recorder", None)
+            if recorder is None or recorder.checkpoint is not cp:
+                recorder = RunCheckpointRecorder(cp, lambda _cp: None)
+            state = STATE_COMPLETED if interrupted_reason is None else STATE_INTERRUPTED
+            self.session_store.save_checkpoint(session_id, recorder.finish(state, interrupted_reason or ""), persist_meta=True)
+        except Exception as exc:  # best effort, like the turn history
+            self.logger.warning("Could not close checkpoint for session %s: %s", session_id, exc)
 
     def _remember_turn(
         self,

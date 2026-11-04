@@ -75,6 +75,8 @@ class WorkspaceArtifactHook:
         self.logger = logging.getLogger(__name__)
         self._snapshots: Dict[str, Dict[str, _FileSignature]] = {}
         self._last_emitted: Dict[str, _TrackedEntry] = {}
+        # full path -> (mtime_ns, size, sha256): unchanged files are not re-hashed on every node
+        self._hash_cache: Dict[str, Tuple[int, int, str]] = {}
         self.prompt_channel = prompt_channel
 
     def can_handle(self, node: Node) -> bool:
@@ -199,7 +201,13 @@ class WorkspaceArtifactHook:
                 full_path = Path(root) / filename
                 try:
                     stat = full_path.stat()
-                    sha256 = self._hash_file(full_path)
+                    cache_key = str(full_path)
+                    cached = self._hash_cache.get(cache_key)
+                    if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+                        sha256 = cached[2]
+                    else:
+                        sha256 = self._hash_file(full_path)
+                        self._hash_cache[cache_key] = (stat.st_mtime_ns, stat.st_size, sha256)
                 except OSError:
                     continue
                 file_count += 1
@@ -207,9 +215,10 @@ class WorkspaceArtifactHook:
                 entries[str(rel_path)] = _FileSignature(sha256=sha256, size=stat.st_size)
                 if file_count >= self.max_files_scanned or total_bytes >= self.max_bytes_scanned:
                     self.logger.warning(
-                        "Workspace scan truncated (files=%s total_bytes=%s) for session %s",
+                        "Workspace scan truncated (files=%s total_bytes=%s) for %s",
                         file_count,
                         total_bytes,
+                        workspace,
                     )
                     return entries, True
         return entries, False

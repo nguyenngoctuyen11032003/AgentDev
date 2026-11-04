@@ -1,6 +1,7 @@
 """GraphExecutor variant that reports results over WebSocket."""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 from agentdev.runtime.node.agent.team import CONVERSATION_TURNS_KEY
@@ -14,6 +15,12 @@ from agentdev.api.services.prompt_channel import WebPromptChannel
 from agentdev.api.services.session_store import WorkflowSessionStore
 from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.workflow.hooks.workspace_artifact import WorkspaceArtifact, WorkspaceArtifactHook
+
+
+# A run holds its worker thread for minutes. On the loop's shared default pool (a handful of
+# threads) a few live runs would starve everything else that uses it: artifact long-polls,
+# file reads, run building. Runs get their own pool.
+_RUN_POOL = ThreadPoolExecutor(max_workers=32, thread_name_prefix="agentdev-run")
 
 
 class WebSocketGraphExecutor(GraphExecutor):
@@ -36,7 +43,9 @@ class WebSocketGraphExecutor(GraphExecutor):
         self.websocket_manager = websocket_manager
         self.session_store = session_store
         self.results = {}
-        self.artifact_dispatcher = ArtifactDispatcher(session_id, session_store, websocket_manager)
+        # Set by WorkflowRunService: keeps the run's resume checkpoint up to date from log events.
+        self.checkpoint_recorder = None
+        self.artifact_dispatcher = ArtifactDispatcher(session_id, session_store, websocket_manager, local_root=workspace_root)
 
         def hook_factory(runtime_context):
             prompt_channel = WebPromptChannel(
@@ -69,10 +78,21 @@ class WebSocketGraphExecutor(GraphExecutor):
     def _create_logger(self) -> WorkflowLogger:
         from agentdev.api.services.websocket_logger import WebSocketLogger
 
-        return WebSocketLogger(self.websocket_manager, self.session_id, self.graph.name, self.graph.log_level)
+        return WebSocketLogger(
+            self.websocket_manager,
+            self.session_id,
+            self.graph.name,
+            self.graph.log_level,
+            on_entry=self._on_log_entry,
+        )
+
+    def _on_log_entry(self, entry) -> None:
+        recorder = getattr(self, "checkpoint_recorder", None)
+        if recorder is not None:
+            recorder.on_log(entry)
 
     async def execute_graph_async(self, task_prompt):
-        await asyncio.get_event_loop().run_in_executor(None, self._execute, task_prompt)
+        await asyncio.get_running_loop().run_in_executor(_RUN_POOL, self._execute, task_prompt)
 
     def get_results(self):
         return self.outputs

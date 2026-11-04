@@ -13,8 +13,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from agentdev.runtime.node.agent.team import DELEGATION_KIND, MAX_DIGEST_ENTRIES, clip_middle
 
-MAX_TURNS = 10
-MAX_TRANSCRIPT_CHARS = 20_000
+MAX_TURNS = 8
+MAX_TRANSCRIPT_CHARS = 14_000
 MAX_USER_CHARS = 2_000
 MAX_LATEST_USER_CHARS = 4_000
 MAX_ANSWER_CHARS = 4_000
@@ -223,16 +223,22 @@ def build_transcript(
     return "\n".join(lines)
 
 
-def compose_follow_up_prompt(turns: List[Dict[str, Any]], prompt: str) -> str:
-    """Prefix ``prompt`` with the session transcript; unchanged when there is no history."""
+def compose_follow_up_prompt(turns: List[Dict[str, Any]], prompt: str, resume_note: str = "") -> str:
+    """Prefix ``prompt`` with the session transcript; unchanged when there is no history.
+
+    ``resume_note``: what an interrupted run had done (see run_checkpoint.build_resume_note); it
+    goes between the transcript and the new message, and is used even when there is no transcript.
+    """
     transcript = build_transcript(turns)
     if not transcript:
+        if resume_note:
+            return f"{resume_note}\n\n{NEW_MESSAGE_HEADER}\n{prompt or ''}".rstrip()
         return prompt
-    note = ""
+    note = f"{resume_note}\n\n" if resume_note else ""
     if turns and is_plan_turn(turns[-1]):
         # Before the new-message header: the header still marks where the user's own text starts.
         reply = _clip((prompt or "").strip(), MAX_LATEST_USER_CHARS) or "(no text)"
-        note = PLAN_REPLY_NOTE.format(reply=reply) + "\n\n"
+        note += PLAN_REPLY_NOTE.format(reply=reply) + "\n\n"
     return f"{transcript}\n\n{note}{NEW_MESSAGE_HEADER}\n{prompt or ''}".rstrip()
 
 
