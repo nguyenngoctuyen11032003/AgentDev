@@ -22,9 +22,40 @@ _LOGOUT_ARGS = {"anthropic": ["auth", "logout"], "openai": ["logout"]}
 _API_KEY_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY")
 
 
+def _native_exe_behind_shim(binary: str, shim: str) -> Optional[str]:
+    """The real executable an npm ``.cmd`` shim launches, when it can be found next to the shim.
+
+    The shim costs ``cmd.exe`` + ``node`` start-up (~0.4s measured for codex) on every call, leaves
+    extra processes to kill on cancel, and its cmd.exe hop mangles quotes in argv values. Only the
+    known npm layouts are recognised; anything else keeps using the shim."""
+    import platform
+
+    root = os.path.dirname(shim)
+    arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
+    triple = "aarch64-pc-windows-msvc" if arch == "arm64" else "x86_64-pc-windows-msvc"
+    candidates: List[str] = []
+    if binary == "codex":
+        platform_pkg = f"codex-win32-{arch}"
+        base = os.path.join(root, "node_modules", "@openai")
+        for pkg_root in (os.path.join(base, "codex", "node_modules", "@openai", platform_pkg),
+                         os.path.join(base, platform_pkg)):
+            candidates.append(os.path.join(pkg_root, "vendor", triple, "bin", "codex.exe"))
+    elif binary == "claude":
+        candidates.append(os.path.join(root, "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe"))
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def find_cli(binary: str) -> Optional[str]:
-    """Resolve an executable path (shutil.which honours PATHEXT, so .cmd shims work)."""
-    return shutil.which(binary)
+    """Resolve an executable path (shutil.which honours PATHEXT, so .cmd shims work).
+
+    On Windows an npm ``.cmd`` shim is replaced by the native executable it launches when that is found."""
+    path = shutil.which(binary)
+    if path and os.name == "nt" and path.lower().endswith((".cmd", ".bat")):
+        return _native_exe_behind_shim(binary, path) or path
+    return path
 
 
 def cli_env() -> Dict[str, str]:
@@ -68,6 +99,14 @@ def kill_process_tree(proc: subprocess.Popen) -> None:
 _POLL_INTERVAL = 0.2
 
 
+class CliIdle(Exception):
+    """A streaming CLI produced no output for too long while no tool was running; it was killed."""
+
+    def __init__(self, idle_seconds: float):
+        super().__init__(f"no output for {idle_seconds:.0f}s")
+        self.idle_seconds = idle_seconds
+
+
 def _cancelled_error(cmd: List[str]) -> Exception:
     # Imported lazily: the providers package imports this module.
     from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled
@@ -84,6 +123,10 @@ def run_capture(
     env: Optional[Dict[str, str]] = None,
     cancel_event: Optional[threading.Event] = None,
     on_stdout_line: Optional[Callable[[str], None]] = None,
+    idle_notice: float = 0,
+    idle_kill: float = 0,
+    is_busy: Optional[Callable[[], bool]] = None,
+    on_idle: Optional[Callable[[float, bool], None]] = None,
 ) -> "subprocess.CompletedProcess[str]":
     """Run a CLI with a hard timeout (and an optional cancel event) that also kills child processes.
 
@@ -94,6 +137,11 @@ def run_capture(
 
     ``on_stdout_line`` (optional) is called from the stdout reader thread with each stdout line as it
     arrives (newline included); it must not block. The returned stdout is the same text either way.
+
+    Idle watchdog (only meaningful for a CLI that streams output): ``idle_notice`` seconds without any
+    stdout/stderr output calls ``on_idle(idle_seconds, busy)`` (again every ``idle_notice`` seconds);
+    ``idle_kill`` seconds without output while ``is_busy()`` is false (no tool running) kills the CLI
+    tree and raises ``CliIdle``. A running tool (build, tests) is never treated as a hang.
     """
     if cancel_event is not None and cancel_event.is_set():
         raise _cancelled_error(cmd)
@@ -111,16 +159,20 @@ def run_capture(
         **kwargs,
     )
     chunks: Dict[str, List[str]] = {"out": [], "err": []}
+    watching = idle_notice > 0 or idle_kill > 0
+    last_output = [time.monotonic()]
 
     def _drain(stream: Any, key: str) -> None:
         try:
-            if key == "out" and on_stdout_line is not None:
+            if (key == "out" and on_stdout_line is not None) or watching:
                 for line in iter(stream.readline, ""):
                     chunks[key].append(line)
-                    try:
-                        on_stdout_line(line)
-                    except Exception:  # noqa: BLE001 - a listener must never stop the draining
-                        pass
+                    last_output[0] = time.monotonic()
+                    if key == "out" and on_stdout_line is not None:
+                        try:
+                            on_stdout_line(line)
+                        except Exception:  # noqa: BLE001 - a listener must never stop the draining
+                            pass
             else:
                 chunks[key].append(stream.read())
         except (OSError, ValueError):
@@ -157,6 +209,7 @@ def run_capture(
             pass
 
     deadline = time.monotonic() + timeout
+    notices = 0
     # Wait for the process to exit and for the pipes to close (a grandchild may still hold them).
     while proc.poll() is None or any(t.is_alive() for t in threads):
         if cancel_event is not None and cancel_event.is_set():
@@ -165,6 +218,21 @@ def run_capture(
         if time.monotonic() >= deadline:
             _abort()
             raise subprocess.TimeoutExpired(cmd, timeout)
+        if watching and proc.poll() is None:
+            idle = time.monotonic() - last_output[0]
+            busy = bool(is_busy()) if is_busy is not None else False
+            if idle_kill > 0 and not busy and idle >= idle_kill:
+                _abort()
+                raise CliIdle(idle)
+            if idle_notice > 0 and idle >= idle_notice * (notices + 1):
+                notices = int(idle // idle_notice)
+                if on_idle is not None:
+                    try:
+                        on_idle(idle, busy)
+                    except Exception:  # noqa: BLE001 - reporting must never stop the run
+                        pass
+            elif idle < idle_notice:
+                notices = 0
         if proc.poll() is None:
             try:
                 proc.wait(_POLL_INTERVAL)
@@ -222,11 +290,39 @@ def logout_cli(vendor: str) -> bool:
         code, _out, _err = _run(path, _LOGOUT_ARGS[vendor])
     except Exception:  # noqa: BLE001
         return False
+    finally:
+        _STATUS_CACHE.pop(vendor, None)
     return code == 0
+
+
+# Result of the last real detection per vendor: (monotonic time, result).
+_STATUS_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+STATUS_MAX_AGE = 15.0
+
+
+def detect_cli_recent(vendor: str, max_age: float = STATUS_MAX_AGE) -> Dict[str, Any]:
+    """:func:`detect_cli`, reusing a result younger than ``max_age`` seconds.
+
+    Detection spawns the CLI twice (``--version`` and the login status); account lookups (model pickers,
+    workflow binding, the connections page) call it many times per request. Login, logout and every
+    uncached :func:`detect_cli` refresh the cache, so a state change is seen at once."""
+    entry = _STATUS_CACHE.get(vendor)
+    if entry is not None and time.monotonic() - entry[0] < max_age:
+        return dict(entry[1])
+    return detect_cli(vendor)
 
 
 def detect_cli(vendor: str) -> Dict[str, Any]:
     """Return {installed, path, version, logged_in, detail}. Never raises."""
+    result = _detect_cli(vendor)
+    if vendor in VENDOR_CLI and result.get("installed") and result.get("logged_in") is not None:
+        _STATUS_CACHE[vendor] = (time.monotonic(), dict(result))
+    else:
+        _STATUS_CACHE.pop(vendor, None)
+    return result
+
+
+def _detect_cli(vendor: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "installed": False,
         "path": None,

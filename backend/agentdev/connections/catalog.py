@@ -55,7 +55,9 @@ VENDORS: Dict[str, VendorInfo] = {
     "gemini": VendorInfo(
         id="gemini",
         label="Google Gemini",
-        models=("gemini-2.5-pro", "gemini-2.5-flash"),
+        # The 2.5 models now answer 404 "no longer available to new users". The first entry is the
+        # default; the Pro preview exists but may hit the account's quota (429).
+        models=("gemini-3-flash-preview", "gemini-3.1-pro-preview"),
         auth_methods=(AUTH_OAUTH,),
     ),
 }
@@ -67,3 +69,24 @@ def get_vendor(vendor_id: str) -> VendorInfo | None:
 
 def list_vendors() -> List[VendorInfo]:
     return list(VENDORS.values())
+
+
+# Model ids a vendor has switched off (the API answers 404 "no longer available"). Saved workflows may
+# still name them; ``replace_retired_model`` swaps them for the vendor's default at bind time.
+_RETIRED_EXACT = {
+    "gemini": frozenset({"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"}),
+}
+_RETIRED_PREFIXES = {"gemini": ("gemini-1.5-", "gemini-2.0-")}
+
+
+def is_retired_model(vendor_id: str, model: str) -> bool:
+    name = (model or "").strip().lower()
+    return name in _RETIRED_EXACT.get(vendor_id, ()) or name.startswith(_RETIRED_PREFIXES.get(vendor_id, ()))
+
+
+def replace_retired_model(vendor_id: str, model: str) -> str:
+    """``model`` unchanged, or the vendor's catalog default when ``model`` is retired."""
+    vendor = get_vendor(vendor_id)
+    if vendor and vendor.models and is_retired_model(vendor_id, model):
+        return vendor.models[0]
+    return model

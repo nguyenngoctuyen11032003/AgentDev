@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agentdev.connections.catalog import AUTH_API_KEY, AUTH_CLI, AUTH_OAUTH, get_vendor
-from agentdev.connections.cli_auth import detect_cli
+# Cached detection (a few seconds): account lookups repeat and each real detection spawns the CLI twice.
+from agentdev.connections.cli_auth import detect_cli_recent as detect_cli
 from agentdev.connections.store import Connection
 
 MAX_SESSION_FILES = 5  # newest Codex session logs scanned for rate limits

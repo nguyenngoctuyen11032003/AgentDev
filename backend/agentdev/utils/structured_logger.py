@@ -2,6 +2,7 @@
 
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 import traceback
 import datetime
@@ -41,7 +42,7 @@ class StructuredLogger:
             # Ensure log directory exists
             log_path = Path(log_file)
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(log_file)
+            handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8")
         else:
             handler = logging.StreamHandler(sys.stdout)
         
