@@ -154,12 +154,31 @@ class CycleManager:
             
             # Find entry nodes and exit edges
             self._analyze_cycle_structure(cycle_info, nodes)
+            cycle_info.max_iterations = self._cycle_iteration_cap(cycle_info, nodes)
             
             self.cycles[cycle_id] = cycle_info
             
             # Map nodes to their cycle
             for node_id in cycle_nodes:
                 self.node_to_cycle[node_id] = cycle_id
+
+    @staticmethod
+    def _cycle_iteration_cap(cycle: CycleInfo, nodes: Dict[str, Node]) -> Optional[int]:
+        """Safety cap that never cuts a loop_counter short: its own limit + 1, at least the default.
+
+        None (use the default) when the cycle holds no loop_counter node.
+        """
+        limits = []
+        for node_id in cycle.nodes:
+            node = nodes.get(node_id)
+            if node is None or getattr(node, "type", None) != "loop_counter":
+                continue
+            value = getattr(getattr(node, "config", None), "max_iterations", None)
+            if isinstance(value, int) and value > 0:
+                limits.append(value)
+        if not limits:
+            return None
+        return max(cycle.max_iterations_default, max(limits) + 1)
 
     def _analyze_cycle_structure(self, cycle: CycleInfo, nodes: Dict[str, Node]) -> None:
         """Analyze cycle structure to find entry nodes and exit edges."""

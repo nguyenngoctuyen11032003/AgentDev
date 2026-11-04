@@ -4057,6 +4057,11 @@ const enqueueMessage = (socket, msg) => {
 }
 
 // Establish a WebSocket connection
+// One id per page load plus a counter per socket: the server tells our own overlapping
+// sockets (reconnect, draft -> session switch) from a really different tab.
+const clientId =
+  (typeof crypto !== 'undefined' && crypto.randomUUID?.()) || `c${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+let socketSeq = 0
 const establishWebSocketConnection = (options = {}) => {
   let { sessionId: reconnectSid, fresh = false } = options
 
@@ -4098,9 +4103,11 @@ const establishWebSocketConnection = (options = {}) => {
     }
   }
 
+  socketSeq += 1
+  const clientParams = `client=${encodeURIComponent(clientId)}&seq=${socketSeq}`
   const wsUrl = reconnecting
-    ? `${scheme}//${host}/ws?session_id=${encodeURIComponent(reconnectSid)}&batch=1`
-    : `${scheme}//${host}/ws`
+    ? `${scheme}//${host}/ws?session_id=${encodeURIComponent(reconnectSid)}&batch=1&${clientParams}`
+    : `${scheme}//${host}/ws?${clientParams}`
   const socket = new WebSocket(wsUrl)
   ws = socket
 
@@ -4146,6 +4153,8 @@ const establishWebSocketConnection = (options = {}) => {
       }
 
       isConnectionReady.value = true
+      // This socket is connected: any "opened in another tab" notice is out of date
+      replacedSessionId.value = ''
       reconnectAttempts = 0
       if (autoReconnecting) {
         autoReconnecting = false

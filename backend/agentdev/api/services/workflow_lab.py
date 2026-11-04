@@ -36,6 +36,15 @@ from agentdev.api.services.lab_diagnosis import (
     regression_finding,
     run_budget,
 )
+from agentdev.api.services.workflow_patterns.graph_analysis import (  # noqa: F401 - re-exported
+    CRITICAL_PATH_AGENTS,
+    CRITICAL_PATH_SECONDS,
+    LOOP_PASS_SECONDS,
+    TIER_SECONDS,
+    Graph,
+    edge_condition_matches,
+    model_tier,
+)
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV
 from agentdev.utils.human_prompt import AUTO_ANSWER, AutoAnswerChannel
 
@@ -45,6 +54,9 @@ PASS_THRESHOLD = 0.8
 MAX_SCENARIOS = 20
 MAX_REPEATS = 5
 RUN_TIMEOUT_SECONDS = int(os.environ.get("AGENTDEV_LAB_RUN_TIMEOUT", "600"))
+# After the watchdog (or a job cancel) asks a run to stop, how long it may take to wind down before the worker
+# gives up on it: a hung model call or CLI never checks the cancel event.
+TIMEOUT_GRACE_SECONDS = 20
 SCENARIO_PASS_SHARE = 2 / 3  # every scenario must pass at least this share of its own runs
 
 
@@ -202,149 +214,43 @@ def static_check_data(data: Any) -> Dict[str, Any]:
 
 
 # --- graph analysis (loops, human approvals, dead ends, model sanity, critical path)
+# The graph logic itself lives in workflow_patterns.graph_analysis (shared with the proposal lint).
 
-TIER_SECONDS = {"small": 15, "mid": 40, "top": 90}
-LOOP_PASS_SECONDS = 30
-CRITICAL_PATH_SECONDS = 180
-CRITICAL_PATH_AGENTS = 6
 LIGHT_ROLE_WORDS = ("review", "qa", "summar", "archiv", "save", "guard", "check")
-
-
-def model_tier(model: Any) -> str:
-    """small | mid | top from a model name (catalog naming: haiku/flash/mini/luna small, opus/fable/sol top)."""
-    name = str(model or "").lower()
-    if any(w in name for w in ("haiku", "flash", "mini", "luna", "nano", "lite")):
-        return "small"
-    if any(w in name for w in ("opus", "fable", "sol")):
-        return "top"
-    return "mid"
-
-
-def _sccs(ids: List[Any], adj: Dict[Any, List[Any]]) -> List[List[Any]]:
-    """Tarjan's strongly connected components (iterative)."""
-    index: Dict[Any, int] = {}
-    low: Dict[Any, int] = {}
-    on_stack: set = set()
-    stack: List[Any] = []
-    out: List[List[Any]] = []
-    counter = 0
-    for root in ids:
-        if root in index:
-            continue
-        work = [(root, iter(adj.get(root, [])))]
-        index[root] = low[root] = counter
-        counter += 1
-        stack.append(root)
-        on_stack.add(root)
-        while work:
-            node, it = work[-1]
-            advanced = False
-            for nxt in it:
-                if nxt not in index:
-                    index[nxt] = low[nxt] = counter
-                    counter += 1
-                    stack.append(nxt)
-                    on_stack.add(nxt)
-                    work.append((nxt, iter(adj.get(nxt, []))))
-                    advanced = True
-                    break
-                if nxt in on_stack:
-                    low[node] = min(low[node], index[nxt])
-            if advanced:
-                continue
-            work.pop()
-            if work:
-                parent = work[-1][0]
-                low[parent] = min(low[parent], low[node])
-            if low[node] == index[node]:
-                comp = []
-                while True:
-                    w = stack.pop()
-                    on_stack.discard(w)
-                    comp.append(w)
-                    if w == node:
-                        break
-                out.append(comp)
-    return out
-
-
-def edge_condition_matches(condition: Any, text: str) -> bool:
-    """Same semantics as KeywordEdgeConditionManager; non-keyword conditions are assumed to match."""
-    if not isinstance(condition, dict) or condition.get("type") != "keyword":
-        return True
-    cfg = condition.get("config") or {}
-    any_kw = [str(k) for k in cfg.get("any") or []]
-    none_kw = [str(k) for k in cfg.get("none") or []]
-    patterns = [str(k) for k in cfg.get("regex") or []]
-    case_sensitive = bool(cfg.get("case_sensitive", True))
-    hay = text if case_sensitive else text.lower()
-    for kw in none_kw:
-        if kw and (kw if case_sensitive else kw.lower()) in hay:
-            return False
-    for kw in any_kw:
-        if kw and (kw if case_sensitive else kw.lower()) in hay:
-            return True
-    flags = 0 if case_sensitive else re.IGNORECASE
-    for pattern in patterns:
-        try:
-            if re.search(pattern, text, flags):
-                return True
-        except re.error:
-            continue
-    return not (any_kw or patterns)
+# Graph checks whose FAIL a proposed edit may keep when the saved file already had the same problem.
+BASELINE_EXEMPT_CHECKS = ("loops", "human_auto")
 
 
 def _graph_checks(checks, graph, nodes, edges, start) -> None:
-    edges = [e for e in edges if isinstance(e, dict)]
-    ids = [nid for nid in nodes if nid is not None]
-    adj: Dict[Any, List[Any]] = {nid: [] for nid in ids}
-    radj: Dict[Any, List[Any]] = {nid: [] for nid in ids}
-    for e in edges:
-        a, b = e.get("from"), e.get("to")
-        if a in adj and b in adj:
-            adj[a].append(b)
-            radj[b].append(a)
-    comps = _sccs(ids, adj)
-    cyc = [c for c in comps if len(c) > 1 or c[0] in adj.get(c[0], [])]
-    comp_of = {n: i for i, c in enumerate(comps) for n in c}
+    g = Graph(graph)
+    ids = list(g.nodes)
 
     # (1) loops without a guard
-    unguarded = [sorted(str(n) for n in c) for c in cyc
-                 if not any(nodes[n].get("type") == "loop_counter" for n in c)]
+    unguarded = [sorted(str(n) for n in c) for c in g.unguarded_cycles()]
     _check(checks, "loops", FAIL if unguarded else PASS,
            "; ".join(" -> ".join(c) for c in unguarded), loops=unguarded)
 
-    # (2) human approvals must accept the Lab's automatic answer
-    bad_humans: List[str] = []
-    for nid, node in nodes.items():
-        if node.get("type") != "human":
-            continue
-        out = [e for e in edges if e.get("from") == nid and e.get("to") in adj]
-        if not out:
-            continue
-        matching = [e for e in out if edge_condition_matches(e.get("condition"), AUTO_ANSWER)]
-        forward = [e for e in matching if comp_of.get(e["to"]) != comp_of.get(nid)]
-        if not forward:
-            bad_humans.append(str(nid))
+    # (2) human approvals must accept the Lab's automatic answer (a guarded feedback loop is fine)
+    bad_humans = [str(n) for n in g.humans_blocking_auto_answer(AUTO_ANSWER)]
     _check(checks, "human_auto", FAIL if bad_humans else PASS, ", ".join(bad_humans), nodes=bad_humans)
 
     # (3) nodes that can never reach an end node
-    ends = {n for n in (graph.get("end") or []) if n in adj}
+    ends = {n for n in (graph.get("end") or []) if n in g.adj}
     if ends:
         seen = set(ends)
         todo = list(ends)
         while todo:
-            for prev in radj.get(todo.pop(), []):
+            for prev in g.radj.get(todo.pop(), []):
                 if prev not in seen:
                     seen.add(prev)
                     todo.append(prev)
-        wired = {e.get("from") for e in edges} | {e.get("to") for e in edges}
+        wired = {e.get("from") for e in g.edges} | {e.get("to") for e in g.edges}
         dead = sorted(str(n) for n in ids if n in wired and n not in seen)
         _check(checks, "dead_end", WARN if dead else PASS, ", ".join(dead), nodes=dead)
 
     # (4) heavy model/effort on light roles
     heavy: List[str] = []
-    for nid, node in nodes.items():
+    for nid, node in g.nodes.items():
         if node.get("type") != "agent":
             continue
         cfg = node.get("config") or {}
@@ -356,41 +262,39 @@ def _graph_checks(checks, graph, nodes, edges, start) -> None:
             heavy.append(str(nid))
     _check(checks, "model_fit", WARN if heavy else PASS, ", ".join(heavy), nodes=heavy)
 
-    # (5) critical path over the condensed graph (a loop body counts once, plus one extra pass)
-    weight: Dict[int, int] = {}
-    agents_in: Dict[int, int] = {}
-    heavy_in: Dict[int, int] = {}
-    for i, c in enumerate(comps):
-        sec = cnt = hv = 0
-        for n in c:
-            if nodes[n].get("type") != "agent":
-                continue
-            tier = model_tier((nodes[n].get("config") or {}).get("name"))
-            sec += TIER_SECONDS[tier]
-            cnt += 1
-            hv += tier != "small"
-        if cnt and len(c) > 1:
-            sec += LOOP_PASS_SECONDS
-        weight[i], agents_in[i], heavy_in[i] = sec, cnt, hv
-    cadj: Dict[int, set] = {i: set() for i in range(len(comps))}
-    for a, bs in adj.items():
-        for b in bs:
-            if comp_of[a] != comp_of[b]:
-                cadj[comp_of[a]].add(comp_of[b])
-    memo: Dict[int, tuple] = {}
-
-    def best(i: int) -> tuple:
-        if i not in memo:
-            tail = max((best(j) for j in cadj[i]), default=(0, 0, 0))
-            memo[i] = (weight[i] + tail[0], agents_in[i] + tail[1], heavy_in[i] + tail[2])
-        return memo[i]
-
-    roots = [comp_of[n] for n in start if n in comp_of] or list(range(len(comps)))
-    seconds, agent_count, heavy_count = max((best(r) for r in roots), default=(0, 0, 0))
-    slow = seconds > CRITICAL_PATH_SECONDS or heavy_count > CRITICAL_PATH_AGENTS
-    _check(checks, "critical_path", WARN if slow else PASS,
+    # (5) critical path (the one speed estimate shown for a workflow)
+    path = g.critical_path()
+    seconds, agent_count = path["estimated_seconds"], path["agents"]
+    _check(checks, "critical_path", WARN if path["slow"] else PASS,
            f"~{seconds}s, {agent_count} agent" if agent_count else "", estimated_seconds=seconds,
-           agents=agent_count, heavy_agents=heavy_count)
+           agents=agent_count, heavy_agents=path["heavy_agents"])
+
+
+def new_failures(report: Dict[str, Any], baseline: Any) -> List[Dict[str, Any]]:
+    """FAIL checks of ``report`` that a proposed edit introduces, given the saved workflow ``baseline``
+    (parsed YAML, or None for a new file). ``accounts`` never counts (it is this machine's setup, not the
+    proposal). A ``loops`` / ``human_auto`` FAIL is dropped when every loop / gate it names was already
+    broken in the saved file, so editing an unrelated part of an old workflow is not rejected."""
+    fails = [c for c in report.get("checks") or [] if c.get("status") == FAIL and c.get("id") != "accounts"]
+    if not isinstance(baseline, dict) or not any(c["id"] in BASELINE_EXEMPT_CHECKS for c in fails):
+        return fails
+    g = Graph.from_workflow(baseline)
+    old_loops = [{str(n) for n in c} for c in g.unguarded_cycles()]
+    old_humans = {str(n) for n in g.humans_blocking_auto_answer(AUTO_ANSWER)}
+    out: List[Dict[str, Any]] = []
+    for c in fails:
+        if c["id"] == "loops":
+            new = [loop for loop in c.get("loops") or [] if not any(set(loop) & old for old in old_loops)]
+            if not new:
+                continue
+            c = {**c, "loops": new, "detail": "; ".join(" -> ".join(loop) for loop in new)}
+        elif c["id"] == "human_auto":
+            new = [n for n in c.get("nodes") or [] if n not in old_humans]
+            if not new:
+                continue
+            c = {**c, "nodes": new, "detail": ", ".join(new)}
+        out.append(c)
+    return out
 
 
 def _summarise(checks: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -429,8 +333,11 @@ class LabJob:
     cancel_event: threading.Event = field(default_factory=threading.Event)
     # Guards ``results`` (and the entries in it): the worker thread updates them while requests read them.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    # Serialises writes of this job's JSON file (LabRunner._save is called from several worker threads).
+    save_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     _baseline: Optional[Dict[str, Any]] = field(default=None, repr=False, compare=False)
     _baseline_loaded: bool = field(default=False, repr=False, compare=False)
+    _baseline_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     @property
     def total(self) -> int:
@@ -442,13 +349,15 @@ class LabJob:
 
     def _find_baseline(self) -> Optional[Dict[str, Any]]:
         """The latest earlier completed job of this workflow that was ready (cached: found once)."""
-        if not self._baseline_loaded:
-            self._baseline_loaded = True
+        with self._baseline_lock:
+            if self._baseline_loaded:
+                return self._baseline
             for item in list_stored_jobs(self.store_dir or _lab_dir(), self.workflow, limit=50):
                 if (item["id"] != self.id and item["status"] == "completed" and item["verdict"] == "ready"
                         and (item.get("finished_at") or 0) and (item.get("started_at") or 0) < self.started_at):
                     self._baseline = item
                     break
+            self._baseline_loaded = True
         return self._baseline
 
     def update_result(self, entry: Dict[str, Any], **changes: Any) -> None:
@@ -495,7 +404,7 @@ class LabJob:
             })
         config_failed = self.config_status == FAIL
         findings = diagnose_job(done, {i: sc.prompt for i, sc in enumerate(self.scenarios)})
-        slow_runs = len([r for r in done if (r.get("seconds") or 0) > SLOW_SECONDS])
+        slow_runs = len([r for r in done if (r.get("seconds") or 0) > (r.get("budget_seconds") or SLOW_SECONDS)])
         verdict = None
         reasons: List[str] = []
         unverified = len([r for r in passed if (r.get("judge") or {}).get("judged_by") == "basic"])
@@ -526,6 +435,7 @@ class LabJob:
                     "pass_rate": round(pass_rate, 3),
                     "avg_seconds": round(sum(r.get("seconds", 0) or 0 for r in done) / len(done), 1) if done else None,
                     "cost_usd": round(sum(r.get("cost_usd", 0.0) or 0.0 for r in results), 4),
+                    "done": len(done),
                 }
                 regression = compare_baseline(current, baseline)
                 extra = regression_finding(regression)
@@ -619,7 +529,7 @@ class JudgeAccount:
             if self._conn is None:
                 raise RuntimeError("No signed-in account to grade the answers. Sign in on the Connections page.")
             if self._model is None:
-                self._model = default_model_for(self._conn) or ""  # slow (CLI detection): once per account
+                self._model = _judge_model(self._conn) or default_model_for(self._conn) or ""  # once per account
             return self._conn, self._model
 
     def switch(self, failed_id: str) -> bool:
@@ -636,6 +546,19 @@ class JudgeAccount:
             return self._conn is not None
 
 
+def _judge_model(conn: Any) -> Optional[str]:
+    """Mid-tier model of the account's vendor (e.g. Sonnet, not Opus): grading one answer against a
+    rubric does not need the top model, and the judge runs once per scenario run."""
+    from agentdev.api.services.workflow_patterns.proposal_lint import default_model
+    from agentdev.api.services.workflow_patterns.graph_analysis import model_tier
+
+    try:
+        name = default_model(getattr(conn, "vendor", "") or "", "mid")
+    except Exception:  # noqa: BLE001 - fall back to the account's default model
+        return None
+    return name if name and model_tier(name) == "mid" else None
+
+
 def _judge_call(conn: Any, model: str, user: str, system: str = "") -> str:
     from agentdev.connections.resolver import resolve_connection
     from agentdev.entity.messages import Message, MessageRole
@@ -645,7 +568,7 @@ def _judge_call(conn: Any, model: str, user: str, system: str = "") -> str:
     provider_name = creds.provider or creds.vendor
     provider_class = ProviderRegistry.get_provider(provider_name)
     config = SimpleConfig(name=model, provider=provider_name, api_key=creds.token,
-                          base_url=creds.base_url or "", params={"timeout": 180})
+                          base_url=creds.base_url or "", params={"timeout": 180, "effort": "low"})
     provider = provider_class(config)
     response = provider.call_model(
         provider.create_client(),
@@ -720,7 +643,25 @@ def _rubric_pass(data: Dict[str, Any]) -> bool:
     try:
         return float(score) >= 7
     except (TypeError, ValueError):
-        return True
+        match = re.match(r"\s*(\d+(?:\.\d+)?)", str(score))  # "5/10", "8 out of 10"
+        return float(match.group(1)) >= 7 if match else True
+
+
+def _parse_verdict(text: str) -> Dict[str, Any]:
+    match = re.search(r"\{.*\}", text, re.S)
+    try:
+        data = json.loads(match.group(0)) if match else {}
+    except ValueError:
+        data = {}
+    return data if isinstance(data, dict) else {}
+
+
+def _borderline(data: Dict[str, Any]) -> bool:
+    """Score 6-8 (the pass line is 7): too close to call for a cheap judge."""
+    try:
+        return 6 <= float(data.get("score")) <= 8
+    except (TypeError, ValueError):
+        return False
 
 
 def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, str]],
@@ -752,11 +693,20 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
             raise
         conn, model = account.current()
         text = _judge_call(conn, model, user)
-    match = re.search(r"\{.*\}", text, re.S)
-    try:
-        data = json.loads(match.group(0)) if match else {}
-    except ValueError:
-        data = {}
+    data = _parse_verdict(text)
+    # A score next to the pass line is where a cheaper judge is least reliable: grade it again with the
+    # account's own default (stronger) model and keep that verdict. Clear passes and fails stay cheap.
+    if _borderline(data):
+        try:
+            from agentdev.runtime.node.agent.account_fallback import default_model_for
+
+            strong = default_model_for(conn) or ""
+            if strong and strong != model:
+                second = _parse_verdict(_judge_call(conn, strong, user))
+                if "pass" in second:  # unparsable second look must not turn a pass into a fail
+                    data, model = second, strong
+        except Exception:  # noqa: BLE001 - keep the first verdict when the second look fails
+            pass
     return {
         "pass": _rubric_pass(data),
         "score": data.get("score"),
@@ -836,6 +786,7 @@ def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threadin
         "cost_usd": cost,
         "agents": dict(usage.get("node_execution_counts") or {}),
         "timeline": node_timeline(usage.get("call_history"), turn_started),
+        "node_runs": list(usage.get("node_runs") or []),
         "questions": list(channel.questions),
         "team": team_digest_from_state(state),
         "exchanges": user_exchanges(state),
@@ -879,14 +830,35 @@ def _run_once_inner(yaml_path: Path, scenario: Scenario, cancel_event: threading
                     session: str, started: float, timed_out: threading.Event) -> Dict[str, Any]:
     from agentdev.api.services.conversation_turns import compose_follow_up_prompt, make_turn
 
-    message = (f"Run stopped after {RUN_TIMEOUT_SECONDS // 60} minutes without finishing: the workflow is probably "
-               "looping (check approval conditions and loop guards).")
-    try:
-        result = _collect_turns(yaml_path, scenario, cancel_event, run_turn, session, started, compose_follow_up_prompt, make_turn)
-    except Exception:
+    minutes = RUN_TIMEOUT_SECONDS // 60
+    message = (f"Run stopped after {f'{minutes} minutes' if minutes else f'{RUN_TIMEOUT_SECONDS}s'} without finishing: "
+               "the workflow is probably looping (check approval conditions and loop guards).")
+    box: Dict[str, Any] = {}
+    finished = threading.Event()
+
+    def _work() -> None:
+        try:
+            box["result"] = _collect_turns(yaml_path, scenario, cancel_event, run_turn, session, started,
+                                           compose_follow_up_prompt, make_turn)
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller's thread
+            box["error"] = exc
+        finally:
+            finished.set()
+
+    threading.Thread(target=_work, daemon=True, name="lab-run").start()
+    stop_at: Optional[float] = None
+    while not finished.wait(0.5):
+        if cancel_event.is_set():
+            stop_at = stop_at or time.time() + TIMEOUT_GRACE_SECONDS
+            if time.time() > stop_at:  # the run ignores the cancel event (hung call): abandon its thread
+                if not timed_out.is_set():
+                    raise RuntimeError("Run cancelled")
+                raise RuntimeError(message)
+    if "error" in box:
         if timed_out.is_set():
             raise RuntimeError(message)
-        raise
+        raise box["error"]
+    result = box["result"]
     if timed_out.is_set():
         raise RuntimeError(message)
     return result
@@ -919,6 +891,7 @@ def _collect_turns(yaml_path, scenario, cancel_event, run_turn, session, started
         "agents": agents,
         "members": members,
         "timeline": [t for item in turns for t in item.get("timeline") or []],
+        "node_runs": [r for item in turns for r in item.get("node_runs") or []],
         "questions": [q for item in turns for q in item.get("questions") or []],
         "turns": len(turns),
         "output_dir": turns[-1].get("output_dir", ""),
@@ -949,6 +922,19 @@ class StoredJob:
         return self.data
 
 
+def _replace_with_retry(src: Path, dst: Path, attempts: int = 10, delay: float = 0.02) -> None:
+    """``os.replace`` that retries briefly on PermissionError: on Windows the target cannot be replaced
+    while another thread or a request is reading it."""
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay * (attempt + 1))
+
+
 class LabRunner:
     """Runs Lab jobs in threads; every change is also written to storage/lab_jobs/<id>.json so results
     survive a backend reload (a job that was running when the server stopped is reported as interrupted)."""
@@ -962,14 +948,26 @@ class LabRunner:
         return self._store_dir or _lab_dir()
 
     def _save(self, job: LabJob) -> None:
-        try:
-            folder = self._dir()
-            folder.mkdir(parents=True, exist_ok=True)
-            tmp = folder / f"{job.id}.json.tmp"
-            tmp.write_text(json.dumps(job.to_dict(), ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, folder / f"{job.id}.json")
-        except OSError:
-            pass  # persistence is best effort; the in-memory job is authoritative
+        # Runs of one job finish on several worker threads: saves are serialised per job (the snapshot is
+        # taken inside the lock, so the last write is also the newest state) and every write uses its own
+        # temp file, so two writers never share or interleave one.
+        with job.save_lock:
+            tmp: Optional[Path] = None
+            try:
+                folder = self._dir()
+                folder.mkdir(parents=True, exist_ok=True)
+                tmp = folder / f"{job.id}.{uuid.uuid4().hex[:8]}.json.tmp"
+                tmp.write_text(json.dumps(job.to_dict(), ensure_ascii=False), encoding="utf-8")
+                _replace_with_retry(tmp, folder / f"{job.id}.json")
+                tmp = None
+            except OSError:
+                pass  # persistence is best effort; the in-memory job is authoritative
+            finally:
+                if tmp is not None:
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
 
     def _load(self, job_id: str) -> Optional[StoredJob]:
         if not re.fullmatch(r"[0-9a-f]{12}", job_id or ""):
@@ -1058,12 +1056,14 @@ class LabRunner:
                 futures = [pool.submit(self._run_task, job, yaml_path, run_once, judge, i, r) for i, r in tasks]
                 for future in futures:
                     future.result()
+            job.finished_at = time.time()  # before the status flips, so a "completed" job always has its end time
             job.status = "cancelled" if job.cancel_event.is_set() else "completed"
         except Exception as exc:  # noqa: BLE001
-            job.status = "error"
             job.error = str(exc)
-        finally:
             job.finished_at = time.time()
+            job.status = "error"
+        finally:
+            job.finished_at = job.finished_at or time.time()
             self._save(job)
 
 
@@ -1097,7 +1097,7 @@ def list_stored_jobs(folder: Path, workflow: str, limit: int = 20) -> List[Dict[
         rows.append({
             "id": data.get("id"), "status": status, "verdict": data.get("verdict"),
             "pass_rate": data.get("pass_rate"), "avg_seconds": data.get("avg_seconds"),
-            "tokens": data.get("total_tokens"), "cost_usd": data.get("cost_usd"),
+            "tokens": data.get("total_tokens"), "cost_usd": data.get("cost_usd"), "done": data.get("done"),
             "workflow_hash": data.get("workflow_hash", ""), "started_at": data.get("started_at") or 0,
             "finished_at": data.get("finished_at"),
         })

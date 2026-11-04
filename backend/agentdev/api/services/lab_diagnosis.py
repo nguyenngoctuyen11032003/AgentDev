@@ -12,10 +12,12 @@ import os
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
-# A single run slower than this is reported as slow (seconds). Override with AGENTDEV_LAB_SLOW_SECONDS.
+# Time budget (seconds) of a greeting-like run; real requests get LONG_SECONDS. Override with AGENTDEV_LAB_SLOW_SECONDS.
 SLOW_SECONDS = int(os.environ.get("AGENTDEV_LAB_SLOW_SECONDS", "120"))
-HEAVY_TOKENS = 40_000
-LOOP_CALLS = 3  # one node running this many times in a run is a loop worth reporting
+# One node running this many times in a run is a loop worth reporting. A guarded review loop of 2 rounds
+# legitimately runs its writer/reviewer 3 times (first pass + 2 revisions), which the fix text allows.
+LOOP_CALLS = 4
+BRIEF_PROMPT_CHARS = 1500  # prompt/criteria quoted in the fix brief (a scenario prompt can be 20k chars)
 SIMPLE_PROMPT_CHARS = 140  # short requests (greetings, questions) must not trigger a whole production line
 SIMPLE_MAX_AGENTS = 2
 LONG_SECONDS = 300  # budget of a run on a real (non-greeting) request
@@ -32,8 +34,49 @@ def run_budget(prompt: str, max_seconds: Optional[int] = None, max_tokens: Optio
     }
 
 
+# Cache-read token counts as reported by each provider (Claude CLI, Codex CLI, Gemini). Providers add them to the
+# input/total tokens, but they are billed at ~10% (see CACHE_READ_WEIGHT).
+_CACHE_READ_KEYS = ("cache_read_input_tokens", "cached_input_tokens", "cached_content_token_count")
+
+
+def _cache_read(call: Dict[str, Any]) -> int:
+    meta = call.get("metadata") or {}
+    for key in _CACHE_READ_KEYS:
+        try:
+            value = int(meta.get(key) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value:
+            return value
+    return 0
+
+
+CACHE_READ_WEIGHT = 0.1  # a cache read costs ~10% of a fresh input token
+
+
+def cached_tokens(run: Dict[str, Any]) -> int:
+    """Cache-read tokens included in ``run["tokens"]`` (0 when the timeline does not know them)."""
+    cached = sum(int(item.get("cache_read") or 0) for item in run.get("timeline") or [])
+    return min(cached, int(run.get("tokens") or 0))
+
+
+def fresh_tokens(run: Dict[str, Any]) -> int:
+    """Tokens of a run with cache reads weighted at their price (~10%), so one cached system prompt does not
+    look heavy but a loop re-reading a huge cached context still does."""
+    tokens = int(run.get("tokens") or 0)
+    cached = cached_tokens(run)
+    return int(tokens - cached + cached * CACHE_READ_WEIGHT)
+
+
 def over_budget(run: Dict[str, Any], budget: Dict[str, int]) -> bool:
-    return float(run.get("seconds") or 0) > budget["seconds"] or int(run.get("tokens") or 0) > budget["tokens"]
+    return float(run.get("seconds") or 0) > budget["seconds"] or fresh_tokens(run) > budget["tokens"]
+
+
+def _budget_of(run: Dict[str, Any], prompt: str) -> Dict[str, int]:
+    """The budget the Lab attached to the run (``budget_seconds``/``budget_tokens``), else the default for the prompt."""
+    default = run_budget(prompt)
+    return {"seconds": int(run.get("budget_seconds") or default["seconds"]),
+            "tokens": int(run.get("budget_tokens") or default["tokens"])}
 
 
 def node_timeline(call_history: Iterable[Dict[str, Any]], started: Optional[datetime]) -> List[Dict[str, Any]]:
@@ -49,6 +92,8 @@ def node_timeline(call_history: Iterable[Dict[str, Any]], started: Optional[date
             stamp = datetime.fromisoformat(str(call.get("timestamp")))
         except ValueError:
             stamp = None
+        if stamp is not None and stamp.tzinfo is not None:
+            stamp = stamp.astimezone().replace(tzinfo=None)  # tracker stamps are naive local time
         seconds = 0.0
         if stamp is not None:
             if previous is not None:
@@ -58,6 +103,7 @@ def node_timeline(call_history: Iterable[Dict[str, Any]], started: Optional[date
             "node": str(call.get("node_id") or "?"),
             "seconds": round(seconds, 1),
             "tokens": int(call.get("total_tokens") or 0),
+            "cache_read": _cache_read(call),
             "model": str(call.get("model_name") or ""),
         })
     return timeline
@@ -75,50 +121,105 @@ def summarise_timeline(timeline: List[Dict[str, Any]], top: int = 5) -> List[Dic
     return sorted(nodes.values(), key=lambda n: n["seconds"], reverse=True)[:top]
 
 
+def node_summary(run: Dict[str, Any], top: int = 5) -> List[Dict[str, Any]]:
+    """Slowest nodes of a run. Uses the measured wall time of each node run (``node_runs`` of the token
+    tracker) when the run carries it - exact for parallel branches and nodes without model calls - and falls
+    back to the gap estimate of the timeline (wrong when branches overlap)."""
+    node_runs = run.get("node_runs") or []
+    if not node_runs:
+        return summarise_timeline(run.get("timeline") or [], top)
+    tokens: Dict[str, int] = {}
+    for item in run.get("timeline") or []:
+        tokens[item["node"]] = tokens.get(item["node"], 0) + int(item.get("tokens") or 0)
+    nodes: Dict[str, Dict[str, Any]] = {}
+    for item in node_runs:
+        name = str(item.get("node") or "?")
+        entry = nodes.setdefault(name, {"node": name, "calls": 0, "seconds": 0.0, "tokens": tokens.get(name, 0)})
+        entry["calls"] += 1
+        entry["seconds"] = round(entry["seconds"] + float(item.get("wall_ms") or 0) / 1000.0, 1)
+    return sorted(nodes.values(), key=lambda n: n["seconds"], reverse=True)[:top]
+
+
+def _run_counts(run: Dict[str, Any]) -> Dict[str, int]:
+    """How many times each node ran: from ``node_runs`` when present (``agents`` counts model calls)."""
+    node_runs = run.get("node_runs") or []
+    if not node_runs:
+        return dict(run.get("agents") or {})
+    counts: Dict[str, int] = {}
+    for item in node_runs:
+        name = str(item.get("node") or "?")
+        counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def _error_finding(error: str) -> Dict[str, Any]:
+    if error.strip().lower().startswith("interrupted"):
+        return {"code": "interrupted", "severity": "warn", "detail": error[:400],
+                "fix": "Máy chủ khởi động lại khi lượt này đang chạy; không phải lỗi của quy trình. Hãy chạy lại kiểm định."}
+    if "Vượt giới hạn" in error or "Run budget exceeded" in error:
+        return {"code": "budget_limit", "severity": "fail", "detail": error[:400],
+                "fix": ("Lượt chạy chạm giới hạn run_limits của quy trình: giảm vòng lặp và rút gọn node tốn nhiều nhất "
+                        "được nêu; chỉ nâng giới hạn khi việc này thật sự lớn.")}
+    if "looping" in error or "stopped after" in error:
+        return {"code": "timeout", "severity": "fail", "detail": error[:400],
+                "fix": ("Lượt chạy quá thời gian tối đa, thường do vòng lặp không thoát được: thêm node loop_counter ở "
+                        "mọi vòng sửa/duyệt và bảo đảm các điều kiện duyệt chấp nhận cả câu tự trả lời của Phòng thí "
+                        "nghiệm ([Automatic answer ...]); nếu không có vòng lặp thì rút gọn các bước dài.")}
+    return {"code": "error", "severity": "fail", "detail": error[:400],
+            "fix": "Sửa nguyên nhân lỗi nêu trên (tài khoản, công cụ, cấu hình) rồi chạy lại."}
+
+
 def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
-    """Findings for one finished run (``run`` is a result entry of a Lab job)."""
+    """Findings for one finished run (``run`` is a result entry of a Lab job).
+
+    Time and tokens are judged against the run's budget (``budget_seconds``/``budget_tokens`` attached by the
+    Lab, else :func:`run_budget` of the prompt), so a real task is not flagged for using what it is allowed;
+    cache reads count at CACHE_READ_WEIGHT when the timeline knows them.
+    """
     findings: List[Dict[str, Any]] = []
+    prompt = prompt or ""
     seconds = float(run.get("seconds") or 0)
     tokens = int(run.get("tokens") or 0)
+    fresh = fresh_tokens(run)
     agents: Dict[str, int] = dict(run.get("agents") or {})
-    nodes = summarise_timeline(run.get("timeline") or [])
+    counts = _run_counts(run)
+    measured_runs = bool(run.get("node_runs"))
+    nodes = node_summary(run)
     status = run.get("status")
+    budget = _budget_of(run, prompt)
 
     error = str(run.get("error") or "")
     if error:
-        stopped = "looping" in error or "stopped after" in error
-        findings.append({
-            "code": "timeout" if stopped else "error",
-            "severity": "fail",
-            "detail": error[:400],
-            "fix": ("Có vòng lặp không thoát được: thêm node loop_counter ở mọi vòng sửa/duyệt, và bảo đảm các "
-                    "điều kiện duyệt chấp nhận cả câu tự trả lời của Phòng thí nghiệm ([Automatic answer ...])."
-                    if stopped else "Sửa nguyên nhân lỗi nêu trên (tài khoản, công cụ, cấu hình) rồi chạy lại."),
-        })
+        findings.append(_error_finding(error))
 
-    if seconds > SLOW_SECONDS:
+    if seconds > budget["seconds"]:
         slowest = nodes[0] if nodes else None
-        share = f"; chậm nhất là {slowest['node']} ({slowest['seconds']:.0f}s, {slowest['calls']} lần gọi)" if slowest else ""
+        share = f"; chậm nhất là {slowest['node']} ({slowest['seconds']:.0f}s, {slowest['calls']} lần)" if slowest else ""
         findings.append({
-            "code": "slow",
+            "code": "over_budget",
+            "kind": "time",
             "severity": "warn",
-            "detail": f"Chạy mất {seconds:.0f}s (ngưỡng {SLOW_SECONDS}s){share}.",
+            "detail": f"Chạy mất {seconds:.0f}s (ngân sách {budget['seconds']}s){share}.",
             "fix": ("Giảm thời gian: dùng model nhẹ hơn và effort thấp cho các node duyệt/lưu/tóm tắt, bỏ bớt node "
                     "không cần cho việc nhỏ, cho các nhánh độc lập chạy song song, giảm số vòng sửa."),
         })
 
-    looping = {n: c for n, c in agents.items() if c >= LOOP_CALLS}
+    looping = {n: c for n, c in counts.items() if c >= LOOP_CALLS}
     if looping:
         names = ", ".join(f"{n} ×{c}" for n, c in sorted(looping.items(), key=lambda kv: -kv[1]))
+        what = "Có node chạy lặp nhiều lần" if measured_runs else "Có node gọi model nhiều lần (có thể là vòng lặp)"
         findings.append({
             "code": "loop",
             "severity": "warn",
-            "detail": f"Có node chạy lặp nhiều lần: {names}.",
-            "fix": ("Đặt giới hạn vòng (loop_counter, tối đa 2 vòng), cho node duyệt trả APPROVED khi chỉ còn lỗi nhỏ, "
-                    "và nêu tiêu chí duyệt cụ thể để không yêu cầu sửa vô hạn."),
+            "detail": f"{what}: {names}.",
+            "fix": (("" if measured_runs else "Nếu node này nằm trong vòng sửa/duyệt (không phải một agent tự gọi "
+                     "công cụ nhiều bước): ")
+                    + "đặt giới hạn vòng (loop_counter, tối đa 2 vòng), cho node duyệt trả APPROVED khi chỉ còn lỗi "
+                    "nhỏ, và nêu tiêu chí duyệt cụ thể để không yêu cầu sửa vô hạn."),
         })
 
-    simple = len(prompt.strip()) <= SIMPLE_PROMPT_CHARS
+    # A short prompt with an explicit larger budget (scenario max_seconds / long-task budget) is real work.
+    simple = len(prompt.strip()) <= SIMPLE_PROMPT_CHARS and budget["seconds"] <= SLOW_SECONDS
     if simple and len(agents) > SIMPLE_MAX_AGENTS:
         findings.append({
             "code": "overkill",
@@ -128,24 +229,30 @@ def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
                     "thẳng và kết thúc, không đi qua cả dây chuyền duyệt/sản xuất."),
         })
 
-    if tokens > HEAVY_TOKENS:
+    if fresh > budget["tokens"]:
+        cache = cached_tokens(run)
+        cached = (f" (tổng {tokens:,} token, trong đó {cache:,} token đọc từ cache được tính 10%)"
+                  if cache else "")
         findings.append({
-            "code": "heavy",
+            "code": "over_budget",
+            "kind": "tokens",
             "severity": "warn",
-            "detail": f"Tốn {tokens:,} token cho một lượt chạy.",
+            "detail": f"Tốn {fresh:,} token quy đổi cho một lượt chạy{cached}, ngân sách {budget['tokens']:,}.",
             "fix": ("Rút gọn vai trò (role), chỉ cho mỗi agent đọc đúng file cần thiết, dùng clear_context trên các "
                     "liên kết dài và chọn model nhỏ cho việc đơn giản."),
         })
 
     judge = run.get("judge") or {}
-    if run.get("over_budget"):
+    if status == "failed" and judge.get("judged_by") == "basic":
+        # The basic check fails only an empty answer or a model-call error; no AI judge was available.
         findings.append({
-            "code": "over_budget",
-            "severity": "warn",
-            "detail": f"Vượt ngân sách: {seconds:.0f}s / {tokens:,} token (cho phép {run.get('budget_seconds')}s / {int(run.get('budget_tokens') or 0):,} token).",
-            "fix": "Rút gọn dây chuyền cho loại yêu cầu này: bỏ node không cần, model nhẹ, ít vòng sửa.",
+            "code": "no_answer",
+            "severity": "fail",
+            "detail": "Không nhận được câu trả lời dùng được (trống hoặc lỗi gọi model); chưa có giám khảo AI để chấm.",
+            "fix": ("Kiểm tra tài khoản/model của các agent và bảo đảm node cuối luôn trả lời người dùng; đăng nhập "
+                    "một tài khoản để giám khảo AI chấm được."),
         })
-    if status == "failed" and judge.get("reason"):
+    elif status == "failed" and judge.get("reason"):
         findings.append({
             "code": "quality",
             "severity": "fail",
@@ -182,17 +289,27 @@ def diagnose_job(runs: List[Dict[str, Any]], prompts: Dict[int, str]) -> List[Di
 
 
 def compare_baseline(current: Dict[str, Any], baseline: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Regression flags of a finished job against the last job that was ready (pass rate -10 points, time/cost +30%)."""
+    """Regression flags of a finished job against the last job that was ready (pass rate -10 points, time/cost +30%).
+
+    ``cost_usd`` is a job total: when both sides carry their number of finished runs (``done``) it is compared
+    per run, so a job with more scenarios/repeats is not reported as more expensive.
+    """
     if not baseline:
         return {}
     flags: Dict[str, Any] = {}
     cur_rate, old_rate = current.get("pass_rate"), baseline.get("pass_rate")
     if cur_rate is not None and old_rate is not None and old_rate - cur_rate > 0.10:
         flags["pass_rate"] = {"was": old_rate, "now": cur_rate}
-    for key in ("avg_seconds", "cost_usd"):
-        now, was = current.get(key), baseline.get(key)
-        if now is not None and was and now > was * 1.3:
-            flags[key] = {"was": was, "now": now}
+    now, was = current.get("avg_seconds"), baseline.get("avg_seconds")
+    if now is not None and was and now > was * 1.3:
+        flags["avg_seconds"] = {"was": was, "now": now}
+    now, was = current.get("cost_usd"), baseline.get("cost_usd")
+    cur_runs, old_runs = current.get("done"), baseline.get("done")
+    if now is not None and was and cur_runs and old_runs:
+        if now / cur_runs > (was / old_runs) * 1.3:
+            flags["cost_usd"] = {"was": round(was / old_runs, 4), "now": round(now / cur_runs, 4), "per_run": True}
+    elif now is not None and was and now > was * 1.3:
+        flags["cost_usd"] = {"was": was, "now": now}
     return flags
 
 
@@ -205,7 +322,10 @@ def regression_finding(flags: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if "avg_seconds" in flags:
         parts.append(f"thời gian TB {flags['avg_seconds']['was']:.0f}s → {flags['avg_seconds']['now']:.0f}s")
     if "cost_usd" in flags:
-        parts.append(f"chi phí ${flags['cost_usd']['was']:.2f} → ${flags['cost_usd']['now']:.2f}")
+        unit = "/lượt" if flags["cost_usd"].get("per_run") else ""
+        was, now = flags["cost_usd"]["was"], flags["cost_usd"]["now"]
+        digits = 2 if min(was, now) >= 1 else 4  # small per-run costs must not print as $0.00 → $0.01
+        parts.append(f"chi phí ${was:.{digits}f}{unit} → ${now:.{digits}f}{unit}")
     return {
         "code": "regression",
         "severity": "warn",
@@ -220,7 +340,10 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
 
     Empty when nothing needs fixing (all runs passed, none slow and no finding).
     """
-    problem_runs = [r for r in runs if r.get("status") in ("failed", "error")]
+    # A run cut by a server restart says nothing about the workflow: it is not a reason to ask for a fix.
+    findings = [f for f in findings if f.get("code") != "interrupted"]
+    problem_runs = [r for r in runs if r.get("status") in ("failed", "error")
+                    and not str(r.get("error") or "").strip().lower().startswith("interrupted")]
     if not problem_runs and not findings:
         return ""
     lines = [
@@ -228,16 +351,19 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
         f"Tỷ lệ đạt {pass_rate * 100:.0f}% (yêu cầu ≥ {threshold * 100:.0f}%). "
         "Hãy tìm nguyên nhân gốc trong quy trình và đề xuất BẢN SỬA hoàn chỉnh (thẻ đề xuất để tôi bấm Áp dụng).",
     ]
-    shown = set()
-    for run in (problem_runs or runs)[:5]:
+    # Failed runs first, then the runs a finding is about (e.g. a passed but slow run), at most 5.
+    flagged = {(f.get("scenario"), f.get("repeat")) for f in findings if f.get("scenario") is not None}
+    selected = problem_runs + [r for r in runs if r not in problem_runs
+                               and (r.get("scenario"), r.get("repeat")) in flagged]
+    for run in (selected or runs)[:5]:
         index = run.get("scenario", 0)
+        index = index if isinstance(index, int) else 0
         scenario = scenarios[index] if 0 <= index < len(scenarios) else None
-        shown.add(index)
         lines += ["", f"### Kịch bản: {getattr(scenario, 'name', '') or f'#{index + 1}'} (lần {run.get('repeat', 1)}) — {run.get('status')}"]
-        lines.append(f"- Yêu cầu gửi vào: {getattr(scenario, 'prompt', '')}")
+        lines.append(f"- Yêu cầu gửi vào: {str(getattr(scenario, 'prompt', ''))[:BRIEF_PROMPT_CHARS]}")
         criteria = (getattr(scenario, "criteria", "") or "").strip()
         if criteria:
-            lines.append(f"- Tiêu chí đạt: {criteria}")
+            lines.append(f"- Tiêu chí đạt: {criteria[:BRIEF_PROMPT_CHARS]}")
         reason = (run.get("judge") or {}).get("reason")
         if reason:
             lines.append(f"- Giám khảo nhận xét: {reason}")
@@ -246,11 +372,13 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
         agents = ", ".join(f"{n} ×{c}" if c > 1 else n for n, c in (run.get("agents") or {}).items())
         if agents:
             lines.append(f"- Agent đã chạy: {agents}")
-        slow_nodes = summarise_timeline(run.get("timeline") or [], 3)
+        slow_nodes = node_summary(run, 3)
         if slow_nodes:
             lines.append("- Node tốn thời gian nhất: " + "; ".join(
                 f"{n['node']} {n['seconds']:.0f}s/{n['calls']} lần/{n['tokens']:,} token" for n in slow_nodes))
-        lines.append(f"- Tổng: {run.get('seconds', 0):.0f}s, {int(run.get('tokens') or 0):,} token")
+        cache = cached_tokens(run)
+        cache_note = f" (gồm {cache:,} token đọc từ cache, giá ~10%)" if cache else ""
+        lines.append(f"- Tổng: {float(run.get('seconds') or 0):.0f}s, {int(run.get('tokens') or 0):,} token{cache_note}")
         answer = " ".join(str(run.get("answer") or "").split())[:400]
         if answer:
             lines.append(f"- Câu trả lời nhận được: {answer}")

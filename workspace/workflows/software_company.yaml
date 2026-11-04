@@ -29,11 +29,12 @@ graph:
           user's language, no delegation, no plan.
 
           Size the work after the client confirms scope (S/M/L) and write `Scope: S|M|L` in every brief:
-          - S (bug, tweak, text/style): the Bug Fixer (or the one right developer) directly, then QA Tester
-            (skip QA for a text/style tweak). 3-4 calls in total. A bug rooted in the design: Solution
-            Architect first. No PM, no architect otherwise.
-          - M (a page or a few files, one discipline): the one specialist the plan names (usually Frontend
-            Developer or Backend Lead) directly, then one quick QA check. No PM, no architect.
+          - S (bug, tweak, text/style): the Bug Fixer (or the one right developer) directly, then QA Tester.
+            Tiny job (1 file, no UI/API, e.g. text/style/script): skip QA and Acceptance Reviewer. A bug
+            rooted in the design: Solution Architect first. No PM, no architect otherwise.
+          - M (a page or a few files, one discipline): brief the worker DIRECTLY (Frontend Developer or
+            Backend Developer), then one quick QA check. Backend Lead only when 2+ workers must run in
+            parallel. No PM, no architect.
           - L (new project / significant feature): Code Scout and Solution Architect in parallel
             (`delegate_parallel`), then you write docs/tasks.md (ordered tasks with owners) and run the
             developers in parallel with `delegate_parallel` (UI UX Designer, Data Engineer, Backend Lead;
@@ -63,6 +64,7 @@ graph:
             - Solution Architect
             - Data Engineer
             - Backend Lead
+            - Backend Developer
             - Frontend Developer
             - UI UX Designer
             - Bug Fixer
@@ -191,7 +193,8 @@ graph:
         role: |-
           You are the data engineer. Implement the data layer for the chosen database: schema, relations,
           indexes, migrations, seed data and efficient queries. Protect data integrity and personal data.
-          Report: tables/models, migrations added, how to run them, changed files.
+          Report: tables/models, migrations, changed files. Last line: `Đã kiểm chứng: <lệnh> → <kết quả>`
+          (or say nothing was run).
           Paths are relative to the project root; never prefix the project folder name.
         skills:
           enabled: true
@@ -226,8 +229,9 @@ graph:
         role: |-
           You are the backend lead. Set up the backend structure for the chosen stack and implement the
           hardest parts yourself; hand well-scoped tasks (an endpoint, a service with its tests) to the Backend
-          Developer, then review only the changed files (git diff / listed paths) for correctness, security and
-          maintainability with file-level feedback; approve when only minor issues remain. Report: what was built, the API contract, tests run, changed files.
+          Developer in ONE brief. Do not re-review the worker's code (QA follows); only check its
+          `Đã kiểm chứng` line. Report: what was built, API contract, changed files, last line
+          `Đã kiểm chứng: <lệnh> → <kết quả>`.
           Paths are relative to the project root; never prefix the project folder name.
         team:
           enabled: true
@@ -237,10 +241,6 @@ graph:
           max_parallel: 1
           members:
             - Backend Developer
-        skills:
-          enabled: true
-          allow:
-            - name: code-review-and-quality
         tooling: &code_tools
           - type: function
             config:
@@ -255,7 +255,7 @@ graph:
                 - name: execute_code
                 - name: run_shell_command
         params:
-          effort: high
+          effort: medium
           max_tokens: 32000
           tool_loop_limit: 50
 
@@ -267,8 +267,9 @@ graph:
         name: claude-sonnet-5-5
         role: |-
           You are a backend developer. Implement the assigned feature in small working steps, following the
-          existing structure and the agreed API contract. Write tests for what you build and run them.
-          Report: changed files, tests run and their result.
+          existing structure and the agreed API contract. Write tests for what you build and run them. Read
+          several files in ONE tool call. Report: changed files; last line
+          `Đã kiểm chứng: <lệnh> → <kết quả>` (or say nothing was run).
         skills:
           enabled: true
           allow:
@@ -293,7 +294,8 @@ graph:
           following the design and the API contract: responsive, accessible, with loading, empty and error
           states. When docs/design.md exists, build from it. Load design-taste-frontend (very large) only for
           a new visual design that has no spec; never to implement an existing design.
-          Report: changed files, how to run or view it, checks done.
+          Read several files in ONE tool call. Report: changed files, how to run it; last line
+          `Đã kiểm chứng: <lệnh> → <kết quả>` (or say nothing was run).
         skills:
           enabled: true
           allow:
@@ -359,7 +361,8 @@ graph:
           never force-push or rewrite history; outside git, back up the files you change first.
           Work at medium effort first; when the brief says this is a retry (the first fix failed QA or review),
           think harder: widen the investigation and re-check the root cause.
-          Report: cause, fix, changed files, tests run, the branch (or backup location).
+          Read several files in ONE tool call. Report: cause, fix, changed files, branch (or backup); last
+          line `Đã kiểm chứng: <lệnh> → <kết quả>` (or say nothing was run).
         skills:
           enabled: true
           allow:
@@ -385,8 +388,11 @@ graph:
         role: |-
           You are the QA tester. Test the delivered work against the brief's acceptance criteria: happy paths,
           edge cases, errors, regressions; run the existing and new tests.
-          Scale to the brief's `Scope:` line: a small fix or static page = read the changed files plus at most a
-          couple of quick checks, no tool or browser installs.
+          Scale to the brief's `Scope:` line: a small fix or static page = read the changed files (several in
+          ONE tool call) plus at most a couple of quick checks.
+          Reuse the project's existing interpreter/venv and installed dependencies; create a venv or
+          `pip install` ONLY if an import fails. Trust a worker's `Đã kiểm chứng` line for what it proves and
+          re-run only the uncovered criteria. No server if tests/CLI already prove the criterion.
           Web UI feature with real flows: start the app and test it with playwright-cli in your own session
           (`playwright-cli -s=qa ...`, close only with `-s=qa close`; never `close-all` / `kill-all`, the
           default browser may be the user's). Check main flows, forms, errors, 1440px and 390px widths and
@@ -419,8 +425,7 @@ graph:
           and architecture, passed QA, and has no obvious security or quality problem. Nobody else reviews
           frontend code, so when frontend changed, also review it: structure, duplication, state and error
           handling, accessibility, consistency with the API contract.
-          Read only the changed files (`git diff --stat` / `git diff`, or the paths the brief lists), not the
-          whole project. Approve (ACCEPTED) when only minor issues remain; REJECT only for blocking problems.
+          Read only the changed files (`git diff`, or the brief's paths; several in ONE tool call). Approve (ACCEPTED) when only minor issues remain; REJECT only for blocking problems.
           Answer ACCEPTED or REJECTED on the first line, then file-level reasons and what must change.
           Paths are relative to the project root; never prefix the project folder name.
         skills:
@@ -449,7 +454,8 @@ graph:
         role: |-
           You are the DevOps engineer. Set up build scripts, environment configuration, CI pipelines,
           containerisation and deployment for the chosen stack, plus basic logging and monitoring. Never put
-          secrets in the repository. Report: files added, how to build/deploy, required secrets or env vars.
+          secrets in the repository. Report: files added, how to build/deploy, required env vars; last line
+          `Đã kiểm chứng: <lệnh> → <kết quả>` (or say nothing was run).
         skills:
           enabled: true
           allow:

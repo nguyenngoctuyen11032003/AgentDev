@@ -1,3 +1,4 @@
+from pathlib import Path
 import json
 import subprocess
 from types import SimpleNamespace
@@ -490,3 +491,46 @@ def test_gemini_http_timeout_configurable():
     assert GeminiProvider(_cfg_params(timeout=90))._http_timeout_ms() == 90_000
     assert GeminiProvider(_cfg())._http_timeout_ms() == 600_000
     assert GeminiProvider(_cfg_params(timeout="x"))._http_timeout_ms() == 600_000
+
+
+def test_cli_run_env_keeps_git_inside_the_run_folder(tmp_path, monkeypatch):
+    import subprocess
+    from agentdev import paths
+    from agentdev.runtime.node.agent.providers._cli_common import cli_run_env
+
+    warehouse = tmp_path / "repo" / "storage" / "warehouse"
+    run_dir = warehouse / "session_x" / "code_workspace"
+    run_dir.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(tmp_path / "repo")], check=True)
+    monkeypatch.setattr(paths, "WAREHOUSE_DIR", warehouse)
+
+    def toplevel(cwd, env):
+        r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, env=env, capture_output=True, text=True)
+        return r.returncode == 0
+
+    import os
+    assert toplevel(run_dir, dict(os.environ))  # without the ceiling git reaches the AgentDev repo
+    assert not toplevel(run_dir, cli_run_env(str(run_dir)))  # with it, it does not
+    elsewhere = tmp_path / "repo" / "myproject"
+    elsewhere.mkdir()
+    assert "GIT_CEILING_DIRECTORIES" not in cli_run_env(str(elsewhere)) or not os.environ.get("GIT_CEILING_DIRECTORIES")
+
+
+def test_shell_tool_keeps_git_inside_the_run_folder(tmp_path, monkeypatch):
+    import importlib.util
+    import subprocess
+    import sys
+    from agentdev import paths
+
+    spec = importlib.util.spec_from_file_location("shell_tool", Path(__file__).resolve().parents[2] / "workspace/functions/function_calling/shell.py")
+    shell = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shell)
+
+    warehouse = tmp_path / "repo" / "storage" / "warehouse"
+    root = warehouse / "session_x" / "code_workspace"
+    root.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(tmp_path / "repo")], check=True)
+    monkeypatch.setattr(paths, "WAREHOUSE_DIR", warehouse)
+    monkeypatch.setenv("MAC_ALLOW_UNSAFE_CODE_EXECUTION", "1")
+    out = shell.run_shell_command("git rev-parse --show-toplevel", _context={"python_workspace_root": str(root)})
+    assert "not a git repository" in out

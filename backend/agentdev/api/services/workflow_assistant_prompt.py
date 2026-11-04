@@ -280,7 +280,7 @@ def build_system_prompt(
     (the service sends the two apart, see ``stable_prefix`` and ``turn_context``)."""
     return stable_prefix(skills=skills, tools=tools, models=models) + "\n" + turn_context(
         current_yaml=current_yaml, current_name=current_name, pending_yaml=pending_yaml,
-        existing_files=existing_files, chat_vendor=chat_vendor) + "\n"
+        existing_files=existing_files, chat_vendor=chat_vendor, user_text=user_text) + "\n"
 
 
 def load_context() -> dict:

@@ -349,3 +349,79 @@ class TestMessageTimestamps:
         stored, encoded = manager.session_store.record_message.call_args.args[1:]
         assert stored["type"] == "user_message" and _datetime.fromisoformat(stored["ts"])
         assert _json.loads(encoded)["ts"] == stored["ts"]
+
+
+class TestSamePageSockets:
+    def test_same_client_swaps_silently_without_session_replaced(self):
+        manager = _resumable_manager([])
+        old, new = ClosableWebSocket(), ClosableWebSocket()
+
+        async def run():
+            await manager.connect(old, session_id="s", client_id="page", seq=1)
+            await manager.connect(new, session_id="s", client_id="page", seq=2)
+
+        asyncio.run(run())
+        assert "session_replaced" not in old.types()
+        assert old.closed and manager.active_connections["s"] is new
+
+    def test_different_client_still_gets_session_replaced(self):
+        manager = _resumable_manager([])
+        old, new = ClosableWebSocket(), ClosableWebSocket()
+
+        async def run():
+            await manager.connect(old, session_id="s", client_id="tab-a", seq=1)
+            await manager.connect(new, session_id="s", client_id="tab-b", seq=1)
+
+        asyncio.run(run())
+        assert "session_replaced" in old.types()
+
+    def test_older_socket_arriving_late_is_dropped_and_newer_kept(self):
+        manager = _resumable_manager([])
+        newer, older = ClosableWebSocket(), ClosableWebSocket()
+
+        async def run():
+            await manager.connect(newer, session_id="s", client_id="page", seq=2)
+            await manager.connect(older, session_id="s", client_id="page", seq=1)
+
+        asyncio.run(run())
+        assert manager.active_connections["s"] is newer
+        assert not newer.closed and "session_replaced" not in newer.types()
+        assert older.closed
+
+    def test_older_socket_overtaking_during_swap_does_not_win(self):
+        manager = _resumable_manager([])
+        old, newer, older = ClosableWebSocket(), ClosableWebSocket(), ClosableWebSocket()
+        slow = asyncio.Event
+
+        async def run():
+            await manager.connect(old, session_id="s", client_id="page", seq=1)
+            gate = slow()
+            orig = old.close
+
+            async def slow_close(code=1000, reason=""):
+                await gate.wait()  # the swap awaits here while the older socket reaches the server
+                await orig(code, reason)
+
+            old.close = slow_close
+            first = asyncio.ensure_future(manager.connect(newer, session_id="s", client_id="page", seq=3))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            second = asyncio.ensure_future(manager.connect(older, session_id="s", client_id="page", seq=2))
+            await asyncio.sleep(0)
+            gate.set()
+            await asyncio.gather(first, second)
+
+        asyncio.run(run())
+        assert manager.active_connections["s"] is newer
+        assert not newer.closed
+
+    def test_no_client_id_keeps_old_behaviour(self):
+        manager = _resumable_manager([])
+        old, new = ClosableWebSocket(), ClosableWebSocket()
+
+        async def run():
+            await manager.connect(old, session_id="s")
+            await manager.connect(new, session_id="s")
+
+        asyncio.run(run())
+        assert "session_replaced" in old.types()

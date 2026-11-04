@@ -235,3 +235,66 @@ def test_parallel_runs_keep_stable_order_and_cancel():
     _wait(job)
     assert job.status == "cancelled" and len(job.results) <= 3
     assert isinstance(job, LabJob)
+
+
+def test_guarded_feedback_loop_through_human_is_not_a_human_auto_failure():
+    # writer -> human -> loop_counter -> writer: every human edge stays in the loop, the counter ends it
+    human = {"id": "H", "type": "human", "config": {"description": "ok?"}}
+    guard = {"id": "G", "type": "loop_counter", "config": {"max_iterations": 2}}
+    edges = [{"from": "W", "to": "H"}, {"from": "H", "to": "G"}, {"from": "G", "to": "W"}]
+    checks = _checks(_data([_agent("W"), human, guard], edges, start="W"))
+    assert checks["human_auto"]["status"] == "pass" and checks["loops"]["status"] == "pass"
+    # the same loop without the counter still fails both checks
+    edges = [{"from": "W", "to": "H"}, {"from": "H", "to": "W"}]
+    checks = _checks(_data([_agent("W"), human], edges, start="W"))
+    assert checks["human_auto"]["status"] == "fail" and checks["loops"]["status"] == "fail"
+
+
+def test_new_failures_ignores_problems_already_in_the_saved_file():
+    from agentdev.api.services.workflow_lab import new_failures
+
+    human = {"id": "H", "type": "human", "config": {"description": "ok?"}}
+    strict = {"from": "H", "to": "B", "condition": _kw(r"^OK$")}
+    saved = _data([_agent("A"), _agent("B"), human],
+                  [{"from": "A", "to": "B"}, {"from": "B", "to": "A"}, {"from": "A", "to": "H"}, strict])
+    edited = _data([_agent("A"), _agent("B"), human, _agent("C")],
+                   [{"from": "A", "to": "B"}, {"from": "B", "to": "A"}, {"from": "A", "to": "H"}, strict,
+                    {"from": "B", "to": "C"}])
+    report = static_check_data(edited)
+    assert {c["id"] for c in report["checks"] if c["status"] == "fail"} >= {"loops", "human_auto"}
+    assert [c["id"] for c in new_failures(report, saved)] == []
+    # a new file (no baseline) keeps every failure
+    assert {c["id"] for c in new_failures(report, None)} >= {"loops", "human_auto"}
+    # a loop / gate the edit adds is still reported
+    worse = _data(edited["graph"]["nodes"] + [_agent("D"), _agent("E"), {"id": "H2", "type": "human", "config": {}}],
+                  edited["graph"]["edges"] + [{"from": "C", "to": "D"}, {"from": "D", "to": "C"},
+                                              {"from": "C", "to": "H2"},
+                                              {"from": "H2", "to": "E", "condition": _kw(r"^OK$")}])
+    new = {c["id"]: c for c in new_failures(static_check_data(worse), saved)}
+    assert new["loops"]["loops"] == [["C", "D"]] and new["human_auto"]["nodes"] == ["H2"]
+
+
+def test_concurrent_saves_of_one_job_do_not_collide(tmp_path, monkeypatch):
+    replaced = []
+    real_replace = workflow_lab.os.replace
+    failed_once = {}
+
+    def flaky_replace(src, dst):
+        replaced.append(Path(src).name)
+        if not failed_once:  # a reader holding the file on Windows
+            failed_once["x"] = True
+            raise PermissionError("in use")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(workflow_lab.os, "replace", flaky_replace)
+    store = tmp_path / "jobs"
+    runner = LabRunner(store_dir=store)
+    job = LabJob(id="abcdef123456", workflow="wf.yaml", scenarios=[Scenario("a", "c")], repeats=1)
+    threads = [threading.Thread(target=runner._save, args=(job,)) for _ in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(set(replaced)) == len(replaced) - 1  # unique temp file per write (one retried)
+    assert sorted(p.name for p in store.iterdir()) == ["abcdef123456.json"]  # no temp file left behind
+    assert runner.get("abcdef123456") is not None

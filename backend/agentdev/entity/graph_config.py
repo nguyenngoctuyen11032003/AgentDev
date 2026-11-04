@@ -39,7 +39,7 @@ class GraphConfig:
             metadata={},
             source_path=source_path,
             vars=dict(vars or {}),
-            run_limits=dict(config.get("run_limits") or {}) if isinstance(config, dict) else {},
+            run_limits=dict(definition.run_limits or {}),
         )
 
     @classmethod
@@ -60,6 +60,7 @@ class GraphConfig:
             metadata={},
             source_path=source_path,
             vars=dict(vars or {}),
+            run_limits=dict(getattr(definition, "run_limits", None) or {}),
         )
 
     def get_node_definitions(self) -> List[Node]:

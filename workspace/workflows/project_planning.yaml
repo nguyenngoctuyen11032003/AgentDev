@@ -1,0 +1,120 @@
+version: 0.4.0
+vars: {}
+graph:
+  id: project_planning
+  description: 'Project planning team. You chat only with the Planning Lead. A request is analysed in parallel (requirements and scope, technical approach and risks), then one Plan Writer merges it into a single plan file with milestones, tasks, estimates and risks, then a Plan Reviewer checks it once. You approve only the scope and the final plan.'
+  log_level: INFO
+  is_majority_voting: false
+  start:
+  - Planning Lead
+  end:
+  - Planning Lead
+  nodes:
+  - id: Planning Lead
+    type: agent
+    description: Trưởng nhóm lập kế hoạch, người duy nhất trao đổi với khách hàng (bạn)
+    config:
+      provider: anthropic
+      name: claude-opus-5-5
+      role: |-
+        You lead a planning team; the user is your client. Answer in the user's language.
+        Small question: answer yourself. New plan: state goal, users, constraints, deadline and stack as
+        defaults (ask only if the goal is missing) and ask for approval of the SCOPE once. After approval run
+        Requirements Analyst and Tech Architect in PARALLEL with one brief each, then ONE Plan Writer with both
+        reports, then Plan Reviewer once. Apply the reviewer's fixes through the Plan Writer at most one round.
+        Final answer: plan file path, milestones with dates or sizes, top 3 risks, next practical step.
+      params:
+        effort: medium
+        max_tokens: 16000
+        tool_loop_limit: 25
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: list_directory
+          - name: read_file_segment
+      team:
+        enabled: true
+        plan_approval: true
+        max_delegations: 6
+        max_review_rounds: 1
+        max_parallel: 2
+        members:
+        - Requirements Analyst
+        - Tech Architect
+        - Plan Writer
+        - Plan Reviewer
+  - id: Requirements Analyst
+    type: agent
+    description: Làm rõ yêu cầu, phạm vi, tiêu chí nghiệm thu và việc ngoài phạm vi
+    config:
+      provider: anthropic
+      name: claude-sonnet-5-5
+      role: |-
+        Turn the brief into requirements: user stories, in-scope and out-of-scope lists, acceptance criteria,
+        open assumptions. Save to plan/<slug>/requirements.md. Report: file path and the 3 key decisions.
+      tooling: &doc_tools
+      - type: function
+        config:
+          tools:
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+          - name: save_file
+          - name: apply_text_edits
+      params:
+        effort: medium
+        max_tokens: 16000
+        tool_loop_limit: 15
+  - id: Tech Architect
+    type: agent
+    description: Hướng tiếp cận kỹ thuật, thành phần, phụ thuộc và rủi ro
+    config:
+      provider: anthropic
+      name: claude-sonnet-5-5
+      role: |-
+        Propose the technical approach: components, data and interfaces, dependencies, build order, and the top
+        risks with a mitigation each. Read existing code only where the brief names it. Save to
+        plan/<slug>/architecture.md. Report: file path and the main trade-off.
+      tooling: *doc_tools
+      params:
+        effort: medium
+        max_tokens: 16000
+        tool_loop_limit: 15
+  - id: Plan Writer
+    type: agent
+    description: Gộp phân tích thành một kế hoạch có mốc, đầu việc và ước lượng
+    config:
+      provider: anthropic
+      name: claude-haiku-5-5
+      role: |-
+        Merge requirements.md and architecture.md into plan/<slug>/plan.md: milestones, ordered tasks with
+        owner role, size (S/M/L), dependencies, parallelisable groups, acceptance check per milestone, risks.
+        Do not invent scope beyond the two files. Report: file path, milestone count, task count.
+      tooling: *doc_tools
+      params:
+        effort: low
+        max_tokens: 16000
+        tool_loop_limit: 12
+  - id: Plan Reviewer
+    type: agent
+    description: Duyệt kế hoạch một lượt, tìm thiếu sót và phụ thuộc sai
+    config:
+      provider: anthropic
+      name: claude-haiku-5-5
+      role: |-
+        One pass over plan/<slug>/plan.md against the two source files: missing requirements, wrong task order,
+        unowned risks, tasks without acceptance checks. APPROVED or CHANGES NEEDED on the first line, then fixes.
+        Save to plan/<slug>/review.md.
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: list_directory
+          - name: read_file_segment
+          - name: save_file
+      params:
+        effort: low
+        max_tokens: 8000
+        tool_loop_limit: 12
+  edges: []

@@ -213,6 +213,13 @@ class ClaudeCliProvider(ModelProvider):
         state.remember(session, conversation, response.message)
         return response
 
+    def keeps_tool_history(self, tool_specs: Optional[List[ToolSpec]]) -> bool:
+        """True while the tool loop resumes one CLI session: the session already holds every earlier
+        tool result, so clipping old results saves nothing and would break the resume match
+        (``CliRunState.match`` compares message text), forcing a new session with the full transcript."""
+        state = self.__dict__.get("_cli_state")
+        return bool(tool_specs) and session_reuse_enabled(self.params) and not (state and state.resume_broken)
+
     def _run_state(self) -> CliRunState:
         state = self.__dict__.get("_cli_state")
         if state is None:

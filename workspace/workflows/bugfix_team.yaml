@@ -1,0 +1,121 @@
+version: 0.4.0
+vars: {}
+graph:
+  id: bugfix_team
+  description: 'Fast bug-fix team. You chat only with the Tech Lead. A bug report goes to two read-only analysts in parallel (code path and reproduction/tests), then ONE developer applies the smallest fix, then QA verifies (at most 2 fix rounds). You approve only the scope of risky or large fixes and the final result.'
+  log_level: INFO
+  is_majority_voting: false
+  start:
+  - Tech Lead
+  end:
+  - Tech Lead
+  nodes:
+  - id: Tech Lead
+    type: agent
+    description: Trưởng nhóm sửa lỗi, người duy nhất trao đổi với khách hàng (bạn)
+    config:
+      provider: anthropic
+      name: claude-opus-5-5
+      role: |-
+        You lead a bug-fix team; the user is your client. Answer in the user's language.
+        Small question or a one-line obvious fix: handle it with one specialist, no plan.
+        Real bug: state symptom, expected behaviour and affected area as defaults (ask only if the symptom is
+        missing). Run Code Scout and Repro Analyst in PARALLEL, one brief each with the paths/error text. Then
+        brief ONE Bug Fixer with the root cause and the smallest change (named files only). Then QA Verifier once.
+        If QA says FAIL, send the failing criteria back to the same Bug Fixer; at most 2 fix rounds, then report
+        what is still open instead of looping. Ask for plan approval only when the fix touches more than 3 files,
+        data, or public interfaces. Final answer: root cause, files changed, how it was verified, remaining risk.
+      params:
+        effort: medium
+        max_tokens: 16000
+        tool_loop_limit: 25
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: list_directory
+          - name: read_file_segment
+      team:
+        enabled: true
+        plan_approval: true
+        max_delegations: 8
+        max_review_rounds: 2
+        max_parallel: 2
+        members:
+        - Code Scout
+        - Repro Analyst
+        - Bug Fixer
+        - QA Verifier
+  - id: Code Scout
+    type: agent
+    description: Đọc mã, tìm đường đi của lỗi và nguyên nhân gốc
+    config:
+      provider: anthropic
+      name: claude-haiku-5-5
+      role: |-
+        Read-only. From the brief, locate the failing code path and report: suspect files and functions with
+        line numbers, the likely root cause, and related callers at risk. Under 20 lines, no code dumps.
+      tooling: &ro_tools
+      - type: function
+        config:
+          tools:
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+      params:
+        effort: low
+        max_tokens: 8000
+        tool_loop_limit: 12
+  - id: Repro Analyst
+    type: agent
+    description: Dựng bước tái hiện lỗi và tìm test hiện có liên quan
+    config:
+      provider: anthropic
+      name: claude-haiku-5-5
+      role: |-
+        Read-only. From the brief, write the shortest reproduction steps, find existing tests that cover the area
+        and any recent change that could explain the bug, and state the acceptance check that proves it is fixed
+        (a command or an observable result). Under 15 lines.
+      tooling: *ro_tools
+      params:
+        effort: low
+        max_tokens: 8000
+        tool_loop_limit: 12
+  - id: Bug Fixer
+    type: agent
+    description: Áp dụng bản sửa nhỏ nhất, thêm hoặc cập nhật test hồi quy
+    config:
+      provider: anthropic
+      name: claude-sonnet-5-5
+      role: |-
+        Apply the smallest correct fix for the root cause in the brief, touching only the named files. Add or
+        update one regression test when a test setup exists. No refactors, no unrelated cleanups. Report: files
+        changed, one line per change, how to verify.
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+          - name: save_file
+          - name: apply_text_edits
+      params:
+        effort: medium
+        max_tokens: 24000
+        tool_loop_limit: 20
+  - id: QA Verifier
+    type: agent
+    description: Kiểm chứng bản sửa theo tiêu chí nghiệm thu, một lượt
+    config:
+      provider: anthropic
+      name: claude-haiku-5-5
+      role: |-
+        Read-only, one pass. Check the changed files against the acceptance check and the root cause: PASS or
+        FAIL per criterion with one line of evidence, then risks for neighbouring code. Ignore minor style issues.
+      tooling: *ro_tools
+      params:
+        effort: low
+        max_tokens: 8000
+        tool_loop_limit: 12
+  edges: []

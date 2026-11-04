@@ -37,6 +37,8 @@ class GraphDefinition(BaseConfig):
     initial_instruction: str | None = None
     start_nodes: List[str] = field(default_factory=list)
     end_nodes: List[str] | None = None
+    # Run budget caps (max_tokens, max_seconds, node_max_runs...) read by the TokenTracker
+    run_limits: Dict[str, Any] = field(default_factory=dict)
 
     FIELD_SPECS = {
         "id": ConfigFieldSpec(
@@ -223,6 +225,7 @@ class GraphDefinition(BaseConfig):
             initial_instruction=initial_instruction,
             start_nodes=start_nodes,
             end_nodes=end_nodes,
+            run_limits=dict(optional_dict(mapping, "run_limits", path) or {}),
             path=path,
         )
         definition.validate()
