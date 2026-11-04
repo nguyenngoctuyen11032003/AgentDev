@@ -174,3 +174,34 @@ def test_session_reuse_off_allows_clipping():
     prov = ClaudeCliProvider.__new__(ClaudeCliProvider)
     prov.params = {"session_reuse": False}
     assert prov.keeps_tool_history(["spec"]) is False
+
+
+# --- 5. a loop that never exits must fail the run, not report success --------------------------
+
+def test_endless_cycle_fails_instead_of_reporting_success(tmp_path, monkeypatch):
+    import pytest
+
+    from agentdev.runtime import sdk
+    from agentdev.utils.exceptions import WorkflowExecutionError
+
+    monkeypatch.chdir(tmp_path)
+    regex = r"^(?!\s*ok)"
+    flow = tmp_path / "endless.yaml"
+    flow.write_text(
+        "version: 0.4.0\n"
+        "graph:\n"
+        "  id: endless\n"
+        "  start: [Maker]\n"
+        "  end: [Done]\n"
+        "  nodes:\n"
+        "    - {id: Maker, type: literal, config: {content: draft, role: assistant}}\n"
+        "    - {id: Judge, type: literal, config: {content: please revise, role: user}}\n"
+        "    - {id: Done, type: literal, config: {content: finished, role: assistant}}\n"
+        "  edges:\n"
+        "    - {from: Maker, to: Judge}\n"
+        f"    - {{from: Judge, to: Maker, condition: {{type: keyword, config: {{regex: ['{regex}'], case_sensitive: false}}}}}}\n"
+        "    - {from: Judge, to: Done, condition: {type: keyword, config: {regex: ['^\s*ok'], case_sensitive: false}}}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(WorkflowExecutionError):
+        sdk.run_workflow(flow, task_prompt="t", session_name="endless")

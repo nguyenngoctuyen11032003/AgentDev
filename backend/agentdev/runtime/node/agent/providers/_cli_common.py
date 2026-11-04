@@ -358,7 +358,9 @@ def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str,
             f"`{name}` CLI produced no output for {exc.idle_seconds:.0f}s and was stopped"
         ) from exc
     except subprocess.TimeoutExpired as exc:
-        raise CliTimeoutError(f"`{name}` CLI timed out after {timeout}s") from exc
+        error = CliTimeoutError(f"`{name}` CLI timed out after {timeout}s")
+        error.timeout_seconds = timeout  # lets the retry policy skip a retry that would cost as long again
+        raise error from exc
     except (FileNotFoundError, PermissionError) as exc:
         raise CliProviderError(f"`{name}` CLI not installed or not executable") from exc
 

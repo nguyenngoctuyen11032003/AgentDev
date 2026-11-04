@@ -5,6 +5,7 @@ import threading
 from typing import Dict, List, Callable, Any, Set, Optional
 
 from agentdev.entity.configs import Node
+from agentdev.utils.exceptions import WorkflowExecutionError
 from agentdev.utils.log_manager import LogManager
 from agentdev.workflow.cycle_manager import CycleManager
 from agentdev.workflow.executor.parallel_executor import ParallelExecutor
@@ -248,6 +249,13 @@ class CycleExecutor:
         if iteration >= max_iterations:
             self.log_manager.warning(
                 f"Cycle {cycle_id} reached max iterations ({max_iterations})"
+            )
+            # The loop never reached its exit: reporting the run as completed would hand the user an arbitrary
+            # or empty result. Fail visibly so the run is shown as stopped, with the reason.
+            raise WorkflowExecutionError(
+                f"Vòng lặp {sorted(cycle_nodes)} đã chạy {max_iterations} lần mà chưa thoát được "
+                f"(loop reached its {max_iterations}-iteration safety limit). Kiểm tra điều kiện thoát hoặc "
+                "thêm loop_counter. / Check the exit condition or add a loop_counter."
             )
         return set()
     def _detect_cycles_in_scope(

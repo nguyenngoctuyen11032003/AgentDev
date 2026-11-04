@@ -123,7 +123,14 @@ class SessionExecutionController:
                 details={"session_id": session_id, "waiting_for_input": session.waiting_for_input},
             )
 
-        future.set_result(user_input)
+        try:
+            future.set_result(user_input)
+        except Exception as exc:  # noqa: BLE001 - the run ended or was cancelled while the user was typing
+            session.waiting_for_input = False
+            raise ValidationError(
+                "Session is no longer waiting for input",
+                details={"session_id": session_id, "reason": type(exc).__name__},
+            ) from exc
         session.waiting_for_input = False
         length = 0
         if isinstance(user_input, dict):
