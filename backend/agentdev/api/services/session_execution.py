@@ -12,6 +12,8 @@ from agentdev.utils.structured_logger import LogType, get_server_logger
 from .session_store import SessionStatus, WorkflowSessionStore
 
 # What the waiting agent gets when nobody answers in time: the run goes on instead of failing.
+# Never phrase this as an approval: approval gates accept "[Automatic answer" / "OK", and silence must not send an
+# email, archive an episode or spend money. On a gate it takes the "not approved" branch, which loop counters bound.
 NO_REPLY_TEXT = (
     "[No reply from the user within the time limit. Proceed with your recommended "
     "default and state the assumption you made.]"

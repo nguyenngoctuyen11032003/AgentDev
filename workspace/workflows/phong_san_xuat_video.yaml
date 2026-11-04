@@ -6,7 +6,7 @@ graph:
   log_level: INFO
   is_majority_voting: false
   start: [Intake]
-  end: [Archivist, Chat Reply, Quick Writer]
+  end: [Archivist, Chat Reply, Quick Writer, Production Stopped]
   nodes:
     - id: Intake
       type: agent
@@ -144,8 +144,8 @@ graph:
       type: agent
       description: Đạo diễn hình ảnh, chia cảnh và soạn câu lệnh tạo hình, video, giọng đọc
       config:
-        provider: gemini
-        name: gemini-3.1-pro-preview
+        provider: anthropic
+        name: claude-sonnet-5-5
         role: |-
           You are the visual director. From the approved episode script and the character bible
           (series/ho_so_nhan_vat.md), build the visual production package for photorealistic video:
@@ -227,10 +227,21 @@ graph:
         description: Xem gói sản xuất (hoặc video bạn đã tạo từ gói này). Gói gồm hình ảnh, lời thoại/phụ đề và tiêu đề/thumbnail trong thư mục series/tap_<số>/. Trả lời OK (hoặc duyệt, đồng ý) để chốt tập. Mọi nội dung khác được coi là ghi chú sửa gửi cho Đạo diễn hình ảnh.
     - id: Production Guard
       type: loop_counter
-      description: Dừng vòng sửa gói sản xuất sau 3 lần
+      description: Sau 3 vòng sửa gói sản xuất, chuyển sang lần duyệt cuối
       config:
-        max_iterations: 3
-        message: Đã sửa 3 vòng. Mời bạn xem bản mới nhất và trả lời OK để chốt, hoặc ghi chú thêm.
+        max_iterations: 4
+        message: Đã sửa 3 vòng theo ghi chú của bạn. Đây là lần duyệt cuối cho tập này.
+    - id: Final Approval
+      type: human
+      description: Lần duyệt cuối sau 3 vòng sửa gói sản xuất
+      config:
+        description: Đã sửa 3 vòng; ghi chú bạn vừa gửi chưa được áp dụng. Xem bản mới nhất trong series/tap_<số>/. Trả lời OK (hoặc duyệt, đồng ý) để lưu tập với bản này. Trả lời khác thì dừng lại, chưa lưu tập; bạn có thể gửi lại ghi chú để làm tiếp từ bản hiện tại.
+    - id: Production Stopped
+      type: literal
+      description: Báo dừng khi bạn chưa duyệt sau 3 vòng sửa
+      config:
+        role: assistant
+        content: Đã dừng sau 3 vòng sửa, tập chưa được lưu. Các file trong series/tap_<số>/ vẫn giữ nguyên bản mới nhất. Gửi ghi chú mới để làm tiếp từ bản này.
     - id: Archivist
       type: agent
       description: 'Lưu kịch bản và tóm tắt tập vào hồ sơ bộ phim, gửi bạn bản kịch bản cuối'
@@ -278,4 +289,12 @@ graph:
     - {from: Video Approval, to: Archivist, condition: {type: keyword, config: {regex: ['^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)'], case_sensitive: false}}}
     - {from: Video Approval, to: Visual Director, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer))'], case_sensitive: false}}}
     - {from: Video Approval, to: Production Guard, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer))'], case_sensitive: false}}}
-    - {from: Production Guard, to: Video Approval}
+    # Production Guard stays silent for the first 3 rounds of notes (each one is applied) and speaks on the 4th.
+    # Its edge back to Visual Director only keeps it inside the loop: a counter outside the loop would end the
+    # loop on the first note, and
+    # an edge back to Video Approval would form an inner loop that is left (towards Visual Director) before the
+    # counter runs. When it speaks, the edge to Final Approval (outside the loop) wins and the loop ends.
+    - {from: Production Guard, to: Visual Director}
+    - {from: Production Guard, to: Final Approval}
+    - {from: Final Approval, to: Archivist, condition: {type: keyword, config: {regex: ['^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Final Approval, to: Production Stopped, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer))'], case_sensitive: false}}}

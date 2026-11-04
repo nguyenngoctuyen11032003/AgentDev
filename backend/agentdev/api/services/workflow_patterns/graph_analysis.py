@@ -8,7 +8,7 @@ estimate. Kept free of heavy imports so both callers can use it without import c
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 TIER_SECONDS = {"small": 15, "mid": 40, "top": 90}
 LOOP_PASS_SECONDS = 30  # one extra pass through a loop body
@@ -132,16 +132,57 @@ class Graph:
         self.comps = sccs(list(self.nodes), self.adj)
         self.comp_of = {n: i for i, c in enumerate(self.comps) for n in c}
         self.cyclic = {i for i, c in enumerate(self.comps) if len(c) > 1 or c[0] in self.adj.get(c[0], [])}
+        self._dead_counters: Optional[List[Any]] = None
 
     @classmethod
     def from_workflow(cls, data: Any) -> "Graph":
         return cls((data or {}).get("graph") if isinstance(data, dict) else None)
 
     def guarded(self, comp: int) -> bool:
-        return any(self.nodes[n].get("type") == "loop_counter" for n in self.comps[comp])
+        """The loop has a loop_counter the engine actually reaches (one on an inner loop never counts)."""
+        dead = set(self.counters_in_inner_loop())
+        return any(self.nodes[n].get("type") == "loop_counter" and n not in dead for n in self.comps[comp])
 
     def unguarded_cycles(self) -> List[List[Any]]:
         return [self.comps[i] for i in sorted(self.cyclic) if not self.guarded(i)]
+
+    def counters_in_inner_loop(self) -> List[Any]:
+        """loop_counter nodes the engine will never reach in their loop.
+
+        The engine runs a loop from the one entry that fired (the node a step outside the loop, or the task for a
+        start node, started) and treats any cycle left once that entry's incoming edges are dropped as an inner
+        loop. An inner loop ends as soon as one of its nodes starts a node outside it, so a counter sitting on one
+        (for example a counter wired back to the approval step that feeds it) is skipped and never stops the loop.
+        Each entry is checked on its own, as the engine does; the result is computed once per graph.
+        """
+        if self._dead_counters is not None:
+            return list(self._dead_counters)
+        bad: List[Any] = []
+        starts = set(self.raw.get("start") or [])
+        for i in sorted(self.cyclic):
+            loop = set(self.comps[i])
+            counters = {n for n in loop if self.nodes[n].get("type") == "loop_counter"}
+            if not counters:
+                continue
+            entries = {e.get("to") for e in self.edges
+                       if e.get("to") in loop and e.get("from") not in loop and e.get("trigger", True) is not False}
+            entries |= loop & starts
+            dead: set = set()
+            for entry in sorted(entries, key=str):
+                adj: Dict[Any, List[Any]] = {n: [] for n in loop}
+                for e in self.edges:
+                    a, b = e.get("from"), e.get("to")
+                    if a in loop and b in loop and b != entry and e.get("trigger", True) is not False:
+                        adj[a].append(b)
+                for comp in sccs(list(loop), adj):
+                    if len(comp) > 1 or comp[0] in adj[comp[0]]:
+                        dead.update(n for n in comp if n in counters)
+            bad.extend(sorted(dead, key=str))
+        self._dead_counters = bad
+        return list(bad)
+
+    def has_counter(self, comp: int) -> bool:
+        return any(self.nodes[n].get("type") == "loop_counter" for n in self.comps[comp])
 
     def humans_blocking_auto_answer(self, answer: str) -> List[Any]:
         """Human nodes where the automatic answer cannot move the run on: no matching outgoing edge

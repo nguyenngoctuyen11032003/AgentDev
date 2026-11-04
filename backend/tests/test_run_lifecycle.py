@@ -274,3 +274,11 @@ def test_buffer_eviction_keeps_turn_start_user_messages():
     session.append_message({"type": "chunk", "data": {"i": 99}})
     texts = [m["data"].get("text") for m in session.message_buffer if m["type"] == "user_message"]
     assert texts == ["first", "second"] and len(session.message_buffer) == 5
+
+
+def test_no_reply_text_never_reads_as_approval():
+    """Silence at a gate must not approve: no email sent, nothing archived, no money spent without a person."""
+    import re
+    approve = re.compile(r"^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)", re.IGNORECASE)
+    assert not approve.search(NO_REPLY_TEXT)
+    assert "approved" not in NO_REPLY_TEXT.lower()
