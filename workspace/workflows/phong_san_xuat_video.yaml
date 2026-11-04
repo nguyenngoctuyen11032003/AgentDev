@@ -117,7 +117,8 @@ graph:
           Save the package to series/tap_<number>/goi_san_xuat.md and reply with ONLY the path plus a summary
           of at most 150 words (shot count, total duration, notable choices), in the user's language.
           On QA or user change notes: patch the file with apply_text_edits (never rewrite or reprint the
-          whole package) and reply with the path and the list of changes.
+          whole package) and reply with the path and the list of changes. Notes about voice/subtitles or the
+          title/thumbnail: patch loi_thoai_phu_de.md or tieu_de_thumbnail.md in the same folder the same way.
         params:
           effort: low
         tooling: *file_tools
@@ -141,7 +142,7 @@ graph:
       description: Soạn tiêu đề, mô tả, hashtag và câu lệnh ảnh thumbnail cho tập
       config:
         provider: anthropic
-        name: claude-sonnet-5-5
+        name: claude-haiku-5-5
         role: |-
           From the approved script (episode number inside it) write 3 catchy title options, a 2-line
           description with hashtags, and one image prompt in English for a thumbnail (refer to characters by
@@ -153,14 +154,16 @@ graph:
         tooling: *file_tools
     - id: Production QA
       type: agent
-      description: Kiểm tra gói sản xuất so với kịch bản và hồ sơ nhân vật
+      description: Kiểm tra gói sản xuất (hình ảnh, lời thoại/phụ đề, tiêu đề/thumbnail) so với kịch bản và hồ sơ nhân vật
       config:
         provider: anthropic
         name: claude-sonnet-5-5
         role: |-
           You check the visual package (series/tap_<number>/goi_san_xuat.md) against the approved script and
           the character bible in ONE pass: every scene covered, durations add up to 2-5 minutes, characters
-          referred to by their bible tag, prompts clear enough for an image/video generator.
+          referred to by their bible tag, prompts clear enough for an image/video generator. Also skim
+          loi_thoai_phu_de.md and tieu_de_thumbnail.md in the same folder: dialogue matches the script, subtitle
+          timing fits the shot durations, thumbnail uses the bible tag.
           Fix minor issues yourself with ONE round of apply_text_edits patches (no regeneration), then report.
           Your first line is exactly APPROVED or REVISE (REVISE only for problems you could not fix, listed as
           at most 5 numbered fixes). The person decides next, so do not ask anyone else to redo work.
@@ -221,6 +224,10 @@ graph:
     - {from: Script Approval, to: Thumbnail Title, condition: {type: keyword, config: {regex: ['^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)'], case_sensitive: false}}}
     - {from: Script Approval, to: Writer, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer))'], case_sensitive: false}}}
     - {from: Visual Director, to: Production QA}
+    # Voice and title run in parallel before the production loop; trigger: false lets QA (the loop entry is
+    # Visual Director) run once with all three outputs instead of once per branch.
+    - {from: Voice & Subtitles, to: Production QA, trigger: false}
+    - {from: Thumbnail Title, to: Production QA, trigger: false}
     - {from: Visual Director, to: Archivist, trigger: false, clear_context: true}
     - {from: Production QA, to: Video Approval}
     - {from: Video Approval, to: Archivist, condition: {type: keyword, config: {regex: ['^\s*((ok|duyệt|đồng ý)\W*$|\[Automatic answer)'], case_sensitive: false}}}

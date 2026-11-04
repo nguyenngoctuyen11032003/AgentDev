@@ -46,7 +46,7 @@ graph:
           enabled: true
           plan_approval: true
           max_delegations: 14
-          max_review_rounds: 2
+          max_review_rounds: 1
           max_parallel: 3
           members:
             - Copywriter
