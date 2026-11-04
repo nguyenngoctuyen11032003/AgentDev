@@ -61,7 +61,7 @@ def test_started_operation_is_resumed_not_paid_again(tmp_path, monkeypatch, ffmp
     style, shots = video_gen._parse_package(PACKAGE)
     looks = video_gen._parse_bible(BIBLE)
     img, vid = (video_gen._expand_tags(shots[0][k], looks) for k in ("img", "vid"))
-    (clips / "shot_01.key").write_text(video_gen._shot_key(f"{style}. {img} Motion: {vid}", "9:16", True),
+    (clips / "shot_01.key").write_text(video_gen._shot_key(f"{style}. {img} Motion: {vid}", "9:16"),
                                        encoding="utf-8")
     (clips / "shot_01.op").write_text("operations/earlier", encoding="utf-8")
 
@@ -143,7 +143,7 @@ def test_quote_in_folder_name_and_long_shot_keep_video_and_subtitles_aligned(tmp
     assert result["status"] == "rendered", result
     seconds, _ = _duration(ffmpeg, tmp_path / result["video"])
     assert abs(seconds - 18) < 0.6, seconds
-    assert not (episode / "_ghep").exists()
+    assert not (episode / ".agentdev_ghep_tmp").exists()
 
 
 def test_earlier_complete_video_is_kept_as_a_backup(tmp_path, monkeypatch, ffmpeg):
@@ -152,23 +152,72 @@ def test_earlier_complete_video_is_kept_as_a_backup(tmp_path, monkeypatch, ffmpe
     video_gen.render_episode_video("series/tap_1", confirmed=True, _context=context)
     first = (tmp_path / "series/tap_1/tap_1.mp4").read_bytes()
     video_gen.render_episode_video("series/tap_1", confirmed=True, _context=context)
-    assert (tmp_path / "series/tap_1/tap_1.truoc.mp4").read_bytes() == first
+    video_gen.render_episode_video("series/tap_1", confirmed=True, _context=context)
+    backups = sorted((tmp_path / "series/tap_1").glob("tap_1.truoc-*.mp4"))
+    assert len(backups) == 2 and backups[0].read_bytes() == first  # every earlier version kept
 
 
-def test_paid_api_key_is_used_for_media_before_the_sign_in(monkeypatch):
-    import google.genai as genai
+def test_video_uses_the_connected_google_account(monkeypatch):
+    signed_in = SimpleNamespace(models=SimpleNamespace(list=lambda: [SimpleNamespace(name="models/veo-3.0-generate-001")]))
+    monkeypatch.setattr(video_gen, "_gemini_client", lambda: signed_in)
+    client, models, account = video_gen._connect(use_first_frame=False)
+    assert client is signed_in and models["veo"] == "veo-3.0-generate-001" and "Google" in account
 
-    monkeypatch.setenv("GEMINI_API_KEY", "key-abc")
-    client = video_gen._gemini_client()
-    assert isinstance(client, genai.Client) and client._api_client.api_key == "key-abc"
 
-
-def test_no_key_and_no_sign_in_explains_how_to_enable_video(monkeypatch):
-    from agentdev.connections import store
-
-    for name in video_gen.MEDIA_KEY_ENV:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(store, "get_store", lambda: SimpleNamespace(list=lambda: []))
+def test_account_without_veo_explains_upgrade_and_sign_in_again(monkeypatch):
+    no_veo = SimpleNamespace(models=SimpleNamespace(list=lambda: [SimpleNamespace(name="models/gemini-3-flash")]))
+    monkeypatch.setattr(video_gen, "_gemini_client", lambda: no_veo)
     with pytest.raises(video_gen.StopRendering) as info:
-        video_gen._gemini_client()
-    assert "GEMINI_API_KEY" in str(info.value) and "AI Studio" in str(info.value)
+        video_gen._connect(use_first_frame=True)
+    text = str(info.value)
+    assert "Đăng nhập lại" in text and "trang Kết nối" in text and "API key" not in text
+
+
+def test_no_api_key_path_exists(monkeypatch):
+    """Only the Connections page sign-in is used: an API key in the environment changes nothing."""
+    monkeypatch.setenv("GEMINI_API_KEY", "key-abc")
+    assert not hasattr(video_gen, "_key_client") and not hasattr(video_gen, "MEDIA_KEY_ENV")
+
+
+
+def test_imagen_becoming_unavailable_does_not_pay_again(tmp_path, monkeypatch, ffmpeg):
+    """Clips made with a first frame stay valid when the next run has no Imagen (or use_first_frame=False)."""
+    fake = _fake(tmp_path, ffmpeg, monkeypatch)
+    context = _project(tmp_path)
+    video_gen.render_episode_video("series/tap_1", confirmed=True, use_first_frame=True, _context=context)
+    fake.calls.clear()
+    estimate = video_gen.render_episode_video("series/tap_1", use_first_frame=False, _context=context)
+    assert estimate["shots_to_render"] == 0 and estimate["seconds_of_video_to_pay"] == 0
+    again = video_gen.render_episode_video("series/tap_1", confirmed=True, use_first_frame=False, _context=context)
+    assert again["shots_kept_from_before"] == 3 and not _paid(fake)
+
+
+def test_estimate_counts_a_changed_prompt_as_to_pay(tmp_path, monkeypatch, ffmpeg):
+    _fake(tmp_path, ffmpeg, monkeypatch)
+    context = _project(tmp_path)
+    video_gen.render_episode_video("series/tap_1", confirmed=True, _context=context)
+    package = tmp_path / "series/tap_1/goi_san_xuat.md"
+    package.write_text(package.read_text(encoding="utf-8").replace("Handheld jolt", "Slow tilt"), encoding="utf-8")
+    estimate = video_gen.render_episode_video("series/tap_1", _context=context)
+    assert estimate["shots_to_render"] == 1
+
+
+def test_second_concurrent_render_of_the_same_episode_is_refused(tmp_path, monkeypatch, ffmpeg):
+    fake = _fake(tmp_path, ffmpeg, monkeypatch)
+    context = _project(tmp_path)
+    clips = tmp_path / "series/tap_1/video"
+    clips.mkdir()
+    (clips / ".render.lock").write_text("123", encoding="utf-8")
+    result = video_gen.render_episode_video("series/tap_1", confirmed=True, _context=context)
+    assert result["status"] == "not_rendered" and "lượt chạy khác" in result["reason"] and not _paid(fake)
+
+
+def test_user_folder_named_like_the_old_temp_folder_is_left_alone(tmp_path, monkeypatch, ffmpeg):
+    _fake(tmp_path, ffmpeg, monkeypatch)
+    context = _project(tmp_path)
+    mine = tmp_path / "series/tap_1/_ghep"
+    mine.mkdir()
+    (mine / "notes.txt").write_text("của tôi", encoding="utf-8")
+    video_gen.render_episode_video("series/tap_1", confirmed=True, _context=context)
+    assert (mine / "notes.txt").read_text(encoding="utf-8") == "của tôi"
+    assert not (tmp_path / "series/tap_1/video/.render.lock").exists()

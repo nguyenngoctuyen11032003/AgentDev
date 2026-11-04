@@ -8,6 +8,7 @@ Money safety: the first call (``confirmed`` false) only says what would be rende
 paid video. Only ``confirmed=true`` renders. Every started Veo operation is written to disk before it is polled,
 so a re-run resumes it instead of paying again; finished clips are kept (checked, not just present).
 
+Video uses only the Google account connected on the Connections page (sign-in only).
 Video is joined with ffmpeg into one file with the episode's subtitles as a subtitle track. When video cannot be
 made (no Google sign-in, sign-in expired, no paid plan, quota, model not available) it stops at the first such
 error and says so: the production package stays as it was, ready to paste into any video tool.
@@ -108,17 +109,15 @@ def _extract_srt(text: str) -> str:
 
 # --------------------------------------------------------------------------- Google client and errors
 
-MEDIA_KEY_ENV = ("AGENTDEV_VEO_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
-SETUP_HINT = ("Để tạo video: tạo API key ở Google AI Studio cho dự án đã bật thanh toán Gemini API (gói Google AI "
-              "Pro chỉ mở Veo trong ứng dụng Gemini/Flow, không mở cho API), rồi đặt GEMINI_API_KEY trong tệp .env "
-              "của AgentDev và khởi động lại máy chủ.")
+SETUP_HINT = ("Cách bật: nâng tài khoản Google đang kết nối lên gói có quyền dùng Veo, rồi Đăng xuất và Đăng nhập "
+              "lại Google Gemini ở trang Kết nối để quyền mới có hiệu lực. Cho đến lúc đó quy trình vẫn làm gói "
+              "kịch bản như cũ.")
 
 
 def _gemini_client():
-    """A google-genai client for Veo/Imagen, or StopRendering.
+    """A google-genai client on the user's Google Gemini sign-in (Connections page), or StopRendering.
 
-    A Gemini API key from the environment (paid Gemini API, only used for media) comes first: it is the usual way
-    Veo is billed. Otherwise the user's Google Gemini sign-in from the Connections page is used.
+    This is the account the user chats with: once that account can use Veo, video works with nothing else set.
     """
     from google import genai
     from google.genai import types
@@ -126,27 +125,40 @@ def _gemini_client():
     from agentdev.connections.store import get_store
     from agentdev.runtime.node.agent.providers.gemini_provider import GeminiProvider, OAUTH_BEARER_PREFIX
 
-    api_key = next((os.environ[name].strip() for name in MEDIA_KEY_ENV if os.environ.get(name, "").strip()), "")
-    if api_key:
-        return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=120_000))
-
     connections = [c for c in get_store().list() if c.vendor == "gemini"]
     if not connections:
-        raise StopRendering("chưa có API key Gemini trả phí và chưa kết nối tài khoản Google Gemini. " + SETUP_HINT)
+        raise StopRendering("chưa kết nối tài khoản Google Gemini ở trang Kết nối")
     try:
         creds = resolve_connection(connections[0].id)
     except ConnectionResolutionError as exc:
-        raise StopRendering(f"đăng nhập Google Gemini không dùng được: {exc}") from exc
+        raise StopRendering(f"đăng nhập Google Gemini hết hạn hoặc không dùng được ({exc}); hãy đăng nhập lại "
+                            "ở trang Kết nối") from exc
     token = creds.token[len(OAUTH_BEARER_PREFIX):] if creds.token.startswith(OAUTH_BEARER_PREFIX) else creds.token
     if not token:
         raise StopRendering("đăng nhập Google Gemini không có quyền gọi API (hãy đăng nhập lại ở trang Kết nối)")
     options: Dict[str, Any] = {"headers": {"Authorization": f"Bearer {token}"}, "timeout": 120_000}
     if creds.base_url:
         options["base_url"] = creds.base_url
-    # Same sign-in as the Gemini chat provider: Bearer token only, no API key header.
+    # Same sign-in as the Gemini chat provider: Bearer token only (the placeholder key header is stripped).
     client = genai.Client(api_key="oauth-placeholder", http_options=types.HttpOptions(**options))
     GeminiProvider._strip_api_key_header(client)
     return client
+
+
+def _connect(use_first_frame: bool):
+    """(client, models, account) on the Google account connected on the Connections page: the only way AgentDev
+    reaches Veo. StopRendering with the reason and how to enable it when that account cannot use Veo."""
+    try:
+        client = _gemini_client()
+        models = {"veo": _pick_model(client, "veo", os.environ.get("AGENTDEV_VEO_MODEL", ""))}
+    except StopRendering as exc:
+        raise StopRendering(f"{exc}. {SETUP_HINT}") from exc
+    if use_first_frame:
+        try:
+            models["imagen"] = _pick_model(client, "imagen", os.environ.get("AGENTDEV_IMAGEN_MODEL", ""))
+        except StopRendering:
+            pass  # no Imagen: Veo renders from the text prompt alone
+    return client, models, "tài khoản Google đã kết nối"
 
 
 # Only account-level refusals end the whole run; a 429 is retried first, anything else fails just that shot.
@@ -186,7 +198,7 @@ def _pick_model(client, kind: str, override: str) -> str:
     names = [str(m.name).removeprefix("models/") for m in client.models.list()]
     found = sorted((n for n in names if n.startswith(kind)), reverse=True)  # newest version first
     if not found:
-        raise StopRendering(f"tài khoản chưa có model {kind} qua API. " + SETUP_HINT)
+        raise StopRendering(f"chưa thấy model {kind} (tài khoản chưa có quyền dùng {kind} qua API)")
     best = [n for n in found if "fast" not in n] or found
     return best[0]
 
@@ -204,8 +216,24 @@ def _valid_clip(path: Path) -> bool:
         return False
 
 
-def _shot_key(prompt: str, aspect_ratio: str, first_frame: bool) -> str:
-    return hashlib.sha1(f"{prompt}|{aspect_ratio}|{first_frame}".encode("utf-8")).hexdigest()[:16]
+def _shot_key(prompt: str, aspect_ratio: str) -> str:
+    """What a clip shows: its prompt and ratio. Not whether Imagen was available for a first frame, or a change
+    in that (account, use_first_frame) would throw away and pay again for every finished or started clip."""
+    return hashlib.sha1(f"{prompt}|{aspect_ratio}".encode("utf-8")).hexdigest()[:16]
+
+
+def _shot_prompts(shot: Dict[str, Any], style: str, looks: Dict[str, str]) -> Tuple[str, str]:
+    """(video prompt, first-frame image prompt) of a shot."""
+    lead = f"{style}. " if style else ""
+    image = f"{lead}{_expand_tags(shot['img'], looks)}"
+    return f"{image} Motion: {_expand_tags(shot['vid'], looks)}", image
+
+
+def _clip_is_current(out_dir: Path, number: int, key: str) -> bool:
+    clip = out_dir / f"shot_{number:02d}.mp4"
+    key_file = out_dir / f"shot_{number:02d}.key"
+    same = (not key_file.exists()) or key_file.read_text(encoding="utf-8").strip() == key
+    return _valid_clip(clip) and same
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
@@ -223,7 +251,7 @@ def _render_shot(client, shot: Dict[str, Any], prompt: str, image_prompt: str, m
     stem = out_dir / f"shot_{number:02d}"
     clip, op_file, key_file, frame = (stem.with_suffix(".mp4"), stem.with_suffix(".op"),
                                       stem.with_suffix(".key"), stem.with_suffix(".png"))
-    key = _shot_key(prompt, aspect_ratio, bool(models.get("imagen")))
+    key = _shot_key(prompt, aspect_ratio)
 
     def halted() -> bool:
         return stop.is_set() or bool(cancel is not None and cancel.is_set())
@@ -317,10 +345,16 @@ def _probe(ffmpeg: str, clip: Path) -> Tuple[bool, float]:
     return "Audio:" in probe.stderr, seconds
 
 
+def _backup_name(path: Path) -> Path:
+    """<name>.truoc-<time><ext>: every earlier version is kept, none is overwritten by the next run."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return path.with_name(f"{path.stem}.truoc-{stamp}-{time.time_ns() % 1000000:06d}{path.suffix}")
+
+
 def _assemble(ffmpeg: str, clips: List[Tuple[Path, float]], out_file: Path, srt: str) -> None:
     """Give each clip exactly its planned length (trim, or hold the last frame when Veo's clip is shorter, so the
     subtitle timeline stays aligned), give every clip an audio track, join them, add subtitles."""
-    work = out_file.parent / "_ghep"
+    work = out_file.parent / ".agentdev_ghep_tmp"  # ours alone: never a folder the user could own
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir()
     try:
@@ -350,6 +384,8 @@ def _assemble(ffmpeg: str, clips: List[Tuple[Path, float]], out_file: Path, srt:
         result = work / "final.mp4"
         if srt:
             subs = out_file.with_suffix(".srt")
+            if subs.exists() and subs.read_text(encoding="utf-8", errors="replace") != srt:
+                os.replace(subs, _backup_name(subs))  # the user may have edited the subtitles
             subs.write_text(srt, encoding="utf-8")
             subprocess.run([ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(joined), "-i", str(subs),
                             "-map", "0", "-map", "1", "-c", "copy", "-c:s", "mov_text",
@@ -357,11 +393,27 @@ def _assemble(ffmpeg: str, clips: List[Tuple[Path, float]], out_file: Path, srt:
         else:
             shutil.move(str(joined), str(result))
         if out_file.exists():  # a complete earlier video is never lost to a partial re-run
-            backup = out_file.with_name(out_file.stem + ".truoc" + out_file.suffix)
-            os.replace(out_file, backup)
+            os.replace(out_file, _backup_name(out_file))
         os.replace(result, out_file)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+LOCK_STALE_SECONDS = 3 * 3600
+
+
+def _take_lock(out_dir: Path) -> Path:
+    """One confirmed render per episode at a time; a lock left by a crashed run expires after a few hours."""
+    lock = out_dir / ".render.lock"
+    if lock.exists() and time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:
+        lock.unlink(missing_ok=True)
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise StopRendering("tập này đang được tạo video ở một lượt chạy khác; chờ lượt đó xong rồi chạy lại") from None
+    os.write(fd, str(os.getpid()).encode("ascii"))
+    os.close(fd)
+    return lock
 
 
 def _workspace(_context: Optional[Dict[str, Any]]) -> Path:
@@ -431,7 +483,8 @@ def render_episode_video(
     out_dir = folder / CLIPS_DIR
 
     if not confirmed:
-        to_pay = [s for s in shots if not _valid_clip(out_dir / f"shot_{s['number']:02d}.mp4")]
+        to_pay = [s for s in shots if not _clip_is_current(
+            out_dir, s["number"], _shot_key(_shot_prompts(s, style, looks)[0], aspect_ratio))]
         return {"status": "needs_confirmation", "shots_total": len(shots),
                 "shots_already_rendered": len(shots) - len(to_pay), "shots_to_render": len(to_pay),
                 "seconds_of_video_to_pay": sum(_veo_seconds(s["seconds"]) for s in to_pay),
@@ -439,33 +492,31 @@ def render_episode_video(
 
     results: List[Dict[str, Any]] = []
     try:
-        client = _gemini_client()
-        models = {"veo": _pick_model(client, "veo", os.environ.get("AGENTDEV_VEO_MODEL", ""))}
-        if use_first_frame:
-            try:
-                models["imagen"] = _pick_model(client, "imagen", os.environ.get("AGENTDEV_IMAGEN_MODEL", ""))
-            except StopRendering:
-                pass  # no Imagen: Veo renders from the text prompt alone
+        client, models, account = _connect(use_first_frame)
         out_dir.mkdir(exist_ok=True)  # only once video can really be made: no empty folder otherwise
+        lock = _take_lock(out_dir)
         stop = threading.Event()
         cancel = _current_cancel_event()  # a ContextVar: read here, the pool threads would not see it
-        lead = f"{style}. " if style else ""
 
         def job(shot):
-            prompt = f"{lead}{_expand_tags(shot['img'], looks)} Motion: {_expand_tags(shot['vid'], looks)}"
-            image_prompt = f"{lead}{_expand_tags(shot['img'], looks)}"
+            prompt, image_prompt = _shot_prompts(shot, style, looks)
             return _render_shot(client, shot, prompt, image_prompt, models, aspect_ratio, out_dir, stop, cancel)
 
-        with ThreadPoolExecutor(max_workers=PARALLEL_SHOTS) as pool:
-            futures = [pool.submit(contextvars.copy_context().run, job, shot) for shot in shots]
-            errors: List[StopRendering] = []
-            for future in futures:
-                try:
-                    results.append(future.result())
-                except StopRendering as exc:
-                    errors.append(exc)
-            if errors and not results:
-                raise errors[0]
+        errors: List[StopRendering] = []
+        try:
+            with ThreadPoolExecutor(max_workers=PARALLEL_SHOTS) as pool:
+                futures = [pool.submit(contextvars.copy_context().run, job, shot) for shot in shots]
+                for future in futures:
+                    try:
+                        results.append(future.result())
+                    except StopRendering as exc:
+                        errors.append(exc)
+        finally:
+            lock.unlink(missing_ok=True)
+        # A refusal (sign-in, plan, quota) stops the other shots, which then come back "not_started":
+        # when nothing was made, report the refusal itself, never a vague "no shot could be made".
+        if errors and not any(r["status"] in ("rendered", "kept") for r in results):
+            raise errors[0]
     except StopRendering as exc:
         made = len(list(out_dir.glob("shot_*.mp4"))) if out_dir.exists() else 0
         return {"status": "not_rendered", "reason": str(exc), "clips_kept": made,
@@ -485,6 +536,7 @@ def render_episode_video(
         "seconds_of_video_paid": sum(_veo_seconds(s["seconds"]) for s in shots
                                      if by_number.get(s["number"], {}).get("status") == "rendered"),
         "model": models,
+        "account": account,
         "clips_folder": f"{rel}/{CLIPS_DIR}",
     }
     if not ready:
