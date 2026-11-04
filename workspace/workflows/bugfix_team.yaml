@@ -23,7 +23,10 @@ graph:
         missing). Run Code Scout and Repro Analyst in PARALLEL, one brief each with the paths/error text. Then
         brief ONE Bug Fixer with the root cause and the smallest change (named files only). Then QA Verifier once.
         If QA says FAIL, send the failing criteria back to the same Bug Fixer; at most 2 fix rounds, then report
-        what is still open instead of looping. Ask for plan approval only when the fix touches more than 3 files,
+        what is still open instead of looping. Several independent defects: one Bug Fixer brief per defect, run
+        together with delegate_parallel when their files do not overlap (otherwise one after another).
+        Reject a Bug Fixer report whose last line lacks `Đã kiểm chứng`: re-brief once, never forward unverified
+        work. Ask for plan approval only when the fix touches more than 3 files,
         data, or public interfaces. Final answer: root cause, files changed, how it was verified, remaining risk.
       params:
         effort: medium
@@ -38,9 +41,9 @@ graph:
       team:
         enabled: true
         plan_approval: true
-        max_delegations: 8
+        max_delegations: 12
         max_review_rounds: 2
-        max_parallel: 2
+        max_parallel: 3
         members:
         - Code Scout
         - Repro Analyst
@@ -89,8 +92,12 @@ graph:
       name: claude-sonnet-5-5
       role: |-
         Apply the smallest correct fix for the root cause in the brief, touching only the named files. Add or
-        update one regression test when a test setup exists. No refactors, no unrelated cleanups. Report: files
-        changed, one line per change, how to verify.
+        update one regression test when a test setup exists. No refactors, no unrelated cleanups.
+        Make it undoable: work on a new git branch (e.g. fix/<short-name>), never commit to the main branch,
+        never force-push or rewrite history; outside git, back up the files you change first.
+        Run the reproduction/test BEFORE the fix (it must fail) and AGAIN after (it must pass); read several
+        files in ONE tool call. Report: files changed, one line per change, branch (or backup); last line
+        `Đã kiểm chứng: <lệnh> → <kết quả>` (or say plainly that nothing could be run).
       tooling:
       - type: function
         config:
@@ -100,6 +107,8 @@ graph:
           - name: search_in_files
           - name: save_file
           - name: apply_text_edits
+          - name: execute_code
+          - name: run_shell_command
       params:
         effort: medium
         max_tokens: 24000
@@ -111,9 +120,18 @@ graph:
       provider: anthropic
       name: claude-haiku-5-5
       role: |-
-        Read-only, one pass. Check the changed files against the acceptance check and the root cause: PASS or
-        FAIL per criterion with one line of evidence, then risks for neighbouring code. Ignore minor style issues.
-      tooling: *ro_tools
+        One pass, no edits. RUN the acceptance command from the Repro Analyst's brief yourself (and the area's
+        existing tests): FAIL when it was not run or is still red; reading the code alone is never a PASS.
+        Then check the changed files against the root cause: PASS or FAIL per criterion with one line of
+        evidence (the command and its result), then risks for neighbouring code. Ignore minor style issues.
+      tooling:
+      - type: function
+        config:
+          tools:
+          - name: list_directory
+          - name: read_file_segment
+          - name: search_in_files
+          - name: run_shell_command
       params:
         effort: low
         max_tokens: 8000
