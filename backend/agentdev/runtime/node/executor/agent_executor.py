@@ -62,6 +62,7 @@ from agentdev.runtime.node.agent.team import (
     get_team_state,
     is_delegated_call,
     latest_user_message,
+    newest_user_message,
     resolve_members,
     team_digest,
 )
@@ -1660,7 +1661,9 @@ class AgentNodeExecutor(NodeExecutor):
         delegated = is_delegated_call()
         if not delegated:
             # The lead talking to the user sets the language members write user-facing text in.
-            state.set_user_language(latest_user_message(input_text))
+            # ``newest``: the message itself (not an earlier one picked for its language) drives the
+            # small-talk fast path and the plan-approval check.
+            state.set_user_language(latest_user_message(input_text), newest=newest_user_message(input_text))
         return TeamDelegation(
             lead_id=node.id,
             members=members,

@@ -14,6 +14,7 @@ import contextvars
 import os
 import re
 import threading
+from time import monotonic as _monotonic
 from concurrent.futures import FIRST_COMPLETED, CancelledError, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -68,6 +69,17 @@ MAX_DIGEST_REPORT_CHARS = 1_200
 # Reports of a member from earlier turns of the conversation repeated in its brief.
 MAX_EARLIER_TURN_REPORTS = 2
 
+# A model error whose reason matches this is an exhausted account (quota / usage / rate limit): retrying
+# the same member in this run only burns time, so the member is marked unavailable (``TeamState.unavailable``).
+_QUOTA_ERROR_RE = re.compile(
+    r"usage limit|quota|rate[ _-]?limit|too many requests|\b429\b|credit balance|insufficient[ _]credit|"
+    r"limit reached|hit your limit|resource[ _]exhausted|hết (hạn mức|lượt|quota)",
+    re.IGNORECASE,
+)
+# Longest a ``delegate_task`` waits for the same member to finish another task of the same lead
+# (several ``delegate_task`` calls to one member in one reply run one after the other).
+MEMBER_BUSY_WAIT_SECONDS = 30 * 60
+
 DelegateRunner = Callable[[str, List[Message], str], List[Message]]
 
 # ``global_state`` key holding the session's earlier turns (list of turn dicts), set by the run's caller.
@@ -120,7 +132,15 @@ class TeamState:
     cancel_event: Any = field(default=None, repr=False, compare=False)
     # Returns the run's account switches after a usage limit ({exhausted connection: replacement}).
     account_switches: Optional[Callable[[], Dict[str, str]]] = field(default=None, repr=False, compare=False)
+    # Members whose model failed on an exhausted account in this run ({member: reason}); not run again.
+    unavailable: Dict[str, str] = field(default_factory=dict)
+    # The plan the lead proposed in the previous turn and the user is now replying to ("" when none).
+    pending_plan: str = ""
     lock: Any = field(default_factory=threading.RLock, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        # Signalled when a member is released, for a lead waiting on its own other task (``wait_and_claim``).
+        self._released = threading.Condition(self.lock)
 
     @property
     def depth(self) -> int:
@@ -131,10 +151,39 @@ class TeamState:
         with self.lock:
             self.exchanges.append({"question": question, "answer": answer})
 
-    def add_report(self, member: str, task: str, report: str) -> None:
+    def add_report(self, member: str, task: str, report: str, lead: str = "", reusable: bool = True) -> None:
+        """Record a member's report. ``reusable``: an identical re-delegation may get this report back."""
         with self.lock:
             self.history.setdefault(member, []).append({"task": task, "report": report})
-            self.log.append({"member": member, "task": task, "report": report})
+            self.log.append({"member": member, "task": task, "report": report, "lead": lead, "reusable": reusable})
+
+    def delegations_by(self, lead: str) -> int:
+        """How many delegations ``lead`` has logged in this run (reports and failures)."""
+        with self.lock:
+            return sum(1 for entry in self.log if entry.get("lead") == lead)
+
+    def repeated_report(self, member: str, task: str) -> Optional[str]:
+        """The report of an identical task ``member`` just did, when nothing else happened since.
+
+        Only the newest log entry counts: when any other delegation ran after it (a fix before a re-test),
+        the same brief is a legitimate re-run.
+        """
+        key = _task_key(task)
+        with self.lock:
+            if not self.log:
+                return None
+            last = self.log[-1]
+            if last.get("member") == member and last.get("reusable") and _task_key(last.get("task")) == key:
+                return str(last.get("report") or "")
+        return None
+
+    def mark_unavailable(self, member: str, reason: str) -> None:
+        with self.lock:
+            self.unavailable[member] = reason
+
+    def unavailable_reason(self, member: str) -> str:
+        with self.lock:
+            return self.unavailable.get(member, "")
 
     def recent(self, member: str, count: int = 2) -> List[Dict[str, str]]:
         with self.lock:
@@ -144,19 +193,23 @@ class TeamState:
         with self.lock:
             return list(self.earlier.get(member) or [])[-count:]
 
-    def set_user_language(self, text: str) -> None:
-        """Set the language from ``text``; a too short / ambiguous text keeps the current language."""
+    def set_user_language(self, text: str, newest: Optional[str] = None) -> None:
+        """Set the language from ``text``; a too short / ambiguous text keeps the current language.
+
+        ``newest``: the user's newest message itself (``newest_user_message``) when ``text`` may be an
+        earlier message picked for its clearer language; it drives the small-talk / approval checks.
+        """
         with self.lock:
-            self.user_message = (text or "").strip()
+            self.user_message = (newest if newest is not None else text or "").strip()
         language = detect_language(text)
         if language:
             with self.lock:
                 self.user_language = language
 
-    def log_failure(self, member: str, task: str, reason: str) -> None:
+    def log_failure(self, member: str, task: str, reason: str, lead: str = "") -> None:
         """Record a delegation that produced no report (in ``log`` for the digest, not in ``history``)."""
         with self.lock:
-            self.log.append({"member": member, "task": task, "report": f"[failed] {reason}"})
+            self.log.append({"member": member, "task": task, "report": f"[failed] {reason}", "lead": lead})
 
     def reserve_member_runs(self, count: int) -> None:
         """Count ``count`` member runs against the run-wide budget, all or nothing."""
@@ -185,9 +238,15 @@ class TeamState:
         return bool(event is not None and event.is_set())
 
     def seed_earlier_turns(self, turns: Any) -> None:
-        """Remember what each member did in earlier turns (the ``team`` digest of each turn)."""
+        """Remember what each member did in earlier turns (the ``team`` digest of each turn).
+
+        Also keeps the plan of the latest turn when that turn ended with a plan for approval.
+        """
         if not isinstance(turns, list):
             return
+        last = turns[-1] if turns else None
+        if isinstance(last, Mapping) and last.get("kind") == "plan":  # conversation_turns.PLAN_KIND
+            self.pending_plan = str(last.get("answer") or "")
         with self.lock:
             for turn in turns:
                 entries = turn.get("team") if isinstance(turn, Mapping) else None
@@ -205,9 +264,24 @@ class TeamState:
             self.running.add(member)
             return True
 
+    def wait_and_claim(self, member: str, cancelled: Callable[[], bool], timeout: float = MEMBER_BUSY_WAIT_SECONDS) -> bool:
+        """Claim ``member`` once it is free; False on timeout or when the run is cancelled meanwhile."""
+        deadline = None if timeout is None else _monotonic() + timeout
+        with self._released:
+            while member in self.running:
+                if cancelled():
+                    return False
+                left = CANCEL_POLL_SECONDS if deadline is None else min(CANCEL_POLL_SECONDS, deadline - _monotonic())
+                if left <= 0:
+                    return False
+                self._released.wait(left)
+            self.running.add(member)
+            return True
+
     def release(self, member: str) -> None:
-        with self.lock:
+        with self._released:
             self.running.discard(member)
+            self._released.notify_all()
 
 
 @contextmanager
@@ -313,6 +387,16 @@ def detect_language(text: Optional[str]) -> str:
 _EARLIER_USER_PREFIXES = ("User: ", "User replied: ")
 
 
+def newest_user_message(text: Optional[str]) -> str:
+    """The user's newest message in a lead's input: the part after the new-message header, else all of it."""
+    text = text or ""
+    start = text.rfind(NEW_MESSAGE_MARKER)
+    if start < 0:
+        return text
+    end = text.find("]", start)
+    return text[end + 1:] if end >= 0 else text[start:]
+
+
 def latest_user_message(text: Optional[str]) -> str:
     """The text to detect the user's language from: the newest message in a lead's input.
 
@@ -361,6 +445,81 @@ def is_small_talk(text: Optional[str]) -> bool:
         if any(" ".join(words[start:end]) in _SMALL_TALK_PHRASES for start in ends if start < end):
             ends.add(end)
     return len(words) in ends
+
+
+_WS_RE = re.compile(r"\s+")
+
+
+def _task_key(task: Optional[str]) -> str:
+    """A brief normalised for "is this the same task again" (case and whitespace ignored)."""
+    return _WS_RE.sub(" ", (task or "").strip().casefold())
+
+
+def _segments_into(words: List[str], phrases: frozenset, fillers: frozenset) -> Tuple[bool, bool]:
+    """Whether ``words`` split fully into ``phrases`` / ``fillers`` and whether any phrase was used."""
+    # (i, used): words[:i] splits into phrases/fillers, ``used`` when at least one phrase was among them.
+    states = {(0, False)}
+    for end in range(1, len(words) + 1):
+        for start, used in [s for s in states if s[0] < end]:
+            chunk = " ".join(words[start:end])
+            if chunk in phrases:
+                states.add((end, True))
+            elif chunk in fillers:
+                states.add((end, used))
+    n = len(words)
+    return any(i == n for i, _ in states), (n, True) in states
+
+
+# A reply that only approves a proposed plan ("ok", "duyệt nhé", "go ahead"); a reply with any change
+# request ("ok but use Vue") is not one, so the lead may still revise the plan.
+_APPROVAL_PHRASES = frozenset(
+    "ok|okay|oke|okie|okela|k|yes|yep|yeah|sure|go|go ahead|do it|just do it|start|proceed|approve|approved|"
+    "lgtm|sounds good|looks good|good|fine|agreed|let's go|lets go|ship it|đồng ý|dong y|duyệt|duyet|làm đi|"
+    "lam di|làm luôn|lam luon|làm|lam|triển khai|trien khai|bắt đầu|bat dau|tiến hành|tien hanh|được|duoc|"
+    "được rồi|chốt|chot|ừ|uh|ừm|có|vâng|dạ|ổn|on|tốt|tot|chuẩn|quất|oki|okê|oce".split("|")
+)
+_APPROVAL_FILLERS = frozenset(
+    "anh|em|bạn|ban|chị|chi|nhé|nhe|nha|nhá|đi|di|luôn|luon|thôi|thoi|please|pls|the|plan|this|that|it|with|"
+    "kế hoạch|ke hoach|này|nay|theo|vậy|vay|thế|đó|do|rồi|roi|cứ|cu|cho|mình|minh|tôi|toi|ạ|a|now|then|"
+    "and|thanks|thank you|cảm ơn|cam on|là|la|hết|het|all|everything|cả|ca|thì|thi|sir".split("|")
+)
+_APPROVAL_STRIP = re.compile(r"[\s!.?,~:;()*^_\-\"'`]+|[\U0001F300-\U0001FAFF☀-➿]+")
+
+
+def is_plan_approval(text: Optional[str]) -> bool:
+    """True when ``text`` only approves a proposed plan ("ok", "duyệt, làm đi", "go ahead 👍")."""
+    words = _APPROVAL_STRIP.sub(" ", (text or "").lower()).split()
+    if not 0 < len(words) <= 10:
+        return False
+    complete, used_phrase = _segments_into(words, _APPROVAL_PHRASES, _APPROVAL_FILLERS)
+    return complete and used_phrase
+
+
+# A plain question ("X vs Y?", "how does Z work?") never needs plan approval. A question that asks for
+# work ("can you build…?", "làm giúp … được không?") keeps the plan gate: it names a build verb.
+_WORK_WORDS = frozenset(
+    "build make create implement develop add write code design deploy migrate refactor fix setup set help want "
+    "need làm tạo xây dựng phát thêm viết code thiết kế triển sửa cài đặt chuyển nâng cấp lập trình giúp muốn "
+    "cần".split()
+)
+_QUESTION_WORDS = frozenset(
+    "what why how which who when where is are does do can could should would gì sao nào ai đâu bao "
+    "không có phải nên thế".split()
+)
+_MAX_QUESTION_WORDS = 40
+
+
+def is_simple_question(text: Optional[str]) -> bool:
+    """True for a short question that asks for an answer, not for work (no build/change verb in it)."""
+    text = (text or "").strip()
+    if "?" not in text and "？" not in text:
+        return False
+    words = [w.lower() for w in _WORD_RE.findall(text)]
+    if not 0 < len(words) <= _MAX_QUESTION_WORDS:
+        return False
+    if any(w in _WORK_WORDS for w in words):
+        return False
+    return any(w in _QUESTION_WORDS for w in words) or text.rstrip().endswith(("?", "？"))
 
 
 def team_digest(state: Any) -> List[Dict[str, str]]:
@@ -473,12 +632,23 @@ PLAN_RULE_ON = (
     "Plan rule — only for (c) a NEW project or significant new feature, not approved yet: do not build anything, "
     "do not delegate and do not use `ask_user` for it. END YOUR TURN with a concise plan: write it in markdown — "
     "goal, scope, stack, the steps with which member does what, risks and open questions each with your "
-    "recommended default — and call `submit_plan` with it instead of delegating. That ends your turn: the plan is "
+    "recommended default; at most about 350 words, no code, file-by-file specs or schemas (those go into the "
+    "members' briefs after approval) — and call `submit_plan` with it instead of delegating. That ends your turn: the plan is "
     "shown to the user for approval and their next message continues from it. Skip the plan when the user already "
     "approved (now or earlier in the conversation) or said to go ahead (\"làm luôn\", \"just do it\", "
     "\"go ahead\"), and for small tasks, bug fixes and questions: those go straight to work."
 )
 PLAN_RULE_OFF = "Proceed without asking for plan approval; ask the user only for real decisions."
+# The lead's plan rule when the user's message approves the plan it proposed last turn (``is_plan_approval``):
+# submit_plan is not offered, so the approved plan cannot bounce back for a second approval round.
+PLAN_RULE_APPROVED = (
+    "The user has just APPROVED the plan you proposed in the previous turn. Execute it now: no new plan, no "
+    "approval round and no `ask_user` about anything the plan already settles. The owners named in the plan "
+    "do the work (delegate to them, or to the member who leads them) — put the plan's scope and owner list in "
+    "your briefs so nobody re-routes it."
+)
+# Plan rule for a plain question (``is_simple_question``): it is answered, never planned.
+PLAN_RULE_QUESTION = "This message is a question: answer it (yourself, or with the one member it needs); no plan, no approval round."
 
 PARALLEL_RULE = (
     "   When several tasks are INDEPENDENT (no task needs another's result and they do not edit the same files), "
@@ -572,12 +742,50 @@ class TeamDelegation:
         # The plan submitted with ``submit_plan`` this turn ({"node", "summary", "plan"}); None until then.
         self.plan: Optional[Dict[str, str]] = None
         self._member_ids = {m.node_id for m in members}
+        # Members running a task of THIS lead right now: another delegate_task to one of them waits for it.
+        self._in_flight: Set[str] = set()
         self._lock = threading.Lock()
 
     @property
+    def plan_approved(self) -> bool:
+        """The top lead's message approves the plan it proposed in the previous turn."""
+        return (
+            bool(self.plan_approval)
+            and not self.delegated
+            and bool(self.state.pending_plan)
+            and is_plan_approval(self.state.user_message)
+        )
+
+    @property
     def plan_gate_enabled(self) -> bool:
-        """Only the top-level lead (the one talking to the user) submits plans for approval."""
-        return bool(self.plan_approval) and not self.delegated
+        """Only the top-level lead (the one talking to the user) submits plans for approval.
+
+        Never for a message that approves the previous plan (it is executed, not re-planned) or for a
+        plain question (it is answered).
+        """
+        if not self.plan_approval or self.delegated:
+            return False
+        if self.state.pending_plan:
+            # A reply to the plan: approving it executes it; anything else (changes, a question about it)
+            # may lead to a revised plan.
+            return not self.plan_approved
+        return not is_simple_question(self.state.user_message)
+
+    def _plan_rule(self) -> str:
+        if not self.plan_approval:
+            return PLAN_RULE_OFF
+        if self.plan_approved:
+            return PLAN_RULE_APPROVED
+        if not self.plan_gate_enabled:
+            return PLAN_RULE_QUESTION
+        return PLAN_RULE_ON
+
+    def plan_owners(self) -> List[str]:
+        """Members named in the approved plan (empty when no approved plan names any)."""
+        if not self.plan_approved:
+            return []
+        text = self.state.pending_plan.casefold()
+        return [m.node_id for m in self.members if m.node_id.casefold() in text]
 
     @property
     def plan_submitted(self) -> bool:
@@ -618,7 +826,7 @@ class TeamDelegation:
         return LEAD_PROTOCOL.format(
             max_rounds=self.max_review_rounds,
             marker=DECISION_MARKER,
-            plan_rule=PLAN_RULE_ON if self.plan_approval else PLAN_RULE_OFF,
+            plan_rule=self._plan_rule(),
             parallel_rule=parallel_rule,
             max_delegations=self.max_delegations,
             max_member_runs=self.state.max_member_runs,
@@ -800,57 +1008,155 @@ class TeamDelegation:
         result["team_runs_left"] = self.state.member_runs_left()
         return result
 
+    def _check_available(self, member: str) -> None:
+        """Refuse at once a member whose account ran out in this run (another try only burns time)."""
+        reason = self.state.unavailable_reason(member)
+        if reason:
+            raise ValueError(
+                f"'{member}' is unavailable for the rest of this request: its model account hit a usage limit "
+                f"({clip_middle(reason, 200)}). {self._alternatives_hint(member)}"
+            )
+
+    def _alternatives(self, member: str) -> List[str]:
+        """Other available members of this team sharing a skill with ``member`` (best first)."""
+        info = next((m for m in self.members if m.node_id == member), None)
+        skills = set(info.skills) if info is not None else set()
+        scored = []
+        for other in self.members:
+            if other.node_id == member or self.state.unavailable_reason(other.node_id):
+                continue
+            shared = len(skills & set(other.skills))
+            if shared:
+                scored.append((-shared, other.node_id))
+        return [node_id for _, node_id in sorted(scored)]
+
+    def _alternatives_hint(self, member: str) -> str:
+        alternatives = self._alternatives(member)
+        if alternatives:
+            return (
+                f"Give the task to {', '.join(alternatives[:3])} (shared skills), or tell the user this part is "
+                "blocked; do not retry this member."
+            )
+        return "Give the task to another member who can do it, or tell the user this part is blocked; do not retry it."
+
+    def _plan_owner_note(self, member: str) -> str:
+        """A note when the lead delegates outside the owners named in the approved plan."""
+        owners = self.plan_owners()
+        if not owners or member in owners:
+            return ""
+        info = next((m for m in self.members if m.node_id == member), None)
+        if info is not None and any(sub in owners for sub in info.manages):
+            return ""  # the sub-lead of a named owner
+        return (
+            f"{member} is not an owner in the plan the user approved (owners: {', '.join(owners)}). Keep to the "
+            "approved owners unless one of them is unavailable, and tell the user about any change of owner."
+        )
+
+    def _repeat_result(self, member: str, task: str) -> Optional[Dict[str, Any]]:
+        """The earlier report when the lead sends ``member`` the very task it just finished (nothing run)."""
+        report = self.state.repeated_report(member, task)
+        if report is None:
+            return None
+        return {
+            "member": member,
+            "report": _truncate(report, MAX_MEMBER_RESULT_CHARS),
+            "needs_user_decision": report.lstrip().upper().startswith(DECISION_MARKER),
+            "note": (
+                f"Not run again: {member} just finished this exact task and nothing ran since; this is its "
+                "report. Delegate only what is missing, or say in the brief what changed."
+            ),
+            "repeated": True,
+        }
+
     def _run_member(self, member: str, task: str) -> Dict[str, Any]:
         """Claim, reserve and run one member. Safe to call concurrently for different members."""
         self._check_depth()
-        if not self.state.claim(member):
-            raise ValueError(f"'{member}' is already working on another task right now; wait for its report first.")
+        self._check_available(member)
+        claimed, mine = self._claim(member)
+        if not claimed:
+            # Another task of this same lead (e.g. two delegate_task calls to one member in one reply):
+            # run after it instead of failing and costing the lead another round trip.
+            if not mine or not self.state.wait_and_claim(member, self._cancelled):
+                if self._cancelled():
+                    raise WorkflowCancelledError("Workflow execution cancelled")
+                raise ValueError(f"'{member}' is already working on another task right now; wait for its report first.")
+            with self._lock:
+                self._in_flight.add(member)
+        repeated = self._repeat_result(member, task)
+        if repeated is not None:
+            self._release(member)
+            return repeated
         try:
             self._reserve(1)  # after the claim: a busy member never uses up a delegation
         except BaseException:
-            self.state.release(member)
+            self._release(member)
             raise
         return self._execute_member(member, task)
 
+    def _claim(self, member: str) -> Tuple[bool, bool]:
+        """Claim ``member`` for this lead: ``(claimed, busy with another task of this lead)``."""
+        with self._lock:
+            if self.state.claim(member):
+                self._in_flight.add(member)
+                return True, False
+            return False, member in self._in_flight
+
+    def _release(self, member: str) -> None:
+        with self._lock:
+            self._in_flight.discard(member)
+        self.state.release(member)
+
     def _execute_member(self, member: str, task: str) -> Dict[str, Any]:
         """Run a member already claimed and reserved; release it, and refund + log when it fails."""
+        info = next((m for m in self.members if m.node_id == member), None)
+        sub_lead = info is not None and bool(info.manages)
         try:
             if self._cancelled():
                 raise WorkflowCancelledError("Workflow execution cancelled")
             brief = self._compose_brief(member, task)
             switches_before = self._account_switches()
+            sub_delegations_before = self.state.delegations_by(member) if sub_lead else 0
             with _nested_delegation():
                 outputs = self.runner(
                     member, [Message(role=MessageRole.USER, content=brief, metadata={"source": self.lead_id})], self.lead_id
                 )
         except WorkflowCancelledError:
             self._refund(1)
-            self.state.log_failure(member, task, "cancelled")
+            self.state.log_failure(member, task, "cancelled", lead=self.lead_id)
             raise
         except Exception as exc:
             self._refund(1)
-            self.state.log_failure(member, task, f"{exc.__class__.__name__}: {exc}")
+            self.state.log_failure(member, task, f"{exc.__class__.__name__}: {exc}", lead=self.lead_id)
             raise
         finally:
-            self.state.release(member)
+            self._release(member)
 
         outputs = [m for m in outputs or [] if m is not None]
         report = "\n\n".join(msg.text_content() for msg in outputs).strip() or "(no output)"
         account_note = self._account_note(switches_before)
+        owner_note = self._plan_owner_note(member)
         failed = next((m for m in outputs if (m.metadata or {}).get("model_error")), None)
         if failed is not None:
             reason = str((failed.metadata or {}).get("error") or report)
-            self.state.add_report(member, task, f"[failed: model error] {reason}")
+            self.state.add_report(member, task, f"[failed: model error] {reason}", lead=self.lead_id, reusable=False)
+            if _QUOTA_ERROR_RE.search(reason):
+                # Account fallback (if any) already tried other accounts: this member is out for the run.
+                self.state.mark_unavailable(member, reason)
+                advice = f"Its account is out of quota for this request. {self._alternatives_hint(member)}"
+            else:
+                advice = "Retry once, give it to another member, or tell the user it is blocked."
             failure = {
                 "member": member,
-                "error": f"model call failed ({reason}). The task was not done. Retry once, give it to another "
-                "member, or tell the user it is blocked.",
+                "error": f"model call failed ({clip_middle(reason, 400)}). The task was not done. {advice}",
                 "needs_user_decision": False,
             }
             if account_note:
                 failure["account_note"] = account_note
             return failure
-        self.state.add_report(member, task, report)  # the full report stays in the team state
+        did_nothing = sub_lead and self.state.delegations_by(member) == sub_delegations_before
+        # The full report stays in the team state. A sub-lead that handed nothing to its team may have been
+        # unable to (e.g. its tools failed): the same brief again must run again, not reuse this report.
+        self.state.add_report(member, task, report, lead=self.lead_id, reusable=not did_nothing)
         result: Dict[str, Any] = {
             "member": member,
             "report": _truncate(report, MAX_MEMBER_RESULT_CHARS),
@@ -858,11 +1164,24 @@ class TeamDelegation:
         }
         if account_note:
             result["account_note"] = account_note
+        notes = []
         if len(report) > MAX_MEMBER_RESULT_CHARS:
-            result["note"] = (
+            notes.append(
                 f"Report clipped to {MAX_MEMBER_RESULT_CHARS} of {len(report)} characters; the full text is kept. "
                 f"If you need a detail that was cut, ask {member} for exactly that detail."
             )
+        if did_nothing:
+            direct = [m for m in info.manages if m in self._member_ids]
+            notes.append(
+                f"{member} handed none of this to its team ({', '.join(info.manages)}): the report is its own work "
+                "only. If the task needed its team and the report says it could not delegate, "
+                + (f"brief {', '.join(direct)} directly (on your team) " if direct else "do the step another way ")
+                + f"instead of re-sending it to {member}; otherwise report it blocked."
+            )
+        if owner_note:
+            notes.append(owner_note)
+        if notes:
+            result["note"] = " ".join(notes)
         return result
 
     def _account_switches(self) -> Dict[str, str]:
@@ -917,21 +1236,31 @@ class TeamDelegation:
         self._check_depth()
         results: List[Optional[Dict[str, Any]]] = [None] * len(tasks)
         claimed: List[int] = []
-        for idx, (member, _task) in enumerate(tasks):
-            if self.state.claim(member):
-                claimed.append(idx)
-            else:
+        for idx, (member, task) in enumerate(tasks):
+            try:
+                self._check_available(member)
+            except ValueError as exc:
+                results[idx] = {"member": member, "error": str(exc), "needs_user_decision": False}
+                continue
+            if not self._claim(member)[0]:
                 results[idx] = {
                     "member": member,
                     "error": f"'{member}' is already working on another task right now; wait for its report first.",
                     "needs_user_decision": False,
                 }
+                continue
+            repeated = self._repeat_result(member, task)
+            if repeated is not None:
+                self._release(member)
+                results[idx] = repeated
+                continue
+            claimed.append(idx)
         if claimed:
             try:
                 self._reserve(len(claimed))  # after the claims; all or nothing
             except BaseException:
                 for idx in claimed:
-                    self.state.release(tasks[idx][0])
+                    self._release(tasks[idx][0])
                 raise
 
         def run_one(member: str, task: str) -> Dict[str, Any]:
@@ -968,9 +1297,9 @@ class TeamDelegation:
                         for future in pending:
                             if future.cancel():  # never started: free the member and its delegation
                                 member, task = tasks[index_of[future]]
-                                self.state.release(member)
+                                self._release(member)
                                 self._refund(1)
-                                self.state.log_failure(member, task, "cancelled")
+                                self.state.log_failure(member, task, "cancelled", lead=self.lead_id)
                         break
             finally:
                 # On cancel do not wait: running members stop on the cancel event themselves.
@@ -1027,6 +1356,10 @@ class TeamDelegation:
         return "\n\n".join(parts)
 
     def _submit_plan(self, plan: str, summary: str) -> Dict[str, Any]:
+        if self.plan_approved:
+            raise ValueError(
+                "The user already approved your plan: do not submit it again. Execute it now with the owners it names."
+            )
         if not self.plan_gate_enabled:
             raise ValueError("submit_plan is not available here; continue the work or report back.")
         if not plan:
