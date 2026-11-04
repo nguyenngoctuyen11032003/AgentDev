@@ -1,5 +1,6 @@
 """Agent Skills discovery and loading helpers."""
 
+import logging
 import re
 from dataclasses import dataclass
 from html import escape
@@ -23,7 +24,7 @@ LARGE_SKILL_CHARS = 30_000
 # call on activate_skill, and the system prompt is the static, prompt-cached part of every call.
 # Skills past the budget stay in the catalog and are loaded on demand. ~32k chars is ~8k tokens:
 # two typical skills of the library.
-MAX_PRELOADED_SKILL_CHARS = 32_000
+MAX_PRELOADED_SKILL_CHARS = 16_000
 _LISTED_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".py", ".js", ".ts", ".sh", ".html", ".css"}
 _TOOL_ENTRY = re.compile(r"[^\s,()]+(?:\([^)]*\))?")
 
@@ -233,6 +234,10 @@ class AgentSkillManager:
             except OSError:
                 continue
             if used + size > budget:
+                logging.getLogger(__name__).info(
+                    "Skill '%s' (%d chars) not preloaded: budget of %d chars used; it stays loadable on demand",
+                    name, size, budget,
+                )
                 continue
             used += size
             picked.append(skill)
@@ -241,6 +246,14 @@ class AgentSkillManager:
 
     def is_preloaded(self, skill_name: str) -> bool:
         return skill_name in self._preloaded
+
+    def needs_skill_tool_specs(self) -> bool:
+        """False when every skill is preloaded and none has extra files: activate_skill and
+        read_skill_file would never be useful, so they are not sent with each model call."""
+        skills = self.discover()
+        if not skills or not self._preloaded:
+            return True
+        return any(not self.is_preloaded(s.name) or self.skill_files(s.name) for s in skills)
 
     def build_preloaded_skills_section(self, *, with_paths: bool = False) -> str:
         """Full instructions of the preloaded skills, for the system prompt. ``with_paths``: native agents

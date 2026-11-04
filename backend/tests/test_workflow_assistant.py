@@ -44,20 +44,18 @@ def _yaml_blocks(text):
     return re.findall(r"^```yaml\n(.*?)^```", text, flags=re.MULTILINE | re.DOTALL)
 
 
-def test_reference_examples_pass_static_check():
+def test_reference_example_is_a_valid_edge_list():
+    # The reference keeps one wiring fragment; whole workflows live in workflow_patterns/ (tested there).
     blocks = _yaml_blocks(REFERENCE.read_text(encoding="utf-8"))
-    assert len(blocks) == 2
-    for block in blocks:
-        report = static_check_data(yaml.safe_load(block))
-        # ``accounts`` depends on the connections signed in on this machine.
-        failed = [c for c in report["checks"] if c["status"] == "fail" and c["id"] != "accounts"]
-        assert failed == [], failed
+    assert len(blocks) == 1
+    edges = yaml.safe_load(blocks[0])["edges"]
+    assert edges and all("from" in e and "to" in e for e in edges)
 
 
 def test_reference_is_compact():
     text = REFERENCE.read_text(encoding="utf-8")
-    assert 150 <= len(text.splitlines()) <= 300
-    assert len(text) <= 13_000
+    assert 120 <= len(text.splitlines()) <= 300
+    assert len(text) <= 11_000
 
 
 def _keyword_matches(condition, output):
@@ -79,7 +77,7 @@ def _keyword_matches(condition, output):
 def test_reference_example_gates_fire_exactly_one_branch():
     # E2E design issues 3+4: gates must use an anchored token, state case_sensitive, and pair the two
     # branches so exactly one fires; "Không OK" must not count as approval, "ok" must.
-    pipeline = yaml.safe_load(_yaml_blocks(REFERENCE.read_text(encoding="utf-8"))[1])["graph"]
+    pipeline = yaml.safe_load(_yaml_blocks(REFERENCE.read_text(encoding="utf-8"))[0])
     by_source = {}
     for edge in pipeline["edges"]:
         if isinstance(edge.get("condition"), dict):
@@ -150,7 +148,7 @@ def test_prompt_interview_guide_then_override():
     assert "Visual Companion" not in prompt and "writing-plans" not in prompt
     after = prompt[prompt.index(guide) + len(guide):]
     for phrase in ("Do not write files, commit, or invoke other skills",
-                   "confirmed with the user",
+                   "suggest a slug",
                    "Reply with a single JSON object"):
         assert phrase in after
 
@@ -159,7 +157,7 @@ def test_interview_guide_is_short_and_keeps_the_way_of_asking():
     guide = INTERVIEW.read_text(encoding="utf-8")
     assert len(guide) <= 4000
     # ask open first, one question per turn, restate, defaults when stuck, show don't tell
-    for phrase in ("Open questions first", "One question per turn", "echo it back in your own words",
+    for phrase in ("Open questions first", "One question per turn", "Propose first", "DRAFT proposal",
                    "Play it back", "tuỳ bạn", "propose something concrete", "Show, don't tell"):
         assert phrase in guide, phrase
     # The brainstorming skill it was condensed from still exists.
@@ -230,7 +228,7 @@ def test_real_prompt_is_compact():
     # Baseline before the cut: 51,800 characters (verbatim skill 13.9k, full catalog descriptions 20.6k).
     prompt = build_system_prompt(current_yaml=None, current_name=None, pending_yaml=None,
                                  chat_vendor="anthropic", **load_context())
-    assert len(prompt) <= 27_000, len(prompt)
+    assert len(prompt) <= 25_500, len(prompt)
 
 
 def test_load_context(tmp_path, monkeypatch):

@@ -112,7 +112,7 @@ graph:
           Report: file path and a calendar summary in a few lines.
         tooling: *doc_tools
         params:
-          effort: medium
+          effort: low
           max_tokens: 16000
           tool_loop_limit: 15
 
@@ -138,7 +138,7 @@ graph:
                 - name: read_file_segment
                 - name: save_file
         params:
-          effort: medium
+          effort: low
           max_tokens: 16000
           tool_loop_limit: 20
 

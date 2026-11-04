@@ -1,0 +1,120 @@
+# id: video
+# keywords: video, phim, kich ban, tiktok, youtube, reels, quang cao, clip, script, storyboard, thumbnail
+# when: video production: script, approval, then storyboard/voice/thumbnail in parallel
+# slots: platform, length, style, language
+version: 0.4.0
+vars: {}
+graph:
+  id: video_production
+  description: >-
+    Writes a video script for your approval, then storyboard, voice-over and thumbnails in parallel, checks and archives them.
+  log_level: INFO
+  is_majority_voting: false
+  start: [Intake]
+  end: [Answer, Archive]
+  nodes:
+    - id: Intake
+      type: agent
+      description: Answers small asks, routes real video work
+      config:
+        provider: anthropic
+        name: claude-haiku-5-5
+        role: |-
+          Triage. Greeting, question or small ask: answer yourself in the user's language and start with NOT_SCRIPT.
+          Real video work: print SCRIPT alone on the first line, then write the brief (goal, platform, audience, length, style, language).
+        params:
+          effort: low
+    - id: Scriptwriter
+      type: agent
+      description: Writes and revises the script
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          Write the script from the brief: hook in 3 seconds, beats, payoff, call to action, in a table of time, visual, voice. On change notes, rewrite applying every note.
+    - id: Script Approval
+      type: human
+      description: The user approves the script
+      config: {description: Reply exactly OK to approve. Anything else is taken as change notes.}
+    - id: Script Guard
+      type: loop_counter
+      description: Stops the revision loop
+      config: {max_iterations: 2, message: Revision limit reached. Continue with the last version.}
+    - id: Storyboard Artist
+      type: agent
+      description: Shot list and image prompts
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          Turn the approved script into a shot list with an English image prompt per shot.
+    - id: Voice Writer
+      type: agent
+      description: Voice-over and subtitles
+      config:
+        provider: anthropic
+        name: claude-haiku-5-5
+        role: |-
+          Write voice-over takes and SRT from the approved script.
+        params:
+          effort: low
+    - id: Thumbnail Writer
+      type: agent
+      description: Titles and thumbnail prompts
+      config:
+        provider: anthropic
+        name: claude-haiku-5-5
+        role: |-
+          Write 3 titles and 2 thumbnail image prompts for the approved script.
+        params:
+          effort: low
+    - id: Check
+      type: agent
+      description: Checks the package is complete
+      config:
+        provider: anthropic
+        name: claude-haiku-5-5
+        role: |-
+          Check storyboard, voice-over and thumbnail match the script. First line PASS or list at most 5 gaps.
+        params:
+          effort: low
+    - id: Archive
+      type: agent
+      description: Saves the package
+      config:
+        provider: anthropic
+        name: claude-haiku-5-5
+        role: |-
+          Save script, storyboard, voice-over and thumbnail text under video/<slug>/ with save_file and list the paths.
+        params:
+          effort: low
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: save_file
+    - id: Answer
+      type: passthrough
+      description: Final answer for chat, small questions and refusals
+      config: {}
+  edges:
+    - {from: Intake, to: Scriptwriter, keep_message: true, condition: {type: keyword, config: {regex: ['^\s*SCRIPT\b'], case_sensitive: true}}}
+    - {from: Intake, to: Answer, condition: {type: keyword, config: {regex: ['^(?!\s*SCRIPT\b)'], case_sensitive: true}}}
+    - {from: Scriptwriter, to: Script Approval}
+    - {from: Script Approval, to: Storyboard Artist, condition: {type: keyword, config: {regex: ['^\s*(OK\s*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Scriptwriter, to: Storyboard Artist, trigger: false, clear_context: true}
+    - {from: Script Approval, to: Voice Writer, condition: {type: keyword, config: {regex: ['^\s*(OK\s*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Scriptwriter, to: Voice Writer, trigger: false, clear_context: true}
+    - {from: Script Approval, to: Thumbnail Writer, condition: {type: keyword, config: {regex: ['^\s*(OK\s*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Scriptwriter, to: Thumbnail Writer, trigger: false, clear_context: true}
+    - {from: Script Approval, to: Scriptwriter, condition: {type: keyword, config: {regex: ['^(?!\s*(OK\s*$|\[Automatic answer))'], case_sensitive: false}}}
+    - {from: Script Approval, to: Script Guard, condition: {type: keyword, config: {regex: ['^(?!\s*(OK\s*$|\[Automatic answer))'], case_sensitive: false}}}
+    - {from: Script Guard, to: Scriptwriter}
+    - {from: Script Guard, to: Answer}
+    - {from: Storyboard Artist, to: Check}
+    - {from: Voice Writer, to: Check, trigger: false}
+    - {from: Thumbnail Writer, to: Check, trigger: false}
+    - {from: Check, to: Archive}
+    - {from: Storyboard Artist, to: Archive, trigger: false}
+    - {from: Voice Writer, to: Archive, trigger: false}
+    - {from: Thumbnail Writer, to: Archive, trigger: false}

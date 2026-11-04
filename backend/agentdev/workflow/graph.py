@@ -2,6 +2,8 @@
 
 import os
 import threading
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -97,6 +99,10 @@ class GraphExecutor:
 
         # Token tracking
         self.token_tracker = runtime.token_tracker
+        self.token_tracker.configure_limits(
+            getattr(graph.config, "run_limits", None),
+            cancel_cb=lambda msg: self.request_cancel(msg),
+        )
 
         # Workspace roots
         self.code_workspace = runtime.code_workspace
@@ -589,6 +595,22 @@ class GraphExecutor:
         )
 
     def _execute_node(self, node: Node) -> None:
+        """Execute a single node, recording its wall time and enforcing run budgets."""
+        self._raise_if_cancelled()
+        tracker = self.token_tracker
+        tracker.check_budget(node.id, starting=True)
+        start_ts = datetime.now().isoformat()
+        started = time.perf_counter()
+        status = "ok"
+        try:
+            self._execute_node_inner(node)
+        except BaseException:
+            status = "error"
+            raise
+        finally:
+            tracker.record_node_run(node.id, (time.perf_counter() - started) * 1000.0, status, start_ts)
+
+    def _execute_node_inner(self, node: Node) -> None:
         """Execute a single node."""
         self._raise_if_cancelled()
         with self.resource_manager.guard_node(node):
@@ -720,6 +742,8 @@ class GraphExecutor:
         progress = get_run_progress(self.runtime_context.global_state)
         progress.start(member_id, lead_id)
         outputs: List[Message] = []
+        member_started = time.perf_counter()
+        member_start_ts = datetime.now().isoformat()
         try:
             with self.log_manager.node_timer(member_id):
                 outputs = [self._ensure_source_output(raw, member_id) for raw in self._process_result(node, inputs)]
@@ -733,6 +757,10 @@ class GraphExecutor:
                 "output_source": member_id,
                 "delegated_by": lead_id,
             })
+            self.token_tracker.record_node_run(
+                member_id, (time.perf_counter() - member_started) * 1000.0,
+                "ok" if outputs else "error", member_start_ts,
+            )
         for msg in outputs:
             node.append_output(msg)
         return outputs

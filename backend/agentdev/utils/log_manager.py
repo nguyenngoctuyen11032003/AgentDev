@@ -12,6 +12,17 @@ from agentdev.entity.enums import CallStage
 from agentdev.utils.logger import WorkflowLogger
 
 
+LOG_PAYLOAD_CAP = 8000  # MODEL_CALL prompts/outputs
+NODE_END_CAP = 64000  # NODE_END carries the replies shown in the chat: only runaway outputs are clipped
+
+
+def _clip(value: Any, cap: int = LOG_PAYLOAD_CAP) -> Any:
+    """Clip oversized string payloads in log events (sizes are computed before clipping)."""
+    if isinstance(value, str) and len(value) > cap:
+        return value[:cap] + f"\n...[clipped {len(value) - cap} chars]"
+    return value
+
+
 class LogManager:
     """Backward-compatible wrapper that delegates to ``WorkflowLogger``."""
 
@@ -93,7 +104,7 @@ class LogManager:
         """Record the end of a node."""
         output_size = len(str(output)) if output is not None else 0
         duration = self.logger.get_timer(node_id)
-        self.logger.exit_node(node_id, output, duration, output_size, details)
+        self.logger.exit_node(node_id, _clip(output, NODE_END_CAP), duration, output_size, details)
 
     def record_edge_process(self, from_node: str, to_node: str,
                             details: Dict[str, Any] = None) -> None:
@@ -131,7 +142,7 @@ class LogManager:
         }
 
         self.logger.record_model_call(
-            node_id, model_name, input_data, output, duration, call_details, stage
+            node_id, model_name, _clip(input_data), _clip(output), duration, call_details, stage
         )
 
     def record_tool_call(self, node_id: str, tool_name: str,

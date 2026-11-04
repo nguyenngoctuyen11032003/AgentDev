@@ -213,3 +213,14 @@ def test_list_can_include_descriptions(tmp_path, monkeypatch):
         "workflows": ["a.yaml", "b.yaml"],
         "descriptions": {"a.yaml": "First", "b.yaml": ""},
     }
+
+
+def test_new_regex_in_flow_edge_stays_parseable():
+    """A regex like ^(?!\s*A) written into a flow-style edge must be quoted (PyYAML rejects it plain)."""
+    original = "graph:\n  edges:\n    - {from: A, to: B, trigger: false}\n"
+    desired = {"graph": {"edges": [{
+        "from": "A", "to": "B", "trigger": False,
+        "condition": {"type": "keyword", "config": {"regex": [r"^(?!\s*SCRIPT\b)"], "case_sensitive": True}},
+    }]}}
+    text = merge_workflow_document(original, desired)
+    assert yaml.safe_load(text) == desired

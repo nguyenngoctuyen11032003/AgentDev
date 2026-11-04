@@ -637,7 +637,9 @@
                 :steps="liveProgress.steps"
                 :issues="liveProgress.issues"
                 :usage="liveProgress.usage"
+                :last-event-at="lastEventAt"
                 @show-issues="revealToolIssues"
+                @stall-level="stallLevel = $event"
               />
               <!-- What makes sense to say next in this state (approve the plan, ask for progress, retry...) -->
               <QuickReplies
@@ -764,7 +766,7 @@
                   <button
                     type="button"
                     class="composer-send"
-                    :class="{ glow: shouldGlow && !isStopMode, 'is-stop': isStopMode }"
+                    :class="{ glow: shouldGlow && !isStopMode, 'is-stop': isStopMode, 'is-stalled': isStopMode && stallLevel >= 2 }"
                     :title="buttonLabel"
                     :aria-label="buttonLabel"
                     :disabled="isStopping || (!isStopMode && (loading || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady)))"
@@ -1964,22 +1966,11 @@ const toggleActivity = (message) => {
 }
 
 // Global timer for updating loading bubble durations
-const now = ref(Date.now())
-let loadingTimerInterval = null
+// (Running durations live in the small LiveDuration component, which has its own clock: no
+// page-wide ticker re-renders this view every second.)
 const runningLoadingEntries = ref(0)
-
-const startLoadingTimer = () => {
-  if (loadingTimerInterval) return
-  loadingTimerInterval = setInterval(() => {
-    now.value = Date.now()
-  }, 1000)
-}
-
-const stopLoadingTimer = () => {
-  if (!loadingTimerInterval) return
-  clearInterval(loadingTimerInterval)
-  loadingTimerInterval = null
-}
+const startLoadingTimer = () => {}
+const stopLoadingTimer = () => {}
 
 // Map sprites for different roles (script-only lookup table; no reactivity needed)
 const nameToSpriteMap = new Map()
@@ -3485,7 +3476,7 @@ const formatDuration = (startedAt, endedAt = null) => {
   if (!startedAt) {
     return ''
   }
-  const end = endedAt ?? now.value
+  const end = endedAt ?? Date.now()
   const totalSeconds = Math.max(0, Math.floor((end - startedAt) / 1000))
   const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0')
   const seconds = String(totalSeconds % 60).padStart(2, '0')
@@ -4013,6 +4004,57 @@ const restorePendingInput = (code = '') => {
 
 // Messages of the socket are handled strictly in order (see onmessage)
 let processQueue = Promise.resolve()
+// The workflow file of a session being opened is fetched while the socket connects
+let prefetchedYaml = null
+const prefetchWorkflowYaml = (file) => {
+  const promise = fetchWorkflowYAML(file)
+  promise.catch(() => {})
+  prefetchedYaml = { file, promise }
+}
+const takeWorkflowYaml = (file) => {
+  const hit = prefetchedYaml?.file === file ? prefetchedYaml.promise : null
+  prefetchedYaml = null
+  return hit || fetchWorkflowYAML(file)
+}
+// Incoming events are collected and applied together once per frame: one reactive pass
+// (and one render) for a burst instead of one per event. The order is kept.
+const lastEventAt = ref(0)
+const stallLevel = ref(0)
+let incomingBuffer = []
+let flushTimer = null
+let flushRaf = null
+const flushIncoming = () => {
+  if (flushTimer) clearTimeout(flushTimer)
+  if (flushRaf) cancelAnimationFrame(flushRaf)
+  flushTimer = flushRaf = null
+  const batch = incomingBuffer
+  incomingBuffer = []
+  if (!batch.length) return
+  lastEventAt.value = Date.now()
+  processQueue = processQueue
+    .then(async () => {
+      // processMessage runs synchronously up to its first await, so the whole batch lands in
+      // one go; only session_resumed (it waits for the workflow file) is waited for.
+      for (const { socket, msg } of batch) {
+        if (ws !== socket) continue
+        try {
+          const pending = processMessage(msg)
+          if (msg.type === 'session_resumed') await pending
+          else pending.catch((e) => console.error('Failed to handle a WebSocket message:', e))
+        } catch (e) {
+          console.error('Failed to handle a WebSocket message:', e)
+        }
+      }
+    })
+    .catch((processError) => console.error('Failed to handle a WebSocket message:', processError))
+}
+const enqueueMessage = (socket, msg) => {
+  incomingBuffer.push({ socket, msg })
+  if (flushTimer) return
+  // rAF does not run in a hidden tab: the timer keeps the chat moving there
+  flushTimer = setTimeout(flushIncoming, 50)
+  if (typeof requestAnimationFrame === 'function') flushRaf = requestAnimationFrame(flushIncoming)
+}
 
 // Establish a WebSocket connection
 const establishWebSocketConnection = (options = {}) => {
@@ -4057,7 +4099,7 @@ const establishWebSocketConnection = (options = {}) => {
   }
 
   const wsUrl = reconnecting
-    ? `${scheme}//${host}/ws?session_id=${encodeURIComponent(reconnectSid)}`
+    ? `${scheme}//${host}/ws?session_id=${encodeURIComponent(reconnectSid)}&batch=1`
     : `${scheme}//${host}/ws`
   const socket = new WebSocket(wsUrl)
   ws = socket
@@ -4074,6 +4116,13 @@ const establishWebSocketConnection = (options = {}) => {
     let msg
     try {
       msg = JSON.parse(event.data)
+      // A replay sent as one frame: handle its messages like single ones, in order
+      if (msg?.type === 'batch' && Array.isArray(msg.data)) {
+        for (const inner of msg.data) {
+          if (inner && typeof inner === 'object') enqueueMessage(socket, inner)
+        }
+        return
+      }
       // Another tab took this session: remember it so the close that follows is not
       // mistaken for a dropped connection (which would reconnect and take it back).
       if (msg?.type === 'session_replaced') {
@@ -4135,9 +4184,7 @@ const establishWebSocketConnection = (options = {}) => {
     } else {
       // In order, one at a time: session_resumed waits for the workflow file, and events that
       // arrive meanwhile (a live run) must not be applied before it, nor be overwritten by it
-      processQueue = processQueue
-        .then(() => (ws === socket ? processMessage(msg) : undefined))
-        .catch((processError) => console.error('Failed to handle a WebSocket message:', processError))
+      enqueueMessage(socket, msg)
     }
   }
 
@@ -4251,8 +4298,10 @@ const openSession = async (item) => {
   taskPrompt.value = ''
   currentProjectName.value = sessionProject(item)?.name || ''
   if (item.yaml_file) setWorkflowSelection(item.yaml_file)
-  await router.replace({ query: { ...route.query, workflow: item.yaml_file, session: item.session_id } })
+  // The socket, the workflow file and the URL change all start at once: none waits for another
+  if (item.yaml_file) prefetchWorkflowYaml(item.yaml_file)
   establishWebSocketConnection({ sessionId: item.session_id })
+  await router.replace({ query: { ...route.query, workflow: item.yaml_file, session: item.session_id } })
 }
 
 // Open an empty session of a workflow; with a source, the project comes along
@@ -5452,7 +5501,7 @@ const processMessage = async (msg) => {
       // Load YAML data and sprites (but don't clear chat)
       const socketBefore = ws
       try {
-        const yamlContentString = await fetchWorkflowYAML(data.yaml_file)
+        const yamlContentString = await takeWorkflowYaml(data.yaml_file)
         // Another session was opened while the file loaded: this answer is no longer ours
         if (ws !== socketBefore) return
         const parsedYaml = yaml.load(yamlContentString)
@@ -8420,6 +8469,11 @@ watch(
   background: var(--fg);
   color: var(--bg);
   animation: composer-stop-pulse 1.6s var(--ease-out) infinite;
+}
+/* A run quiet for 3 minutes: Stop gets a steadier, larger ring */
+.composer-send.is-stop.is-stalled {
+  animation: none;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 55%, transparent);
 }
 @keyframes composer-stop-pulse {
   0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }

@@ -18,6 +18,7 @@ from agentdev.runtime.node.agent.providers._cli_common import (
     CliProviderError,
     CliRunState,
     attachments_section,
+    effort_level,
     build_tool_preamble,
     flatten_conversation,
     make_tempdir,
@@ -84,6 +85,10 @@ def tool_reply_schema(tool_specs: List[ToolSpec]) -> Dict[str, Any]:
         },
         "required": ["text", "tool_calls"],
     }
+
+
+def _ignore_line(_line: str) -> None:
+    """on_line target that only switches the idle watchdog on."""
 
 
 def _error_events_text(stdout: str) -> str:
@@ -175,7 +180,9 @@ class CodexCliProvider(ModelProvider):
             prompt = flatten_conversation(conversation, preamble)
         else:
             prompt = flatten_conversation(conversation)
-        timeout = self.params.get("timeout", 300)
+        # Streamed (on_line) so the idle watchdog catches a stuck CLI; the wall-clock limit is only a backstop
+        # (a flat 300 s killed long outputs and the retry redid the work).
+        timeout = self.params.get("timeout", DEFAULT_NATIVE_TIMEOUT)
         # One working folder for every call of this agent run: Codex puts the cwd in its prompt, so a
         # per-call temp folder changes the prompt prefix and no step reuses the previous one's cache.
         cwd = self._run_state().workdir()
@@ -204,9 +211,12 @@ class CodexCliProvider(ModelProvider):
             prompt = prompt + chr(10) * 2 + section
         if self.model_name:
             cmd += ["--model", validate_model_name(self.model_name)]
+        effort = effort_level(self.params)
+        if effort:
+            cmd += ["-c", f"model_reasoning_effort={effort}"]
         cmd.append("-")  # read prompt from stdin
         try:
-            proc = run_cli(cmd, prompt, timeout, "codex", cwd)
+            proc = run_cli(cmd, prompt, timeout, "codex", cwd, on_line=_ignore_line)
             text = ""
             if os.path.exists(out_file):
                 with open(out_file, "r", encoding="utf-8", errors="replace") as fh:
@@ -283,6 +293,9 @@ class CodexCliProvider(ModelProvider):
                 prompt = prompt + chr(10) * 2 + section
             if self.model_name:
                 cmd += ["--model", validate_model_name(self.model_name)]
+            effort = effort_level(self.params)
+            if effort:
+                cmd += ["-c", f"model_reasoning_effort={effort}"]
             cmd.append("-")
             # Commands / file changes are reported to the UI as their item.started/completed events arrive.
             live = LiveEvents(CodexActivityReader(native))

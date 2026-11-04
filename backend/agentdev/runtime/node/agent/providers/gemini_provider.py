@@ -67,10 +67,18 @@ class GeminiProvider(ModelProvider):
         if isinstance(headers, dict):
             headers.pop("x-goog-api-key", None)
 
+    def _http_timeout_ms(self) -> int:
+        """HTTP timeout in ms from ``params.timeout`` (seconds); default 10 min, bad values fall back."""
+        try:
+            seconds = float((getattr(self, "params", None) or {}).get("timeout"))
+        except (TypeError, ValueError):
+            seconds = 0
+        return int((seconds if seconds > 0 else 600) * 1000)
+
     def _build_bearer_http_options(self, base_url: str, token: str) -> genai_types.HttpOptions:
         kwargs: Dict[str, Any] = {
             "headers": {"Authorization": f"Bearer {token}"},
-            "timeout": 4 * 60 * 1000,
+            "timeout": self._http_timeout_ms(),
         }
         if base_url:
             kwargs["base_url"] = base_url

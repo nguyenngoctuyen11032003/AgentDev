@@ -282,7 +282,7 @@ def test_codex_normal_mode_unchanged():
         CodexCliProvider(_cfg()).call_model(CliClient("codex"), _conv(), [])
     argv, kw = run.call_args.args[0], run.call_args.kwargs
     assert _arg(argv, "--sandbox") == "read-only" and "-C" not in argv
-    assert "agentdev-cli-" in kw["cwd"] and kw["timeout"] == 300
+    assert "agentdev-cli-" in kw["cwd"] and kw["timeout"] == 1800 and kw.get("on_stdout_line")
 
 
 # --------------------------------------------------------------------------- executor

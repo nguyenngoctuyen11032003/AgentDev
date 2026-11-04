@@ -43,6 +43,18 @@ def _encode_ws_message(message: Any) -> str:
     return json.dumps(message, default=_json_default)
 
 
+# A client that asks for it (`?batch=1`) gets the saved events as array frames of this many
+# messages (type "batch") instead of one frame each; older clients keep the one-by-one replay.
+REPLAY_BATCH_SIZE = 100
+
+
+def _client_accepts_batches(websocket: Any) -> bool:
+    try:
+        return str(websocket.query_params.get("batch", "")) == "1"
+    except Exception:
+        return False
+
+
 def _with_timestamp(message: Dict[str, Any]) -> Dict[str, Any]:
     """Return ``message`` with a top-level ``ts`` (ISO 8601 UTC) unless it already has one."""
     if not isinstance(message, dict) or message.get("ts"):
@@ -140,6 +152,8 @@ class WebSocketManager:
                     session_id,
                     {"type": "connection", "data": {"session_id": session_id, "status": "connected", "resumed": True}},
                 )
+                batched = _client_accepts_batches(websocket)
+                chunk: list = []
                 for msg in messages_to_replay:
                     if not still_current():
                         return session_id
@@ -147,7 +161,15 @@ class WebSocketManager:
                     # model prompts; trim them on the way out too.
                     if isinstance(msg, dict) and msg.get("type") == "log" and isinstance(msg.get("data"), dict):
                         msg = {**msg, "data": client_entry(msg["data"])}
-                    await self._send_to(websocket, session_id, msg)
+                    if not batched:
+                        await self._send_to(websocket, session_id, msg)
+                        continue
+                    chunk.append(msg)
+                    if len(chunk) >= REPLAY_BATCH_SIZE:
+                        await self._send_to(websocket, session_id, {"type": "batch", "data": chunk})
+                        chunk = []
+                if chunk and still_current():
+                    await self._send_to(websocket, session_id, {"type": "batch", "data": chunk})
 
                 snapshot = self.session_store.get_session_snapshot(session_id)
                 if snapshot and still_current():

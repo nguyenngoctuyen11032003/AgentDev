@@ -85,6 +85,8 @@ class WorkflowSession:
 
     # True once a run of this session changed files (an ``artifact_created`` message was recorded).
     files_changed: bool = False
+    # {relative path: size in bytes} of files the runs changed (latest MAX_CHANGED_FILES), for the follow-up prompt.
+    changed_files: Dict[str, Any] = field(default_factory=dict)
 
     # Progress of the latest run (see run_checkpoint.py) and, for a run that continues an
     # interrupted one, the interrupted checkpoint it was given.
@@ -107,6 +109,26 @@ class WorkflowSession:
 
 def _is_pinned(message: Any) -> bool:
     return isinstance(message, dict) and message.get("type") == "user_message"
+
+
+MAX_CHANGED_FILES = 200
+
+
+def note_changed_files(session: "WorkflowSession", message: Any) -> None:
+    """Remember the paths (and sizes) an ``artifact_created`` message reports."""
+    if not _changes_files(message):
+        return
+    for event in message["data"]["events"]:
+        if not isinstance(event, dict):
+            continue
+        path = str(event.get("relative_path") or event.get("file_name") or "").strip()
+        if not path or event.get("change_type") == "deleted":
+            continue
+        size = event.get("size")
+        session.changed_files.pop(path, None)  # re-insert: most recently changed last
+        session.changed_files[path] = size if isinstance(size, int) else None
+    while len(session.changed_files) > MAX_CHANGED_FILES:
+        session.changed_files.pop(next(iter(session.changed_files)))
 
 
 def _changes_files(message: Any) -> bool:
@@ -194,6 +216,7 @@ class WorkflowSessionStore:
             "interrupt_reason": (session.checkpoint or {}).get("reason") or session.error_message,
             # Saved so a compacted replay log (restore_session) does not forget that files changed
             "files_changed": session.files_changed,
+            "changed_files": dict(list(session.changed_files.items())[-MAX_CHANGED_FILES:]),
         }
 
     def _persist(self, session: WorkflowSession) -> None:
@@ -211,8 +234,9 @@ class WorkflowSessionStore:
             self.history.append_message(session_id, encoded)
             if message.get("type") in _RUN_END_MESSAGES or _is_fatal_error(message):
                 self.history.close_stream(session_id)  # nothing more is written until the next run
-        if not session.files_changed and _changes_files(message):
+        if _changes_files(message):
             session.files_changed = True
+            note_changed_files(session, message)
             self._persist(session)
 
     def restore_session(self, session_id: str) -> Optional[WorkflowSession]:
@@ -249,10 +273,14 @@ class WorkflowSessionStore:
         )
         # Load everything and apply the same eviction as live, so turn-start user messages survive.
         session.files_changed = bool(meta.get("files_changed"))
+        saved_files = meta.get("changed_files")
+        if isinstance(saved_files, dict):
+            session.changed_files = {str(k): v for k, v in saved_files.items()}
         loaded = self.history.load_messages(session_id, 0)
         for message in loaded:
             session.append_message(message)
             session.files_changed = session.files_changed or _changes_files(message)
+            note_changed_files(session, message)
         if len(loaded) > COMPACT_LOG_FACTOR * session.MAX_BUFFER_SIZE:
             # The log only grows; what the buffer evicted is never replayed. Trim it so the next
             # restore does not parse (and the disk does not keep) thousands of dead lines.

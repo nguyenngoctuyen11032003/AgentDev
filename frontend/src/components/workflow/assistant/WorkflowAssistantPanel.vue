@@ -251,7 +251,8 @@ const {
   send,
   stop,
   newConversation,
-  discardProposal
+  discardProposal,
+  draftSeed
 } = useWorkflowAssistant()
 
 const CREATE_STARTER_KEYS = [
@@ -471,6 +472,19 @@ const onEnter = (event) => {
   event.preventDefault()
   submit()
 }
+
+// Text from another page (Lab "fix this"): placed in the composer to edit, never sent automatically.
+watch(
+  draftSeed,
+  (text) => {
+    if (!text) return
+    draft.value = text
+    draftSeed.value = ''
+    focusInput()
+    nextTick(autosize)
+  },
+  { immediate: true }
+)
 
 const useStarter = (text) => {
   draft.value = text

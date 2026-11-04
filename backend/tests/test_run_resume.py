@@ -202,3 +202,17 @@ def test_completed_run_is_not_resumable(tmp_path):
     store.save_checkpoint("s2", rc.RunCheckpointRecorder(cp, lambda _c: None).finish(rc.STATE_COMPLETED), persist_meta=True)
     store.update_session_status("s2", SessionStatus.COMPLETED)
     assert store.get_session_snapshot("s2")["resumable"] is False
+
+
+def test_resume_note_is_compact():
+    from agentdev.api.services.run_checkpoint import MAX_RESUME_CHARS, build_resume_note
+
+    cp = {
+        "state": "interrupted",
+        "original_prompt": "big job",
+        "nodes": {f"n{i}": {"status": "done", "output": "line one\n" + "z" * 5000} for i in range(30)},
+        "team": [{"member": f"m{i}", "task": "t" * 500, "report": "r" * 2000} for i in range(8)],
+    }
+    note = build_resume_note(cp, resume_requested=True)
+    assert len(note) < MAX_RESUME_CHARS + 600
+    assert "n29: line one" in note or "n29" in note

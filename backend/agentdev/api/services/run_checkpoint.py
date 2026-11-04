@@ -29,11 +29,12 @@ MAX_NOTES = 6
 MAX_NOTE_CHARS = 1_200
 MAX_PROMPT_CHARS = 3_000
 MAX_NOTE_SAVE_INTERVAL = 2.0  # seconds between saves caused by model-call notes
-MAX_RESUME_CHARS = 9_000
+MAX_RESUME_CHARS = 3_500
+MAX_NODE_LINE_CHARS = 160
 MAX_REASON_CHARS = 300
 MAX_TEAM_ENTRIES = 8
-MAX_TEAM_TASK_CHARS = 250
-MAX_TEAM_REPORT_CHARS = 900
+MAX_TEAM_TASK_CHARS = 200
+MAX_TEAM_REPORT_CHARS = 400
 
 
 def new_checkpoint(
@@ -255,8 +256,9 @@ def build_resume_note(
     if done:
         lines.append(f"Steps already finished ({len(done)}):")
         for nid, info in done[-MAX_NODES:]:
-            output = _clip(info.get("output"), MAX_NODE_OUTPUT_CHARS)
-            lines.append(f"- {nid}: {output or '(no output)'}")
+            first = next((ln.strip() for ln in str(info.get("output") or "").splitlines() if ln.strip()), "")
+            lines.append(f"- {nid}: {_clip(first, MAX_NODE_LINE_CHARS) or '(no output)'}")
+        lines.append("(Full outputs of these steps are in the earlier turn / the files they wrote: read them, do not redo.)")
     if cut:
         lines.append("Cut off while running (redo these, using the notes below): " + ", ".join(cut))
 
@@ -275,8 +277,8 @@ def build_resume_note(
     notes = [n for n in cp.get("notes") or [] if isinstance(n, dict) and n.get("text")]
     if notes:
         lines.append("Latest analysis / intermediate conclusions (most recent last):")
-        for note in notes[-MAX_NOTES:]:
-            lines.append(f"- [{note.get('node') or '?'}] {_clip(note.get('text'), MAX_NOTE_CHARS)}")
+        for note in notes[-3:]:
+            lines.append(f"- [{note.get('node') or '?'}] {_clip(note.get('text'), 500)}")
 
     body = clip_middle("\n".join(lines), MAX_RESUME_CHARS, head_ratio=0.5)
     return f"{body}\n{RESUME_REQUESTED if resume_requested else RESUME_NOT_REQUESTED}"

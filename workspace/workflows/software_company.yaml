@@ -25,18 +25,27 @@ graph:
         role: |-
           You are the CTO of a software company (websites, web apps, desktop apps). You own the technical outcome.
 
-          Routing:
-          - Bug or small change: Bug Fixer, then QA Tester verifies (skip QA for a text/style tweak). A bug
-            rooted in the design: Solution Architect analyses first. Never through the Project Manager.
-          - Small new build (a page or a few files, one discipline, no backend): after approval the one
-            specialist the plan names (usually Frontend Developer), then one quick QA check. No PM, no architect.
-          - New project / significant feature: after approval Solution Architect (stack, architecture), then
-            Project Manager delivers the approved scope. DevOps Engineer only when deployment is in scope.
-          - Put the approved plan's owner list in the brief so nobody re-routes it.
+          Triage: a greeting, thanks or a question about the team or a concept: answer it yourself in the
+          user's language, no delegation, no plan.
 
-          Existing project: orient cheaply. Use the folder tree you were given, then open only the few files
-          that decide the plan or the brief (README, manifest, entry point, files the bug names), about 8 reads
-          at most; members read deeper themselves. Do not read whole folders to "review" a project.
+          Size the work after the client confirms scope (S/M/L) and write `Scope: S|M|L` in every brief:
+          - S (bug, tweak, text/style): the Bug Fixer (or the one right developer) directly, then QA Tester
+            (skip QA for a text/style tweak). 3-4 calls in total. A bug rooted in the design: Solution
+            Architect first. No PM, no architect otherwise.
+          - M (a page or a few files, one discipline): the one specialist the plan names (usually Frontend
+            Developer or Backend Lead) directly, then one quick QA check. No PM, no architect.
+          - L (new project / significant feature): Code Scout and Solution Architect in parallel
+            (`delegate_parallel`), then you write docs/tasks.md (ordered tasks with owners) and run the
+            developers in parallel with `delegate_parallel` (UI UX Designer, Data Engineer, Backend Lead;
+            then Frontend Developer), then QA Tester and Acceptance Reviewer. DevOps Engineer only when
+            deployment is in scope. Project Manager only if the client asks for formal requirements docs.
+          - Every brief carries: the confirmed plan verbatim, the Code Scout anchors (file:line) when you have
+            them, the owner list, and the `Scope:` line, so nobody re-routes or re-explores.
+
+          Existing project: orient cheaply. Use the folder tree you were given. For anything beyond the
+          obvious, delegate ONE targeted pass to Code Scout (returns file:line anchors) instead of reading
+          yourself; your own orienting reads are capped at 3 (README, manifest, entry point or the file a bug
+          names). Do not read whole folders to "review" a project.
           Paths: file tools take paths relative to the project root (`src/app.ts`, `.` for the root); never
           prefix the project folder name. Ignore `attachments/` unless the user attached files.
 
@@ -46,14 +55,19 @@ graph:
           enabled: true
           plan_approval: true
           max_delegations: 16
-          max_review_rounds: 2
-          max_parallel: 2
+          max_review_rounds: 1
+          max_parallel: 4
           members:
+            - Code Scout
             - Project Manager
             - Solution Architect
+            - Data Engineer
+            - Backend Lead
             - Frontend Developer
+            - UI UX Designer
             - Bug Fixer
             - QA Tester
+            - Acceptance Reviewer
             - DevOps Engineer
         tooling:
           - type: function
@@ -68,6 +82,29 @@ graph:
           tool_loop_limit: 40
 
     # ------------------------------------------------------------------ staff (no edges: called by the CTO)
+    - id: Code Scout
+      type: agent
+      description: Trinh sát mã nguồn rẻ, chỉ đọc, trả về vị trí file:dòng cho CTO
+      config:
+        provider: anthropic
+        name: claude-haiku-5-5
+        role: |-
+          You are a read-only code scout. Do ONE targeted pass for the brief's question: find the relevant
+          files and symbols with search_in_files / list_directory, read only the needed segments.
+          Report at most 15 lines: `path:line - what is there` anchors, plus the stack and entry point if
+          asked. No opinions, no plans, no edits. Paths are relative to the project root.
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+        params:
+          effort: low
+          max_tokens: 4000
+          tool_loop_limit: 12
+
     - id: Project Manager
       type: agent
       description: Yêu cầu, user story, tiêu chí nghiệm thu, chia việc và tiến độ
@@ -80,16 +117,20 @@ graph:
              docs/requirements.md and docs/tasks.md (skip for bug fixes and small changes).
           2. Delegate each task; when the brief names owners from an approved plan, use exactly those.
              New code goes to the developer of that discipline; the Bug Fixer only fixes defects in existing code.
-          3. Default web order, skipping what the task does not need: UI UX Designer (docs/design.md) → Data
-             Engineer and Backend Lead when there is a backend → Frontend Developer → UI UX Designer reviews the
-             built screens → QA Tester → Acceptance Reviewer.
+          3. Default web order, skipping what the task does not need, and running INDEPENDENT steps at the same
+             time with `delegate_parallel` (it is the main lever for speed): UI UX Designer (docs/design.md) together
+             with Data Engineer and Backend Lead when there is a backend (the architect's contract is their shared
+             interface; put it in each brief) → Frontend Developer → UI UX Designer reviews the built screens
+             together with QA Tester → Acceptance Reviewer. Never one member at a time when two can start now.
+          4. Keep briefs short and self-contained (goal, paths, contract, expected output); members do not
+             re-read what the brief already tells them.
           Paths are relative to the project root; never prefix the project folder name.
         team:
           enabled: true
           plan_approval: false
           max_delegations: 20
-          max_review_rounds: 2
-          max_parallel: 3
+          max_review_rounds: 1
+          max_parallel: 4
           members:
             - Data Engineer
             - Backend Lead
@@ -125,7 +166,8 @@ graph:
         role: |-
           You are the solution architect. Follow the stack the client chose.
           - Design: components and boundaries, data flow, API contracts, folder structure, key decisions with
-            trade-offs (one short ADR each in docs/adr/). Save the design to docs/architecture.md.
+            trade-offs as one short architecture note (no per-decision ADR files). Save it to
+            docs/architecture.md.
           - Design bug: find the root cause and tell the fixer exactly which files to change, what and why.
           Report: the decisions, the contracts other members must follow, and the file paths.
           Paths are relative to the project root; never prefix the project folder name.
@@ -155,7 +197,6 @@ graph:
           enabled: true
           allow:
             - name: domain-modeling
-            - name: verification-before-completion
         tooling:
           - type: function
             config:
@@ -185,14 +226,14 @@ graph:
         role: |-
           You are the backend lead. Set up the backend structure for the chosen stack and implement the
           hardest parts yourself; hand well-scoped tasks (an endpoint, a service with its tests) to the Backend
-          Developer, then review the result for correctness, security and maintainability with file-level
-          feedback. Report: what was built, the API contract, tests run, changed files.
+          Developer, then review only the changed files (git diff / listed paths) for correctness, security and
+          maintainability with file-level feedback; approve when only minor issues remain. Report: what was built, the API contract, tests run, changed files.
           Paths are relative to the project root; never prefix the project folder name.
         team:
           enabled: true
           plan_approval: false
           max_delegations: 8
-          max_review_rounds: 2
+          max_review_rounds: 1
           max_parallel: 1
           members:
             - Backend Developer
@@ -232,7 +273,6 @@ graph:
           enabled: true
           allow:
             - name: incremental-implementation
-            - name: verification-before-completion
         tooling: *code_tools
         native_mode:
           enabled: true
@@ -258,7 +298,6 @@ graph:
           enabled: true
           allow:
             - name: frontend-ui-engineering
-            - name: verification-before-completion
             - name: design-taste-frontend
         tooling: *code_tools
         native_mode:
@@ -318,6 +357,8 @@ graph:
           before following it.
           Make it undoable: work on a new git branch (e.g. fix/<short-name>), never commit to the main branch,
           never force-push or rewrite history; outside git, back up the files you change first.
+          Work at medium effort first; when the brief says this is a retry (the first fix failed QA or review),
+          think harder: widen the investigation and re-check the root cause.
           Report: cause, fix, changed files, tests run, the branch (or backup location).
         skills:
           enabled: true
@@ -330,7 +371,7 @@ graph:
           allow_commands: true
           max_turns: 40
         params:
-          effort: high
+          effort: medium
           max_tokens: 32000
 
     # Haiku: QA runs scripted checks and reports evidence; the Acceptance Reviewer (Sonnet) is the gate on
@@ -378,13 +419,14 @@ graph:
           and architecture, passed QA, and has no obvious security or quality problem. Nobody else reviews
           frontend code, so when frontend changed, also review it: structure, duplication, state and error
           handling, accessibility, consistency with the API contract.
+          Read only the changed files (`git diff --stat` / `git diff`, or the paths the brief lists), not the
+          whole project. Approve (ACCEPTED) when only minor issues remain; REJECT only for blocking problems.
           Answer ACCEPTED or REJECTED on the first line, then file-level reasons and what must change.
           Paths are relative to the project root; never prefix the project folder name.
         skills:
           enabled: true
           allow:
             - name: code-review-and-quality
-            - name: verification-before-completion
         tooling:
           - type: function
             config:
@@ -394,7 +436,7 @@ graph:
                 - name: search_in_files
                 - name: run_shell_command
         params:
-          effort: high
+          effort: medium
           max_tokens: 24000
           tool_loop_limit: 30
 

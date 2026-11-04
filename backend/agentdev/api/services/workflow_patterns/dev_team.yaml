@@ -1,0 +1,82 @@
+# id: dev_team
+# keywords: phan mem, lap trinh, dev, code, ung dung, web, app, bug, software, developer, qa, team
+# when: a lead-driven software team for open-ended build/fix work
+# slots: stack, project area, members to add (designer, devops)
+version: 0.4.0
+vars: {}
+graph:
+  id: dev_team
+  description: >-
+    Software team. You chat with the Tech Lead, who plans, gets your approval and delegates to Scout, Developer and QA.
+  log_level: INFO
+  is_majority_voting: false
+  start: [Tech Lead]
+  end: [Tech Lead]
+  nodes:
+    - id: Tech Lead
+      type: agent
+      description: Team lead, the only one who talks to the client
+      config:
+        provider: anthropic
+        name: claude-opus-5-5
+        role: |-
+          You lead a software team; the user is your client. Small question: answer yourself. New work: propose a short plan, wait for approval, have the Scout map the code, brief the Developer, then have QA verify (at most 2 fix rounds). Answer in the user's language.
+        params:
+          effort: medium
+        team:
+          enabled: true
+          members: [Scout, Developer, QA Tester]
+          plan_approval: true
+          max_delegations: 15
+          max_review_rounds: 2
+          max_parallel: 1
+    - id: Scout
+      type: agent
+      description: Reads the code and reports where to change
+      config:
+        provider: anthropic
+        name: claude-haiku-5-5
+        role: |-
+          Read the files named in the brief and report the relevant paths, functions and risks in under 15 lines.
+        params:
+          effort: low
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: list_directory
+                - name: read_file_segment
+                - name: search_in_files
+    - id: Developer
+      type: agent
+      description: Implements the change
+      config:
+        provider: anthropic
+        name: claude-sonnet-5-5
+        role: |-
+          Implement the assigned change in <SLOT: stack>, touching only the named files, and report the files changed.
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: read_file_segment
+                - name: search_in_files
+                - name: save_file
+                - name: apply_text_edits
+    - id: QA Tester
+      type: agent
+      description: Checks the work against the acceptance criteria
+      config:
+        provider: anthropic
+        name: claude-haiku-5-5
+        role: |-
+          Report PASS or FAIL per acceptance criterion with one line of evidence. Stop when only minor issues remain.
+        params:
+          effort: low
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: read_file_segment
+                - name: search_in_files
+  edges: []

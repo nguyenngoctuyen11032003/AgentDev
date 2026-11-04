@@ -42,7 +42,7 @@ PLAN_GATE_REFUSAL = (
     "(their next message)."
 )
 # A member's report as the lead sees it; the full text stays in the team state (``log`` / ``history``).
-MAX_MEMBER_RESULT_CHARS = 4_000
+MAX_MEMBER_RESULT_CHARS = 2_000
 # The one earlier report repeated in a member's brief.
 MAX_HISTORY_CHARS = 1_000
 # Member runs allowed in one run across ALL leads (top lead + sub-leads), so nested teams cannot
@@ -78,7 +78,7 @@ _QUOTA_ERROR_RE = re.compile(
 )
 # Longest a ``delegate_task`` waits for the same member to finish another task of the same lead
 # (several ``delegate_task`` calls to one member in one reply run one after the other).
-MEMBER_BUSY_WAIT_SECONDS = 30 * 60
+MEMBER_BUSY_WAIT_SECONDS = 120
 
 DelegateRunner = Callable[[str, List[Message], str], List[Message]]
 
@@ -136,6 +136,9 @@ class TeamState:
     unavailable: Dict[str, str] = field(default_factory=dict)
     # The plan the lead proposed in the previous turn and the user is now replying to ("" when none).
     pending_plan: str = ""
+    # The user has settled the scope (answered an ``ask_user``, approved a plan, or said "go ahead"): the
+    # lead executes without another plan round.
+    scope_confirmed: bool = False
     lock: Any = field(default_factory=threading.RLock, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -150,6 +153,7 @@ class TeamState:
     def add_exchange(self, question: str, answer: str) -> None:
         with self.lock:
             self.exchanges.append({"question": question, "answer": answer})
+            self.scope_confirmed = True
 
     def add_report(self, member: str, task: str, report: str, lead: str = "", reusable: bool = True) -> None:
         """Record a member's report. ``reusable``: an identical re-delegation may get this report back."""
@@ -201,6 +205,8 @@ class TeamState:
         """
         with self.lock:
             self.user_message = (newest if newest is not None else text or "").strip()
+            if has_go_ahead(self.user_message):
+                self.scope_confirmed = True
         language = detect_language(text)
         if language:
             with self.lock:
@@ -486,6 +492,28 @@ _APPROVAL_FILLERS = frozenset(
 _APPROVAL_STRIP = re.compile(r"[\s!.?,~:;()*^_\-\"'`]+|[\U0001F300-\U0001FAFF☀-➿]+")
 
 
+# "Làm luôn", "go ahead"... anywhere in a message: the user wants the work done now, not another plan.
+_GO_AHEAD_RE = re.compile(
+    r"(?<!\w)(làm luôn|lam luon|làm đi|lam di|cứ làm|cu lam|ok làm|ok lam|go ahead|just do it)(?!\w)"
+)
+_NEGATION_RE = re.compile(r"(?<!\w)(đừng|dung|không|khong|chưa|chua|don't|dont|do not|not|never|no)(?!\w)")
+
+
+def has_go_ahead(text: Optional[str]) -> bool:
+    """True when ``text`` contains a clear go-ahead phrase and no negation ("đừng làm luôn")."""
+    low = (text or "").lower()
+    match = _GO_AHEAD_RE.search(low)
+    return bool(match) and not _NEGATION_RE.search(low[: match.start()][-25:])
+
+
+def starts_with_approval(text: Optional[str]) -> bool:
+    """True for "ok/đồng ý + changes": an approval phrase first, then edits ("ok nhưng dùng Vue")."""
+    words = _APPROVAL_STRIP.sub(" ", (text or "").lower()).split()
+    if len(words) < 2:
+        return False
+    return words[0] in _APPROVAL_PHRASES or " ".join(words[:2]) in _APPROVAL_PHRASES
+
+
 def is_plan_approval(text: Optional[str]) -> bool:
     """True when ``text`` only approves a proposed plan ("ok", "duyệt, làm đi", "go ahead 👍")."""
     words = _APPROVAL_STRIP.sub(" ", (text or "").lower()).split()
@@ -591,35 +619,38 @@ def _sub_team(node_id: str, node: Any, nodes: Mapping[str, Any]) -> List[str]:
 
 LEAD_PROTOCOL = """\
 # You lead a team
-The user is your client. They talk ONLY to you; your team members never talk to the user.
+The user is your client. They talk ONLY to you; your members never talk to the user.
 
-## First, classify the message (silently) and act on it
-(a) Question, greeting or small talk, advice ("X vs Y?", "how does Z work?"), or anything you can answer well yourself (an explanation, a question about earlier work, a short review): answer it yourself, right away: no plan, and answer directly unless the work needs a member's role or tools. Keep it short (a greeting: 1-3 sentences).
-(b) Bug fix or small, clear change (one function, a config, a text or style tweak): no plan, no approval round. Look at the relevant files if a project is attached, then delegate it directly to the right specialist (a bug: the fixer, with symptom, likely files and how to reproduce; then the tester verifies it, skipped only for a text or style tweak), or do it yourself if it needs no member.
-(c) New project or significant new feature: see the plan rule below.
-- "Can you build X?": say yes (or what is not possible) and propose a concrete default in a few lines (what you would build, key features, stack) so the user can just say "ok".
-- Work on an existing project (attached files or a project folder): look at the relevant files with your read tools BEFORE planning or delegating, and base the plan and briefs on what is really there.
-- Follow-up message: decisions, plans and answers in the earlier conversation still stand, and "What the team did" there lists your members' earlier work. If your last answer proposed a plan or asked a question and the user now approves ("ok", "đồng ý", "duyệt", "go ahead"…) or answers it, act on it immediately, with the changes they asked for — do not re-plan or ask for approval again. Never re-delegate work already done unless the user asks to redo or change it.
+## First, classify the message (silently) and act
+(a) Question, greeting, small talk, advice, or anything you can answer well yourself (explanation, question about earlier work, short review): answer it yourself, answer directly and short; no plan, no members unless their role or tools are needed.
+(b) Bug fix or small, clear change (one function, a config, a text or style tweak): no plan, no approval round. Look at the relevant files if a project is attached, then delegate to the right specialist (a bug: the fixer, with symptom, likely files, how to reproduce; then the tester verifies it, skipped only for text or style tweaks), or do it yourself if no member is needed.
+(c) New project or significant new feature: see the plan rule at the end.
+- "Can you build X?": say yes (or what is not possible) and propose a concrete default in a few lines (what, key features, stack) so the user can just say "ok".
+- Existing project (attached files or folder): read the relevant files BEFORE planning or delegating; base plan and briefs on what is there.
+- Follow-up: earlier decisions, plans and answers still stand; "What the team did" lists earlier member work. If your last answer proposed a plan or asked a question and the user approves ("ok", "đồng ý", "duyệt", "go ahead") or answers, act on it immediately with their changes; never re-plan or re-ask. Never re-delegate work already done unless asked to redo or change it.
 
 ## How you work
-1. Fill gaps with sensible, industry-standard defaults and state them as assumptions the user can change, instead of asking about each one. Questions you have before starting go at the end of your answer (with the plan, each with your recommended default). Use `ask_user` only for a genuine decision you cannot assume: the request itself can mean very different things and a wrong guess would waste the team's work, or a member needs a choice only the user can make. One short question with your recommended answer.
-2. Decide yourself who does what, in which order, and how many times. Do not call members the task does not need (a one-line fix does not need the whole team), and do not send a member the same task again: when its report is not enough, delegate only the missing part. If the request or your brief names a specific person ("ask the QA Tester…"), that person does the work: delegate to them if they are on your team, otherwise to the member who leads them and say in the brief who must do it. Never do a named person's work yourself.
-3. Delegate with `delegate_task`. Give each member a self-contained brief: goal, what is already known (decisions, the files or paths to start from, key results of earlier members: paste the few lines that matter, not whole files), constraints (stack, conventions), and what to hand back. Members do not see this conversation and re-explore whatever the brief leaves out. Scope the brief to what the user asked (plus normal quality); do not add requirements of your own, and judge results against the user's request, not extras.
-{parallel_rule}4. Chain work through yourself: pass one member's result to the next (e.g. analysis → fix → test → acceptance review). If a review or test fails, send it back for a fix, at most {max_rounds} rounds, then report the situation to the user.
-5. When a member's reply starts with "{marker}", only the user can decide: ask them with `ask_user` (the options and your recommendation), then continue.
-6. Finish with ONE short report to the user: the outcome in the first line, then only what applies — what was done, result/checks (tests, QA), files, open issues or next step. Do not paste members' output.
-Member reports reach you clipped to about {report_chars} characters (the full text is kept); ask that member only for a detail that was cut.
+1. Fill gaps with industry-standard defaults and state them as assumptions; questions go at the end of your answer, each with your recommended default. Use `ask_user` only for a genuine decision you cannot assume (the request could mean very different things, or a member needs a choice only the user can make): one short question with your recommendation.
+2. Decide who does what, in which order, how many times. Do not call members the task does not need and never send the same task again (delegate only the missing part). If the request or brief names a person ("ask the QA Tester…"), that person does the work: delegate to them, or to the member who leads them and name them in the brief. Never do a named person's work yourself.
+3. Delegate with `delegate_task`. Brief = goal, what is known (decisions, files or paths to start from, constraints such as stack), what to hand back. Members do not see this conversation. Refer to earlier members' output by FILE PATH, do not paste their reports (members read the files; pasting pays twice). Scope the brief to what the user asked; add no requirements of your own.
+{parallel_rule}   Lay the work out as a dependency graph and start every step whose inputs exist at the same time; never wait on one member while another could work. Keep briefs short.
+4. Chain work through yourself (analysis → fix → test → review). If a review or test fails, send it back for a fix, at most {max_rounds} rounds, then report to the user. After a tester PASS, stop reviewing: report.
+5. When a member's reply starts with "{marker}", only the user can decide: `ask_user` (options + recommendation), then continue.
+6. Finish with ONE short report: the outcome first, then only what applies — done, checks (tests, QA), files, open issues or next step. Do not paste members' output.
+Member reports reach you clipped to about {report_chars} characters (the full text is kept; members put long output in files); ask only for a detail that was cut.
 
 ## Rules
-- The user's technology choices are binding. If one is clearly wrong for the goal, say so with reasons and a better option, and let the user decide — never silently switch.
-- {plan_rule}
-- Report only what members actually produced; if something failed (a member error, an account usage limit) or was not checked, say so plainly.
-- No process narration ("I will now call…"), no internal tool, node or model names.
-- You have at most {max_delegations} delegations for this request, and the whole team (sub-teams included) shares a budget of {max_member_runs} member runs per request; plan accordingly.
-{language_rule}
+- The user's technology choices are binding. If one is clearly wrong, say so with reasons and a better option and let them decide; never silently switch.
+- Report only what members produced; say plainly what failed (member error, account usage limit) or was not checked.
+- No process narration, no internal tool, node or model names.
+- At most {max_delegations} delegations for this request; the whole team (sub-teams included) shares {max_member_runs} member runs.
+
 ## Your team
 {roster}
-"""
+
+## This message
+- {plan_rule}
+{language_rule}"""
 
 # The lead's whole team section for a message that is only a greeting or thanks (``is_small_talk``):
 # no protocol, roster or team tools, so the reply is fast and cheap.
@@ -647,22 +678,30 @@ PLAN_RULE_APPROVED = (
     "do the work (delegate to them, or to the member who leads them) — put the plan's scope and owner list in "
     "your briefs so nobody re-routes it."
 )
+PLAN_RULE_APPROVED_EDITS = (
+    "The user APPROVED your previous plan with changes. Execute it now with their changes applied: no new plan, "
+    "no approval round, no `ask_user` for what the message or plan settles."
+)
+PLAN_RULE_CONFIRMED = (
+    "The user has settled the scope (answered you or said to go ahead). Execute now: no plan, no approval round; "
+    "`ask_user` only for a new decision that blocks the work."
+)
 # Plan rule for a plain question (``is_simple_question``): it is answered, never planned.
 PLAN_RULE_QUESTION = "This message is a question: answer it (yourself, or with the one member it needs); no plan, no approval round."
 
 PARALLEL_RULE = (
-    "   When several tasks are INDEPENDENT (no task needs another's result and they do not edit the same files), "
-    "hand them out at once with `delegate_parallel` — up to {max_parallel} members work at the same time, each "
-    "member at most once per call (e.g. backend API + frontend page + data pipeline against an agreed contract). "
-    "Agree on shared interfaces first and put them in every brief. Dependent steps (build → test → review) stay "
-    "sequential with `delegate_task`. Every task counts as one delegation.\n"
+    "   PARALLEL BY DEFAULT: whenever 2+ steps are INDEPENDENT (need none of each other's results and do not edit the same files, "
+    "start them together with ONE `delegate_parallel` call (up to {max_parallel} members at once, each member at "
+    "most once per call; e.g. backend + frontend, or several scenes/assets against an agreed contract). Put shared "
+    "interfaces in every brief. Only dependent steps (build -> test -> review) go one by one with `delegate_task`. "
+    "Every task counts as one delegation.\n"
 )
 
 MEMBER_PROTOCOL = """\
 # You are a member of a team
 Your lead ({lead}) assigns you tasks. Do exactly the task in the brief, the way your role and task description define, applying every one of your skills that matches the task (load it first), and report back to the lead.
 - Start from the files, decisions and results the brief gives you; explore further only where they are not enough. Stop as soon as the task is done.
-- Report: what you did, the result (files changed, findings, test results), and anything unresolved. Concise and factual; no greeting, no recap of the brief.
+- Report: what you did, the result (files changed, findings, test results), and anything unresolved, in under 150 words. Write long output (documents, scripts, analyses, logs) to a file and report its path plus a short summary; never paste it into the report. No greeting, no recap of the brief.
 - Report only what you actually did and observed. Never claim a test passed or a file exists unless you ran or checked it; say "not run" / "not verified" otherwise.
 - If you cannot continue without a decision only the user can make (scope, budget, a technology choice, conflicting requirements), start your reply with "{marker}" followed by the question, the options and your recommendation.
 - If the brief conflicts with good practice, say so in your report instead of silently doing something else.
@@ -757,6 +796,17 @@ class TeamDelegation:
         )
 
     @property
+    def plan_approved_with_edits(self) -> bool:
+        """"ok + changes" to the plan it proposed: execute with the edits, do not re-plan."""
+        return (
+            bool(self.plan_approval)
+            and not self.delegated
+            and bool(self.state.pending_plan)
+            and not self.plan_approved
+            and starts_with_approval(self.state.user_message)
+        )
+
+    @property
     def plan_gate_enabled(self) -> bool:
         """Only the top-level lead (the one talking to the user) submits plans for approval.
 
@@ -764,6 +814,8 @@ class TeamDelegation:
         plain question (it is answered).
         """
         if not self.plan_approval or self.delegated:
+            return False
+        if self.state.scope_confirmed or self.plan_approved_with_edits:
             return False
         if self.state.pending_plan:
             # A reply to the plan: approving it executes it; anything else (changes, a question about it)
@@ -776,6 +828,10 @@ class TeamDelegation:
             return PLAN_RULE_OFF
         if self.plan_approved:
             return PLAN_RULE_APPROVED
+        if self.plan_approved_with_edits:
+            return PLAN_RULE_APPROVED_EDITS
+        if self.state.scope_confirmed:
+            return PLAN_RULE_CONFIRMED
         if not self.plan_gate_enabled:
             return PLAN_RULE_QUESTION
         return PLAN_RULE_ON
@@ -1079,7 +1135,10 @@ class TeamDelegation:
             if not mine or not self.state.wait_and_claim(member, self._cancelled):
                 if self._cancelled():
                     raise WorkflowCancelledError("Workflow execution cancelled")
-                raise ValueError(f"'{member}' is already working on another task right now; wait for its report first.")
+                raise ValueError(
+                    f"'{member}' is already working on another task and still busy after {int(MEMBER_BUSY_WAIT_SECONDS)}s; "
+                    "do not wait: delegate this to another member, or retry after its report arrives."
+                )
             with self._lock:
                 self._in_flight.add(member)
         repeated = self._repeat_result(member, task)

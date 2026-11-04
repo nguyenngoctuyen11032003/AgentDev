@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import copy
 import functools
+import hashlib
 import json
+import math
 import os
 import re
 import threading
@@ -24,6 +26,16 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
+from agentdev.api.services.lab_diagnosis import (
+    SLOW_SECONDS,
+    build_fix_brief,
+    compare_baseline,
+    diagnose_job,
+    node_timeline,
+    over_budget,
+    regression_finding,
+    run_budget,
+)
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV
 from agentdev.utils.human_prompt import AUTO_ANSWER, AutoAnswerChannel
 
@@ -32,6 +44,19 @@ UNSAFE_TOOLS = {"execute_code", "run_shell_command", "uv_run", "install_python_p
 PASS_THRESHOLD = 0.8
 MAX_SCENARIOS = 20
 MAX_REPEATS = 5
+RUN_TIMEOUT_SECONDS = int(os.environ.get("AGENTDEV_LAB_RUN_TIMEOUT", "600"))
+SCENARIO_PASS_SHARE = 2 / 3  # every scenario must pass at least this share of its own runs
+
+
+def _lab_workers() -> int:
+    try:
+        return max(1, min(int(os.environ.get("AGENTDEV_LAB_WORKERS", "3")), 8))
+    except ValueError:
+        return 3
+
+
+def _strict_budget() -> bool:
+    return os.environ.get("AGENTDEV_LAB_STRICT", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
 # ---------------------------------------------------------------------------- static check
@@ -172,7 +197,200 @@ def static_check_data(data: Any) -> Dict[str, Any]:
     never_run = sorted(nid for nid in nodes if nid not in reachable)
     _check(checks, "unreachable", WARN if never_run else PASS, ", ".join(never_run), nodes=never_run)
 
+    _graph_checks(checks, graph, nodes, edges, start)
     return _summarise(checks)
+
+
+# --- graph analysis (loops, human approvals, dead ends, model sanity, critical path)
+
+TIER_SECONDS = {"small": 15, "mid": 40, "top": 90}
+LOOP_PASS_SECONDS = 30
+CRITICAL_PATH_SECONDS = 180
+CRITICAL_PATH_AGENTS = 6
+LIGHT_ROLE_WORDS = ("review", "qa", "summar", "archiv", "save", "guard", "check")
+
+
+def model_tier(model: Any) -> str:
+    """small | mid | top from a model name (catalog naming: haiku/flash/mini/luna small, opus/fable/sol top)."""
+    name = str(model or "").lower()
+    if any(w in name for w in ("haiku", "flash", "mini", "luna", "nano", "lite")):
+        return "small"
+    if any(w in name for w in ("opus", "fable", "sol")):
+        return "top"
+    return "mid"
+
+
+def _sccs(ids: List[Any], adj: Dict[Any, List[Any]]) -> List[List[Any]]:
+    """Tarjan's strongly connected components (iterative)."""
+    index: Dict[Any, int] = {}
+    low: Dict[Any, int] = {}
+    on_stack: set = set()
+    stack: List[Any] = []
+    out: List[List[Any]] = []
+    counter = 0
+    for root in ids:
+        if root in index:
+            continue
+        work = [(root, iter(adj.get(root, [])))]
+        index[root] = low[root] = counter
+        counter += 1
+        stack.append(root)
+        on_stack.add(root)
+        while work:
+            node, it = work[-1]
+            advanced = False
+            for nxt in it:
+                if nxt not in index:
+                    index[nxt] = low[nxt] = counter
+                    counter += 1
+                    stack.append(nxt)
+                    on_stack.add(nxt)
+                    work.append((nxt, iter(adj.get(nxt, []))))
+                    advanced = True
+                    break
+                if nxt in on_stack:
+                    low[node] = min(low[node], index[nxt])
+            if advanced:
+                continue
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[node])
+            if low[node] == index[node]:
+                comp = []
+                while True:
+                    w = stack.pop()
+                    on_stack.discard(w)
+                    comp.append(w)
+                    if w == node:
+                        break
+                out.append(comp)
+    return out
+
+
+def edge_condition_matches(condition: Any, text: str) -> bool:
+    """Same semantics as KeywordEdgeConditionManager; non-keyword conditions are assumed to match."""
+    if not isinstance(condition, dict) or condition.get("type") != "keyword":
+        return True
+    cfg = condition.get("config") or {}
+    any_kw = [str(k) for k in cfg.get("any") or []]
+    none_kw = [str(k) for k in cfg.get("none") or []]
+    patterns = [str(k) for k in cfg.get("regex") or []]
+    case_sensitive = bool(cfg.get("case_sensitive", True))
+    hay = text if case_sensitive else text.lower()
+    for kw in none_kw:
+        if kw and (kw if case_sensitive else kw.lower()) in hay:
+            return False
+    for kw in any_kw:
+        if kw and (kw if case_sensitive else kw.lower()) in hay:
+            return True
+    flags = 0 if case_sensitive else re.IGNORECASE
+    for pattern in patterns:
+        try:
+            if re.search(pattern, text, flags):
+                return True
+        except re.error:
+            continue
+    return not (any_kw or patterns)
+
+
+def _graph_checks(checks, graph, nodes, edges, start) -> None:
+    edges = [e for e in edges if isinstance(e, dict)]
+    ids = [nid for nid in nodes if nid is not None]
+    adj: Dict[Any, List[Any]] = {nid: [] for nid in ids}
+    radj: Dict[Any, List[Any]] = {nid: [] for nid in ids}
+    for e in edges:
+        a, b = e.get("from"), e.get("to")
+        if a in adj and b in adj:
+            adj[a].append(b)
+            radj[b].append(a)
+    comps = _sccs(ids, adj)
+    cyc = [c for c in comps if len(c) > 1 or c[0] in adj.get(c[0], [])]
+    comp_of = {n: i for i, c in enumerate(comps) for n in c}
+
+    # (1) loops without a guard
+    unguarded = [sorted(str(n) for n in c) for c in cyc
+                 if not any(nodes[n].get("type") == "loop_counter" for n in c)]
+    _check(checks, "loops", FAIL if unguarded else PASS,
+           "; ".join(" -> ".join(c) for c in unguarded), loops=unguarded)
+
+    # (2) human approvals must accept the Lab's automatic answer
+    bad_humans: List[str] = []
+    for nid, node in nodes.items():
+        if node.get("type") != "human":
+            continue
+        out = [e for e in edges if e.get("from") == nid and e.get("to") in adj]
+        if not out:
+            continue
+        matching = [e for e in out if edge_condition_matches(e.get("condition"), AUTO_ANSWER)]
+        forward = [e for e in matching if comp_of.get(e["to"]) != comp_of.get(nid)]
+        if not forward:
+            bad_humans.append(str(nid))
+    _check(checks, "human_auto", FAIL if bad_humans else PASS, ", ".join(bad_humans), nodes=bad_humans)
+
+    # (3) nodes that can never reach an end node
+    ends = {n for n in (graph.get("end") or []) if n in adj}
+    if ends:
+        seen = set(ends)
+        todo = list(ends)
+        while todo:
+            for prev in radj.get(todo.pop(), []):
+                if prev not in seen:
+                    seen.add(prev)
+                    todo.append(prev)
+        wired = {e.get("from") for e in edges} | {e.get("to") for e in edges}
+        dead = sorted(str(n) for n in ids if n in wired and n not in seen)
+        _check(checks, "dead_end", WARN if dead else PASS, ", ".join(dead), nodes=dead)
+
+    # (4) heavy model/effort on light roles
+    heavy: List[str] = []
+    for nid, node in nodes.items():
+        if node.get("type") != "agent":
+            continue
+        cfg = node.get("config") or {}
+        label = f"{nid} {str(cfg.get('role') or '')[:80]}".lower()
+        if not any(w in label for w in LIGHT_ROLE_WORDS):
+            continue
+        effort = str((cfg.get("params") or {}).get("effort") or "").lower()
+        if model_tier(cfg.get("name")) == "top" or effort == "high":
+            heavy.append(str(nid))
+    _check(checks, "model_fit", WARN if heavy else PASS, ", ".join(heavy), nodes=heavy)
+
+    # (5) critical path over the condensed graph (a loop body counts once, plus one extra pass)
+    weight: Dict[int, int] = {}
+    agents_in: Dict[int, int] = {}
+    heavy_in: Dict[int, int] = {}
+    for i, c in enumerate(comps):
+        sec = cnt = hv = 0
+        for n in c:
+            if nodes[n].get("type") != "agent":
+                continue
+            tier = model_tier((nodes[n].get("config") or {}).get("name"))
+            sec += TIER_SECONDS[tier]
+            cnt += 1
+            hv += tier != "small"
+        if cnt and len(c) > 1:
+            sec += LOOP_PASS_SECONDS
+        weight[i], agents_in[i], heavy_in[i] = sec, cnt, hv
+    cadj: Dict[int, set] = {i: set() for i in range(len(comps))}
+    for a, bs in adj.items():
+        for b in bs:
+            if comp_of[a] != comp_of[b]:
+                cadj[comp_of[a]].add(comp_of[b])
+    memo: Dict[int, tuple] = {}
+
+    def best(i: int) -> tuple:
+        if i not in memo:
+            tail = max((best(j) for j in cadj[i]), default=(0, 0, 0))
+            memo[i] = (weight[i] + tail[0], agents_in[i] + tail[1], heavy_in[i] + tail[2])
+        return memo[i]
+
+    roots = [comp_of[n] for n in start if n in comp_of] or list(range(len(comps)))
+    seconds, agent_count, heavy_count = max((best(r) for r in roots), default=(0, 0, 0))
+    slow = seconds > CRITICAL_PATH_SECONDS or heavy_count > CRITICAL_PATH_AGENTS
+    _check(checks, "critical_path", WARN if slow else PASS,
+           f"~{seconds}s, {agent_count} agent" if agent_count else "", estimated_seconds=seconds,
+           agents=agent_count, heavy_agents=heavy_count)
 
 
 def _summarise(checks: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -189,6 +407,8 @@ class Scenario:
     prompt: str
     criteria: str = ""
     name: str = ""
+    max_seconds: Optional[int] = None  # per-run budgets; default depends on the prompt (see lab_diagnosis.run_budget)
+    max_tokens: Optional[int] = None
 
 
 @dataclass
@@ -199,6 +419,8 @@ class LabJob:
     repeats: int
     # Status of step 1 (``static_check``) when the run started: a FAIL means the workflow is not ready.
     config_status: str = ""
+    workflow_hash: str = ""  # sha256 of the workflow YAML text when the job started
+    store_dir: Optional[Path] = None  # where finished jobs live (to find the baseline run)
     status: str = "queued"  # queued | running | completed | cancelled | error
     results: List[Dict[str, Any]] = field(default_factory=list)
     error: str = ""
@@ -207,6 +429,8 @@ class LabJob:
     cancel_event: threading.Event = field(default_factory=threading.Event)
     # Guards ``results`` (and the entries in it): the worker thread updates them while requests read them.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    _baseline: Optional[Dict[str, Any]] = field(default=None, repr=False, compare=False)
+    _baseline_loaded: bool = field(default=False, repr=False, compare=False)
 
     @property
     def total(self) -> int:
@@ -216,15 +440,32 @@ class LabJob:
         with self.lock:
             self.results.append(entry)
 
+    def _find_baseline(self) -> Optional[Dict[str, Any]]:
+        """The latest earlier completed job of this workflow that was ready (cached: found once)."""
+        if not self._baseline_loaded:
+            self._baseline_loaded = True
+            for item in list_stored_jobs(self.store_dir or _lab_dir(), self.workflow, limit=50):
+                if (item["id"] != self.id and item["status"] == "completed" and item["verdict"] == "ready"
+                        and (item.get("finished_at") or 0) and (item.get("started_at") or 0) < self.started_at):
+                    self._baseline = item
+                    break
+        return self._baseline
+
     def update_result(self, entry: Dict[str, Any], **changes: Any) -> None:
         with self.lock:
             entry.update(changes)
 
     def to_dict(self) -> Dict[str, Any]:
         with self.lock:
-            results = copy.deepcopy(self.results)
+            results = sorted(copy.deepcopy(self.results), key=lambda r: (r.get("repeat", 0), r.get("scenario", 0)))
             status = self.status
         done = [r for r in results if r.get("status") in ("passed", "failed", "error")]
+        for run in done:
+            scenario = self.scenarios[run["scenario"]] if 0 <= run.get("scenario", -1) < len(self.scenarios) else None
+            budget = run_budget(scenario.prompt if scenario else "", getattr(scenario, "max_seconds", None),
+                                getattr(scenario, "max_tokens", None))
+            run["budget_seconds"], run["budget_tokens"] = budget["seconds"], budget["tokens"]
+            run["over_budget"] = over_budget(run, budget)
         judged = [r for r in done if r.get("status") in ("passed", "failed")]
         passed = [r for r in done if r.get("status") == "passed"]
         errors = [r for r in done if r.get("status") == "error"]
@@ -249,12 +490,47 @@ class LabJob:
                 "tokens": sum(r.get("tokens", 0) or 0 for r in runs),
                 "cost_usd": round(sum(r.get("cost_usd", 0.0) or 0.0 for r in runs), 4),
                 "members": members,
+                "needed": math.ceil(len(runs) * SCENARIO_PASS_SHARE - 1e-9) if runs else 0,
+                "over_budget": len([r for r in runs if r.get("over_budget")]),
             })
         config_failed = self.config_status == FAIL
+        findings = diagnose_job(done, {i: sc.prompt for i, sc in enumerate(self.scenarios)})
+        slow_runs = len([r for r in done if (r.get("seconds") or 0) > SLOW_SECONDS])
         verdict = None
+        reasons: List[str] = []
+        unverified = len([r for r in passed if (r.get("judge") or {}).get("judged_by") == "basic"])
+        over = len([r for r in done if r.get("over_budget")])
+        baseline: Optional[Dict[str, Any]] = None
+        regression: Dict[str, Any] = {}
         if status == "completed":
-            ready = bool(done) and pass_rate >= PASS_THRESHOLD and not errors and not config_failed
-            verdict = "ready" if ready else "not_ready"
+            if not done:
+                reasons.append("Chưa có lượt chạy nào hoàn tất.")
+            if config_failed:
+                reasons.append("Bước 1 (kiểm tra cấu hình) còn lỗi FAIL.")
+            if done and pass_rate < PASS_THRESHOLD:
+                reasons.append(f"Tỷ lệ đạt {pass_rate * 100:.0f}% thấp hơn ngưỡng {PASS_THRESHOLD * 100:.0f}%.")
+            if errors:
+                reasons.append(f"{len(errors)} lượt chạy lỗi hoặc hết thời gian chờ.")
+            for item in per_scenario:
+                if item["runs"] and item["passed"] < item["needed"]:
+                    reasons.append(f"Kịch bản \"{item['name']}\" chỉ đạt {item['passed']}/{item['runs']} lượt "
+                                   f"(cần ít nhất {item['needed']}).")
+            if passed and unverified == len(passed):
+                reasons.append("Mọi lượt đạt chỉ được chấm bằng kiểm tra cơ bản (không có giám khảo AI) nên chưa được xác minh.")
+            if over and _strict_budget():
+                reasons.append(f"{over} lượt chạy vượt ngân sách thời gian/token.")
+            verdict = "not_ready" if reasons else "ready"
+            baseline = self._find_baseline()
+            if baseline:
+                current = {
+                    "pass_rate": round(pass_rate, 3),
+                    "avg_seconds": round(sum(r.get("seconds", 0) or 0 for r in done) / len(done), 1) if done else None,
+                    "cost_usd": round(sum(r.get("cost_usd", 0.0) or 0.0 for r in results), 4),
+                }
+                regression = compare_baseline(current, baseline)
+                extra = regression_finding(regression)
+                if extra:
+                    findings.append(extra)
         return {
             "id": self.id,
             "workflow": self.workflow,
@@ -270,8 +546,21 @@ class LabJob:
             "verdict": verdict,
             "config_status": self.config_status,
             "config_failed": config_failed,
+            "verdict_reasons": reasons,
+            "unverified": unverified,
+            "over_budget_runs": over,
+            "workflow_hash": self.workflow_hash,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "baseline": baseline,
+            "regression": regression,
             "basic_graded": len([r for r in judged if (r.get("judge") or {}).get("judged_by") == "basic"]),
             "scenarios": per_scenario,
+            "findings": findings,
+            "slow_runs": slow_runs,
+            "slow_seconds": SLOW_SECONDS,
+            "avg_seconds": round(sum(r.get("seconds", 0) or 0 for r in done) / len(done), 1) if done else None,
+            "fix_brief": build_fix_brief(self.workflow, done, self.scenarios, findings, pass_rate, PASS_THRESHOLD) if status == "completed" else "",
             "results": results,
             "duration_seconds": round((self.finished_at or time.time()) - self.started_at, 1),
             "total_tokens": sum(r.get("tokens", 0) for r in results),
@@ -283,6 +572,8 @@ JUDGE_SYSTEM = (
     "You grade the answer of an AI workflow against the acceptance criteria of a test scenario. "
     "Be strict but fair: pass only when every criterion is met by the answer itself. "
     "Also check the answer is in the same language as the request and actually addresses it. "
+    "When the criteria expect a deliverable, verify it in the list of files produced by the run (name, size, preview). "
+    "Score 0-10 against the criteria; 7 or more only when every criterion is met. "
     'Reply with JSON only: {"pass": true|false, "score": 0-10, "reason": "<one or two sentences, in the request\'s language>"}'
 )
 
@@ -345,7 +636,7 @@ class JudgeAccount:
             return self._conn is not None
 
 
-def _judge_call(conn: Any, model: str, user: str) -> str:
+def _judge_call(conn: Any, model: str, user: str, system: str = "") -> str:
     from agentdev.connections.resolver import resolve_connection
     from agentdev.entity.messages import Message, MessageRole
     from agentdev.runtime.node.agent import ProviderRegistry
@@ -358,7 +649,7 @@ def _judge_call(conn: Any, model: str, user: str) -> str:
     provider = provider_class(config)
     response = provider.call_model(
         provider.create_client(),
-        [Message(role=MessageRole.SYSTEM, content=JUDGE_SYSTEM), Message(role=MessageRole.USER, content=user)],
+        [Message(role=MessageRole.SYSTEM, content=system or JUDGE_SYSTEM), Message(role=MessageRole.USER, content=user)],
         [],
     )
     return response.message.text_content()
@@ -376,8 +667,64 @@ def _basic_verdict(answer: str, reason: str = "") -> Dict[str, Any]:
     return {"pass": ok, "score": 10 if ok else 0, "reason": reason, "judged_by": "basic"}
 
 
+MANIFEST_MAX_FILES = 40
+MANIFEST_TEXT_FILES = 5
+MANIFEST_PREVIEW_CHARS = 600
+
+
+def build_output_manifest(output_dir: Any) -> str:
+    """Names + sizes of the files a run produced, plus the first ~600 chars of up to 5 text files (binaries skipped),
+    so the judge can verify that a deliverable really exists. Empty string when there is nothing."""
+    if not output_dir:
+        return ""
+    root = Path(str(output_dir))
+    if not root.is_dir():
+        return ""
+    files = sorted(p for p in root.rglob("*") if p.is_file())
+    if not files:
+        return ""
+    lines = []
+    for path in files[:MANIFEST_MAX_FILES]:
+        try:
+            lines.append(f"- {path.relative_to(root).as_posix()} ({path.stat().st_size} bytes)")
+        except OSError:
+            continue
+    if len(files) > MANIFEST_MAX_FILES:
+        lines.append(f"- ... and {len(files) - MANIFEST_MAX_FILES} more files")
+    previews = 0
+    for path in files:
+        if previews >= MANIFEST_TEXT_FILES:
+            break
+        try:
+            raw = path.read_bytes()[:4000]
+        except OSError:
+            continue
+        if b"\0" in raw:
+            continue  # binary
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        previews += 1
+        lines += ["", f"### {path.relative_to(root).as_posix()}", text[:MANIFEST_PREVIEW_CHARS]]
+    return "\n".join(lines)
+
+
+def _rubric_pass(data: Dict[str, Any]) -> bool:
+    """pass must be true and, when a score is given, at least 7."""
+    if data.get("pass") is not True:
+        return False
+    score = data.get("score")
+    if score is None:
+        return True
+    try:
+        return float(score) >= 7
+    except (TypeError, ValueError):
+        return True
+
+
 def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, str]],
-           account: Optional[JudgeAccount] = None) -> Dict[str, Any]:
+           account: Optional[JudgeAccount] = None, output_dir: Any = None) -> Dict[str, Any]:
     """Grade with a signed-in account (``judged_by: "ai"``); without criteria, ``DEFAULT_CRITERIA`` apply.
 
     Raises when no account can grade; ``LabRunner`` then falls back to ``_basic_verdict``.
@@ -395,6 +742,8 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
         f"## Request\n{prompt}\n\n## Acceptance criteria\n{criteria}\n\n"
         f"## Questions the workflow asked the user (auto-answered: approved)\n{asked}\n\n## Answer\n{answer[:20000]}"
     )
+    manifest = build_output_manifest(output_dir)
+    user += f"\n\n## Files produced by the run\n{manifest or '(no files were produced)'}"
     conn, model = account.current()
     try:
         text = _judge_call(conn, model, user)
@@ -409,7 +758,7 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
     except ValueError:
         data = {}
     return {
-        "pass": bool(data.get("pass")),
+        "pass": _rubric_pass(data),
         "score": data.get("score"),
         "reason": str(data.get("reason") or text[:300]),
         "judged_by": "ai",
@@ -473,6 +822,7 @@ def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threadin
     executor = GraphExecutor(context, cancel_event=cancel_event)
     channel = AutoAnswerChannel()
     executor._human_prompt_service = HumanPromptService(log_manager=executor.log_manager, channel=channel)
+    turn_started = datetime.now()
     executor._execute(prompt)
     final = executor.get_final_output_message()
     usage = executor.token_tracker.get_token_usage() if executor.token_tracker else {}
@@ -485,6 +835,7 @@ def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threadin
         "tokens": (usage.get("total_usage") or {}).get("total_tokens", 0),
         "cost_usd": cost,
         "agents": dict(usage.get("node_execution_counts") or {}),
+        "timeline": node_timeline(usage.get("call_history"), turn_started),
         "questions": list(channel.questions),
         "team": team_digest_from_state(state),
         "exchanges": user_exchanges(state),
@@ -501,6 +852,47 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
 
     session = f"lab_{yaml_path.stem}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
     started = time.time()
+    # A run that loops (e.g. a review cycle that never ends) is stopped after RUN_TIMEOUT_SECONDS.
+    job_cancel = cancel_event
+    cancel_event = threading.Event()
+    timed_out = threading.Event()
+
+    def _watchdog() -> None:
+        deadline = time.time() + RUN_TIMEOUT_SECONDS
+        while not cancel_event.is_set():
+            if job_cancel.is_set():
+                cancel_event.set()
+            elif time.time() > deadline:
+                timed_out.set()
+                cancel_event.set()
+            else:
+                time.sleep(1)
+
+    threading.Thread(target=_watchdog, daemon=True).start()
+    try:
+        return _run_once_inner(yaml_path, scenario, cancel_event, run_turn, session, started, timed_out)
+    finally:
+        cancel_event.set()  # stops the watchdog
+
+
+def _run_once_inner(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event, run_turn: Callable[..., Dict[str, Any]],
+                    session: str, started: float, timed_out: threading.Event) -> Dict[str, Any]:
+    from agentdev.api.services.conversation_turns import compose_follow_up_prompt, make_turn
+
+    message = (f"Run stopped after {RUN_TIMEOUT_SECONDS // 60} minutes without finishing: the workflow is probably "
+               "looping (check approval conditions and loop guards).")
+    try:
+        result = _collect_turns(yaml_path, scenario, cancel_event, run_turn, session, started, compose_follow_up_prompt, make_turn)
+    except Exception:
+        if timed_out.is_set():
+            raise RuntimeError(message)
+        raise
+    if timed_out.is_set():
+        raise RuntimeError(message)
+    return result
+
+
+def _collect_turns(yaml_path, scenario, cancel_event, run_turn, session, started, compose_follow_up_prompt, make_turn):
     turns = [run_turn(yaml_path, session, scenario.prompt, cancel_event)]
     plan = turns[0].get("plan")
     if plan and not cancel_event.is_set():
@@ -526,6 +918,7 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
         "cost_usd": round(sum(float(item.get("cost_usd", 0) or 0) for item in turns), 4),
         "agents": agents,
         "members": members,
+        "timeline": [t for item in turns for t in item.get("timeline") or []],
         "questions": [q for item in turns for q in item.get("questions") or []],
         "turns": len(turns),
         "output_dir": turns[-1].get("output_dir", ""),
@@ -598,8 +991,12 @@ class LabRunner:
     def start(self, yaml_path: Path, workflow: str, scenarios: List[Scenario], repeats: int,
               run_once: Callable[..., Dict[str, Any]] = _run_once,
               judge: Callable[..., Dict[str, Any]] = _judge, config_status: str = "") -> LabJob:
+        try:
+            workflow_hash = hashlib.sha256(Path(yaml_path).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+        except OSError:
+            workflow_hash = ""
         job = LabJob(id=uuid.uuid4().hex[:12], workflow=workflow, scenarios=scenarios, repeats=repeats,
-                     config_status=config_status)
+                     config_status=config_status, workflow_hash=workflow_hash, store_dir=self._dir())
         if judge is _judge:
             judge = functools.partial(_judge, account=JudgeAccount())  # one judge account per job
         with self._lock:
@@ -619,36 +1016,49 @@ class LabRunner:
             return job
         return self._load(job_id)
 
+    def list_jobs(self, workflow: str, limit: int = 20) -> List[Dict[str, Any]]:
+        return list_stored_jobs(self._dir(), workflow, limit)
+
+    def _run_task(self, job: LabJob, yaml_path: Path, run_once, judge, index: int, repeat: int) -> None:
+        scenario = job.scenarios[index]
+        if job.cancel_event.is_set():
+            return
+        entry: Dict[str, Any] = {"scenario": index, "repeat": repeat + 1, "status": "running"}
+        job.add_result(entry)
+        self._save(job)
+        try:
+            outcome = run_once(yaml_path, scenario, job.cancel_event)
+        except Exception as exc:  # noqa: BLE001 - reported per run
+            if job.cancel_event.is_set():
+                job.update_result(entry, status="cancelled")
+                return
+            job.update_result(entry, status="error", error=str(exc)[:2000])
+            self._save(job)
+            return
+        job.update_result(entry, **outcome)
+        kwargs: Dict[str, Any] = {}
+        if outcome.get("output_dir") and _accepts(judge, "output_dir"):
+            kwargs["output_dir"] = outcome["output_dir"]
+        try:
+            verdict = judge(scenario.prompt, scenario.criteria, outcome.get("answer", ""),
+                            outcome.get("questions", []), **kwargs)
+            job.update_result(entry, status="passed" if verdict.get("pass") else "failed", judge=verdict)
+        except Exception as exc:  # noqa: BLE001 - no account could grade: basic check instead
+            verdict = _basic_verdict(outcome.get("answer", ""), f"AI judge unavailable: {exc}"[:500])
+            job.update_result(entry, status="passed" if verdict["pass"] else "failed", judge=verdict)
+        self._save(job)
+
     def _run(self, job: LabJob, yaml_path: Path, run_once, judge) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
         job.status = "running"
         try:
-            for repeat in range(job.repeats):
-                for index, scenario in enumerate(job.scenarios):
-                    if job.cancel_event.is_set():
-                        job.status = "cancelled"
-                        return
-                    entry: Dict[str, Any] = {"scenario": index, "repeat": repeat + 1, "status": "running"}
-                    job.add_result(entry)
-                    self._save(job)
-                    try:
-                        outcome = run_once(yaml_path, scenario, job.cancel_event)
-                    except Exception as exc:  # noqa: BLE001 - reported per run
-                        if job.cancel_event.is_set():
-                            job.update_result(entry, status="cancelled")
-                            job.status = "cancelled"
-                            return
-                        job.update_result(entry, status="error", error=str(exc)[:2000])
-                        continue
-                    job.update_result(entry, **outcome)
-                    try:
-                        verdict = judge(scenario.prompt, scenario.criteria, outcome.get("answer", ""),
-                                        outcome.get("questions", []))
-                        job.update_result(entry, status="passed" if verdict.get("pass") else "failed", judge=verdict)
-                    except Exception as exc:  # noqa: BLE001 - no account could grade: basic check instead
-                        verdict = _basic_verdict(outcome.get("answer", ""), f"AI judge unavailable: {exc}"[:500])
-                        job.update_result(entry, status="passed" if verdict["pass"] else "failed", judge=verdict)
-                    self._save(job)
-            job.status = "completed"
+            tasks = [(index, repeat) for repeat in range(job.repeats) for index in range(len(job.scenarios))]
+            with ThreadPoolExecutor(max_workers=_lab_workers(), thread_name_prefix="lab") as pool:
+                futures = [pool.submit(self._run_task, job, yaml_path, run_once, judge, i, r) for i, r in tasks]
+                for future in futures:
+                    future.result()
+            job.status = "cancelled" if job.cancel_event.is_set() else "completed"
         except Exception as exc:  # noqa: BLE001
             job.status = "error"
             job.error = str(exc)
@@ -657,8 +1067,104 @@ class LabRunner:
             self._save(job)
 
 
+def _accepts(func: Callable[..., Any], name: str) -> bool:
+    import inspect
+
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+def list_stored_jobs(folder: Path, workflow: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """Summaries of stored jobs of ``workflow`` (newest first)."""
+    rows: List[Dict[str, Any]] = []
+    try:
+        paths = list(Path(folder).glob("*.json"))
+    except OSError:
+        return rows
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or data.get("workflow") != workflow:
+            continue
+        status = data.get("status")
+        if status in ("queued", "running"):
+            status = "error"  # interrupted
+        rows.append({
+            "id": data.get("id"), "status": status, "verdict": data.get("verdict"),
+            "pass_rate": data.get("pass_rate"), "avg_seconds": data.get("avg_seconds"),
+            "tokens": data.get("total_tokens"), "cost_usd": data.get("cost_usd"),
+            "workflow_hash": data.get("workflow_hash", ""), "started_at": data.get("started_at") or 0,
+            "finished_at": data.get("finished_at"),
+        })
+    rows.sort(key=lambda r: r["started_at"] or 0, reverse=True)
+    return rows[:limit]
+
+
 _runner = LabRunner()
 
 
 def get_lab_runner() -> LabRunner:
     return _runner
+
+
+GENERATE_SYSTEM = (
+    "You design acceptance-test scenarios for an AI workflow (a team of agents). Reply with ONLY a JSON array, "
+    "no prose and no code fence. Each item: {\"name\": short title, \"prompt\": the request a real user would send "
+    "to this workflow (concrete, with the details the workflow needs), \"criteria\": 2-4 checkable pass criteria "
+    "separated by semicolons (what the answer and deliverables must contain, which members should have worked, "
+    "the language)}. Cover different paths of THIS workflow: the main happy path, a small/quick task, a task that "
+    "needs several members, and one edge case (unclear, impossible or unverifiable request). Fit the workflow's "
+    "real purpose and members; never invent members it does not have."
+)
+
+
+def _workflow_brief(data: Dict[str, Any]) -> str:
+    graph = (data or {}).get("graph") or {}
+    lines = [f"Workflow: {graph.get('id', '')}", f"Description: {graph.get('description', '')}"]
+    for node in graph.get("nodes") or []:
+        cfg = node.get("config") or {}
+        role = " ".join(str(cfg.get("role") or "").split())[:350]
+        team = (cfg.get("team") or {}).get("members") or []
+        lines.append(
+            f"- {node.get('id')} ({node.get('type')}): {node.get('description', '')}"
+            + (f" | leads: {', '.join(team)}" if team else "")
+            + (f" | role: {role}" if role else "")
+        )
+    return "\n".join(lines)[:9000]
+
+
+def generate_scenarios(yaml_path: Path, count: int = 4, language: str = "Vietnamese") -> List[Dict[str, str]]:
+    """Ask a signed-in account for ``count`` test scenarios fitted to the workflow. Raises when none can answer."""
+    count = max(1, min(int(count or 4), 8))
+    data = yaml.safe_load(Path(yaml_path).read_text(encoding="utf-8")) or {}
+    user = f"Write {count} scenarios in {language}.\n\n{_workflow_brief(data)}"
+    account = JudgeAccount()
+    conn, model = account.current()
+    try:
+        text = _judge_call(conn, model, user, GENERATE_SYSTEM)
+    except Exception:  # noqa: BLE001 - one retry on another account when this one is out of quota
+        if not account.switch(conn.id):
+            raise
+        conn, model = account.current()
+        text = _judge_call(conn, model, user, GENERATE_SYSTEM)
+    match = re.search(r"\[.*\]", text, re.S)
+    try:
+        items = json.loads(match.group(0)) if match else []
+    except ValueError:
+        items = []
+    out: List[Dict[str, str]] = []
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict) and str(item.get("prompt") or "").strip():
+            out.append({
+                "name": str(item.get("name") or "").strip()[:120],
+                "prompt": str(item["prompt"]).strip()[:20_000],
+                "criteria": str(item.get("criteria") or "").strip()[:5_000],
+            })
+    if not out:
+        raise RuntimeError("The AI did not return usable scenarios. Try again.")
+    return out[:count]

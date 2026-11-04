@@ -170,7 +170,16 @@ const onKeydown = (event) => {
   }
 }
 
+// /workflows/<name>?assist=1 (from Lab): open the assistant on this workflow, then drop the flag.
+function openAssistantFromQuery() {
+  if (!route.query.assist || !selectedWorkflow.value) return
+  openAssistant('workflow')
+  const { assist, ...rest } = route.query
+  router.replace({ query: rest })
+}
+
 onMounted(() => {
+  openAssistantFromQuery()
   window.addEventListener('toggle-workflow-sidebar', handleToggleSidebar)
   window.addEventListener('keydown', onKeydown)
   narrowMql = window.matchMedia(NARROW_QUERY)

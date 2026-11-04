@@ -18,6 +18,7 @@ edge case the line merge could not place), the full round-trip dump is used inst
 from __future__ import annotations
 
 import io
+import re
 from difflib import SequenceMatcher
 from typing import Any, Iterable
 
@@ -40,6 +41,10 @@ _STRING_STYLES = (
     DoubleQuotedScalarString,
     SingleQuotedScalarString,
 )
+
+
+# Characters that can break a plain scalar once it ends up in a flow collection ({...} or [...]).
+_NEEDS_QUOTES = re.compile(r"[!\\\[\]{},#&*|>%@`]|^[-?:]|: | #")
 
 
 def _represent_none(representer, _data):
@@ -122,6 +127,9 @@ def _fresh(value: Any, like: Any = None) -> Any:
         for style in _STRING_STYLES[2:]:
             if isinstance(like, style):
                 return style(value)
+        # A plain scalar such as ^(?!s*A) is valid in block style but not inside {...} / [...]: quote it.
+        if _NEEDS_QUOTES.search(value):
+            return SingleQuotedScalarString(value)
     return value
 
 
