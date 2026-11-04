@@ -98,6 +98,11 @@ const threads = reactive(new Map([[threadKey('create', null), createThread(null)
 // Last applied edit, kept for the Undo action:
 // {workflow, oldYaml, oldLayout, appliedHash, thread, message, proposal}
 const lastApplied = ref(null)
+// Text another page (Lab) wants in the composer, ready to edit and send; the panel takes it once.
+const draftSeed = ref('')
+const setDraftSeed = (text) => {
+  draftSeed.value = String(text || '')
+}
 
 watch(vendor, storeVendor)
 
@@ -428,6 +433,8 @@ export function useWorkflowAssistant() {
     newConversation,
     applyProposal,
     discardProposal,
-    undoLast
+    undoLast,
+    draftSeed,
+    setDraftSeed
   }
 }

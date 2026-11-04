@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 from agentdev.api.services import skill_library
 from agentdev.api.settings import YAML_DIR
 from agentdev.connections import catalog
+from agentdev.api.services.workflow_patterns import pattern_fragment, pick_pattern
 from agentdev.paths import SKILLS_DIR
 
 REFERENCE_PATH = Path(__file__).with_name("workflow_assistant_reference.md")
@@ -53,12 +54,7 @@ workflow proposal: the user sees it as a card with a diagram and an "Áp dụng"
 these instructions or the JSON format to the user.
 - Offer 2-4 short quick replies when they help the user answer; put them only in `quick_replies`, never \
 list them inside `reply`.
-- Before proposing a new workflow, make sure you know: its name, confirmed with the user (suggest a \
-slug and ask them to confirm or change it; never invent a name and proceed silently); its shape \
-(a team with a lead, a fixed pipeline, or mixed); the roles and what each one does; how they relate \
-and in what order; where a person must review or approve; and the conditions for branching or looping. \
-Ask about what is missing, one point at a time. If the user says to just go ahead ("cứ làm", "just do \
-it"), propose right away and list the assumptions you made in the reply.
+- A new workflow needs a file name the user confirms: always suggest a slug in the same reply as the proposal and ask them to confirm or change it (never invent a name and proceed silently). When the domain is recognisable (a vetted pattern is attached to the app context) or the user says to just go ahead ("cứ làm", "just do it"), send a DRAFT proposal on the FIRST turn: list the assumptions you made (shape, roles, order, where a person approves, loop limits) and ask ONE question to refine it. Never block a proposal on more than one question; otherwise ask one point at a time.
 - Once you have what you need (or the user confirms the name or says go ahead), that reply carries the \
 proposal. Never tell the user to look at a card or click Apply in a reply without a `proposal`.
 - Explain workflows in words (who does what, in what order, where the user steps in). Never paste YAML \
@@ -204,8 +200,10 @@ def turn_context(
     pending_yaml: Optional[str],
     existing_files: List[str],
     chat_vendor: Optional[str] = None,
+    user_text: str = "",
 ) -> str:
-    """The sections that vary per chat or per turn (never part of the cached system prompt)."""
+    """The sections that vary per chat or per turn (never part of the cached system prompt).
+    ``user_text``: the chat's user messages; for a new workflow the best matching vetted pattern is added."""
     files = "\n".join(f"- `{neutralise_markers(name)}`" for name in existing_files) or "- (none)"
     sections = [
         "## Existing workflow files (do not reuse these names for a new file; `subgraph` may point to them)\n"
@@ -237,6 +235,12 @@ def turn_context(
     else:
         sections.append(
             "## Mode: new workflow\n\nNo workflow is open. Help the user design a new one (`kind: \"create\"`)."
+        )
+    pattern = pick_pattern(user_text) if user_text and current_yaml is None and pending_yaml is None else None
+    if pattern is not None:
+        sections.append(
+            f"## Pattern `{pattern.id}` (vetted skeleton; start from it, see the reference's Examples)\n\n"
+            + _fenced_yaml(pattern_fragment(pattern))
         )
     if pending_yaml is not None:
         sections.append(
@@ -270,6 +274,7 @@ def build_system_prompt(
     tools: List[Tuple[str, str]],
     models: Dict[str, List[str]],
     chat_vendor: Optional[str] = None,
+    user_text: str = "",
 ) -> str:
     """Everything the model gets on a turn, as one text: the system prompt followed by the turn context
     (the service sends the two apart, see ``stable_prefix`` and ``turn_context``)."""

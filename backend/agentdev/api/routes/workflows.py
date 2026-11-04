@@ -274,6 +274,7 @@ async def merge_workflow_content(filename: str, request: WorkflowMergeRequest):
         original = raw.replace("\r\n", "\n")
         try:
             content = merge_workflow_document(original, request.document)
+            yaml.safe_load(content)  # a merge that writes text the parser rejects must not reach the file
         except Exception as exc:  # an unparseable file: fall back to a plain dump
             get_server_logger().warning(
                 "Workflow merge fell back to a full rewrite",

@@ -1,4 +1,4 @@
-"""Run the reference's Example 2 (article pipeline) on the real engine with scripted models and a scripted
+"""Run the article pipeline example (article pipeline) on the real engine with scripted models and a scripted
 person, to prove what each node actually receives. The model copies this example as its pattern for
 gates, so the publishing node must get the article, not just the person's "OK"."""
 
@@ -15,12 +15,11 @@ from agentdev.runtime.node.agent import ModelResponse, ProviderRegistry
 from agentdev.runtime.node.executor import agent_executor as agent_executor_module
 from agentdev.utils.human_prompt import HumanPromptService, PromptResult
 
-REFERENCE = Path(__file__).resolve().parents[1] / "agentdev" / "api" / "services" / "workflow_assistant_reference.md"
+ARTICLE_PIPELINE = Path(__file__).parent / "data" / "article_pipeline.yaml"  # the former reference Example 2
 
 
 def _example_2():
-    blocks = re.findall(r"^```yaml\n(.*?)^```", REFERENCE.read_text(encoding="utf-8"), flags=re.MULTILINE | re.DOTALL)
-    return yaml.safe_load(blocks[1])
+    return yaml.safe_load(ARTICLE_PIPELINE.read_text(encoding="utf-8"))
 
 
 class ScriptedProvider:

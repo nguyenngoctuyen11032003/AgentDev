@@ -28,6 +28,7 @@ import yaml
 from agentdev.api.services.workflow_assistant_prompt import load_context, stable_prefix, turn_context, with_context
 from agentdev.api.services.workflow_diff import diff_workflows, new_dangerous_tool_items, unrequested_changes
 from agentdev.api.services.workflow_lab import FAIL, WARN, SimpleConfig, static_check_data
+from agentdev.api.services.workflow_patterns import proposal_lint
 from agentdev.api.services.workflow_storage import validate_workflow_filename
 from agentdev.api.settings import YAML_DIR
 from agentdev.connections.resolver import ConnectionResolutionError
@@ -422,7 +423,7 @@ def _normalise_extension(filename: str) -> str:
 
 
 def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str], saved_doc: Optional[dict],
-                    user_texts: List[str]) -> Tuple[Optional[dict], List[str]]:
+                    user_texts: List[str], vendor: Optional[str] = None) -> Tuple[Optional[dict], List[str]]:
     """(proposal for the client, []) when valid, else (None, errors to send back to the model).
     ``saved_doc`` is ``_load_saved(saved_text)``; ``user_texts`` every user message of the chat."""
     if not isinstance(raw, dict):
@@ -462,6 +463,28 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
     except yaml.YAMLError as exc:
         return None, [f"Invalid YAML: {exc}"]
 
+    # 2b. Deterministic fixes instead of a repair call. A create is re-dumped from the parsed data (comments
+    # and anchors in a brand-new file are not worth a model round trip); an edit is verbatim, so only unknown
+    # model names are replaced there, by text.
+    fix_notes: List[str] = []
+    if isinstance(data, dict):
+        if kind == "create":
+            for node_id, provider, name in proposal_lint.unknown_models(data):
+                chat_vendor = provider if proposal_lint.default_model(provider) else (vendor or provider)
+                new = proposal_lint.default_model(chat_vendor)
+                if new:
+                    node = next(n for n in proposal_lint._agents(data) if n.get("id") == node_id)
+                    node["config"]["provider"], node["config"]["name"] = chat_vendor, new
+                    fix_notes.append(f"{node_id}: unknown model `{name}` replaced by `{new}`.")
+            fix_notes += proposal_lint.downgrade_cheap_nodes(data)
+            changed = bool(fix_notes) | bool(proposal_lint.add_case_sensitive(data))
+            if changed:
+                text = proposal_lint.dump_workflow(data)
+        else:
+            text, fix_notes = proposal_lint.substitute_models_in_text(text, data, vendor)
+            if fix_notes:
+                data = yaml.safe_load(text)
+
     # 3. Static check. An ``accounts`` FAIL only means this machine has not bound a connection for a
     # provider yet; that is not the model's fault, so it does not fail the proposal. The UI shows it,
     # like every WARN check, from ``proposal.checks``.
@@ -481,6 +504,15 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
     diff = diff_workflows(old, data)
     # Removed/changed nodes the user never named in any turn (edit only).
     warnings = list(unrequested_changes(diff, user_texts)) if kind == "edit" else []
+    warnings += fix_notes
+    lint_notes, extra_checks = proposal_lint.lint(data)
+    if kind == "edit":  # problems already in the saved file are not the edit's doing
+        before = set(proposal_lint.lint(old)[0]) if old else set()
+        lint_notes = [n for n in lint_notes if n not in before]
+    warnings += lint_notes
+    report = {**report, "checks": report["checks"] + extra_checks}
+    if report["status"] not in (FAIL, WARN) and any(c["status"] == WARN for c in extra_checks):
+        report = {**report, "status": WARN}
     # Commands, MCP servers and code execution (independent of the unsafe-code switch on this machine).
     danger = _dangerous_tools_check(old, data)
     if danger is not None:
@@ -665,7 +697,7 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
     system = stable_prefix(skills=context["skills"], tools=context["tools"], models=context["models"])
     turn = turn_context(current_yaml=saved_text, current_name=workflow if workflow else None,
                         pending_yaml=pending_yaml or None, existing_files=context["existing_files"],
-                        chat_vendor=vendor)
+                        chat_vendor=vendor, user_text="\n".join(user_texts))
     history = history[:-1] + [{"role": "user", "content": with_context(history[-1]["content"], turn)}]
 
     event = threading.Event()
@@ -708,7 +740,7 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
                 errors, repair = [MISSING_PROPOSAL_ERROR], _repair_request([], missing_proposal=True)
             else:
                 proposal, errors = _check_proposal(parsed["proposal"], workflow, saved_text, saved_doc,
-                                                   user_texts)
+                                                   user_texts, vendor)
                 if proposal is not None:
                     return finish({**parsed, "proposal": proposal, "validation_errors": []}, "proposal")
                 repair = _repair_request(errors)
