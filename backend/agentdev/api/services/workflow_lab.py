@@ -633,18 +633,24 @@ def build_output_manifest(output_dir: Any) -> str:
     return "\n".join(lines)
 
 
-def _rubric_pass(data: Dict[str, Any]) -> bool:
-    """pass must be true and, when a score is given, at least 7."""
-    if data.get("pass") is not True:
-        return False
-    score = data.get("score")
-    if score is None:
-        return True
+def _score_value(score: Any) -> Optional[float]:
+    """A judge score as a number, or None when it is missing or not a number ("N/A", "seven")."""
+    if score is None or isinstance(score, bool):
+        return None
     try:
-        return float(score) >= 7
+        return float(score)
     except (TypeError, ValueError):
         match = re.match(r"\s*(\d+(?:\.\d+)?)", str(score))  # "5/10", "8 out of 10"
-        return float(match.group(1)) >= 7 if match else True
+        return float(match.group(1)) if match else None
+
+
+def _rubric_pass(data: Dict[str, Any]) -> bool:
+    """pass must be true AND the score a number of at least 7: a verdict without a usable score cannot pass,
+    otherwise a lenient judge could wave through an empty or fabricated result."""
+    if data.get("pass") is not True:
+        return False
+    value = _score_value(data.get("score"))
+    return value is not None and value >= 7
 
 
 def _parse_verdict(text: str) -> Dict[str, Any]:
@@ -658,10 +664,8 @@ def _parse_verdict(text: str) -> Dict[str, Any]:
 
 def _borderline(data: Dict[str, Any]) -> bool:
     """Score 6-8 (the pass line is 7): too close to call for a cheap judge."""
-    try:
-        return 6 <= float(data.get("score")) <= 8
-    except (TypeError, ValueError):
-        return False
+    value = _score_value(data.get("score"))
+    return value is not None and 6 <= value <= 8
 
 
 def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, str]],
@@ -684,6 +688,10 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
         f"## Questions the workflow asked the user (auto-answered: approved)\n{asked}\n\n## Answer\n{answer[:20000]}"
     )
     manifest = build_output_manifest(output_dir)
+    if not answer.strip() and not manifest:
+        # Nothing to grade: do not spend a judge call (or risk a lenient pass) on an empty result.
+        return {"pass": False, "score": 0, "reason": "The run produced no answer and no files.",
+                "judged_by": "ai", "judge_model": ""}
     user += f"\n\n## Files produced by the run\n{manifest or '(no files were produced)'}"
     conn, model = account.current()
     try:
@@ -703,7 +711,8 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
             strong = default_model_for(conn) or ""
             if strong and strong != model:
                 second = _parse_verdict(_judge_call(conn, strong, user))
-                if "pass" in second:  # unparsable second look must not turn a pass into a fail
+                # An unparsable or score-less second look must not replace a complete first verdict.
+                if "pass" in second and _score_value(second.get("score")) is not None:
                     data, model = second, strong
         except Exception:  # noqa: BLE001 - keep the first verdict when the second look fails
             pass
