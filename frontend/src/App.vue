@@ -44,12 +44,12 @@ watch(locale, (value) => {
 .app-container {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: calc(100 * var(--vh));
 }
 
 .app-container.home-route {
-  height: 100dvh;
-  min-height: 100dvh;
+  height: calc(100 * var(--dvh));
+  min-height: calc(100 * var(--dvh));
   overflow: hidden;
 }
 

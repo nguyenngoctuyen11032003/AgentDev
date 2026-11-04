@@ -50,7 +50,7 @@ const sections = [
 .settings-view {
   box-sizing: border-box;
   width: 100%;
-  min-height: calc(100vh - 55px);
+  min-height: calc(calc(100 * var(--vh)) - 55px);
   background: var(--bg);
   font-family: 'Inter', system-ui, sans-serif;
   color: var(--fg);

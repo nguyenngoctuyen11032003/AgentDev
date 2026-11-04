@@ -306,8 +306,8 @@ const handleRefreshWorkflows = async () => {
   --rail-w: 56px;
   position: relative;
   display: flex;
-  height: calc(100vh - 55px);
-  height: calc(100dvh - 55px);
+  height: calc(calc(100 * var(--vh)) - 55px);
+  height: calc(calc(100 * var(--dvh)) - 55px);
   background-color: var(--bg);
   color: var(--fg);
   overflow: hidden;
