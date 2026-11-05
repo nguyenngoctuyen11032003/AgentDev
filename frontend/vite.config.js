@@ -34,6 +34,8 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [vue()],
+    // Playwright specs live in e2e/ and run with `npm run e2e`, not Vitest
+    test: { exclude: ['e2e/**', 'node_modules/**', 'dist/**'] },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
