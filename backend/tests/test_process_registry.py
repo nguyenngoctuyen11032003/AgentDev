@@ -104,3 +104,35 @@ def test_flag_off_does_not_register(ctx, tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTDEV_PROCESS_REGISTRY", "0")
     run_shell_command(f'"{sys.executable}" -c "print(1)"', _context=ctx)
     assert process_registry.get_registry().count() == 0
+
+
+def _sleeper_proc():
+    return subprocess.Popen([sys.executable, "-c", SLEEPER], stdin=subprocess.DEVNULL)
+
+
+def test_run_end_hooks_kill_the_runs_registered_trees(tmp_path, monkeypatch):
+    """Both run-end paths (chat run and Lab run) kill the registry's trees, even outside the warehouse."""
+    from agentdev.api.services import workflow_lab, workflow_run_service
+
+    registry = process_registry.get_registry()
+    for hook in (workflow_run_service._stop_leftover_processes, workflow_lab._stop_leftover_processes):
+        proc = _sleeper_proc()
+        registry.register("run-outside", proc, tmp_path)  # root is not under the warehouse
+        hook("run-outside", time.time() - 60)
+        assert _wait_dead(proc.pid)
+        assert registry.count("run-outside") == 0
+
+
+def test_finished_entries_are_pruned(tmp_path):
+    registry = process_registry.get_registry()
+    for i in range(3):
+        done = subprocess.Popen([sys.executable, "-c", "pass"])
+        done.wait()
+        registry.register(f"old-{i}", done, tmp_path)
+    live = _sleeper_proc()
+    try:
+        registry.register("new", live, tmp_path)
+        assert all(registry.count(f"old-{i}") == 0 for i in range(3))
+        assert registry.count("new") == 1
+    finally:
+        registry.kill_all()

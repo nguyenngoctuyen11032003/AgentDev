@@ -153,3 +153,22 @@ def test_retired_gemini_model_is_replaced_with_catalog_default(store):
         doc = _doc(provider="gemini", name=ok, connection=gem.id)
         bind_default_connections(doc, {})
         assert _cfg(doc)["name"] == ok
+
+
+def test_providerless_claude_model_is_not_left_on_a_codex_default(store):
+    """A provider-less node naming a Claude model must not run that model name on the Codex default."""
+    codex = store.create(vendor="openai", label="Codex", auth_type="cli")
+    claude = store.create(vendor="anthropic", label="Claude", auth_type="cli")
+    store.set_default(codex.id)
+    cfg = {"name": "claude-haiku-4-5"}
+    doc = {"graph": {"nodes": [{"id": "a", "type": "agent", "config": cfg}]}}
+    bind_default_connections(doc, {})
+    assert cfg["connection"] == claude.id and cfg["name"] == "claude-haiku-4-5"
+
+
+def test_providerless_claude_model_with_only_codex_switches_to_its_default_model(store):
+    codex = store.create(vendor="openai", label="Codex", auth_type="cli")
+    cfg = {"name": "claude-haiku-4-5"}
+    doc = {"graph": {"nodes": [{"id": "a", "type": "agent", "config": cfg}]}}
+    bind_default_connections(doc, {})
+    assert cfg["connection"] == codex.id and not cfg["name"].startswith("claude")

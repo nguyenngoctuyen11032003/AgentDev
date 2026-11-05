@@ -111,3 +111,39 @@ def test_rg_globs_and_excludes(tmp_path):
     assert {m["file"] for m in only_md["matches"]} == {"src/b.md"}
     no_py = ft.search_in_files("needle|nothing", exclude_globs=["*.py"], _context=ctx)
     assert {m["file"] for m in no_py["matches"]} == {"src/b.md"}
+
+
+def _gitignore_tree(root: Path) -> None:
+    (root / "src" / "deep").mkdir(parents=True)
+    (root / "out2").mkdir()
+    (root / "src" / "a.py").write_text("needle a\n", encoding="utf-8")
+    (root / "src" / "secret.py").write_text("needle secret\n", encoding="utf-8")
+    (root / "src" / "gen_x.py").write_text("needle generated\n", encoding="utf-8")
+    (root / "src" / "deep" / "gen_y.py").write_text("needle generated deep\n", encoding="utf-8")
+    (root / "src" / "deep" / "b.py").write_text("needle b\n", encoding="utf-8")
+    (root / "out2" / "c.py").write_text("needle in ignored dir\n", encoding="utf-8")
+    (root / "rootonly.txt").write_text("needle root\n", encoding="utf-8")
+    (root / "src" / "rootonly.txt").write_text("needle nested same name\n", encoding="utf-8")
+    (root / "run.log").write_text("needle log\n", encoding="utf-8")
+    (root / "keep.log").write_text("needle kept log\n", encoding="utf-8")
+    (root / ".gitignore").write_text("secret.py\nout2/\n/rootonly.txt\n*.log\n!keep.log\n", encoding="utf-8")
+    (root / "src" / ".gitignore").write_text("gen_*\n", encoding="utf-8")
+
+
+EXPECTED_AFTER_GITIGNORE = {"src/a.py", "src/deep/b.py", "src/rootonly.txt", "keep.log"}
+
+
+def test_python_fallback_honours_gitignore(tmp_path, monkeypatch):
+    _gitignore_tree(tmp_path)
+    _python_only(monkeypatch)
+    result = ft.search_in_files("needle", _context=_ctx(tmp_path))
+    assert result["engine"] == "python"
+    assert {m["file"] for m in result["matches"]} == EXPECTED_AFTER_GITIGNORE
+
+
+@pytest.mark.skipif(not HAS_RG, reason="ripgrep not installed")
+def test_python_fallback_matches_ripgrep_on_gitignore(tmp_path):
+    _gitignore_tree(tmp_path)
+    rg = ft.search_in_files("needle", _context=_ctx(tmp_path))
+    assert rg["engine"] == "ripgrep"
+    assert {m["file"] for m in rg["matches"]} == EXPECTED_AFTER_GITIGNORE

@@ -8,7 +8,15 @@ export const readyCount = (connections, accounts, vendorId) =>
   connections.filter((conn) => conn.vendor === vendorId && accounts[conn.id]?.loggedIn !== false).length
 
 // Which toast to show after a delete. Honors what the server really did (cliLoggedOut).
-export function logoutToast(result, signOutRequested) {
-  if (signOutRequested) return result?.cliLoggedOut ? 'logged_out_cli' : 'logout_cli_failed'
+// The server keeps the CLI login when another connection of the same vendor shares it (sharedWithOther):
+// that is deliberate, not a failure.
+export const sharesCliLogin = (connections, conn) =>
+  conn.authType === 'cli' && connections.some((c) => c.id !== conn.id && c.authType === 'cli' && c.vendor === conn.vendor)
+
+export function logoutToast(result, signOutRequested, sharedWithOther = false) {
+  if (signOutRequested) {
+    if (result?.cliLoggedOut) return 'logged_out_cli'
+    return sharedWithOther ? 'logout_cli_kept' : 'logout_cli_failed'
+  }
   return 'logged_out'
 }

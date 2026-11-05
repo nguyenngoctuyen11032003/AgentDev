@@ -1558,6 +1558,12 @@ def _stop_leftover_processes(session: str, started: float) -> None:
     """Kill dev servers and watchers the agents started in this run's folders and left running: they hold
     ports (a Lab app once kept AgentDev's own 5173) and keep files locked for the cleanup."""
     try:
+        from agentdev.utils.process_registry import get_registry
+
+        get_registry().kill_run(session)  # registered shell trees, wherever their folder is
+    except Exception:  # noqa: BLE001 - housekeeping must not change the run's outcome
+        pass
+    try:
         from agentdev.runtime.sdk import OUTPUT_ROOT
         from agentdev.utils.process_sweep import sweep
 
@@ -1848,6 +1854,11 @@ class LabRunner:
         if judge is _judge:
             judge = functools.partial(_judge, account=JudgeAccount())
         with self._lock:
+            # Check and register under one lock (start() takes the same one): a resume cannot slip in beside
+            # a running job of the same workflow, nor beside a start() that registered after the first check.
+            if any(j.status in ("queued", "running") and (j.id == job.id or j.workflow == job.workflow)
+                   for j in self._jobs.values()):
+                raise LabError("lab_job_running", "A Lab run of this workflow is still running.")
             self._jobs[job.id] = job
         self._save(job)
         rejudge = [r for r in job.results if r["run_id"] in rejudge_ids]
@@ -1893,8 +1904,8 @@ class LabRunner:
             return False
         try:
             path.unlink()
-        except OSError:
-            return False
+        except OSError as exc:
+            raise LabError("lab_job_delete_failed", "The Lab run record could not be deleted.", 500) from exc
         return True
 
     def cancel(self, job_id: str):

@@ -105,8 +105,21 @@ test('Batch Run is a tab of the Lab; /batch-run deep link opens it', async ({ pa
   // Back to scoring: keyboard on the tablist
   await page.getByRole('tab', { selected: true }).press('ArrowLeft')
   await expect(page).not.toHaveURL(/tab=batch/)
-  await expect(page.locator('#lab-panel-batch')).toHaveCount(0)
+  // The tab stays mounted (hidden) so a running batch is not aborted
+  await expect(page.locator('#lab-panel-batch')).toBeHidden()
   await expect(page.locator('#lab-panel-score')).toBeVisible()
   // No second entry point to /batch-run left in the Lab
   await expect(page.locator('a[href="/batch-run"]')).toHaveCount(0)
+})
+
+test('Batch tab shows an error with retry when its chunk fails to load', async ({ page, guard }) => {
+  guard.allow(/BatchRunView|Failed to load resource/)
+  let fail = true
+  await page.route(/BatchRunView/, (route) => (fail ? route.abort() : route.continue()))
+  await page.goto('/lab?tab=batch')
+  const alert = page.locator('#lab-panel-batch [role="alert"]')
+  await expect(alert).toBeVisible()
+  fail = false
+  await alert.getByRole('button').click()
+  await expect(page.locator('#lab-panel-batch .launch-view')).toBeVisible()
 })

@@ -110,6 +110,29 @@ def _close_job(job: int, terminate: bool = True) -> None:
         logger.debug("Cannot close a Job Object", exc_info=True)
 
 
+def _job_active(job: int) -> bool:
+    """True while the Job Object still has a live process (an orphaned dev server)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Accounting(ctypes.Structure):
+            _fields_ = [("TotalUserTime", ctypes.c_int64), ("TotalKernelTime", ctypes.c_int64),
+                        ("ThisPeriodTotalUserTime", ctypes.c_int64), ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+                        ("TotalPageFaultCount", wintypes.DWORD), ("TotalProcesses", wintypes.DWORD),
+                        ("ActiveProcesses", wintypes.DWORD), ("TotalTerminatedProcesses", wintypes.DWORD)]
+
+        k32 = _kernel32()
+        k32.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                                  ctypes.c_void_p]
+        info = _Accounting()
+        if not k32.QueryInformationJobObject(job, 1, ctypes.byref(info), ctypes.sizeof(info), None):
+            return True  # unknown: keep it
+        return info.ActiveProcesses > 0
+    except Exception:  # noqa: BLE001
+        return True
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -158,10 +181,25 @@ class ProcessRegistry:
             job = None
         entry = _Entry(proc, job, _norm(root) if root else None)
         with self._lock:
-            entries = self._runs.setdefault(run_id, [])
-            # Without a job a dead process has nothing left to kill; with one, orphans may still run.
-            entries[:] = [e for e in entries if e.job is not None or e.proc.poll() is None]
-            entries.append(entry)
+            self._prune_locked()
+            self._runs.setdefault(run_id, []).append(entry)
+
+    def _prune_locked(self) -> None:
+        """Drop finished entries of every run (and close their Job handles) so the registry cannot grow.
+
+        Without a job a dead process has nothing left to kill; with one, orphans may still run, so the entry
+        stays until the job has no live process left."""
+        for run_id in list(self._runs):
+            keep = []
+            for e in self._runs[run_id]:
+                if e.proc.poll() is None or (e.job is not None and _job_active(e.job)):
+                    keep.append(e)
+                elif e.job is not None:
+                    _close_job(e.job, terminate=False)
+            if keep:
+                self._runs[run_id] = keep
+            else:
+                del self._runs[run_id]
 
     def kill_process(self, run_id: str, proc: subprocess.Popen) -> int:
         """Kill one registered process tree (a timed-out command) and keep the run's other trees."""

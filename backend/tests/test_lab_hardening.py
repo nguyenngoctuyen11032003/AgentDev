@@ -154,3 +154,34 @@ def test_history_avg_run_cost_ignores_failed_and_unpriced_runs(env):
     (env.store / "0123456789ab.json").write_text(json.dumps(data), encoding="utf-8")
     row = env.runner.list_jobs("wf.yaml")[0]
     assert row["avg_run_cost_usd"] == pytest.approx((0.12 + 0.22) / 2)
+
+
+def test_invalid_yaml_file_component_has_its_own_code(env):
+    res = env.client.post("/api/lab/check", json={"yaml_file": "..\evil.yaml"})
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "lab_yaml_invalid"
+
+
+def test_delete_job_removes_record_before_outputs_and_reports_failure(env, monkeypatch):
+    import pathlib
+
+    data = {"id": "0123456789ab", "workflow": "wf.yaml", "status": "completed", "started_at": time.time(),
+            "results": [{"scenario": 0, "repeat": 1, "status": "passed", "run_id": "r1", "output_dir": "x"}]}
+    path = env.store / "0123456789ab.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    deleted = []
+    monkeypatch.setattr(lab_route.lab_outputs, "delete_run_outputs", lambda *a, **k: deleted.append(a))
+    real_unlink = pathlib.Path.unlink
+
+    def failing_unlink(self, *a, **k):
+        if self == path:
+            raise PermissionError("locked")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(pathlib.Path, "unlink", failing_unlink)
+    res = env.client.delete("/api/lab/jobs/0123456789ab")
+    assert res.status_code == 500 and res.json()["detail"]["code"] == "lab_job_delete_failed"
+    assert deleted == [] and path.exists()  # nothing half-deleted: the outputs are still there
+    monkeypatch.setattr(pathlib.Path, "unlink", real_unlink)
+    assert env.client.delete("/api/lab/jobs/0123456789ab").status_code == 200
+    assert deleted and not path.exists()

@@ -1069,7 +1069,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick, toRaw
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, postWorkflowExecute, sessionOutputsSummary } from '@/api/client.js'
-import { WINDOW, openAtLatest, showOlder, showNewer, onLengthChange, revealIndex, sliceWindow, hiddenOlder, hiddenNewer } from '@/utils/messageWindow.js'
+import { WINDOW, openAtLatest, showOlder, showNewer, onLengthChange, revealIndex, sliceWindow, hiddenOlder, hiddenNewer, followTail } from '@/utils/messageWindow.js'
 import { collectDroppedItems } from '@/utils/projectFiles.js'
 import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
 import OutputLocation from '@/components/launch/OutputLocation.vue'
@@ -3170,6 +3170,7 @@ const addDialogue = (name, message, at = null) => {
     rev: 0
   })
   // The user's own message always brings the view back to the bottom
+  if (isRight) renderWin.value = followTail(renderWin.value, chatMessages.value.length)
   scheduleScrollToBottom(isRight)
   return chatMessages.value[chatMessages.value.length - 1]
 }

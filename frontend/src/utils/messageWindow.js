@@ -7,6 +7,10 @@ const norm = (start, end, length) => (end === null || end >= length ? { start, e
 
 export const openAtLatest = (length) => ({ start: Math.max(0, length - WINDOW.limit), end: null })
 
+// The user sent a message: a detached window (reader far up in history) snaps back to the tail so
+// the new message and the reply are mounted.
+export const followTail = (win, length) => (win.end === null ? win : openAtLatest(length))
+
 export const sliceWindow = (list, win) => list.slice(Math.min(win.start, list.length), win.end ?? list.length)
 
 export const hiddenOlder = (win) => win.start

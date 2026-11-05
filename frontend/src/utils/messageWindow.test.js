@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { WINDOW, openAtLatest, showOlder, showNewer, onLengthChange, revealIndex, sliceWindow, hiddenOlder, hiddenNewer } from './messageWindow'
+import { WINDOW, openAtLatest, showOlder, showNewer, onLengthChange, revealIndex, sliceWindow, hiddenOlder, hiddenNewer, followTail } from './messageWindow'
 
 const list = (n) => Array.from({ length: n }, (_, i) => i)
 
@@ -49,5 +49,16 @@ describe('messageWindow', () => {
     expect(win.start).toBeLessThanOrEqual(100)
     expect(sliceWindow(list(1000), win).length).toBeLessThanOrEqual(WINDOW.max)
     expect(sliceWindow(list(1000), win)).toContain(100)
+  })
+
+  it('follows the tail when the user sends while the window is detached', () => {
+    let win = openAtLatest(1000)
+    win = showOlder(showOlder(win, 1000), 1000)
+    expect(win.end).not.toBeNull()
+    const next = followTail(win, 1001)
+    expect(next.end).toBeNull()
+    expect(sliceWindow(list(1001), next)).toContain(1000)
+    const live = openAtLatest(50)
+    expect(followTail(live, 50)).toBe(live)
   })
 })

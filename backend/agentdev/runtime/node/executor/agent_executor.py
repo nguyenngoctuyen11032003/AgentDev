@@ -1150,7 +1150,7 @@ class AgentNodeExecutor(NodeExecutor):
         if not command:
             return None
         run_id = str(getattr(self.context, "session_id", None) or node.id)
-        result = verify_gate.run_verification(root, command, run_id)
+        result = verify_gate.run_verification(root, command, run_id, cancel_event=getattr(self.context, "cancel_event", None))
         state["verify_gate"] = {**result.as_dict(), "rounds": round_no}
         self.log_manager.info(
             f"[Node: {node.id}] Verify gate round {round_no}: {result.status} ({result.duration_s:.1f}s)",

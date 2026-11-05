@@ -196,7 +196,7 @@ import {
   setDefaultConnection,
   testConnection
 } from '@/api/client'
-import { needsLiveModels, logoutToast, readyCount } from '@/utils/connectionsLogic'
+import { needsLiveModels, logoutToast, readyCount, sharesCliLogin } from '@/utils/connectionsLogic'
 import { accountName, isPremiumModel, normalizeModels } from '@/utils/accountFormat'
 import { invalidateConnectionModels, modelsForConnection } from '@/utils/connectionModels'
 import { confirmDialog } from '@/utils/confirm'
@@ -346,6 +346,7 @@ async function logout(conn) {
   const confirmed = isCli ? answer.confirmed : answer
   if (!confirmed) return
   const signOutCli = isCli && answer.checked
+  const sharedWithOther = sharesCliLogin(connections.value, conn)
   let result
   try {
     result = await deleteConnection(conn.id, { signOutCli })
@@ -356,8 +357,9 @@ async function logout(conn) {
   delete results[conn.id]
   delete accounts[conn.id]
   if (detailId.value === conn.id) detailId.value = ''
-  const kind = logoutToast(result, signOutCli)
+  const kind = logoutToast(result, signOutCli, sharedWithOther)
   if (kind === 'logout_cli_failed') toast.warning(t('connections.logout_cli_failed'))
+  else if (kind === 'logout_cli_kept') toast.info(t('connections.logout_cli_kept'))
   else toast.success(t(`connections.${kind}`))
   await refreshQuietly()
 }

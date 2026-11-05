@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { readyCount, needsLiveModels, logoutToast } from './connectionsLogic.js'
+import { readyCount, needsLiveModels, logoutToast, sharesCliLogin } from './connectionsLogic.js'
 import { createGoogleOAuthFlow } from './googleOAuth.js'
 import { deleteConnection } from '@/api/client.js'
 
@@ -33,6 +33,18 @@ describe('A4-2 logout toast', () => {
     expect(logoutToast({ cliLoggedOut: false }, true)).toBe('logout_cli_failed')
     expect(logoutToast({ cliLoggedOut: false }, false)).toBe('logged_out')
     expect(logoutToast({}, false)).toBe('logged_out')
+  })
+
+  it('is neutral (not a failure) when another connection of the vendor keeps the CLI login', () => {
+    expect(logoutToast({ cliLoggedOut: false }, true, true)).toBe('logout_cli_kept')
+    expect(logoutToast({ cliLoggedOut: true }, true, true)).toBe('logged_out_cli')
+    const list = [
+      { id: 'a', vendor: 'claude', authType: 'cli' },
+      { id: 'b', vendor: 'claude', authType: 'cli' },
+      { id: 'c', vendor: 'codex', authType: 'cli' }
+    ]
+    expect(sharesCliLogin(list, list[0])).toBe(true)
+    expect(sharesCliLogin(list, list[2])).toBe(false)
   })
 })
 
@@ -75,6 +87,31 @@ describe('A3-04 google oauth flow', () => {
     await vi.advanceTimersByTimeAsync(10)
     flow.cancel()
     expect((await caught).message).toBe('connections.sign_in_cancelled')
+  })
+
+  it('closes the popup on cancel, timeout and poll error, and flags a user cancel', async () => {
+    vi.useFakeTimers()
+    const make = (over) => {
+      const popup = { closed: false, close: vi.fn() }
+      const flow = createGoogleOAuthFlow('lbl', deps({ openWindow: vi.fn(() => popup), timeoutMs: 5000, ...over }))
+      const caught = flow.promise.catch((e) => e)
+      return { popup, flow, caught }
+    }
+    const a = make()
+    await vi.advanceTimersByTimeAsync(10)
+    a.flow.cancel()
+    await a.caught
+    expect(a.popup.close).toHaveBeenCalled()
+    expect(a.flow.cancelled).toBe(true)
+    const b = make()
+    await vi.advanceTimersByTimeAsync(6000)
+    await b.caught
+    expect(b.popup.close).toHaveBeenCalled()
+    expect(b.flow.cancelled).toBe(false)
+    const c = make({ poll: vi.fn(async () => { throw new Error('boom') }) })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect((await c.caught).message).toBe('boom')
+    expect(c.popup.close).toHaveBeenCalled()
   })
 
   it('times out', async () => {

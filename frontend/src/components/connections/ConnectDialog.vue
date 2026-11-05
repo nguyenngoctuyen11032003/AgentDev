@@ -390,6 +390,7 @@ async function copyLoginUrl() {
 let stopGoogleOAuth = null // cancels the running Google flow (rejects it, which also cleans up)
 
 let googleFlow = null
+let googleCancelledByUser = false // dialog closed mid sign-in: not an error, no toast
 
 function signInWithGoogle(label) {
   stopGoogleOAuth?.()
@@ -448,6 +449,7 @@ function selectMethod(key) {
 // signed in, so a failed or cancelled login never leaves a connection behind.
 async function saveConnection() {
   saving.value = true
+  googleCancelledByUser = false
   const label = form.label.trim() || defaultLabel.value
   try {
     if (authType.value === 'oauth') {
@@ -460,7 +462,7 @@ async function saveConnection() {
     emit('created')
     emit('close')
   } catch (error) {
-    if (unmounted) return
+    if (unmounted || googleCancelledByUser) return
     login.error = backendError(error.message)
     toast.error(backendError(error.message))
   } finally {
@@ -479,7 +481,10 @@ async function submit() {
 
 function requestClose() {
   // Google sign-in can be abandoned at any time (cancel rejects the flow and frees the dialog).
-  if (saving.value && googleFlow) googleFlow.cancel()
+  if (saving.value && googleFlow) {
+    googleCancelledByUser = true
+    googleFlow.cancel()
+  }
   else if (saving.value) return
   emit('close')
 }
@@ -505,6 +510,7 @@ onBeforeUnmount(() => {
   unmounted = true
   if (login.session) cancelCliLogin(login.session.sessionId).catch(() => {})
   clearInterval(loginTimer)
+  googleCancelledByUser = true
   stopGoogleOAuth?.()
 })
 </script>

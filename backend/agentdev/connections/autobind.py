@@ -28,6 +28,12 @@ _VENDOR_OF = {
     "codex_cli": "openai",
     "gemini": "gemini",
 }
+# Model-name prefixes -> vendor, for a node that names a model but no provider
+_MODEL_PREFIX_VENDOR = (
+    (("claude",), "anthropic"),
+    (("gpt", "codex", "o1", "o3", "o4"), "openai"),
+    (("gemini",), "gemini"),
+)
 _LEGACY_KEYS = ("api_key", "base_url")
 _PLACEHOLDER = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
@@ -57,6 +63,17 @@ def strip_legacy_keys(value: Any) -> Any:
         for child in value:
             strip_legacy_keys(child)
     return value
+
+
+def _vendor_of_model(name: Any) -> str:
+    """The vendor a literal model name belongs to ("" for a placeholder or an unknown name)."""
+    text = str(name or "").strip().lower()
+    if not text or text.startswith("$"):
+        return ""
+    for prefixes, vendor in _MODEL_PREFIX_VENDOR:
+        if text.startswith(prefixes):
+            return vendor
+    return ""
 
 
 def _serves(conn: Connection, needs_tools: bool) -> bool:
@@ -115,7 +132,7 @@ def bind_default_connections(
             swap_retired_model(node, path)
             return
         provider = node.get("provider") or ""
-        vendor_id = _VENDOR_OF.get(provider, provider)
+        vendor_id = _VENDOR_OF.get(provider, provider) or _vendor_of_model(node.get("name"))
         needs_tools = bool(node.get("tooling"))
         same_vendor = [c for c in connections if c.vendor == vendor_id and _serves(c, needs_tools)] if vendor_id else []
         if same_vendor:

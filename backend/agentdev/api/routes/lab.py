@@ -64,7 +64,7 @@ def _workflow_path(yaml_file: str):
     try:
         validate_path_component(name, field="yaml_file")
     except Exception as exc:  # noqa: BLE001
-        raise _lab_http(400, "lab_yaml_required", str(exc)) from exc
+        raise _lab_http(400, "lab_yaml_invalid", str(exc)) from exc
     path = _resolve_yaml_path(name)
     if not path.is_file():
         raise _lab_http(404, "lab_workflow_not_found", f"Workflow '{name}' not found")
@@ -125,17 +125,18 @@ def delete_job(job_id: str):
     if lab_outputs.is_running(stored):
         raise _lab_http(409, "lab_job_running", "This Lab run is still running; stop it first.")
     results = (stored.to_dict() or {}).get("results") or []
+    # The record goes first: when it cannot be deleted nothing is half-removed, and the caller gets a real error.
+    try:
+        if not runner.delete(job_id):
+            raise _lab_http(404, "lab_job_not_found", "Lab run not found", {"job_id": job_id})
+    except LabError as exc:
+        raise _from_lab_error(exc) from exc
     for index, result in enumerate(results):
         if result.get("output_dir"):
             try:
                 lab_outputs.delete_run_outputs(job_id, result.get("run_id") or index)
             except Exception:  # noqa: BLE001 - leftovers are swept by the storage cleanup
                 pass
-    try:
-        if not runner.delete(job_id):
-            raise _lab_http(404, "lab_job_not_found", "Lab run not found", {"job_id": job_id})
-    except LabError as exc:
-        raise _from_lab_error(exc) from exc
     return {"deleted": True}
 
 

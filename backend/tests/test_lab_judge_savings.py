@@ -327,3 +327,35 @@ def test_resumable_follows_output_folder_deleted_after_first_read(tmp_path):
     assert job.to_dict()["resumable"] is True
     out.rmdir()
     assert job.to_dict()["resumable"] is False
+
+
+def test_resume_respects_one_running_job_per_workflow(tmp_path):
+    """Two stopped jobs of one workflow: resuming the second while the first runs is refused, like start()."""
+    import threading as th
+    runner = LabRunner(store_dir=tmp_path / "store")
+    yaml_path = tmp_path / "wf.yaml"
+    yaml_path.write_text("x: 1", encoding="utf-8")
+    boom = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))  # noqa: E731
+    ids = []
+    for _ in range(2):
+        job = runner.start(yaml_path, "wf.yaml", [Scenario("a", "c")], 1, run_once=boom,
+                           judge=lambda *a, **k: {"pass": True})
+        _wait(job)
+        job.status = "cancelled"
+        runner._save(job)
+        runner._jobs.pop(job.id)
+        ids.append(job.id)
+    release = th.Event()
+
+    def slow(path, scenario, cancel):
+        release.wait(10)
+        return {"answer": "ok", "questions": []}
+
+    first = runner.resume(ids[0], yaml_path, run_once=slow, judge=lambda *a, **k: {"pass": True, "score": 9})
+    try:
+        with pytest.raises(workflow_lab.LabError) as exc:
+            runner.resume(ids[1], yaml_path, run_once=slow, judge=lambda *a, **k: {"pass": True, "score": 9})
+        assert exc.value.code == "lab_job_running"
+    finally:
+        release.set()
+        _wait(first)

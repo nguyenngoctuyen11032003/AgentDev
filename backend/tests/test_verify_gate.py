@@ -1,6 +1,7 @@
 """Verify gate: a lead may not finish while the project's own tests are red (bounded, flag-gated)."""
 
 import json
+import os
 import sys
 import time
 from types import SimpleNamespace
@@ -12,6 +13,15 @@ from agentdev.entity.messages import Message, MessageRole, ToolCallPayload
 from agentdev.runtime.node.agent import ModelResponse, ProviderRegistry
 from agentdev.runtime.node.agent import verify_gate
 from agentdev.runtime.node.executor import agent_executor as agent_executor_module
+from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _allow_code_execution(monkeypatch):
+    """The gate runs workflow-declared commands, so it needs the same server opt-in as the shell tool."""
+    monkeypatch.setenv(UNSAFE_CODE_EXECUTION_ENV, "1")
 
 
 # ---------------------------------------------------------------- detection and runner
@@ -189,3 +199,83 @@ def test_no_command_detected_is_noop(tmp_path, monkeypatch):
 def test_green_workspace_finishes_at_once(tmp_path, monkeypatch):
     _run(tmp_path, monkeypatch, {"Lead": [_make_ok(tmp_path, "done")]}, flag=True)
     assert len(Provider.seen["Lead"]) == 1
+
+
+# ---------------------------------------------------------------- security and robustness
+
+def test_refuses_without_unsafe_opt_in(tmp_path, monkeypatch):
+    monkeypatch.delenv(UNSAFE_CODE_EXECUTION_ENV, raising=False)
+    marker = tmp_path / "ran.txt"
+    code = "open('ran.txt', 'w').write('x')"
+    res = verify_gate.run_verification(tmp_path, f'"{sys.executable}" -c "{code}"', "t-guard", timeout=30)
+    assert res.status == "error" and UNSAFE_CODE_EXECUTION_ENV in res.output
+    assert not marker.exists()  # never executed, never a pass
+    assert res.status != "pass"
+
+
+def test_refuses_blocked_command(tmp_path):
+    res = verify_gate.run_verification(tmp_path, "git push origin main", "t-blocked", timeout=30)
+    assert res.status == "error" and "Blocked" in res.output
+
+
+def test_env_is_sanitized(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTDEV_SECRET_THING", "leak")
+    monkeypatch.setenv("MY_API_KEY", "leak")
+    code = "import os; print(os.environ.get('AGENTDEV_SECRET_THING'), os.environ.get('MY_API_KEY'))"
+    res = verify_gate.run_verification(tmp_path, f'"{sys.executable}" -c "{code}"', "t-env", timeout=30)
+    assert res.status == "pass" and "leak" not in res.output
+
+
+def test_cancel_event_stops_the_command(tmp_path):
+    import threading
+
+    cancel = threading.Event()
+    threading.Timer(1.0, cancel.set).start()
+    started = time.monotonic()
+    res = verify_gate.run_verification(
+        tmp_path, f'"{sys.executable}" -c "import time; time.sleep(60)"', "t-cancel", timeout=120, cancel_event=cancel)
+    assert res.status == "cancelled"
+    assert not verify_gate.blocks_finish(res)
+    assert time.monotonic() - started < 20
+
+
+def test_relative_executable_resolves_against_project_root(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    other = tmp_path / "other"
+    (root / "node_modules" / ".bin").mkdir(parents=True)
+    other.mkdir()
+    (root / "run_tests.sh").write_text("exit 0\n")
+    (root / "node_modules" / ".bin" / "jest").write_text("")
+    monkeypatch.chdir(other)  # the server's cwd is somewhere else
+    assert not verify_gate._executable_missing("./run_tests.sh --x", root)
+    assert not verify_gate._executable_missing("node_modules/.bin/jest", root)
+    assert verify_gate._executable_missing("./nope.sh", root)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="cmd.exe only")
+def test_windows_missing_command_in_shell_is_error(tmp_path):
+    res = verify_gate.run_verification(tmp_path, "cmd /c definitelynotacommandxyz", "t-winmiss", timeout=30)
+    assert res.status == "error" and not verify_gate.blocks_finish(res)
+
+
+def test_pytest_no_tests_collected_is_not_a_failure(tmp_path):
+    res = verify_gate.run_verification(
+        tmp_path, f'"{sys.executable}" -B -m pytest -q -p no:cacheprovider', "t-pyt5", timeout=60)
+    assert res.returncode == 5
+    assert res.status == "none" and not verify_gate.blocks_finish(res)
+
+
+def test_detect_prefers_project_venv_python(tmp_path):
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    py =tmp_path / ".venv" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+    py.parent.mkdir(parents=True)
+    py.write_text("")
+    assert str(py) in verify_gate.detect_command(tmp_path)
+
+
+def test_pytest_import_error_of_project_deps_is_error_not_failure(tmp_path):
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "test_a.py").write_text("import module_that_does_not_exist_xyz\n\ndef test_a():\n    pass\n")
+    command = verify_gate.detect_command(tmp_path)
+    res = verify_gate.run_verification(tmp_path, command, "t-imp", timeout=60)
+    assert res.status == "error" and not verify_gate.blocks_finish(res)

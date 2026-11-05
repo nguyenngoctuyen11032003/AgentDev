@@ -19,11 +19,21 @@ export function createGoogleOAuthFlow(label, deps) {
   let settled = false
   let onMessage = null
   let rejectFlow = () => {}
+  let userCancelled = false
 
+  let popupRef = null
   const stop = () => {
     clearInterval(timer)
     clearTimeout(deadline)
     if (onMessage && win) win.removeEventListener('message', onMessage)
+  }
+  // Failure paths (timeout, cancel, poll error) must not leave the sign-in window open.
+  const closePopup = () => {
+    try {
+      popupRef?.close?.()
+    } catch {
+      /* already gone */
+    }
   }
 
   const promise = new Promise((resolve, reject) => {
@@ -31,6 +41,7 @@ export function createGoogleOAuthFlow(label, deps) {
       if (settled) return
       settled = true
       stop()
+      if (fn === reject) closePopup()
       fn(value)
     }
     rejectFlow = (error) => finish(reject, error)
@@ -40,6 +51,7 @@ export function createGoogleOAuthFlow(label, deps) {
       finish(reject, new Error(t('connections.popup_blocked')))
       return
     }
+    popupRef = popup
     deadline = setTimeout(() => finish(reject, new Error(t('connections.sign_in_timeout'))), timeoutMs)
 
     if (win) {
@@ -76,13 +88,19 @@ export function createGoogleOAuthFlow(label, deps) {
         }, POLL_MS)
       })
       .catch((error) => {
-        popup.close?.()
         finish(reject, error)
       })
   })
 
   return {
     promise,
-    cancel: () => rejectFlow(new Error(t('connections.sign_in_cancelled')))
+    cancel: () => {
+      userCancelled = true
+      rejectFlow(new Error(t('connections.sign_in_cancelled')))
+    },
+    // true once the user (not an error) ended the flow, so the UI can stay silent
+    get cancelled() {
+      return userCancelled
+    }
   }
 }

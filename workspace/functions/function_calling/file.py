@@ -21,6 +21,7 @@ from typing import (
     MutableSequence,
     Optional,
     Sequence,
+    Tuple,
 )
 
 from agentdev.entity.messages import MessageBlock, MessageBlockType
@@ -1147,7 +1148,6 @@ def search_in_files(
         compiled_regex = re.compile(pattern, flags)
 
     skipped: Dict[str, int] = {}
-    searched_files = 0
     rg_hits = _rg_candidate_files(
         ctx.workspace_root, pattern, use_regex, case_sensitive, include_patterns, exclude_patterns, include_hidden
     )
@@ -1601,6 +1601,87 @@ def _looks_binary(path: Path) -> bool:
     return b"\0" in head
 
 
+class _GitIgnore:
+    """``.gitignore`` rules for the Python search path, so it skips what ripgrep skips.
+
+    Covers the common syntax (``#`` comments, ``!`` negation, a trailing ``/`` for folders, a leading or inner
+    ``/`` that anchors a pattern to its own ``.gitignore`` folder, ``*``, ``**``, ``?``) in the root file and
+    in nested ones. Parsed once per folder per search. Not covered: ``.git/info/exclude``, the global ignore
+    file and ``.ignore`` files."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self._rules: Dict[str, List[Tuple[bool, bool, "re.Pattern[str]"]]] = {}
+        self._verdict: Dict[str, bool] = {}
+
+    def _load(self, folder_rel: str) -> List[Tuple[bool, bool, "re.Pattern[str]"]]:
+        cached = self._rules.get(folder_rel)
+        if cached is not None:
+            return cached
+        rules: List[Tuple[bool, bool, "re.Pattern[str]"]] = []
+        try:
+            text = (self.root / folder_rel / ".gitignore").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        flags = re.IGNORECASE if os.name == "nt" else 0
+        for raw in text.splitlines():
+            line = raw
+            if not line.strip() or line.startswith("#"):
+                continue
+            negate = line.startswith("!")
+            if negate:
+                line = line[1:]
+            line = line if line.endswith("\\ ") else line.rstrip(" ")
+            dir_only = line.endswith("/")
+            line = line.rstrip("/")
+            if not line:
+                continue
+            anchored = "/" in line
+            line = line.lstrip("/")
+            try:
+                body = _translate_glob(line)
+                regex = re.compile("^" + ("" if anchored else "(?:.*/)?") + body + "$", flags)
+            except re.error:
+                continue
+            rules.append((negate, dir_only, regex))
+        self._rules[folder_rel] = rules
+        return rules
+
+    def _ignored_at(self, parts: Sequence[str], is_dir: bool) -> bool:
+        """Verdict for ``parts`` alone (its parents are checked by the caller); deeper files win."""
+        ignored = False
+        for depth in range(len(parts)):
+            folder = "/".join(parts[:depth])
+            rel = "/".join(parts[depth:])
+            for negate, dir_only, regex in self._load(folder):
+                if dir_only and not is_dir:
+                    continue
+                if regex.match(rel):
+                    ignored = not negate
+        return ignored
+
+    def is_ignored(self, rel_posix: str) -> bool:
+        cached = self._verdict.get(rel_posix)
+        if cached is not None:
+            return cached
+        parts = rel_posix.split("/")
+        result = False
+        for end in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:end])
+            if end < len(parts):  # a folder: its verdict is shared by every file below it
+                folder_verdict = self._verdict.get(prefix)
+                if folder_verdict is None:
+                    folder_verdict = self._ignored_at(parts[:end], True)
+                    self._verdict[prefix] = folder_verdict
+                if folder_verdict:
+                    result = True
+                    break
+            elif self._ignored_at(parts, False):
+                result = True
+        self._verdict[rel_posix] = result
+        return result
+
+
 def _iter_candidate_files(
     root: Path,
     include_patterns: Sequence[str],
@@ -1626,6 +1707,7 @@ def _iter_candidate_files(
                 continue
             starts.append(candidate)
     yielded: set[str] = set()
+    gitignore = _GitIgnore(root)
     for start in starts:
         for _current, _depth, _subdirs, files, _skipped_dirs in _walk_workspace(
             root, start, include_hidden=include_hidden, skip_dirs=skip_dirs
@@ -1634,7 +1716,7 @@ def _iter_candidate_files(
                 rel_key = candidate.relative_to(root).as_posix()
                 if rel_key in yielded or not any(regex.match(rel_key) for regex in compiled):
                     continue
-                if _is_excluded(rel_key, exclude_patterns):
+                if _is_excluded(rel_key, exclude_patterns) or gitignore.is_ignored(rel_key):
                     continue
                 yielded.add(rel_key)
                 size = _file_size(candidate)

@@ -656,10 +656,21 @@ class WorkflowRunService:
         return yaml_path
 
 
+def _kill_registered_trees(run_id: str) -> None:
+    try:
+        from agentdev.utils.process_registry import get_registry
+
+        get_registry().kill_run(run_id)
+    except Exception:  # noqa: BLE001 - housekeeping must not affect the run
+        logging.getLogger(__name__).debug("Registry kill_run failed", exc_info=True)
+
+
 def _stop_leftover_processes(session_id: str, since: float) -> None:
     """Kill what the agents started in this session's own folder during the run and left running (dev servers,
     watchers). Only the session folder in the warehouse: an opened project is the user's, where they may run
-    their own servers. The "Chạy thử" previews are protected."""
+    their own servers. The "Chạy thử" previews are protected. The run's registered shell trees die too, wherever
+    their folder is."""
+    _kill_registered_trees(session_id)
     try:
         from agentdev.paths import WAREHOUSE_DIR
         from agentdev.utils.process_sweep import sweep
