@@ -90,8 +90,8 @@ class TokenTracker:
         self._t0 = time.perf_counter()
         self._last_end = self._t0
         self.node_runs = []  # every run of every node, loops included
-        self._node_extra = defaultdict(lambda: {"cache_read": 0, "cache_creation": 0, "cost_usd": 0.0, "wall_ms": 0.0})
-        self._model_extra = defaultdict(lambda: {"cache_read": 0, "cache_creation": 0, "cost_usd": 0.0})
+        self._node_extra = defaultdict(lambda: {"cache_read": 0, "cache_creation": 0, "cost_usd": 0.0, "wall_ms": 0.0, "cost_unknown": 0})
+        self._model_extra = defaultdict(lambda: {"cache_read": 0, "cache_creation": 0, "cost_usd": 0.0, "cost_unknown": 0})
         self.limits: Dict[str, Any] = resolve_run_limits(None)
         self._cancel_cb = None
         self._warned = set()
@@ -225,12 +225,32 @@ class TokenTracker:
         cache_r = _num(meta.get("cache_read_input_tokens"), int)
         cache_w = _num(meta.get("cache_creation_input_tokens"), int)
         cost = _num(meta.get("total_cost_usd"), float)
+        # A call that spent tokens but reported no price (Codex, a killed call's partial usage) is not free:
+        # its cost is unknown, never a made-up number. cost_usd sums only the known prices.
+        cost_known = meta.get("total_cost_usd") is not None or (usage.input_tokens + usage.output_tokens) == 0
+        history_entry["cost_known"] = cost_known
         for bucket in (self._node_extra[node_id], self._model_extra[model_name]):
+            if not cost_known:
+                bucket["cost_unknown"] += 1
             bucket["cache_read"] += cache_r
             bucket["cache_creation"] += cache_w
             bucket["cost_usd"] += cost
 
         self.call_history.append(history_entry)
+
+    def node_totals(self, node_id: str) -> Dict[str, Any]:
+        """Running totals of one node (all its runs so far): tokens, cache reads, known cost, unpriced calls."""
+        with self._lock:
+            usage = self.node_usages.get(node_id)
+            extra = self._node_extra.get(node_id)
+            return {
+                "tokens_in": usage.input_tokens if usage else 0,
+                "tokens_out": usage.output_tokens if usage else 0,
+                "cache_read": extra["cache_read"] if extra else 0,
+                "cost_usd": extra["cost_usd"] if extra else 0.0,
+                "cost_unknown": extra["cost_unknown"] if extra else 0,
+                "model": next((h["model_name"] for h in reversed(self.call_history) if h["node_id"] == node_id), None),
+            }
 
     def get_total_usage(self) -> TokenUsage:
         """Get total token usage for the workflow."""
@@ -283,8 +303,16 @@ class TokenTracker:
             "tokens": self.total_usage.total_tokens,
             "cache_hit_pct": round(100.0 * cache_r / denom, 1) if (cache_r + cache_w) > 0 and denom else None,
             "cost_usd": round(sum(e["cost_usd"] for e in self._model_extra.values()), 4),
+            # cost_known: EVERY call reported a price (cost_usd is the whole cost). cost_partial: some did, some did
+            # not (cost_usd is a lower bound: only the known prices are summed).
+            "cost_known": not any(e["cost_unknown"] for e in self._model_extra.values()),
+            "cost_partial": self._cost_partial(),
             "top_nodes": self._top_nodes(8),
         }
+
+    def _cost_partial(self) -> bool:
+        flags = [h.get("cost_known", True) for h in self.call_history]
+        return any(flags) and not all(flags)
 
     def _snapshot(self) -> Dict[str, Any]:
         data = {
@@ -318,6 +346,7 @@ class TokenTracker:
                     "cache_read_tokens": e["cache_read"],
                     "cache_creation_tokens": e["cache_creation"],
                     "cost_usd": round(e["cost_usd"], 4),
+                    "cost_known": not e["cost_unknown"],
                     "wall_s": round(e["wall_ms"] / 1000.0, 2),
                 }
                 for node_id, e in self._node_extra.items()
@@ -327,6 +356,7 @@ class TokenTracker:
                     "cache_read_tokens": e["cache_read"],
                     "cache_creation_tokens": e["cache_creation"],
                     "cost_usd": round(e["cost_usd"], 4),
+                    "cost_known": not e["cost_unknown"],
                 }
                 for m, e in self._model_extra.items()
             },
@@ -334,6 +364,10 @@ class TokenTracker:
             "summary": self._summary(),
         }
         return data
+
+    def scoped(self, prefix: str, run_limits: Optional[Dict[str, Any]] = None, cancel_cb=None) -> "ScopedTokenTracker":
+        """A tracker for a subgraph node ``prefix`` running under this one (see ``ScopedTokenTracker``)."""
+        return ScopedTokenTracker(self, prefix, run_limits, cancel_cb=cancel_cb)
 
     def export_to_file(self, filepath: str):
         """Export token usage data to a JSON file."""
@@ -348,3 +382,44 @@ class TokenTracker:
         
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+class ScopedTokenTracker(TokenTracker):
+    """The tracker of a subgraph node running under a parent tracker.
+
+    Every node run and model call is recorded twice: here under the subgraph's own node ids (so the subgraph's
+    own ``run_limits``, ``node_max_runs`` included, apply to its nodes), and in the parent under ``<prefix>/<id>``
+    (so the run's totals and budgets count the nested work, and a nested ``W`` never uses up the parent's ``W``).
+    Nested subgraphs chain: the parent of a scope may be a scope, giving ``S/T/W``.
+    """
+
+    def __init__(self, parent: TokenTracker, prefix: str, run_limits: Optional[Dict[str, Any]] = None,
+                 cancel_cb=None):
+        super().__init__(getattr(parent, "workflow_id", "") or "")
+        self.parent = parent
+        self.prefix = str(prefix)
+        self.configure_limits(run_limits, cancel_cb=cancel_cb)
+
+    def _scoped(self, node_id: Optional[str]) -> Optional[str]:
+        return f"{self.prefix}/{node_id}" if node_id else node_id
+
+    def check_budget(self, node_id: Optional[str] = None, *, starting: bool = False) -> None:
+        self.parent.check_budget(self._scoped(node_id), starting=starting)
+        super().check_budget(node_id, starting=starting)
+
+    def record_node_run(self, node_id: str, wall_ms: float, status: str = "ok", start_ts: Optional[str] = None) -> None:
+        with self._lock:
+            n = sum(1 for r in self.node_runs if r["node"] == node_id) + 1
+            self._last_end = time.perf_counter()
+            self.node_runs.append({"node": node_id, "n": n, "wall_ms": round(float(wall_ms), 1), "status": status,
+                                   "start_ts": start_ts or datetime.now().isoformat()})
+            self._node_extra[node_id]["wall_ms"] += float(wall_ms)
+        self.parent.record_node_run(self._scoped(node_id), wall_ms, status, start_ts)
+        if status == "ok":
+            super().check_budget(node_id)
+
+    def record_usage(self, node_id: str, model_name: str, usage: TokenUsage, provider: str = None):
+        with self._lock:
+            self._record_usage(node_id, model_name, usage, provider)
+        self.parent.record_usage(self._scoped(node_id), model_name, usage, provider)
+        super().check_budget(node_id)

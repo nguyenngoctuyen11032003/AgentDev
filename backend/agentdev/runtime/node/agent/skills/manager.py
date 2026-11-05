@@ -422,8 +422,15 @@ class AgentSkillManager:
         return list(self._discovery_warnings)
 
     def build_tool_specs(self) -> List[ToolSpec]:
+        """``activate_skill`` and ``read_skill_file``; only ``read_skill_file`` when every skill is preloaded
+        (nothing is left to activate, but a skill's other files can still be read)."""
         if not self.has_skills():
             return []
+        specs = self._all_tool_specs()
+        everything_preloaded = bool(self._preloaded) and all(self.is_preloaded(s.name) for s in self.discover())
+        return [spec for spec in specs if spec.name != "activate_skill"] if everything_preloaded else specs
+
+    def _all_tool_specs(self) -> List[ToolSpec]:
         return [
             ToolSpec(
                 name="activate_skill",

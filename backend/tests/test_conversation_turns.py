@@ -441,7 +441,7 @@ def test_changed_files_skipped_on_chat_only_turns():
 def test_stable_parts_come_first():
     turns = [make_turn("BUILD SHOP SCOPE-X", "ok")] + [make_turn(f"msg {i}", f"ans {i}") for i in range(8)]
     text = compose_follow_up_prompt(turns, "next feature please", changed_files={"a.py": 1})
-    assert text.index("PROJECT BRIEF") < text.index("Files changed") < text.index("Earlier in this conversation")
+    assert text.index("PROJECT BRIEF") < text.index("Earlier in this conversation") < text.index("Files changed")
 
 
 def test_continue_with_a_request_is_a_normal_turn():
@@ -488,3 +488,40 @@ def test_follow_up_keeps_changed_files(tmp_path):
     first.changed_files["app/auth.py"] = 120
     session = store.create_session(session_id="cf", yaml_file="team.yaml", task_prompt="Add logout")
     assert session.changed_files == {"app/auth.py": 120}
+
+
+def _shared(a: str, b: str) -> int:
+    n = 0
+    while n < min(len(a), len(b)) and a[n] == b[n]:
+        n += 1
+    return n
+
+
+def _chat_turn(i: int):
+    return make_turn(f"Request {i}: " + "add feature x with details " * 10, f"Answer {i}: " + "x" * 600,
+                     exchanges=[{"question": f"Q{i} which?", "answer": f"A{i} option b"}])
+
+
+def test_consecutive_normal_turns_share_a_long_prefix():
+    """Prompt-cache stability: the history of turn N+1 starts with (most of) the history of turn N."""
+    from agentdev.api.services.conversation_turns import NORMAL_TURN_HISTORY_CHARS
+
+    prompts = []
+    for count in range(2, 12):
+        files = {f"src/f{j}.py": 100 for j in range(min(count, 5))}
+        prompts.append(compose_follow_up_prompt([_chat_turn(i) for i in range(count)], f"extend feature {count} please",
+                                                changed_files=files))
+    ratios = [_shared(a, b) / len(b) for a, b in zip(prompts, prompts[1:])]
+    later = ratios[3:]
+    assert sum(later) / len(later) > 0.3, ratios
+    assert all(len(_history_part(p)) <= NORMAL_TURN_HISTORY_CHARS + 50 for p in prompts)
+
+
+def test_oldest_turn_shown_moves_in_steps():
+    from agentdev.api.services.conversation_turns import WINDOW_STEP, _render_transcript
+
+    turns = [_chat_turn(i) for i in range(12)]
+    firsts = {_render_transcript(turns[:n], max_turns=4, window_step=WINDOW_STEP)[1] for n in range(6, 12)}
+    assert len(firsts) <= 4  # unchunked it would take 6 different values over 6 turns
+    assert all(_render_transcript(turns[:n], max_turns=4, window_step=WINDOW_STEP)[0].count("--- Turn") >= 3
+               for n in range(6, 12))

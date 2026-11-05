@@ -13,7 +13,9 @@ import contextvars
 import copy
 import json
 import os
+import logging
 import threading
+import time
 import traceback
 from contextlib import contextmanager
 from pathlib import Path
@@ -222,10 +224,57 @@ class _NodeToolContext(dict):
         return self[key]
 
 
+RUN_SUMMARY_LOG = logging.getLogger("agentdev.run_summary")
+
+
 class AgentNodeExecutor(NodeExecutor):
     """Executor that runs agent nodes."""
 
     def execute(self, node: Node, inputs: List[Message]) -> List[Message]:
+        """Run the agent node and log one structured line about the run (never any prompt text)."""
+        tracker = self.context.get_token_tracker()
+        before = tracker.node_totals(node.id) if tracker else None
+        started = time.perf_counter()
+        status = "ok"
+        try:
+            return self._execute_node(node, inputs)
+        except WorkflowCancelledError:
+            status = "cancelled"
+            raise
+        except BaseException:
+            status = "error"
+            raise
+        finally:
+            self._log_run_summary(node, tracker, before, started, status)
+
+    def _log_run_summary(self, node: Node, tracker, before, started: float, status: str) -> None:
+        try:
+            after = tracker.node_totals(node.id) if tracker else None
+            if before is not None and after is not None:
+                tokens_in = after["tokens_in"] - before["tokens_in"]
+                tokens_out = after["tokens_out"] - before["tokens_out"]
+                cache_read = after["cache_read"] - before["cache_read"]
+                cost = round(after["cost_usd"] - before["cost_usd"], 6)
+                cost_known = after["cost_unknown"] == before["cost_unknown"]
+            else:
+                tokens_in = tokens_out = cache_read = 0
+                cost, cost_known = 0.0, True
+            RUN_SUMMARY_LOG.info(json.dumps({
+                "session": getattr(self.context, "session_id", None),
+                "node": node.id,
+                "model": (after or {}).get("model") or getattr(node, "model_name", None),
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "cache_read": cache_read,
+                "cost_usd": cost,
+                "cost_known": cost_known,
+                "duration_s": round(time.perf_counter() - started, 3),
+                "status": status,
+            }, ensure_ascii=False))
+        except Exception:  # noqa: BLE001 - observability must never break a run
+            pass
+
+    def _execute_node(self, node: Node, inputs: List[Message]) -> List[Message]:
         """Execute an agent node.
 
         Args:
@@ -1330,7 +1379,10 @@ class AgentNodeExecutor(NodeExecutor):
                     messages.append(self._run_team_tool(node, tool_call, tool_name, arguments, events))
                     continue
 
-                if spec and spec.metadata.get("source") == "agent_skill_internal":
+                # ``activate_skill`` is not offered when every skill is preloaded; a model that still calls it
+                # gets the acknowledgement instead of an error.
+                lenient_activate = spec is None and tool_name == "activate_skill" and skill_manager is not None
+                if lenient_activate or (spec and spec.metadata.get("source") == "agent_skill_internal"):
                     try:
                         self.log_manager.record_tool_call(
                             node.id,

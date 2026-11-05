@@ -23,6 +23,7 @@ from agentdev.runtime.node.agent.providers._cli_common import (
     flatten_conversation,
     make_tempdir,
     parse_tool_reply,
+    record_failed_usage,
     record_token_usage,
     run_cli,
     stage_attachments,
@@ -228,6 +229,9 @@ class CodexCliProvider(ModelProvider):
                 except OSError:
                     pass
         if proc.returncode != 0:
+            failed_usage, _ = _read_events(proc.stdout or "")
+            if failed_usage:
+                record_failed_usage(self, {"usage": failed_usage}, "codex_cli")
             _raise_codex_failure(proc)
         usage, event_text = _read_events(proc.stdout or "")
         text = text or event_text.strip()
@@ -310,6 +314,9 @@ class CodexCliProvider(ModelProvider):
                     text = fh.read().strip()
         if proc.returncode != 0:
             live.abort()
+            failed_usage, _ = _read_events(proc.stdout or "")
+            if failed_usage:
+                record_failed_usage(self, {"usage": failed_usage}, "codex_cli")
             _raise_codex_failure(proc)
         live.finish(proc.stdout or "")  # reports what was not seen live; changed files from the whole output
         changed = read_codex_activity(proc.stdout or "", None)
