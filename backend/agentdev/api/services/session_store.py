@@ -95,21 +95,54 @@ class WorkflowSession:
 
     MAX_BUFFER_SIZE: int = 1000
 
+    # The newest agent reply (a NODE_END log) in the buffer: kept through eviction so a reload of a
+    # long run still shows what the agents said last, even when thousands of logs came after it.
+    last_reply: Optional[Dict[str, Any]] = field(default=None, repr=False)
+
     def append_message(self, message: Dict[str, Any]) -> None:
         if len(self.message_buffer) >= self.MAX_BUFFER_SIZE:
-            # Evict the oldest message that is not what the user typed: a replay of a
-            # long conversation must still show the message that started each turn.
+            # Evict the oldest message that is not pinned: a replay of a long conversation must
+            # still show the message that started each turn, each turn's result and the last reply.
             index = next(
-                (i for i, item in enumerate(self.message_buffer) if not _is_pinned(item)),
+                (
+                    i
+                    for i, item in enumerate(self.message_buffer)
+                    if not _is_pinned(item) and item is not self.last_reply
+                ),
                 0,
             )
             self.message_buffer.pop(index)
+        if _is_agent_reply(message):
+            self.last_reply = message
         self.message_buffer.append(message)
 
 
+# What the user typed, the open question of a human gate (after a reload in a long run the person
+# must still see it) and how each turn ended (its result / plan / cancel / fatal error).
+_PINNED_TYPES = (
+    "user_message",
+    "human_input_required",
+    "plan_proposed",
+    "workflow_completed",
+    "workflow_cancelled",
+)
+
+
 def _is_pinned(message: Any) -> bool:
-    # The open question of a human gate stays too: after a reload in a long run the person must still see it
-    return isinstance(message, dict) and message.get("type") in ("user_message", "human_input_required")
+    if not isinstance(message, dict):
+        return False
+    kind = message.get("type")
+    return kind in _PINNED_TYPES or (kind == "error" and _is_fatal_error(message))
+
+
+def _is_agent_reply(message: Any) -> bool:
+    if not isinstance(message, dict) or message.get("type") != "log":
+        return False
+    data = message.get("data")
+    if not isinstance(data, dict):
+        return False
+    kind = data.get("event_type")
+    return getattr(kind, "value", kind) == "NODE_END"
 
 
 MAX_CHANGED_FILES = 200
