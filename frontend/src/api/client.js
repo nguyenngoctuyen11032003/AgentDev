@@ -875,17 +875,29 @@ export const fetchAssistantProviders = () => assistantRequest('/providers')
 
 // -> {success, reply, quick_replies, proposal, model_used, validation_errors}
 //    or {success: false, error?: code, detail?, message, status?}
-export const sendAssistantMessage = ({ vendor, workflow, messages, pendingYaml, requestId }) =>
+export const sendAssistantMessage = ({ vendor, model, workflow, messages, pendingYaml, requestId }) =>
   assistantRequest('/chat', {
     method: 'POST',
     body: JSON.stringify({
       vendor,
+      model: model || null,
       workflow: workflow || null,
       messages,
       pending_yaml: pendingYaml || null,
       request_id: requestId
     })
   })
+
+// Saved assistant conversations (one per chat; each belongs to a workflow or to "new workflow").
+// -> {success, sessions: [{id, workflow, title, created_at, updated_at, message_count}]}
+export const fetchAssistantSessions = (workflow) =>
+  assistantRequest(`/sessions${workflow ? `?workflow=${encodeURIComponent(workflow)}` : ''}`)
+// -> {success, id, workflow, title, messages, pending_message_id, ...}
+export const fetchAssistantSession = (id) => assistantRequest(`/sessions/${encodeURIComponent(id)}`)
+export const saveAssistantSession = (id, session) =>
+  assistantRequest(`/sessions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(session) })
+export const deleteAssistantSession = (id) =>
+  assistantRequest(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
 // -> {success, cancelled}
 export const cancelAssistantRequest = (requestId) =>

@@ -516,12 +516,14 @@ class WorkflowRunService:
         try:
             answer = ""
             exchanges: List[Dict[str, str]] = []
+            notes: List[str] = []
             if executor is not None:
                 try:
                     answer = executor.get_final_output()
                 except Exception as exc:  # history is best effort
                     self.logger.warning("Could not read final output for session %s: %s", session_id, exc)
                 exchanges = self._user_exchanges(executor)
+                notes = self._taken_notes(executor)
             answer = answer if isinstance(answer, str) else ""
             refs: List[Any] = []
             if attachment_ids:
@@ -531,7 +533,7 @@ class WorkflowRunService:
                     )
                 except Exception:  # fall back to plain names
                     refs = list(self._attachment_names(session_id, attachment_ids))
-            turn = make_turn(prompt, answer, refs, exchanges)
+            turn = make_turn(prompt, answer, refs, exchanges, notes=notes)
             turn["status"] = status  # how the run ended: completed / cancelled / error
             if status == "completed" and self._pending_plan(executor) is not None:
                 turn["kind"] = "plan"  # the answer is a plan waiting for the user's approval
@@ -585,6 +587,17 @@ class WorkflowRunService:
         try:
             return user_exchanges(executor._get_execution_context().global_state)
         except Exception:  # best effort, like the rest of the turn history
+            return []
+
+    @staticmethod
+    def _taken_notes(executor) -> List[str]:
+        """Notes the user wrote mid-run that the lead took in (best effort, like the exchanges)."""
+        try:
+            from agentdev.runtime.node.agent.interject import INBOX_KEY
+
+            inbox = executor._get_execution_context().global_state.get(INBOX_KEY)
+            return inbox.taken_texts() if inbox is not None else []
+        except Exception:  # noqa: BLE001
             return []
 
     def _resolve_yaml_path(self, yaml_filename: str) -> Path:

@@ -385,3 +385,19 @@ def test_files_digest_rendered_and_capped():
     assert "src/f59.py (590 bytes)" in text and "src/f0.py" not in text
     assert text.count("\n- src/") == 40 and "earlier file(s)" in text
     assert "src/" not in compose_follow_up_prompt([make_turn("hi", "hello")], "more")
+
+
+def test_notes_taken_mid_run_reach_the_next_turn():
+    turn = make_turn("Build a shop", "Shop built.", notes=["use Postgres, not SQLite", "  "])
+    assert turn["notes"] == ["use Postgres, not SQLite"]
+    text = compose_follow_up_prompt([turn], "add a cart")
+    assert "User added while you worked: use Postgres, not SQLite" in text
+    assert "notes" not in make_turn("a", "b")
+
+
+def test_follow_up_keeps_changed_files(tmp_path):
+    store = WorkflowSessionStore(history=SessionHistoryStore(root=tmp_path / "sessions"))
+    first = store.create_session(session_id="cf", yaml_file="team.yaml", task_prompt="Build login")
+    first.changed_files["app/auth.py"] = 120
+    session = store.create_session(session_id="cf", yaml_file="team.yaml", task_prompt="Add logout")
+    assert session.changed_files == {"app/auth.py": 120}

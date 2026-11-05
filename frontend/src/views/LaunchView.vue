@@ -641,6 +641,12 @@
                   {{ $t('launch.composer.pick_workflow_action') }}
                 </button>
               </p>
+              <!-- Only while no project is open: tell where results will be saved (with a project open that is obvious) -->
+              <OutputLocation
+                v-if="!currentProjectName"
+                :session-id="activeSessionId"
+                @choose="handleFolderButtonClick({ newSession: !activeSessionId })"
+              />
               <!-- The last run stopped before it finished: one click continues it with what it already did -->
               <p v-if="canResumeRun" class="composer-hint" role="status">
                 <span>{{ $t('launch.resume.banner') }}</span>
@@ -649,12 +655,12 @@
               <!-- One tray above the box: while the team works, the live line on top; once the turn is
                    over, the next-step chips on the left and its totals as a quiet line on the right -->
               <div
-                v-if="liveProgress || quickReplies.length"
+                v-if="liveLineVisible || quickReplies.length"
                 class="turn-footer"
-                :class="{ 'is-settled': !liveProgress || ['done', 'muted'].includes(liveProgress.tone) }"
+                :class="{ 'is-settled': !liveLineVisible }"
               >
               <LiveProgress
-                v-if="liveProgress"
+                v-if="liveLineVisible"
                 :workers="liveProgress.workers"
                 :headline="liveProgress.headline"
                 :tone="liveProgress.tone"
@@ -777,6 +783,16 @@
                     @change="onAttachmentSelected"
                   />
                   <div class="composer-actions">
+                  <!-- Time, steps and token use of the finished turn: a small icon, shown on hover -->
+                  <TurnInfo
+                    v-if="settledTurn"
+                    :headline="settledTurn.headline"
+                    :tone="settledTurn.tone"
+                    :started-at="settledTurn.startedAt"
+                    :ended-at="settledTurn.endedAt"
+                    :steps="settledTurn.steps"
+                    :usage="settledTurn.usage"
+                  />
                   <!-- How much this turn asks before acting (sent with each message) -->
                   <ModePicker v-model="runMode" :run-active="isWorkflowRunning" />
                   <!-- While the team works: Send (a message for the lead) next to Stop -->
@@ -1122,6 +1138,7 @@ import { useI18n } from 'vue-i18n'
 import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, fetchSessions, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, sessionOutputsSummary } from '@/api/client.js'
 import { collectDroppedItems } from '@/utils/projectFiles.js'
 import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
+import OutputLocation from '@/components/launch/OutputLocation.vue'
 import ProductsView from '@/components/launch/ProductsView.vue'
 import { formatBytes } from '@/utils/labOutputs.js'
 import KanbanView from '@/components/launch/KanbanView.vue'
@@ -1130,6 +1147,7 @@ import ReviewView from '@/components/launch/ReviewView.vue'
 import { createRunTracker, usageTotals, formatCost, stepStatus } from '@/utils/runTracker.js'
 import StatusPill from '@/components/launch/StatusPill.vue'
 import LiveProgress from '@/components/launch/chat/LiveProgress.vue'
+import TurnInfo from '@/components/launch/chat/TurnInfo.vue'
 import QuickReplies from '@/components/launch/chat/QuickReplies.vue'
 import ModePicker from '@/components/launch/chat/ModePicker.vue'
 import { localizeErrorText } from '@/utils/errorTranslate.js'
@@ -2841,6 +2859,23 @@ const flushPendingNotes = () => {
   taskPrompt.value = text
   nextTick(() => launchWorkflow())
 }
+// The run failed or was stopped with notes the lead never picked up: they go back into the box
+// (not sent on their own: after a stop or an error the user decides what comes next).
+const returnPendingNotes = () => {
+  if (!pendingNotes.size) return
+  const notes = [...pendingNotes.values()]
+  pendingNotes.clear()
+  notes.forEach(dropNoteBubble)
+  const text = notes.map((note) => note.text).join('\n\n')
+  const draft = taskPrompt.value.trim()
+  taskPrompt.value = draft ? `${text}\n\n${draft}` : text
+  toast.info(t('launch.interject.moved_to_box'))
+}
+// Replayed notes still on screen: a note the lead never took was sent again as the next turn's
+// message, so that message replaces its note bubble (instead of showing the text twice).
+let replayedNotes = []
+// Answer put back in the box when the socket dropped before the server confirmed it.
+let unconfirmedAnswer = ''
 
 // A finished run (completed, cancelled or failed) whose composer holds a new message continues
 // the same session as a follow-up turn; with an empty composer the button relaunches instead.
@@ -3015,6 +3050,10 @@ const liveProgress = computed(() => {
   }
   return null
 })
+// A running / waiting / failed turn keeps its live line above the box; a finished or stopped one is only a
+// fact, so it moves behind the small info icon in the box.
+const settledTurn = computed(() => (liveProgress.value && ['done', 'muted'].includes(liveProgress.value.tone) ? liveProgress.value : null))
+const liveLineVisible = computed(() => !!liveProgress.value && !settledTurn.value)
 
 // ---------------------------------------------------------------- quick replies
 // What makes sense to say next, by state. `act`: done at once (no new text to write);
@@ -3038,13 +3077,6 @@ const quickReplies = computed(() => {
     return [
       { key: 'progress', label: t('launch.quick.progress'), text: t('launch.quick.progress_text'), send: true, hint: t('launch.quick.progress_hint') },
       { key: 'note', label: t('launch.quick.note'), text: t('launch.quick.note_text') }
-    ]
-  }
-  if (status.value === 'Completed') {
-    return [
-      { key: 'summary', label: t('launch.quick.summary'), text: t('launch.quick.summary_text') },
-      { key: 'next', label: t('launch.quick.next'), text: t('launch.quick.next_text') },
-      { key: 'tests', label: t('launch.quick.tests'), text: t('launch.quick.tests_text') }
     ]
   }
   if (['Error', 'Failed', 'Cancelled'].includes(status.value)) {
@@ -4341,6 +4373,12 @@ const establishWebSocketConnection = (options = {}) => {
     const lostSession = sessionId
     status.value = 'Disconnected'
     pendingOpenSessionId = null
+    // An answer sent just before the drop may never have reached the server: put it back in
+    // the box. If the replay after the reconnect shows it was received, the box is cleared again.
+    if (pendingInput?.text && !taskPrompt.value.trim()) {
+      taskPrompt.value = pendingInput.text
+      unconfirmedAnswer = pendingInput.text
+    }
     // The same session was opened in another tab (the server keeps one socket per session,
     // see websocket_manager.connect): reconnecting here would just take it back from that
     // tab, and so on forever. Stay put and say so; the banner's "open here" takes it back,
@@ -4400,6 +4438,7 @@ const clearReplayedState = () => {
   locallyCancelled = false
   endStopping()
   chatMessages.value = []
+  replayedNotes = []
   nodesLoadingMessagesMap.clear()
   runningLoadingEntries.value = 0
   stopLoadingTimer()
@@ -5034,7 +5073,20 @@ const switchToGraph = async () => {
   await loadVueFlowGraph({ fit: true })
 }
 
+// One send at a time: the connection pre-check awaits the network before the run state flips to
+// "Launching...", so a quick second Enter (or Enter + click) would otherwise launch twice.
+let launchInFlight = false
 const launchWorkflow = async () => {
+  if (launchInFlight) return
+  launchInFlight = true
+  try {
+    await launchWorkflowOnce()
+  } finally {
+    launchInFlight = false
+  }
+}
+
+const launchWorkflowOnce = async () => {
   if (!selectedFile.value) {
     toast.warning(t('launch.alert_choose_workflow'))
     return
@@ -5059,11 +5111,16 @@ const launchWorkflow = async () => {
     toast.warning(t('launch.alert_ws_not_ready'))
     return
   }
+  // The session this send belongs to. The user may open another one while a request is in
+  // flight: from then on nothing here may touch the screen, which shows the other session.
+  const launchSid = sessionId
+  const switchedAway = () => sessionId !== launchSid
 
   // Block the run early when a node references a connection that is missing or has no credential.
   // A failed check (e.g. network) must not stop the launch; the runtime still reports the error.
   try {
     const check = await checkWorkflowConnections(await fetchWorkflowYAML(selectedFile.value))
+    if (switchedAway()) return
     if (!check.ok) {
       toast.error(t('connections.precheck_failed'), {
         items: check.problems.map((problem) => `${problem.nodeId}: ${problem.message}`)
@@ -5073,6 +5130,7 @@ const launchWorkflow = async () => {
   } catch (error) {
     console.warn('Connection pre-check skipped:', error)
   }
+  if (switchedAway()) return
 
   shouldGlow.value = false
   launchError.value = ''
@@ -5088,11 +5146,16 @@ const launchWorkflow = async () => {
   const startedBefore = workflowStartedCount
   const rejectedBefore = launchRejectedCount
   runTracker.begin(trimmedPrompt, attachmentNames)
+  // Set before the POST: a start failure can arrive over the socket before the POST returns, and
+  // its Retry must resend this prompt (not the previous turn's).
+  const lastPromptBefore = lastLaunchPrompt
+  lastLaunchPrompt = trimmedPrompt
   // A launch that did not happen puts everything back as it was
   const undoLaunch = () => {
     takeBackBubble()
     Object.assign(runTracker.state, trackerBefore)
     isWorkflowRunning.value = false
+    lastLaunchPrompt = lastPromptBefore
   }
 
   // Show the message right away (before the server's "started" notice), like a chat does;
@@ -5118,6 +5181,9 @@ const launchWorkflow = async () => {
         mode: runMode.value
       })
     })
+    // Opened another session meanwhile: this run goes on (or not) on the server and shows up when
+    // the user comes back; the session on screen must not be changed by it.
+    if (switchedAway()) return
 
     if (response.ok) {
       // The server may still turn it down over the socket (run_in_progress) before it
@@ -5136,11 +5202,11 @@ const launchWorkflow = async () => {
         pendingLaunch = { undo: undoRejected }
       }
 
-      lastLaunchPrompt = trimmedPrompt
       // Clear uploaded attachments
       clearUploadedAttachments()
 
       await response.json().catch(() => null)
+      if (switchedAway()) return
 
       // Only clear what was sent (not an answer typed meanwhile to an early question)
       if (taskPrompt.value.trim() === trimmedPrompt) taskPrompt.value = ''
@@ -5180,6 +5246,7 @@ const launchWorkflow = async () => {
     }
   } catch (error) {
     console.error('Error calling execute API:', error)
+    if (switchedAway()) return
     undoLaunch()
     status.value = 'Error'
     launchError.value = errorWithDetail('launch.errors.execute_failed', error)
@@ -5220,7 +5287,9 @@ const retryRun = async (message) => {
   const draft = taskPrompt.value
   taskPrompt.value = message.retryPrompt
   await launchWorkflow()
-  if (draft.trim() && !taskPrompt.value.trim()) taskPrompt.value = draft
+  // Sent: the box is empty again. Not sent (pre-check, 409, network): the retry text is still in
+  // the box. Either way the user's own draft comes back.
+  if (draft.trim() && (!taskPrompt.value.trim() || taskPrompt.value === message.retryPrompt)) taskPrompt.value = draft
   nextTick(() => taskInputRef.value?.focus())
 }
 
@@ -5589,6 +5658,15 @@ const processMessage = async (msg) => {
     const text = msg.data?.text || ''
     const names = Array.isArray(msg.data?.attachments) ? msg.data.attachments : []
     const parts = [text.trim(), names.length ? t('launch.attachments_line', { names: names.join(', ') }) : '']
+    for (const note of replayedNotes) {
+      if (note.text && text.includes(note.text)) dropNoteBubble(note)
+    }
+    replayedNotes = []
+    // The server did get the answer that was put back in the box when the socket dropped.
+    if (unconfirmedAnswer && text.trim() === unconfirmedAnswer.trim()) {
+      if (taskPrompt.value.trim() === unconfirmedAnswer.trim()) taskPrompt.value = ''
+      unconfirmedAnswer = ''
+    }
     addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'), at)
     // The first message of a run is the task, later ones are replies to the agents; a message
     // after a finished run opens the next turn of the session (kept with the earlier ones).
@@ -5603,7 +5681,8 @@ const processMessage = async (msg) => {
 
   // A note the user wrote while the team worked (only arrives when a saved session is replayed)
   if (msg.type === 'user_note') {
-    addDialogue(USER_SENDER, msg.data?.text || '', at)
+    const text = (msg.data?.text || '').trim()
+    replayedNotes.push({ text, bubble: addDialogue(USER_SENDER, msg.data?.text || '', at) })
     return
   }
   // The lead's answer to such a note: a status report, or "passed to the lead"
@@ -6229,7 +6308,8 @@ const processMessage = async (msg) => {
     endStopping()
     pendingInput = null
     pendingLaunch = null
-    pendingNotes.clear()
+    if (isReconnecting.value) pendingNotes.clear()
+    else returnPendingNotes()
     // The problems the run died with stay readable; the next turn starts its own groups
     settleAllToolIssues({ recovered: false })
   }
@@ -6241,7 +6321,8 @@ const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
   locallyCancelled = false
   pendingInput = null
   pendingLaunch = null
-  pendingNotes.clear()
+  if (isReconnecting.value) pendingNotes.clear()
+  else returnPendingNotes()
   settleAllToolIssues({ recovered: false })
   if (message) addChatNotification(message, { ...(at ? { at } : {}), coalesce: 'run-stop' })
   if (runTracker.state.task && !runTracker.state.outcome) runTracker.finish('cancelled', { summary })
@@ -8515,12 +8596,13 @@ watch(
 .chat-header-btn:hover,
 .chat-header-btn.active { background: var(--surface-raised); color: var(--fg); }
 
-/* Reading measure: prose of a turn stops at ~70 characters; code and tables may run wider */
+/* Reading measure: prose of a turn fills the width of the chat (so a wide chat is not a narrow column
+   with empty sides) and only stops growing on very wide screens, where lines would get too long */
 .chat-messages :deep(.dialogue:not(.dialogue-right) .markdown-body) > :not(.md-code):not(.md-table):not(pre):not(table) {
-  max-width: 70ch;
+  max-width: min(100%, 112ch);
 }
 .activity,
-.plan-card { max-width: 76ch; }
+.plan-card { max-width: min(100%, 112ch); }
 
 /* ---- "Open in another tab": the single notice for it, inside the chat, under the header ---- */
 .replaced-banner {

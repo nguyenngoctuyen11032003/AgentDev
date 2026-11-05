@@ -282,6 +282,8 @@
       "others": "另有 {n} 人",
       "elapsed": "已用时间",
       "steps": "{n} 次调用",
+      "steps_label": "调用次数",
+      "usage_label": "令牌与费用",
       "issues": "{n} 个工具错误处理中",
       "issues_hint": "查看智能体正在自行修复的工具错误",
       "finished_completed": "本轮已完成",
@@ -982,6 +984,14 @@
         "instruction": "请按上述意见返工：保留已经正确的部分，逐一解决问题，并清楚说明修改了哪些内容。"
       }
     },
+    "output": {
+      "project": "结果（源代码、视频、文件）保存在项目中：",
+      "session": "尚未打开项目。结果（源代码、视频、文件）将保存在本会话专属的文件夹中：",
+      "session_later": "发送第一条消息后会显示路径。",
+      "open": "打开文件夹",
+      "choose": "选择保存位置",
+      "open_failed": "无法打开结果文件夹"
+    },
     "open_folder": {
       "title": "打开项目文件夹",
       "subtitle": "选择本机上的一个项目进行处理，就像 VS Code 的“打开文件夹”。",
@@ -999,7 +1009,11 @@
       "opened": "已打开项目“{name}”",
       "opened_detail": "{count} 个文件 · {path}",
       "failed": "无法打开文件夹",
-      "drop_hint": "你拖入了文件夹“{name}”。请在这里找到并打开它：智能体会直接在其中工作，无需上传。"
+      "drop_hint": "你拖入了文件夹“{name}”。请在这里找到并打开它：智能体会直接在其中工作，无需上传。",
+      "new_folder": "新建文件夹",
+      "new_folder_name": "新文件夹名称",
+      "new_folder_create": "创建",
+      "empty_create": "在此新建文件夹，开始一个空项目。"
     },
     "team": {
       "assigned": "{lead} 将任务分配给 {member}",
@@ -3079,6 +3093,27 @@
       "code_execution": "部分智能体使用了运行代码或命令的工具，但服务器关闭了此权限，这些工具将无法运行。",
       "unreachable": "部分节点没有指向它的连线，也不属于任何团队，因此永远不会运行。",
       "other": "此项检查未通过，详情见下方。"
-    }
+    },
+    "history": "聊天记录",
+    "history_for": "会话 · {name}",
+    "history_loading": "加载中…",
+    "history_empty": "还没有保存的会话。每次对话都会自动保存在这里。",
+    "untitled": "未命名会话",
+    "message_count": "{n} 条消息",
+    "delete_session": "删除此会话",
+    "delete_confirm": "再次点击以永久删除",
+    "delete_confirm_short": "删除？",
+    "time_now": "刚刚",
+    "time_minutes": "{n} 分钟前",
+    "time_hours": "{n} 小时前",
+    "time_days": "{n} 天前",
+    "model_name_label": "模型",
+    "model_hint": "选择账户的模型。简单问题用小而快的模型更省 token；设计或修改复杂流程用强模型。",
+    "model_default": "默认模型",
+    "model_default_named": "默认（{model}）",
+    "meta_tokens": "{n} token",
+    "meta_detail": "输入：{input} token · 输出：{output} token · 缓存：{cached} · {calls} 次调用",
+    "copy": "复制",
+    "copied": "已复制"
   }
 }

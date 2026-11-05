@@ -127,12 +127,14 @@ def make_turn(
     attachments: Iterable[str] = (),
     exchanges: Iterable[Dict[str, str]] = (),
     team: Optional[Iterable[Dict[str, str]]] = None,
+    notes: Iterable[str] = (),
 ) -> Dict[str, Any]:
     """One finished turn.
 
     ``exchanges``: questions asked to the user during the turn and the replies. Entries with
     ``kind == "delegation"`` (appended by ``team.user_exchanges``) are the run's delegation digest
-    and go under ``team`` instead, unless ``team`` is given explicitly.
+    and go under ``team`` instead, unless ``team`` is given explicitly. ``notes``: what the user
+    wrote while the team worked and the lead took in (kept for later turns).
     """
     turn: Dict[str, Any] = {
         "user": (user_text or "").strip(),
@@ -148,6 +150,9 @@ def make_turn(
     ]
     if kept:
         turn["exchanges"] = kept[-MAX_EXCHANGES:]
+    taken = [str(n).strip() for n in notes or [] if str(n or "").strip()]
+    if taken:
+        turn["notes"] = taken[-MAX_EXCHANGES:]
     digest = [
         {
             "member": str(e.get("member") or "").strip(),
@@ -193,6 +198,9 @@ def _render_turn(
             continue
         lines.append(f"You asked: {_clip(str(exchange.get('question') or ''), question_limit)}")
         lines.append(f"User replied: {_clip(str(exchange.get('answer') or ''), reply_limit)}")
+    for text in (turn.get("notes") or [])[-MAX_EXCHANGES:]:
+        if isinstance(text, str) and text.strip():
+            lines.append(f"User added while you worked: {_clip(text, reply_limit)}")
     if team_budget > 0 and isinstance(turn.get("team"), list):
         lines.extend(_render_team(turn["team"], team_budget))
     note = STATUS_NOTES.get(str(turn.get("status") or "").strip().lower())
