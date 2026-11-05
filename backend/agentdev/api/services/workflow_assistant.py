@@ -25,7 +25,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import yaml
 
-from agentdev.api.services.workflow_assistant_prompt import load_context, stable_prefix, turn_context, with_context
+from agentdev.api.services.workflow_assistant_prompt import (load_context, stable_prefix, turn_context, with_context,
+                                                              with_workflow_block, workflow_block)
 from agentdev.api.services.workflow_diff import diff_workflows, new_dangerous_tool_items, unrequested_changes
 from agentdev.api.services.workflow_lab import FAIL, WARN, SimpleConfig, new_failures, static_check_data
 from agentdev.api.services.workflow_patterns import proposal_lint
@@ -45,7 +46,9 @@ HISTORY_TAIL = 24  # messages kept, after the first user message, once trimmed
 CALL_TIMEOUT = 180
 MAX_QUICK_REPLIES = 4
 MAX_CONCURRENT_TURNS = 4  # each turn runs a CLI for up to (MAX_REPAIRS + 1) x CALL_TIMEOUT
-MAX_REQUEST_CHARS = 400_000  # sum of message contents and pending_yaml
+# Sum of message contents and pending_yaml (the open workflow is read from disk, not counted). About 30k
+# tokens: a chat past it is cheaper to restart than to resend on every turn.
+MAX_REQUEST_CHARS = 120_000
 
 ERROR_CODES = ("quota_exhausted", "not_signed_in", "timeout", "model_unavailable", "cancelled",
                "provider_error", "bad_request", "busy")
@@ -672,7 +675,10 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
         raise AssistantError("bad_request", f"Unknown vendor: {vendor}")
     cleaned = _clean_messages(messages)
     if sum(len(m["content"]) for m in cleaned) + len(pending_yaml or "") > MAX_REQUEST_CHARS:
-        raise AssistantError("bad_request", f"The request is too large (over {MAX_REQUEST_CHARS} characters)")
+        raise AssistantError(
+            "bad_request",
+            f"The chat is too long to send (over {MAX_REQUEST_CHARS:,} characters of messages and pending "
+            "proposal). Start a new chat; the open workflow is sent again automatically.")
     history = _trim_history(cleaned)
     # Every user turn counts as a request: the diff is against the saved file, so a change asked for in an
     # earlier turn (still pending, not applied) is in it too. Taken before repair messages are appended.
@@ -691,14 +697,17 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
         model_used = provider["model"] or ""
         call = _provider_call(provider["connection_id"], model_used)
 
-    # The system prompt is the same bytes on every turn (a prompt-cache hit); what varies per chat or turn
-    # goes in front of the latest user message only (earlier turns are sent as the user wrote them).
+    # The system prompt is the same bytes on every turn (a prompt-cache hit). The open workflow's saved YAML
+    # comes next as its own block, unchanged from turn to turn while the file is (cached too); what varies per
+    # turn goes in front of the latest user message only (earlier turns are sent as the user wrote them).
     context = load_context()
     system = stable_prefix(skills=context["skills"], tools=context["tools"], models=context["models"])
     turn = turn_context(current_yaml=saved_text, current_name=workflow if workflow else None,
                         pending_yaml=pending_yaml or None, existing_files=context["existing_files"],
                         chat_vendor=vendor, user_text="\n".join(user_texts))
     history = history[:-1] + [{"role": "user", "content": with_context(history[-1]["content"], turn)}]
+    block = workflow_block(current_yaml=saved_text, current_name=workflow if workflow else None)
+    history = with_workflow_block(history, block)
 
     event = threading.Event()
     with _cancel_lock:
@@ -717,7 +726,7 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
                       "calls": calls}
         logger.info("Workflow assistant turn: vendor=%s model=%s prompt_chars=%d calls=%d duration_ms=%d "
                     "input_tokens=%s output_tokens=%s cache_read_tokens=%s intent=%s outcome=%s",
-                    vendor, model_used, len(system) + len(turn), calls, duration_ms, turn_usage["input_tokens"],
+                    vendor, model_used, len(system) + len(block or "") + len(turn), calls, duration_ms, turn_usage["input_tokens"],
                     turn_usage["output_tokens"], turn_usage["cache_read_tokens"], result.get("intent"), outcome)
         return {**result, "model_used": model_used, "usage": turn_usage}
 
