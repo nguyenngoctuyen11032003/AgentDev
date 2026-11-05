@@ -110,11 +110,13 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { labPreviewStart, labPreviewStatus, labPreviewStop } from '@/api/client'
+import { labOutputSource } from '@/utils/outputSources.js'
 
 const props = defineProps({
-  jobId: { type: String, required: true },
-  run: { type: Number, required: true },
+  // A Lab run (jobId + run) or any product folder through an adapter (`source.preview`, see utils/outputSources.js)
+  jobId: { type: String, default: '' },
+  run: { type: Number, default: -1 },
+  source: { type: Object, default: null },
   // true: start the preview right away (user pressed "Chạy thử"); false: only show the current state
   autostart: { type: Boolean, default: false }
 })
@@ -130,6 +132,7 @@ const DEVICES = [
   { id: 'mobile', label: 'Điện thoại', icon: ['M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z', 'M11 18h2'] }
 ]
 const POLL_MS = 1500
+const api = computed(() => (props.source || labOutputSource(props.jobId, props.run)).preview)
 
 const state = reactive({ status: 'idle', url: null, port: null, kind: null, log_tail: '', error: null, frameable: null })
 const error = ref('')
@@ -166,7 +169,7 @@ function schedule() {
 async function refresh() {
   timer = null
   try {
-    apply(await labPreviewStatus(props.jobId, props.run))
+    apply(await api.value.status())
     error.value = ''
   } catch (err) {
     if (!alive) return
@@ -180,7 +183,7 @@ async function start() {
   acting.value = true
   error.value = ''
   try {
-    apply(await labPreviewStart(props.jobId, props.run))
+    apply(await api.value.start())
     frameKey.value += 1
   } catch (err) {
     error.value = err?.detail || err?.message || String(err)
@@ -193,7 +196,7 @@ async function stop() {
   if (acting.value) return
   acting.value = true
   try {
-    apply(await labPreviewStop(props.jobId, props.run))
+    apply(await api.value.stop())
     if (!['stopped', 'idle'].includes(state.status)) state.status = 'stopped'
   } catch (err) {
     error.value = err?.detail || err?.message || String(err)

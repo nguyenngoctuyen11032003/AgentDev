@@ -19,7 +19,7 @@
           <span class="h-when">{{ when(item.started_at) }}</span>
           <span class="h-status">{{ statusText(item) }}</span>
           <span class="h-meta">
-            <template v-if="item.pass_rate != null">{{ tr('lab.history.pass_rate', 'Đạt {n}%', { n: Math.round(item.pass_rate * 100) }) }} · </template>
+            <template v-if="item.pass_rate != null && item.done">{{ tr('lab.history.pass_rate', 'Đạt {n}%', { n: Math.round(item.pass_rate * 100) }) }} · </template>
             {{ tr('lab.history.runs', '{n} lượt', { n: item.done ?? 0 }) }}
             <template v-if="item.cost_usd"> · ${{ Number(item.cost_usd).toFixed(2) }}</template>
           </span>

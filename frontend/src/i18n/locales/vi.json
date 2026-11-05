@@ -292,6 +292,28 @@
     "hint_connecting": "Đang kết nối tới máy chủ..."
   },
   "launch": {
+    "products": {
+      "view": "Sản phẩm",
+      "title": "Sản phẩm",
+      "view_files": "Xem file",
+      "files": "{n} file",
+      "running": "Đang chạy thử",
+      "run": "Chạy thử",
+      "open_preview": "Xem bản chạy thử",
+      "panel_empty": "Chưa có file nào. Khi nhóm làm ra mã nguồn, trang web hay tài liệu, chúng hiện ở đây.",
+      "where_project": "Thư mục dự án",
+      "where_session": "Thư mục của phiên",
+      "updated": "Cập nhật {time}",
+      "refresh": "Tải lại danh sách file",
+      "no_session_title": "Chưa có phiên làm việc",
+      "no_session_hint": "Giao việc cho nhóm trong khung chat. Mã nguồn, trang web, tài liệu nhóm làm ra sẽ hiện ở đây để bạn xem và chạy thử.",
+      "gone_title": "Chưa có thư mục kết quả",
+      "gone_hint": "Nhóm chưa ghi file nào cho phiên này. Khi nhóm tạo mã nguồn, trang web hay tài liệu, chúng sẽ hiện ở đây.",
+      "empty_title": "Thư mục kết quả đang trống",
+      "empty_hint": "Nhóm chưa tạo file nào. Hãy giao việc trong khung chat, ví dụ \"làm trang web giới thiệu sản phẩm\".",
+      "open_folder_hint": "Mở thư mục kết quả của phiên trên máy này",
+      "tree_label": "Cây thư mục kết quả"
+    },
     "live": {
       "starting": "Đội đang bắt đầu…",
       "stopping": "Đang dừng lượt chạy…",
@@ -2869,6 +2891,54 @@
       "ready": "Đạt",
       "not_ready": "Chưa đạt",
       "open_failed": "Không mở được lần kiểm định này"
+    },
+    "products": {
+      "title": "Sản phẩm của lần kiểm định",
+      "count": "{n} lượt có sản phẩm",
+      "empty_runs": "{n} lượt không tạo file",
+      "files": "{n} file",
+      "inferred": "Ghép theo thời gian chạy",
+      "inferred_hint": "Bản cũ chưa ghi thư mục cho lượt lỗi hoặc hết giờ: thư mục được ghép với lượt này theo thời gian chạy.",
+      "open_web": "Mở web",
+      "new_tab": "mở trong tab mới",
+      "wait_hint": "Lần đầu có thể mất vài phút.",
+      "preview_failed": "Không chạy thử được.",
+      "preview_failed_hint": "Xem nhật ký trong phần file của lượt này.",
+      "open_site": "Mở trang",
+      "view_in_lab": "Xem trong Lab",
+      "run": "Chạy thử",
+      "retry": "Thử lại",
+      "view_files": "Xem file",
+      "stop": "Dừng",
+      "stop_label": "Dừng bản chạy thử của {name}",
+      "type": {
+        "webapp": "Web app",
+        "site": "Trang web",
+        "media": "Video/ảnh",
+        "docs": "Tài liệu",
+        "code": "Mã nguồn",
+        "files": "Tệp"
+      },
+      "chip": {
+        "webapp": "Web app",
+        "site": "Trang web",
+        "media": "{n} ảnh/video",
+        "docs": "{n} tài liệu",
+        "code": "{n} file mã",
+        "files": "{n} file"
+      }
+    },
+    "cleanup": {
+      "title_passed": "Kiểm định đạt. Dọn {n} lượt thử cũ ({size}) của quy trình này?",
+      "title": "Có {n} lượt thử cũ ({size}) của quy trình này. Dọn bớt cho nhẹ máy?",
+      "keeps": "Vẫn giữ: sản phẩm của lần vừa chạy{baseline}, điểm và lịch sử mọi lần.",
+      "keeps_baseline": " và của lần đạt gần nhất",
+      "confirm": "Dọn ngay",
+      "later": "Để sau",
+      "never": "Không hỏi lại",
+      "done": "Đã dọn {n} lượt, giải phóng {size}",
+      "failed": "Không dọn được kết quả cũ",
+      "never_note": "Sẽ không hỏi nữa. Vẫn dọn được bằng nút \"Dọn kết quả cũ\" cuối trang."
     },
     "storage": {
       "line": "Kết quả thử nghiệm: {size} · {n} lượt",

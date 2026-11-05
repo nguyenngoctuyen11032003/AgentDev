@@ -252,6 +252,28 @@
     "hint_connecting": "正在连接服务器..."
   },
   "launch": {
+    "products": {
+      "view": "产物",
+      "title": "产物",
+      "view_files": "查看文件",
+      "files": "{n} 个文件",
+      "running": "正在试运行",
+      "run": "试运行",
+      "open_preview": "查看试运行",
+      "panel_empty": "还没有文件。团队生成的代码、网页或文档会显示在这里。",
+      "where_project": "项目文件夹",
+      "where_session": "会话文件夹",
+      "updated": "更新于 {time}",
+      "refresh": "重新加载文件列表",
+      "no_session_title": "还没有会话",
+      "no_session_hint": "在聊天中给团队分配任务。团队生成的代码、网页和文档会显示在这里，供你查看和试运行。",
+      "gone_title": "还没有结果文件夹",
+      "gone_hint": "团队尚未为此会话写入任何文件。生成的代码、网页或文档会显示在这里。",
+      "empty_title": "结果文件夹为空",
+      "empty_hint": "团队还没有创建任何文件。请在聊天中分配任务，例如“制作产品介绍页”。",
+      "open_folder_hint": "在本机打开此会话的结果文件夹",
+      "tree_label": "结果文件夹树"
+    },
     "live": {
       "starting": "团队正在开始…",
       "stopping": "正在停止运行…",
@@ -2582,6 +2604,54 @@
       "ready": "通过",
       "not_ready": "未通过",
       "open_failed": "无法打开此次评估"
+    },
+    "products": {
+      "title": "本次评估的产物",
+      "count": "{n} 次运行有产物",
+      "empty_runs": "{n} 次运行未生成文件",
+      "files": "{n} 个文件",
+      "inferred": "按运行时间匹配",
+      "inferred_hint": "旧版本未记录失败或超时运行的文件夹：已按运行时间将文件夹匹配到此运行。",
+      "open_web": "打开网页应用",
+      "new_tab": "在新标签页中打开",
+      "wait_hint": "首次启动可能需要几分钟。",
+      "preview_failed": "无法启动应用。",
+      "preview_failed_hint": "请查看此运行文件中的日志。",
+      "open_site": "打开页面",
+      "view_in_lab": "在实验室中查看",
+      "run": "试运行",
+      "retry": "重试",
+      "view_files": "查看文件",
+      "stop": "停止",
+      "stop_label": "停止 {name} 的试运行",
+      "type": {
+        "webapp": "网页应用",
+        "site": "网页",
+        "media": "视频/图片",
+        "docs": "文档",
+        "code": "源代码",
+        "files": "文件"
+      },
+      "chip": {
+        "webapp": "网页应用",
+        "site": "网页",
+        "media": "{n} 个图片/视频",
+        "docs": "{n} 个文档",
+        "code": "{n} 个代码文件",
+        "files": "{n} 个文件"
+      }
+    },
+    "cleanup": {
+      "title_passed": "评估通过。清理此工作流的 {n} 次旧运行（{size}）？",
+      "title": "此工作流有 {n} 次旧运行（{size}）。清理以释放空间？",
+      "keeps": "保留：本次运行的产物{baseline}，以及所有运行的得分和历史。",
+      "keeps_baseline": "和最近一次通过的运行的产物",
+      "confirm": "立即清理",
+      "later": "稍后",
+      "never": "不再询问",
+      "done": "已清理 {n} 次运行，释放 {size}",
+      "failed": "无法清理旧结果",
+      "never_note": "不再询问。仍可使用页面底部的“清理旧结果”按钮。"
     },
     "storage": {
       "line": "实验结果：{size} · {n} 轮",

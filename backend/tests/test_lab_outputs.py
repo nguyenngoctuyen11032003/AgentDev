@@ -344,3 +344,68 @@ def test_failed_run_keeps_its_output_folder(env, monkeypatch):
                                __import__("threading").Event(), run_turn=failing_turn)
     folder = Path(info.value.lab_output_dir)
     assert folder.parent == env.warehouse and folder.name.startswith("lab_wf_") and folder.is_dir()
+
+
+def _stored_job_with_window(env, job_id, results, started, finished, workflow="wf.yaml"):
+    data = {"id": job_id, "workflow": workflow, "status": "completed", "results": results,
+            "started_at": started, "finished_at": finished}
+    (env.store / f"{job_id}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def _stamp(epoch):
+    from datetime import datetime
+
+    return datetime.fromtimestamp(epoch).strftime("%Y%m%d%H%M%S")
+
+
+def test_failed_runs_without_folder_are_matched_by_start_order(env):
+    t0 = time.time() - 3600
+    ok_run, _ = _run_dir(env, f"lab_wf_{_stamp(t0 + 1)}_aaaaaa_{_stamp(t0 + 1)}")
+    first_failed, p1 = _run_dir(env, f"lab_wf_{_stamp(t0 + 2)}_bbbbbb_{_stamp(t0 + 2)}")
+    second_failed, p2 = _run_dir(env, f"lab_wf_{_stamp(t0 + 60)}_cccccc_{_stamp(t0 + 80)}")
+    (p2 / "index.html").write_text("<h1>app</h1>", encoding="utf-8")
+    _run_dir(env, f"lab_other_{_stamp(t0 + 3)}_dddddd_{_stamp(t0 + 3)}")  # another workflow: ignored
+    results = [{"scenario": 0, "repeat": 1, "status": "passed", "output_dir": str(ok_run)},
+               {"scenario": 1, "repeat": 1, "status": "error", "error": "timeout"},
+               {"scenario": 2, "repeat": 1, "status": "error", "error": "timeout"}]
+    _stored_job_with_window(env, JOB, results, t0, t0 + 900)
+
+    files = env.client.get(f"/api/lab/jobs/{JOB}/runs/2/files").json()
+    assert files["available"] is True and files["inferred"] is True and Path(files["root"]) == p2.resolve()
+    products = env.client.get(f"/api/lab/jobs/{JOB}/products").json()["runs"]
+    assert [p["inferred"] for p in products] == [False, True, True]
+    assert products[2]["project"]["type"] == "static" and products[2]["kinds"] == {"html": 1}
+    assert lab_outputs.storage_stats()["orphan_dirs"] == 1  # only the other workflow's folder
+    assert first_failed.exists()
+
+
+def test_no_inference_when_ambiguous(env):
+    t0 = time.time() - 3600
+    _run_dir(env, f"lab_wf_{_stamp(t0 + 2)}_bbbbbb_{_stamp(t0 + 2)}")
+    _run_dir(env, f"lab_wf_{_stamp(t0 + 3)}_cccccc_{_stamp(t0 + 3)}")
+    _stored_job_with_window(env, JOB, [{"scenario": 0, "repeat": 1, "status": "error"}], t0, t0 + 900)
+    assert env.client.get(f"/api/lab/jobs/{JOB}/runs/0/files").json()["available"] is False
+
+
+def test_workflow_cleanup_keeps_current_and_baseline(env, monkeypatch):
+    from agentdev.api.services import lab_cleanup
+
+    t0 = time.time() - 7200
+    old_a, _ = _run_dir(env, f"lab_wf_{_stamp(t0)}_aaaaaa_{_stamp(t0)}")
+    baseline, _ = _run_dir(env, f"lab_wf_{_stamp(t0 + 100)}_bbbbbb_{_stamp(t0 + 100)}")
+    current, _ = _run_dir(env, f"lab_wf_{_stamp(t0 + 200)}_cccccc_{_stamp(t0 + 200)}")
+    other, _ = _run_dir(env, f"lab_other_{_stamp(t0)}_dddddd_{_stamp(t0)}")
+    for job_id, folder, verdict, start in (("00000000000a", old_a, "not_ready", t0), ("00000000000b", baseline, "ready", t0 + 100),
+                                           ("00000000000c", current, "not_ready", t0 + 200)):
+        data = {"id": job_id, "workflow": "wf.yaml", "status": "completed", "verdict": verdict, "started_at": start,
+                "finished_at": start + 50, "results": [{"scenario": 0, "repeat": 1, "status": "passed",
+                                                        "output_dir": str(folder)}]}
+        (env.store / f"{job_id}.json").write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(lab_cleanup, "SUGGEST_MIN_RUNS", 1)
+
+    hint = env.client.get("/api/lab/storage/suggestion", params={"workflow": "wf.yaml", "keep_job": "00000000000c"}).json()
+    assert hint["suggest"] is True and hint["reclaimable_runs"] == 1 and hint["baseline_job"] == "00000000000b"
+    done = env.client.post("/api/lab/storage/cleanup-workflow", json={"workflow": "wf.yaml", "keep_job": "00000000000c"}).json()
+    assert done["deleted"] == 1
+    assert not old_a.exists() and baseline.exists() and current.exists() and other.exists()
+    assert len(list(env.store.glob("*.json"))) == 3  # scores and history stay

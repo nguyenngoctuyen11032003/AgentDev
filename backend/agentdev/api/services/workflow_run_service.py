@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -202,6 +203,7 @@ class WorkflowRunService:
     ) -> None:
         session = self.session_store.get_session(session_id)
         cancel_event = session.cancel_event if session else None
+        run_started = time.time()
         try:
             # Parsing the YAML, building the graph and the runtime, and reading attachments are
             # blocking work: keep them off the event loop so other sessions' sockets stay responsive.
@@ -310,6 +312,7 @@ class WorkflowRunService:
             )
         finally:
             self._release(session_id, session)
+            await asyncio.to_thread(_stop_leftover_processes, session_id, run_started)
 
     def _prepare_run(
         self,
@@ -592,3 +595,18 @@ class WorkflowRunService:
         if not yaml_path.exists():
             raise ValidationError("YAML file not found", details={"yaml_file": safe_name})
         return yaml_path
+
+
+def _stop_leftover_processes(session_id: str, since: float) -> None:
+    """Kill what the agents started in this session's own folder during the run and left running (dev servers,
+    watchers). Only the session folder in the warehouse: an opened project is the user's, where they may run
+    their own servers. The "Chạy thử" previews are protected."""
+    try:
+        from agentdev.paths import WAREHOUSE_DIR
+        from agentdev.utils.process_sweep import sweep
+
+        folder = Path(WAREHOUSE_DIR) / session_directory_name(session_id)
+        if folder.is_dir():
+            sweep([folder], since)
+    except Exception:  # noqa: BLE001 - housekeeping must not affect the run
+        logging.getLogger(__name__).debug("Leftover process sweep failed", exc_info=True)

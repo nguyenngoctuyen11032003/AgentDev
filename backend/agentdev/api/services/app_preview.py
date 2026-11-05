@@ -31,7 +31,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from agentdev.utils.reserved_ports import RESERVED_PORTS as AGENTDEV_PORTS
 from agentdev.utils.reserved_ports import with_reserved_ports
@@ -470,24 +470,33 @@ class PreviewManager:
         return self.start_dir((job_id, run_index), root, _site_base(job_id, run_index))
 
     def status(self, job_id: str, run_index: int) -> Dict[str, Any]:
-        key = (job_id, run_index)
+        return self.status_key((job_id, run_index), lambda: _product_dir_for(job_id, run_index))
+
+    def stop(self, job_id: str, run_index: int) -> Dict[str, Any]:
+        return self.stop_key((job_id, run_index))
+
+    # -- by key + directory (Lab runs and chat sessions) --------------------
+
+    def status_key(self, key: Tuple[str, int], root_for: Optional[Callable[[], Path]] = None) -> Dict[str, Any]:
+        """The preview under ``key``; when none runs, ``root_for()`` (if given) tells which kind could start."""
         with self._lock:
             preview = self._previews.get(key)
         if preview is not None:
             preview.last_access = time.monotonic()
             return preview.to_dict()
         kind: Optional[str] = None
-        try:
-            plan = detect_launch_plan(_product_dir_for(job_id, run_index))
-            kind = plan.kind if plan.kind != "none" else None
-        except Exception as exc:  # noqa: BLE001 - status of a run without outputs is just idle
-            logger.debug("No preview plan for %s/%s: %s", job_id, run_index, exc)
+        if root_for is not None:
+            try:
+                plan = detect_launch_plan(root_for())
+                kind = plan.kind if plan.kind != "none" else None
+            except Exception as exc:  # noqa: BLE001 - status of a run without outputs is just idle
+                logger.debug("No preview plan for %s/%s: %s", key[0], key[1], exc)
         return {"status": "idle", "url": None, "port": None, "kind": kind, "log_tail": "", "error": None,
                 "started_at": None}
 
-    def stop(self, job_id: str, run_index: int) -> Dict[str, Any]:
+    def stop_key(self, key: Tuple[str, int]) -> Dict[str, Any]:
         with self._lock:
-            preview = self._previews.get((job_id, run_index))
+            preview = self._previews.get(key)
         if preview is None:
             return {"status": "stopped", "url": None, "port": None, "kind": None, "log_tail": "", "error": None,
                     "started_at": None}
@@ -496,14 +505,25 @@ class PreviewManager:
 
     # -- by directory ------------------------------------------------------
 
-    def start_dir(self, key: Tuple[str, int], root: Path, site_base: str = "") -> Dict[str, Any]:
+    def start_dir(self, key: Tuple[str, int], root: Path, site_base: str = "",
+                  allowed_root: Optional[Path] = None) -> Dict[str, Any]:
+        """Start (or return the running) preview of ``root`` under ``key``.
+
+        ``root`` must lie inside the warehouse unless the caller names another ``allowed_root`` it has checked
+        itself (a chat session's opened project folder): the warehouse rule is never loosened for everyone.
+        """
         root = Path(root).resolve()
-        _check_root(root)
+        _check_root(root, allowed_root)
+        with self._lock:
+            replaced = self._previews.get(key)
+        if replaced is not None and replaced.root != root and replaced.status in ACTIVE_STATUSES:
+            # The same key now points at another folder (a chat session opened another project): stop the old one
+            self._stop_preview(replaced, "Đã dừng vì thư mục kết quả đã đổi.")
         with self._lock:
             if self._closed:
                 raise PreviewError("Máy chủ đang tắt.", 503)
             existing = self._previews.get(key)
-            if existing is not None and existing.status in ACTIVE_STATUSES:
+            if existing is not None and existing.status in ACTIVE_STATUSES and existing.root == root:
                 existing.last_access = time.monotonic()
                 return existing.to_dict()
             plan = detect_launch_plan(root)
@@ -729,6 +749,11 @@ def _seed_env_file(preview: "Preview", directory: Path) -> None:
     the copy they exit at once. The example holds placeholders, never secrets, so copying it is safe."""
     example, target = directory / ".env.example", directory / ".env"
     try:
+        if example.is_file() and not target.exists() and not Path(directory).resolve().is_relative_to(_allowed_root()):
+            # A project the user opened is their real folder: never write into it, just say what is missing.
+            preview.add_log(f"[agentdev] Thiếu .env trong {directory.name}/ (có .env.example). Đây là thư mục dự án "
+                            "của bạn nên AgentDev không tự tạo: hãy sao chép .env.example thành .env nếu app cần.")
+            return
         if example.is_file() and not target.exists():
             shutil.copyfile(example, target)
             preview.add_log(f"[agentdev] Chưa có .env: đã tạo từ .env.example trong {directory.name}/ để app khởi động "
@@ -743,10 +768,11 @@ def _allowed_root() -> Path:
     return Path(WAREHOUSE_DIR).resolve()
 
 
-def _check_root(root: Path) -> None:
+def _check_root(root: Path, allowed_root: Optional[Path] = None) -> None:
     if not root.is_dir():
         raise PreviewError("Không tìm thấy thư mục kết quả của lượt chạy này.", 404)
-    if not root.is_relative_to(_allowed_root()):
+    allowed = Path(allowed_root).resolve() if allowed_root is not None else _allowed_root()
+    if not root.is_relative_to(allowed):
         raise PreviewError("Thư mục kết quả nằm ngoài kho lưu trữ, không chạy thử.", 403)
 
 

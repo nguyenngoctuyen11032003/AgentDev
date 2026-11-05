@@ -17,16 +17,17 @@
           type="button"
           class="btn primary sm"
           :title="tr('lab.outputs.preview_hint', 'Chạy sản phẩm ngay tại đây để xem và dùng thử')"
+          :aria-expanded="previewOpen"
           @click="openPreview(true)"
         >
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
           {{ tr('lab.outputs.preview', 'Chạy thử') }}
         </button>
-        <button type="button" class="btn secondary sm" :title="tr('lab.outputs.open_folder_hint', 'Mở thư mục sản phẩm trên máy này')" :disabled="opening" @click="openOnMachine('', false)">
+        <button type="button" class="btn secondary sm" :title="trc('open_folder_hint', 'lab.outputs.open_folder_hint', 'Mở thư mục sản phẩm trên máy này')" :disabled="opening" @click="openOnMachine('', false)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="(p, pi) in KIND_ICONS.folderOpen" :key="pi" :d="p" /></svg>
           {{ tr('lab.outputs.open_folder', 'Mở thư mục') }}
         </button>
-        <span class="del-wrap" :title="jobRunning ? tr('lab.outputs.delete_running', 'Kiểm định đang chạy: xoá được khi chạy xong.') : undefined">
+        <span v-if="canDelete" class="del-wrap" :title="jobRunning ? tr('lab.outputs.delete_running', 'Kiểm định đang chạy: xoá được khi chạy xong.') : undefined">
           <button
             type="button"
             class="btn ghost sm icon-only icon-danger"
@@ -51,27 +52,26 @@
       <button type="button" class="btn secondary sm" @click="load">{{ tr('lab.outputs.retry', 'Thử lại') }}</button>
     </div>
     <div v-else-if="data && !data.available" class="out-state">
-      <strong>{{ tr('lab.outputs.gone_title', 'Kết quả đã bị xoá') }}</strong>
-      <span>{{ tr('lab.outputs.gone_hint', 'Thư mục sản phẩm của lượt này không còn trên máy. Điểm và nhận xét vẫn ở bên dưới.') }}</span>
+      <strong>{{ trc('gone_title', 'lab.outputs.gone_title', 'Kết quả đã bị xoá') }}</strong>
+      <span>{{ trc('gone_hint', 'lab.outputs.gone_hint', 'Thư mục sản phẩm của lượt này không còn trên máy. Điểm và nhận xét vẫn ở bên dưới.') }}</span>
     </div>
     <div v-else-if="data && !data.files?.length" class="out-state">
-      <strong>{{ tr('lab.outputs.empty_title', 'Lượt này không tạo file nào') }}</strong>
-      <span>{{ tr('lab.outputs.empty_hint', 'Nhóm chỉ trả lời bằng văn bản: xem phần Kết quả bên dưới.') }}</span>
+      <strong>{{ trc('empty_title', 'lab.outputs.empty_title', 'Lượt này không tạo file nào') }}</strong>
+      <span>{{ trc('empty_hint', 'lab.outputs.empty_hint', 'Nhóm chỉ trả lời bằng văn bản: xem phần Kết quả bên dưới.') }}</span>
     </div>
 
     <template v-else-if="hasFiles">
       <LabRunPreview
         v-if="previewOpen"
         :key="previewKey"
-        :job-id="jobId"
-        :run="run"
+        :source="src"
         :autostart="previewAutostart"
         @close="previewOpen = false"
       />
 
       <div class="browser">
         <!-- file tree -->
-        <nav class="tree" :aria-label="tr('lab.outputs.tree_label', 'Cây thư mục sản phẩm')">
+        <nav class="tree" :aria-label="trc('tree_label', 'lab.outputs.tree_label', 'Cây thư mục sản phẩm')">
           <ul ref="treeEl" class="tree-list" @keydown="onTreeKey">
             <li v-for="{ node, depth } in rows" :key="node.path">
               <button
@@ -219,13 +219,13 @@ import { confirmDialog } from '@/utils/confirm.js'
 import {
   KIND_ICONS, MAX_TEXT_BYTES, TEXT_KINDS, ancestorsOf, buildTree, countKinds, flattenTree, formatBytes, pickDefaultFile
 } from '@/utils/labOutputs.js'
-import {
-  labPreviewStatus, labRunDeleteOutputs, labRunFileText, labRunFileUrl, labRunFiles, labRunOpen, labRunSiteUrl
-} from '@/api/client'
+import { labOutputSource } from '@/utils/outputSources.js'
 
 const props = defineProps({
-  jobId: { type: String, required: true },
-  run: { type: Number, required: true },
+  // A Lab run (jobId + run) or any product folder through an adapter (`source`, see utils/outputSources.js)
+  jobId: { type: String, default: '' },
+  run: { type: Number, default: -1 },
+  source: { type: Object, default: null },
   // The evaluation is still running: its folders cannot be deleted yet.
   jobRunning: { type: Boolean, default: false }
 })
@@ -235,6 +235,13 @@ const { t, te, locale } = useI18n()
 const tr = (key, fallback, params) =>
   te(key) ? t(key, params) : String(fallback).replace(/\{(\w+)\}/g, (_, k) => params?.[k] ?? '')
 const bytes = (n) => formatBytes(n, locale.value)
+const src = computed(() => props.source || labOutputSource(props.jobId, props.run))
+// Wording that depends on where the files come from (a Lab run, a chat session): the source may override it
+const trc = (name, key, fallback, params) => {
+  const own = src.value.copy?.[name]
+  return own ? tr(own[0], own[1], params) : tr(key, fallback, params)
+}
+const canDelete = computed(() => typeof src.value.deleteOutputs === 'function')
 const titleId = `lab-outputs-${useId()}`
 
 const MAX_LINES = 5000
@@ -267,8 +274,8 @@ const summaryLine = computed(() => {
   return parts.join(' · ')
 })
 
-const fileUrl = (path) => labRunFileUrl(props.jobId, props.run, path)
-const siteUrl = (path) => labRunSiteUrl(props.jobId, props.run, path)
+const fileUrl = (path) => src.value.fileUrl(path)
+const siteUrl = (path) => src.value.siteUrl(path)
 const newTabUrl = computed(() => (current.value?.kind === 'html' ? siteUrl(current.value.path) : fileUrl(current.value?.path || '')))
 const iconFor = (node) =>
   node.type === 'dir' ? (expanded.value.has(node.path) ? KIND_ICONS.folderOpen : KIND_ICONS.folder) : KIND_ICONS[node.file.kind] || KIND_ICONS.binary
@@ -277,8 +284,9 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const result = await labRunFiles(props.jobId, props.run)
-    if (!alive) return
+    const key = src.value.key
+    const result = await src.value.files()
+    if (!alive || key !== src.value.key) return
     data.value = result
     const files = result.files || []
     const first = pickDefaultFile(files)
@@ -394,7 +402,7 @@ watch(current, async (file) => {
   const ctrl = new AbortController()
   controller = ctrl
   try {
-    const body = await labRunFileText(props.jobId, props.run, file.path, { signal: ctrl.signal })
+    const body = await src.value.fileText(file.path, { signal: ctrl.signal })
     if (ctrl.signal.aborted || !alive) return
     if (textCache.size > 30) textCache.clear()
     textCache.set(file.path, body)
@@ -472,7 +480,7 @@ async function openOnMachine(path, reveal) {
   if (opening.value) return
   opening.value = true
   try {
-    await labRunOpen(props.jobId, props.run, { path, reveal })
+    await src.value.open(path, reveal)
   } catch (err) {
     toast.error(tr('lab.outputs.open_error', 'Không mở được trên máy'), { detail: err?.detail || err?.message || String(err) })
   } finally {
@@ -481,7 +489,7 @@ async function openOnMachine(path, reveal) {
 }
 
 async function deleteOutputs() {
-  if (props.jobRunning || deleting.value) return
+  if (props.jobRunning || deleting.value || !canDelete.value) return
   const ok = await confirmDialog({
     title: tr('lab.outputs.delete_confirm_title', 'Xoá kết quả của lượt này?'),
     message: tr('lab.outputs.delete_confirm_message', 'Toàn bộ file mà lượt này tạo ra ({size}) sẽ bị xoá khỏi máy.', { size: bytes(data.value?.total_bytes) }),
@@ -491,7 +499,7 @@ async function deleteOutputs() {
   if (!ok || !alive) return
   deleting.value = true
   try {
-    const result = await labRunDeleteOutputs(props.jobId, props.run)
+    const result = await src.value.deleteOutputs()
     toast.success(tr('lab.outputs.deleted_toast', 'Đã xoá kết quả, giải phóng {size}', { size: bytes(result?.freed_bytes) }))
     previewOpen.value = false
     selected.value = ''
@@ -518,7 +526,7 @@ function openPreview(autostart) {
 async function checkRunningPreview() {
   if (previewOpen.value) return
   try {
-    const status = await labPreviewStatus(props.jobId, props.run)
+    const status = await src.value.preview.status()
     if (alive && ['installing', 'starting', 'running'].includes(status?.status)) openPreview(false)
   } catch {
     // no preview: nothing to show
@@ -526,11 +534,19 @@ async function checkRunningPreview() {
 }
 
 onMounted(load)
+// The owner reloads the list when the folder may have changed (a chat turn finished)
+// (files may have been rewritten: cached texts are dropped; the new listing re-fetches the open file)
+function reload() {
+  textCache.clear()
+  return load()
+}
+// openPreview(true): start the app now ("Chạy thử" pressed outside this component)
+defineExpose({ reload, openPreview })
 onBeforeUnmount(() => {
   alive = false
   controller?.abort()
 })
-watch(() => [props.jobId, props.run], () => {
+watch(() => src.value.key, () => {
   data.value = null
   selected.value = ''
   textCache.clear()

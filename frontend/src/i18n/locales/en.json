@@ -292,6 +292,28 @@
     "hint_connecting": "Connecting to the server..."
   },
   "launch": {
+    "products": {
+      "view": "Products",
+      "title": "Products",
+      "view_files": "View files",
+      "files": "{n} files",
+      "running": "Preview running",
+      "run": "Try it",
+      "open_preview": "View preview",
+      "panel_empty": "No files yet. Code, web pages and documents the team makes appear here.",
+      "where_project": "Project folder",
+      "where_session": "Session folder",
+      "updated": "Updated {time}",
+      "refresh": "Reload the file list",
+      "no_session_title": "No session yet",
+      "no_session_hint": "Give the team a task in the chat. The code, web pages and documents it makes appear here so you can view and try them.",
+      "gone_title": "No result folder yet",
+      "gone_hint": "The team has not written any file for this session yet. Code, web pages and documents it creates will appear here.",
+      "empty_title": "The result folder is empty",
+      "empty_hint": "The team has not created any file yet. Give it a task in the chat, e.g. \"build a product landing page\".",
+      "open_folder_hint": "Open this session's result folder on this machine",
+      "tree_label": "Result folder tree"
+    },
     "live": {
       "starting": "The team is getting started…",
       "stopping": "Stopping the run…",
@@ -2582,6 +2604,54 @@
       "ready": "Ready",
       "not_ready": "Not ready",
       "open_failed": "Could not open this evaluation"
+    },
+    "products": {
+      "title": "Products of this evaluation",
+      "count": "{n} runs produced files",
+      "empty_runs": "{n} runs made no files",
+      "files": "{n} files",
+      "inferred": "Matched by run time",
+      "inferred_hint": "Older versions did not record the folder of a failed or timed-out run: it was matched to this run by its run time.",
+      "open_web": "Open web app",
+      "new_tab": "opens in a new tab",
+      "wait_hint": "The first start can take a few minutes.",
+      "preview_failed": "Could not start the app.",
+      "preview_failed_hint": "See the log in this run's files.",
+      "open_site": "Open page",
+      "view_in_lab": "View in Lab",
+      "run": "Try it",
+      "retry": "Retry",
+      "view_files": "View files",
+      "stop": "Stop",
+      "stop_label": "Stop the preview of {name}",
+      "type": {
+        "webapp": "Web app",
+        "site": "Web page",
+        "media": "Video/images",
+        "docs": "Documents",
+        "code": "Source code",
+        "files": "Files"
+      },
+      "chip": {
+        "webapp": "Web app",
+        "site": "Web page",
+        "media": "{n} images/videos",
+        "docs": "{n} documents",
+        "code": "{n} code files",
+        "files": "{n} files"
+      }
+    },
+    "cleanup": {
+      "title_passed": "Evaluation passed. Clean up {n} older runs ({size}) of this workflow?",
+      "title": "This workflow has {n} older runs ({size}). Clean them up to free space?",
+      "keeps": "Kept: the products of this run{baseline}, and the scores and history of every run.",
+      "keeps_baseline": " and of the latest passing run",
+      "confirm": "Clean up now",
+      "later": "Later",
+      "never": "Don't ask again",
+      "done": "Cleaned {n} runs, freed {size}",
+      "failed": "Could not clean up old results",
+      "never_note": "Won't ask again. You can still use \"Clean up old results\" at the bottom of the page."
     },
     "storage": {
       "line": "Lab results: {size} · {n} runs",

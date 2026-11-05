@@ -332,6 +332,14 @@
             </div>
           </header>
 
+          <LabCleanupPrompt
+            :workflow="workflow"
+            :job-id="job.id"
+            :finished="!isRunning && job.status === 'completed'"
+            :passed="job.verdict === 'ready'"
+            @cleaned="storageRefresh++"
+          />
+
           <div v-if="job.status === 'completed'" :class="['verdict', job.verdict]">
             <div class="ring" :style="{ '--p': passPct + '%' }">
               <span>{{ passPct }}<small>%</small></span>
@@ -390,6 +398,15 @@
             </div>
           </div>
 
+          <!-- What the runs made, with a direct way to open each: the first thing people look for in a past job -->
+          <LabProducts
+            :job-id="job.id"
+            :runs="products"
+            :scenario-label="scenarioLabel"
+            :show-attempt="hasRepeats"
+            @show="showRun"
+          />
+
           <dl class="kpis">
             <div class="kpi">
               <dt>{{ tr('lab.kpi.passed', 'Đạt') }}</dt>
@@ -443,11 +460,12 @@
             <span v-if="failedRuns.length" class="runs-failed">{{ $t('lab.runs_failed_count', { n: failedRuns.length }) }}</span>
           </h3>
           <div v-if="job.results?.length" class="runs">
-            <details v-for="{ r, i } in orderedRuns" :key="i" :class="['run', r.status]" @toggle="onRunToggle(i, $event)">
+            <details v-for="{ r, i } in orderedRuns" :id="`lab-run-${i}`" :key="i" :class="['run', r.status]" @toggle="onRunToggle(i, $event)">
               <summary>
                 <span class="run-dot" aria-hidden="true"></span>
                 <span class="run-title">{{ scenarioLabel(r.scenario) }} <span class="run-attempt">· {{ $t('lab.attempt', { n: r.repeat }) }}</span></span>
                 <span class="pill">{{ $t(`lab.run_status.${r.status}`) }}</span>
+                <span v-if="productChips[i]" :class="['product-chip', productChips[i].type]">{{ productChips[i].label }}</span>
                 <span v-if="r.judge?.judged_by" :class="['judge-tag', r.judge.judged_by]" :title="r.judge.judge_model || undefined">
                   {{ r.judge.judged_by === 'ai' ? tr('lab.judged_ai', 'AI chấm') : tr('lab.judged_basic', 'Chấm cơ bản') }}
                 </span>
@@ -510,10 +528,13 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import LabRunOutputs from '@/components/lab/LabRunOutputs.vue'
 import LabStorage from '@/components/lab/LabStorage.vue'
 import LabHistory from '@/components/lab/LabHistory.vue'
+import LabProducts from '@/components/lab/LabProducts.vue'
+import LabCleanupPrompt from '@/components/lab/LabCleanupPrompt.vue'
+import { productType } from '@/utils/labProducts.js'
 import { toast } from '@/utils/toast.js'
 import { MAX_SCENARIOS, PACK_IDS, buildPackScenarios, dedupeSamples, detectPack } from '@/utils/labSamples.js'
 import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
-import { fetchWorkflowNames, labCancel, labCheck, labEvaluate, labGenerate, labJob, labResume } from '@/api/client'
+import { fetchWorkflowNames, labCancel, labCheck, labEvaluate, labGenerate, labJob, labProducts, labResume } from '@/api/client'
 
 const { t, te, locale } = useI18n()
 const route = useRoute()
@@ -641,6 +662,53 @@ const isRunning = computed(() => job.value && ['queued', 'running'].includes(job
 watch(isRunning, (now, before) => { if (before && !now) storageRefresh.value += 1 })
 const plannedRuns = computed(() => scenarios.value.filter((s) => s.prompt.trim()).length * repeats.value)
 const scenarioLabel = (index) => submitted.value[index]?.name?.trim() || t('lab.scenario_name', { n: index + 1 })
+const hasRepeats = computed(() => (job.value?.results || []).some((r) => r.repeat > 1))
+
+// What each run produced (type, size, running previews): feeds the overview and the chips on the run rows.
+const products = ref([])
+let productsRequest = 0
+async function loadProducts() {
+  const id = job.value?.id
+  const mine = ++productsRequest
+  if (!id) {
+    products.value = []
+    return
+  }
+  try {
+    const data = await labProducts(id)
+    if (mine === productsRequest && !unmounted && job.value?.id === id) products.value = Array.isArray(data?.runs) ? data.runs : []
+  } catch {
+    // The overview is a shortcut: the run list below still shows every run's files.
+    if (mine === productsRequest) products.value = []
+  }
+}
+// A new job, a finished run, or deleted folders change what there is to show.
+watch(() => job.value?.id, () => { products.value = []; loadProducts() })
+watch(() => [job.value?.done, job.value?.status, storageRefresh.value], (now, before) => {
+  if (before && job.value?.id) loadProducts()
+})
+// A preview may have been stopped elsewhere (in a run below, another tab, the idle timer): re-read on return.
+const onWindowFocus = () => { if (job.value?.id && !document.hidden) loadProducts() }
+const CHIP_FALLBACK = { webapp: 'Web app', site: 'Trang web', media: '{n} ảnh/video', docs: '{n} tài liệu', code: '{n} file mã', files: '{n} file' }
+const productChips = computed(() => {
+  const chips = {}
+  for (const entry of products.value) {
+    const kind = productType(entry)
+    if (kind) chips[entry.run] = { type: kind.type, label: tr(`lab.products.chip.${kind.type}`, CHIP_FALLBACK[kind.type], { n: kind.count }) }
+  }
+  return chips
+})
+// "Xem file" / "Xem trong Lab" on a product card: open that run and bring its products browser into view.
+async function showRun(index) {
+  const el = document.getElementById(`lab-run-${index}`)
+  if (!el) return
+  if (!openRuns.value.has(index)) openRuns.value = new Set([...openRuns.value, index])
+  el.open = true
+  await nextTick()
+  // The row itself (its title says which run this is), the products browser right under it
+  el.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  el.querySelector('summary')?.focus({ preventScroll: true })
+}
 
 // Summary strip + health panel
 const checkCounts = computed(() => {
@@ -740,8 +808,19 @@ function rememberJob(name, id, list) {
   }
 }
 // Open a past evaluation from the history list: its scores, runs and the products each run made.
+function revealResults() {
+  const el = resultsEl.value
+  if (!el) return
+  el.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  el.focus({ preventScroll: true })
+}
 async function openPastJob(id) {
-  if (!id || id === job.value?.id) return
+  if (!id) return
+  // Already shown ("Đang xem"): just bring the results back into view.
+  if (id === job.value?.id) {
+    revealResults()
+    return
+  }
   const name = workflow.value
   try {
     const data = await labJob(id)
@@ -755,8 +834,7 @@ async function openPastJob(id) {
     rememberJob(name, data.id, submitted.value)
     if (isRunning.value) schedulePoll(1500)
     await nextTick()
-    resultsEl.value?.focus?.()
-    resultsEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    revealResults()
   } catch (error) {
     toast.error(error?.message || tr('lab.history.open_failed', 'Không mở được lần kiểm định này'))
   }
@@ -971,12 +1049,7 @@ async function startEval() {
     rememberJob(name, started.id, list)
     schedulePoll(1500)
     // The results panel sits below the scenario list: bring the progress into view and focus it.
-    nextTick(() => {
-      const el = resultsEl.value
-      if (!el) return
-      el.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
-      el.focus({ preventScroll: true })
-    })
+    nextTick(revealResults)
   } catch (error) {
     evalError.value = error.message
   } finally {
@@ -1047,7 +1120,9 @@ onMounted(async () => {
     document.getElementById('lab-workflow-picker')?.focus()
   }
 })
+onMounted(() => window.addEventListener('focus', onWindowFocus))
 onBeforeUnmount(() => {
+  window.removeEventListener('focus', onWindowFocus)
   unmounted = true
   stopPolling()
   flushSave()
@@ -1279,7 +1354,7 @@ onBeforeUnmount(() => {
 .ok-text { color: var(--success); font-weight: 600; }
 
 .runs { border-radius: 11px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
-.run { --tone: var(--fg-muted); }
+.run { --tone: var(--fg-muted); scroll-margin-top: 72px; }
 .run + .run { border-top: 1px solid var(--line); }
 .run.passed { --tone: var(--success); }
 .run.failed, .run.error { --tone: var(--danger); }
@@ -1294,6 +1369,8 @@ onBeforeUnmount(() => {
 .run-meta { color: var(--fg-muted); font-size: 12px; white-space: nowrap; }
 .run-chevron { flex: none; color: var(--fg-muted); transition: transform 0.2s ease; }
 .run[open] .run-chevron { transform: rotate(180deg); }
+.product-chip { flex: none; padding: 1px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; color: var(--fg-muted); background: var(--tint-2); white-space: nowrap; }
+.product-chip.webapp, .product-chip.site { color: rgb(var(--accent-sky-rgb)); background: rgb(var(--accent-sky-rgb) / 0.12); }
 .pill { flex: none; font-size: 11px; font-weight: 650; padding: 2px 9px; border-radius: 999px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
 .run-body { padding: 2px 14px 14px 32px; }
 .judge, .meta-line { font-size: 13px; line-height: 1.6; margin: 10px 0 0; color: var(--fg-muted); }

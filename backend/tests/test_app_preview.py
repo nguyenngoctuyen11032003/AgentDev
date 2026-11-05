@@ -301,8 +301,10 @@ def test_route_static_preview(warehouse, monkeypatch):
     assert blocked.status_code == 403
 
 
-def test_env_file_seeded_from_example(tmp_path):
+def test_env_file_seeded_from_example(tmp_path, monkeypatch):
     from agentdev.api.services import app_preview
+
+    monkeypatch.setattr(app_preview, "_allowed_root", lambda: tmp_path.resolve())
 
     (tmp_path / ".env.example").write_text("SMTP_HOST=example\n", encoding="utf-8")
     logs = []
@@ -344,3 +346,17 @@ def test_frame_allowed_reads_app_headers(headers, expected):
         assert app_preview.frame_allowed(f"http://127.0.0.1:{server.server_port}/") is expected
     finally:
         server.shutdown()
+
+
+def test_env_file_not_written_into_a_users_project(tmp_path, monkeypatch):
+    from agentdev.api.services import app_preview
+
+    warehouse, project = tmp_path / "warehouse", tmp_path / "my-project"
+    warehouse.mkdir()
+    project.mkdir()
+    (project / ".env.example").write_text("A=1", encoding="utf-8")
+    monkeypatch.setattr(app_preview, "_allowed_root", lambda: warehouse.resolve())
+    logs = []
+    preview = type("P", (), {"add_log": lambda self, line: logs.append(line)})()
+    app_preview._seed_env_file(preview, project)
+    assert not (project / ".env").exists() and logs
