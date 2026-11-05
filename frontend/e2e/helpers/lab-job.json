@@ -1,0 +1,60 @@
+{
+ "id": "e2elabjob0001",
+ "workflow": "zz_e2e_fake.yaml",
+ "status": "completed",
+ "error": "",
+ "total": 1,
+ "done": 1,
+ "passed": 1,
+ "judged": 1,
+ "errors": 0,
+ "pass_rate": 1.0,
+ "threshold": 0.8,
+ "verdict": "ready",
+ "config_status": "pass",
+ "config_failed": false,
+ "basic_graded": 0,
+ "scenarios": [
+  {
+   "index": 0,
+   "name": "E2E greeting",
+   "runs": 1,
+   "passed": 1,
+   "stable": true,
+   "seconds": 5.4,
+   "tokens": 4583,
+   "cost_usd": 0.0347,
+   "members": []
+  }
+ ],
+ "results": [
+  {
+   "scenario": 0,
+   "repeat": 1,
+   "status": "passed",
+   "answer": "E2E FINISHED",
+   "seconds": 5.4,
+   "tokens": 4583,
+   "cost_usd": 0.0347,
+   "agents": {
+    "Final": 1
+   },
+   "members": [],
+   "questions": [],
+   "turns": 1,
+   "output_dir": "",
+   "judge": {
+    "pass": true,
+    "score": 9,
+    "reason": "E2E mocked judge: answer matches.",
+    "judged_by": "ai",
+    "judge_model": "Anthropic Claude - Tài khoản (claude-opus-5-5)"
+   },
+   "run_id": "e2elabjob0001-r1"
+  }
+ ],
+ "duration_seconds": 10.9,
+ "total_tokens": 4583,
+ "cost_usd": 0.0347,
+ "fix_brief": ""
+}

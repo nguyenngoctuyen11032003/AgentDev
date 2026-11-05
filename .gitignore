@@ -40,3 +40,4 @@ WareHouse/
 .pytest_cache/
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
+.impeccable/

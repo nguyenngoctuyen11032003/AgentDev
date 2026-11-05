@@ -11,7 +11,10 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "perf": "playwright test e2e/perf.spec.js",
+    "e2e:visual": "playwright test e2e/visual.spec.js",
+    "e2e:visual:update": "playwright test e2e/visual.spec.js --update-snapshots"
   },
   "dependencies": {
     "@vue-flow/background": "^1.3.2",

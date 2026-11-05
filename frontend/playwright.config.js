@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.js',
-  outputDir: './e2e/artifacts/test-results',
+  outputDir: process.env.E2E_OUTPUT || './e2e/artifacts/test-results',
   globalSetup: './e2e/global-setup.js',
   workers: 1,
   fullyParallel: false,

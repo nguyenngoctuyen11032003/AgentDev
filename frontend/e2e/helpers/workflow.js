@@ -1,6 +1,6 @@
 /* global process */
 // Fake workflow for the E2E suite: literal and human nodes plus one agent that fails without using model tokens.
-export const WORKFLOW_ID = 'zz_e2e_fake'
+export const WORKFLOW_ID = process.env.E2E_WORKFLOW_ID || 'zz_e2e_fake' // override to run two suites side by side
 export const WORKFLOW_FILE = `${WORKFLOW_ID}.yaml`
 export const API = process.env.E2E_API || 'http://localhost:6400'
 
