@@ -137,3 +137,10 @@ def test_real_model_defaults_to_haiku_and_caps_cost():
     names = {n["config"]["name"] for n in definition["graph"]["nodes"] if n["type"] == "agent"}
     assert names == {"claude-haiku-5-5"}
     assert definition["graph"]["run_limits"]["max_cost_usd"] <= 2.5
+
+
+def test_report_records_which_nodes_ran(report):
+    # A real run with no file edits must be diagnosable: the report lists the agent nodes that took a turn.
+    for run in report["runs"]:
+        assert "Tech Lead" in run["nodes_run"]
+        assert isinstance(run["nodes_run"], list)

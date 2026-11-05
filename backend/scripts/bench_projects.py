@@ -524,6 +524,7 @@ def run_one(task: str, mode: str, failure: Optional[str], yaml_path: Path, tmp: 
         "wall_s": result["wall_s"],
         "model_calls": FakeState.calls if mode == "fake" else RealCounter.calls,
         "agent_turns": len(turns),
+        "nodes_run": [t.get("node") for t in turns],
         "tokens_in": sum(int(t.get("tokens_in") or 0) for t in turns),
         "tokens_out": sum(int(t.get("tokens_out") or 0) for t in turns),
         "cache_read": sum(int(t.get("cache_read") or 0) for t in turns),

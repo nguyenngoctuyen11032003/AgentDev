@@ -51,6 +51,12 @@ Locales: `frontend/src/i18n/locales/{vi,en,zh}.json`. Sample workflows: `backend
 - Fixing a bug requires a regression test (red first).
 - Comments and code identifiers in English; UI text via i18n.
 
+- File edits by agents: prefer `edit_file`/`multi_edit` (exact unique match, keeps CRLF/BOM, atomic) over line-number edits (flag `AGENTDEV_EDIT_TOOLS`). `search_in_files` uses ripgrep when present (`AGENTDEV_SEARCH_RG`); repo map flag `AGENTDEV_REPO_MAP`.
+- Shell/background processes are registered per run and killed as a tree on timeout/cancel/shutdown (`utils/process_registry.py`, flag `AGENTDEV_PROCESS_REGISTRY`). Previews bind 127.0.0.1 only.
+- Deleting the last CLI account removes only the AgentDev record; CLI sign-out needs `?sign_out_cli=true`. Autobind prefers a connection of the same vendor as `provider`.
+- E2E: import `test` from `e2e/helpers/fixture.js` (fails on console.error / 4xx / 5xx not allowed). Visual snapshots: `npm run e2e:visual` (update with `e2e:visual:update`, only for intended UI changes). UI perf baseline: `npm run perf` -> `docs/audit/perf-baseline.md`.
+- Project bench: `uv run python -m scripts.bench_projects --fake|--real` (real needs `--max-usd`; reports `nodes_run`). Every engine change is measured with it; real runs are logged in `docs/audit/final.md`.
+
 ## Large files: do NOT read whole (Grep, then Read with offset/limit)
 `views/LaunchView.vue` (~6.1k lines), `views/WorkflowView.vue` (~3.1k), `views/LabView.vue` (~1.5k), `api/services/workflow_lab.py` (~1.6k), `i18n/locales/*.json`, `package-lock.json`, `backend/uv.lock`.
 
