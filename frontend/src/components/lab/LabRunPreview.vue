@@ -95,7 +95,7 @@
     </div>
     <p v-else-if="state.status === 'failed' || error" class="pv-error" role="alert">
       <strong>{{ tr('lab.outputs.preview_error', 'Không chạy thử được') }}</strong>
-      <span v-if="state.error || error">{{ state.error || error }}</span>
+      <span v-if="state.error || state.error_code || error">{{ state.status === 'failed' && (state.error || state.error_code) ? stateErrorText : error }}</span>
     </p>
     <p v-else-if="state.status === 'stopped'" class="pv-note">{{ tr('lab.outputs.preview_stopped_note', 'Bản chạy thử đã dừng. Bấm "Chạy lại" để chạy tiếp.') }}</p>
 
@@ -110,11 +110,13 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { labPreviewStart, labPreviewStatus, labPreviewStop } from '@/api/client'
+import { labPreviewHeartbeat, labPreviewStart, labPreviewStatus, labPreviewStop } from '@/api/client'
+import { labErrorText } from '@/utils/labOutputs.js'
 
 const props = defineProps({
   jobId: { type: String, required: true },
-  run: { type: Number, required: true },
+  // run_id of the run (position for jobs stored before run ids existed)
+  run: { type: [String, Number], required: true },
   // true: start the preview right away (user pressed "Chạy thử"); false: only show the current state
   autostart: { type: Boolean, default: false }
 })
@@ -130,8 +132,11 @@ const DEVICES = [
   { id: 'mobile', label: 'Điện thoại', icon: ['M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z', 'M11 18h2'] }
 ]
 const POLL_MS = 1500
+// While the preview is on screen the server is told it is still watched, so it is not stopped as idle.
+const HEARTBEAT_MS = 60_000
 
-const state = reactive({ status: 'idle', url: null, port: null, kind: null, log_tail: '', error: null, frameable: null })
+const EMPTY = { status: 'idle', url: null, port: null, kind: null, log_tail: '', error: null, error_code: null, error_params: null, frameable: null }
+const state = reactive({ ...EMPTY })
 const error = ref('')
 const acting = ref(false)
 const frameKey = ref(0)
@@ -144,6 +149,9 @@ const busy = computed(() => ['installing', 'starting'].includes(state.status))
 const tone = computed(() =>
   ({ running: 'ok', failed: 'bad', installing: 'busy', starting: 'busy' })[state.status] || 'idle'
 )
+const errText = (err) => labErrorText(err, { t, te })
+// A failed preview carries error_code/error_params: show it in the UI language.
+const stateErrorText = computed(() => labErrorText(state, { t, te }))
 const statusLabel = computed(() => tr(`lab.outputs.preview_status.${state.status}`, state.status))
 // Static sites come back as a relative /api/... URL: the app's own origin serves (or proxies) it.
 const frameUrl = computed(() => state.url || '')
@@ -154,7 +162,7 @@ const displayUrl = computed(() => {
 })
 
 function apply(data) {
-  Object.assign(state, { status: 'idle', url: null, port: null, kind: null, log_tail: '', error: null, frameable: null }, data || {})
+  Object.assign(state, EMPTY, data || {})
   emit('status', state.status)
   schedule()
 }
@@ -170,7 +178,7 @@ async function refresh() {
     error.value = ''
   } catch (err) {
     if (!alive) return
-    error.value = err?.detail || err?.message || String(err)
+    error.value = errText(err)
     // Keep trying while it is starting: one dropped request should not end the wait.
     schedule()
   }
@@ -183,7 +191,7 @@ async function start() {
     apply(await labPreviewStart(props.jobId, props.run))
     frameKey.value += 1
   } catch (err) {
-    error.value = err?.detail || err?.message || String(err)
+    error.value = errText(err)
     state.status = 'failed'
   } finally {
     acting.value = false
@@ -196,7 +204,7 @@ async function stop() {
     apply(await labPreviewStop(props.jobId, props.run))
     if (!['stopped', 'idle'].includes(state.status)) state.status = 'stopped'
   } catch (err) {
-    error.value = err?.detail || err?.message || String(err)
+    error.value = errText(err)
   } finally {
     acting.value = false
   }
@@ -207,11 +215,46 @@ watch(() => state.log_tail, () => nextTick(() => {
   if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight
 }))
 
-onMounted(() => (props.autostart ? start() : refresh()))
-// The preview keeps running when the run is collapsed; the server stops idle ones on its own.
+// Heartbeat: every minute while the preview is open and the tab is visible, and right away when the
+// tab comes back. Hidden tabs and closed previews send nothing, so the server can stop idle ones.
+let beatTimer = null
+const watching = () => alive && document.visibilityState === 'visible' && ['installing', 'starting', 'running'].includes(state.status)
+async function beat() {
+  if (!watching()) return
+  try {
+    const res = await labPreviewHeartbeat(props.jobId, props.run)
+    // The server already stopped it (idle, crash): show the real state instead of a dead frame.
+    if (alive && res && res.alive === false && state.status === 'running') refresh()
+  } catch {
+    // a missed beat is harmless: the next one (or the status poll) catches up
+  }
+}
+function startBeats() {
+  clearInterval(beatTimer)
+  beatTimer = setInterval(beat, HEARTBEAT_MS)
+}
+function onVisibility() {
+  if (document.visibilityState === 'visible') {
+    beat()
+    startBeats()
+  } else {
+    clearInterval(beatTimer)
+    beatTimer = null
+  }
+}
+
+onMounted(() => {
+  if (props.autostart) start()
+  else refresh()
+  document.addEventListener('visibilitychange', onVisibility)
+  if (document.visibilityState === 'visible') startBeats()
+})
+// Closing the panel unmounts this component: beats stop, and the server stops the idle preview later.
 onBeforeUnmount(() => {
   alive = false
   clearTimeout(timer)
+  clearInterval(beatTimer)
+  document.removeEventListener('visibilitychange', onVisibility)
 })
 defineExpose({ start })
 </script>

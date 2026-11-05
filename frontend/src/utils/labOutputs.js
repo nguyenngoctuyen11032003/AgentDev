@@ -1,5 +1,22 @@
 // Helpers for browsing what a Lab run produced (file tree, default file, sizes, icons).
 
+/**
+ * Stable key of a run: its `run_id` (kept across a resume) when the job has one; jobs stored before
+ * run ids existed fall back to the run's position, which the server still accepts.
+ */
+export const runKey = (run, index) => run?.run_id || index
+
+/**
+ * Readable text of a Lab API error: translated by its stable `code` (lab.errors.<code>, with the
+ * server's params) when the UI knows it, else the message the server sent.
+ */
+export function labErrorText(error, { t, te }) {
+  const code = error?.code || error?.error_code
+  if (code && te(`lab.errors.${code}`)) return t(`lab.errors.${code}`, error.params || error.error_params || {})
+  if (typeof error === 'string') return error
+  return error?.message || error?.serverMessage || error?.error || String(error || '')
+}
+
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
 
 /** 3355443 -> "3,2 MB" (vi) / "3.2 MB" (en): one decimal from KB up, locale-aware separator. */

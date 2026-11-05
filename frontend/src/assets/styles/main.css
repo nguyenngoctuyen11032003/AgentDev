@@ -14,6 +14,7 @@
   --control-off: #7a7a7a; /* switch/checkbox off state, >=3:1 on dark surfaces */
   --fs-xs: 12px;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --z-raised: 10; /* in-component layering (menus over sibling cards, overlays on a canvas) */
   --z-sticky: 100;
   --z-dropdown: 200;
   --z-backdrop: 1000;

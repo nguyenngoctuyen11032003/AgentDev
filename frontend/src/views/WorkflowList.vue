@@ -528,6 +528,12 @@ const handleFormGeneratorSubmit = async (payload) => {
   border-color: var(--accent);
 }
 
+/* The input itself drops its outline: the container carries the keyboard ring */
+.search-container:has(.search-input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .search-icon {
   display: flex;
   align-items: center;
@@ -627,7 +633,7 @@ const handleFormGeneratorSubmit = async (payload) => {
 }
 
 .file-item.menu-open {
-  z-index: 5; /* the open menu must overlay the cards below it */
+  z-index: var(--z-raised); /* the open menu must overlay the cards below it */
 }
 
 .file-item:hover,
@@ -781,6 +787,11 @@ const handleFormGeneratorSubmit = async (payload) => {
 .file-menu-item:focus-visible {
   background: var(--border);
   outline: none;
+}
+
+.file-menu-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .file-menu-item:focus-visible {

@@ -297,6 +297,12 @@
 
   </div>
 
+  <div
+    v-if="showDynamicFormGenerator"
+    class="form-generator-host"
+    @input.capture="markFormDirty"
+    @change.capture="markFormDirty"
+  >
   <FormGenerator
     v-if="showDynamicFormGenerator"
     :breadcrumbs="formGeneratorBreadcrumbs"
@@ -314,6 +320,7 @@
     @submit="handleFormGeneratorSubmit"
     @copy="handleFormGeneratorCopy"
   />
+  </div>
 
   <!-- Rename Workflow Modal -->
   <BaseDialog :model-value="showRenameModal" :title="$t('workflow_view.rename_workflow')" width="500px" @close="closeRenameModal">
@@ -401,7 +408,7 @@
 
 <script setup>
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { VueFlow, useVueFlow, MarkerType } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -418,12 +425,16 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import yaml from 'js-yaml'
 import { buildOrgChart, computeTeamLinks, layoutOrgTree } from '@/utils/teamLinks.js'
 import { duplicateNodeInGraph } from '@/utils/nodeDuplicate.js'
+import { findFreeNodePosition } from '@/utils/nodePlacement.js'
 import { fetchYaml, fetchVueGraph, postVuegraphs, mergeWorkflowDocument, deleteWorkflow, postYamlNameChange, postYamlCopy } from '@/api/client.js'
 import { helpContent } from '@/utils/helpContent.js'
 import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import { toast } from '@/utils/toast.js'
 import { confirmDialog } from '@/utils/confirm.js'
+import { reconcileLayout } from '@/utils/layoutReconcile.js'
+import { canReconcileLayout } from '@/components/workflow/layoutSyncGuard.js'
+import { yamlEdgeId, findYamlEdgeIndex } from '@/components/workflow/edgeUtils.js'
 
 const shouldShowTooltip = computed(() => configStore.ENABLE_HELP_TOOLTIPS)
 
@@ -510,13 +521,45 @@ const onNodeLeave = () => {
 const currentWorkflowName = ref('')
 const activeTab = ref('graph')
 const yamlContent = ref({}) // YAML object
+// Workflow whose YAML last loaded and parsed: guards the layout save against a foreign/empty graph
+const yamlLoadedFor = ref(null)
 const yamlTextString = ref('') // YAML string
 const yamlParseError = ref(null)
 const yamlLoadError = ref(null)
 
 const showDynamicFormGenerator = ref(false)
 // The node/edge form is the only unsaved work on the canvas; the assistant's Apply waits for it.
-defineExpose({ hasOpenForm: () => showDynamicFormGenerator.value })
+// refit: the workbench calls it when the docked assistant opens/closes and the canvas changes width.
+defineExpose({ hasOpenForm: () => showDynamicFormGenerator.value, refit: () => fitGraph() })
+// Set once the user types or picks something in the open node/edge form (native input/change events
+// bubbling out of FormGenerator); leaving the page then asks first.
+const formDirty = ref(false)
+const markFormDirty = () => {
+  if (showDynamicFormGenerator.value) formDirty.value = true
+}
+const hasUnsavedForm = () => showDynamicFormGenerator.value && formDirty.value
+const confirmLeaveWithUnsavedForm = async () => {
+  if (!hasUnsavedForm()) return true
+  const confirmed = await confirmDialog({
+    title: t('workflow_view.unsaved_form_title'),
+    message: t('workflow_view.unsaved_form_detail'),
+    confirmText: t('workflow_view.unsaved_form_leave'),
+    tone: 'danger'
+  })
+  if (confirmed) formDirty.value = false
+  return confirmed
+}
+onBeforeRouteLeave(() => confirmLeaveWithUnsavedForm())
+// Picking another workflow in the list only changes the route param
+onBeforeRouteUpdate((to, from) => {
+  if (to.params?.name === from.params?.name) return true
+  return confirmLeaveWithUnsavedForm()
+})
+const onBeforeUnload = (event) => {
+  if (!hasUnsavedForm()) return
+  event.preventDefault()
+  event.returnValue = ''
+}
 const showMenu = ref(false)
 // Below 1100px the secondary actions (Configure graph, Try in Lab) move into the more-actions menu
 const compactBarQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 1100px)') : null
@@ -610,7 +653,7 @@ const contextMenuY = ref(0)
 const pendingNodePosition = ref(null)
 const contextMenuType = ref('pane') // 'pane' | 'node' | 'edge'
 const contextNodeId = ref(null)
-const contextEdgeInfo = ref(null) // { from, to }
+const contextEdgeInfo = ref(null) // { id, from, to }
 
 // One shared placement: keep the menu fully inside the canvas (estimated size, items are ~36px tall)
 const CONTEXT_MENU_WIDTH = 224
@@ -719,7 +762,7 @@ const onEdgeContextMenu = (params) => {
   placeContextMenu(mouseEvent, 'edge')
   contextMenuType.value = 'edge'
   contextNodeId.value = null
-  contextEdgeInfo.value = { from: fromId, to: toId }
+  contextEdgeInfo.value = { id: edge.id, from: fromId, to: toId }
   pendingNodePosition.value = null
   contextMenuVisible.value = true
 }
@@ -974,7 +1017,8 @@ const deleteNodeById = async (nodeId) => {
   await saveVueFlowGraph()
 }
 
-const deleteEdgeByEndpoints = async (fromId, toId) => {
+// `canvasEdgeId` picks the right one when several edges join the same pair of steps
+const deleteEdgeByEndpoints = async (fromId, toId, canvasEdgeId = '') => {
   if (!fromId || !toId) {
     return
   }
@@ -984,14 +1028,11 @@ const deleteEdgeByEndpoints = async (fromId, toId) => {
   }
   const sourceGraph = source.graph
 
-  let removed = false
-  const nextEdges = sourceGraph.edges.filter(edge => {
-    if (!removed && edge?.from === fromId && edge?.to === toId) {
-      removed = true
-      return false
-    }
-    return true
-  })
+  let edgeIndex = findYamlEdgeIndex(sourceGraph.edges, canvasEdgeId)
+  if (edgeIndex === -1) {
+    edgeIndex = sourceGraph.edges.findIndex(edge => edge?.from === fromId && edge?.to === toId)
+  }
+  const nextEdges = sourceGraph.edges.filter((_, index) => index !== edgeIndex)
 
   // Delete from .start if edge is from Start Node
   let nextStart = sourceGraph.start
@@ -1061,7 +1102,7 @@ const onDeleteEdgeFromContext = async () => {
   if (!info?.from || !info?.to) {
     return
   }
-  await deleteEdgeByEndpoints(info.from, info.to)
+  await deleteEdgeByEndpoints(info.from, info.to, info.id)
 }
 
 const initializeWorkflow = async (name) => {
@@ -1071,7 +1112,8 @@ const initializeWorkflow = async (name) => {
   currentWorkflowName.value = name
   console.log('Workflow initialized: ', currentWorkflowName.value)
   await loadYamlFile()
-  loadAndSyncVueFlowGraph()
+  // The saved layout must be on the canvas before fitting, or the fit ran on an empty graph
+  await loadAndSyncVueFlowGraph()
   await nextTick()
   fitGraph()
 }
@@ -1093,6 +1135,7 @@ const onGlobalKeydown = (event) => {
 onMounted(async () => {
   window.addEventListener('click', onGlobalClick)
   window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('beforeunload', onBeforeUnload)
   compactBarQuery?.addEventListener('change', onCompactBarChange)
   await initializeWorkflow(props.workflowName)
 })
@@ -1102,6 +1145,7 @@ onBeforeUnmount(() => {
   pendingFit = false
   window.removeEventListener('click', onGlobalClick)
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('beforeunload', onBeforeUnload)
   compactBarQuery?.removeEventListener('change', onCompactBarChange)
   dimStartNodeTimers.forEach(clearTimeout)
   dimStartNodeTimers = []
@@ -1139,31 +1183,43 @@ const loadAndSyncVueFlowGraph = async () => {
     const key = currentWorkflowName.value
     const result = await fetchVueGraph(key)
 
-    if(result?.success === true) {
-      console.log("Graph fetched successfully")
-    }
-
-    if (result?.status === 404) {
-      // Not found in server storage, fallback
-      console.log("No graph found, fallback to generation")
+    if (!result?.success) {
+      console.error('Failed to load VueFlow graph:', result?.message || result?.detail)
+      // Fallback if server error
       await generateNodesAndEdges()
       return false
     }
 
-    if (!result?.success) {
-      console.error('Failed to load VueFlow graph:', result?.message || result?.detail)
-      // Fallback if server error
-      generateNodesAndEdges()
-      return false
-    }
-
+    // No saved layout yet (never edited): content is null, the graph is laid out below
     const content = result?.content
     if (content) {
       const flow = JSON.parse(content)
       if (flow) {
-        fromObject(flow)
+        // The YAML may have been edited outside the editor since the layout was saved: keep the
+        // positions of the steps still there, place new steps next to a neighbour, drop removed ones.
+        // Only when the YAML of THIS workflow loaded and parsed: a failed load or the previous
+        // workflow's graph would drop every step and the save below would wipe the positions.
+        const graph = yamlContent.value?.graph
+        const canReconcile = canReconcileLayout({
+          workflowName: key,
+          yamlLoadedFor: yamlLoadedFor.value,
+          loadError: yamlLoadError.value,
+          parseError: yamlParseError.value,
+          graph
+        })
+        const reconciled = canReconcile ? (reconcileLayout(flow, graph, {}) || flow) : flow
+        const savedIds = new Set((flow.nodes || []).map(node => node?.id))
+        const layoutChanged = canReconcile && (
+          (reconciled.nodes || []).length !== savedIds.size
+          || (reconciled.nodes || []).some(node => !savedIds.has(node?.id))
+        )
+        fromObject(reconciled)
         await nextTick()
         syncVueNodesAndEdgesData()
+        if (layoutChanged) {
+          await nextTick()
+          await saveVueFlowGraph()
+        }
         return true
       }
     }
@@ -1182,7 +1238,9 @@ const loadYamlFile = async () => {
       return
     }
     yamlLoadError.value = null
-    const result = await fetchYaml(currentWorkflowName.value)
+    yamlLoadedFor.value = null
+    const requestedName = currentWorkflowName.value
+    const result = await fetchYaml(requestedName)
 
     if (!result?.success) {
       console.error('Failed to load YAML file', result?.message || result?.detail)
@@ -1200,6 +1258,7 @@ const loadYamlFile = async () => {
       yamlContent.value = parsed || {}
       yamlTextString.value = yamlString
       yamlParseError.value = null
+      yamlLoadedFor.value = requestedName
     } catch (parseError) {
       console.error('Error parsing YAML:', parseError)
       yamlParseError.value = parseError.message
@@ -1266,7 +1325,7 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
       ? new Map(currentNodes.map(node => [node.id, node]))
       : null
     const existingEdgeByKey = preserveExistingLayout
-      ? new Map(currentEdges.filter(edge => !edge.data?.virtual).map(edge => [`${edge.source}-${edge.target}`, edge]))
+      ? new Map(currentEdges.filter(edge => !edge.data?.virtual).map(edge => [edge.id || `${edge.source}-${edge.target}`, edge]))
       : null
     
       // Compute node positions using a simple topological layering
@@ -1439,8 +1498,9 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
       }
 
     // Build edges from YAML (preserve layout where possible)
-    const nextYamlEdges = yamlEdges.map(yamlEdge => {
-      const key = `${yamlEdge.from}-${yamlEdge.to}`
+    // Two edges may join the same pair of steps: each YAML edge gets its own canvas id (see yamlEdgeId)
+    const nextYamlEdges = yamlEdges.map((yamlEdge, index) => {
+      const key = yamlEdgeId(yamlEdges, index)
       const baseEdge = preserveExistingLayout && existingEdgeByKey?.has(key)
         ? existingEdgeByKey.get(key)
         : {
@@ -1573,9 +1633,8 @@ const updateNodesAndEdgesFromYaml = (preserveExistingLayout = false) => {
       // keep any existing edges that are not YAML edges (e.g., visual-only) when preserving layout
       // but always exclude previous Start edges so they are replaced by the newly computed ones
       ...(preserveExistingLayout ? currentEdges.filter(e => {
-        const k = `${e.source}-${e.target}`
         // drop if it's a YAML-defined edge or a previous Start edge
-        const isYamlEdge = nextYamlEdgeIdSet.has(k)
+        const isYamlEdge = nextYamlEdgeIdSet.has(e.id) || nextYamlEdgeIdSet.has(`${e.source}-${e.target}`)
         const isStartEdge = e.source === START_NODE_ID
         // Also drop if it looks like a YAML edge (has data.from/to) but isn't in nextYamlEdges (stale)
         const isStaleYamlEdge = e.data?.from && e.data?.to
@@ -1711,19 +1770,13 @@ const buildYamlWithoutNode = (nodeId) => {
   }
 }
 
-const buildYamlWithoutEdge = (fromId, toId) => {
+// The edge is identified by its index in graph.edges: several edges may join the same pair of steps
+const buildYamlWithoutEdge = (edgeIndex) => {
   const source = yamlContent.value
   if (!source?.graph?.edges || !Array.isArray(source.graph.edges)) {
     return source
   }
-  let removed = false
-  const filteredEdges = source.graph.edges.filter(edge => {
-    if (!removed && edge?.from === fromId && edge?.to === toId) {
-      removed = true
-      return false
-    }
-    return true
-  })
+  const filteredEdges = source.graph.edges.filter((_, index) => index !== edgeIndex)
   return {
     ...source,
     graph: {
@@ -1853,11 +1906,13 @@ const openDynamicFormGenerator = (type, options = {}) => {
   formGeneratorReadOnlyFields.value = options.readOnlyFields ?? []
   formGeneratorNodeOrder.value = (yamlContent.value?.graph?.nodes || []).map((node) => node?.id)
 
+  formDirty.value = false
   showDynamicFormGenerator.value = true
 }
 
 const closeDynamicFormGenerator = () => {
   showDynamicFormGenerator.value = false
+  formDirty.value = false
   formGeneratorBreadcrumbs.value = []
   formGeneratorInitialYaml.value = null
   formGeneratorInitialFormData.value = null
@@ -1887,10 +1942,9 @@ const handleFormGeneratorSubmit = async (payload) => {
     if (formGeneratorMode.value === 'create' && pendingNodePosition.value && nextNodeId) {
       const newNode = (nodes.value || []).find(node => node.id === nextNodeId)
       if (newNode) {
-        newNode.position = {
-          x: pendingNodePosition.value.x,
-          y: pendingNodePosition.value.y
-        }
+        // Never drop the new node on top of an existing one (e.g. two nodes created at the view centre)
+        const others = (nodes.value || []).filter(node => node.id !== nextNodeId)
+        newNode.position = findFreeNodePosition(pendingNodePosition.value, others)
       }
       pendingNodePosition.value = null
     }
@@ -1946,17 +2000,22 @@ const openNodeEditor = (nodeId) => {
   })
 }
 
-const openEdgeEditor = (fromId, toId, fallbackData = null) => {
+const openEdgeEditor = (canvasEdgeId, fromId, toId, fallbackData = null) => {
   if (!fromId || !toId) {
     return
   }
-  const yamlEdge = (yamlContent.value?.graph?.edges || []).find(edge => edge.from === fromId && edge.to === toId)
+  const yamlEdges = yamlContent.value?.graph?.edges || []
+  let edgeIndex = findYamlEdgeIndex(yamlEdges, canvasEdgeId)
+  if (edgeIndex === -1) {
+    edgeIndex = yamlEdges.findIndex(edge => edge?.from === fromId && edge?.to === toId)
+  }
+  const yamlEdge = edgeIndex === -1 ? null : yamlEdges[edgeIndex]
   const edgeData = yamlEdge || (fallbackData ? cloneDeep(fallbackData) : null)
   if (!edgeData) {
     console.warn(`[WorkflowView] Edge "${fromId}-${toId}" not found for editing`)
     return
   }
-  const sanitizedYaml = buildYamlWithoutEdge(fromId, toId)
+  const sanitizedYaml = edgeIndex === -1 ? yamlContent.value : buildYamlWithoutEdge(edgeIndex)
   openDynamicFormGenerator('edge', {
     initialYaml: sanitizedYaml,
     initialFormData: edgeData,
@@ -2055,7 +2114,7 @@ const onEdgeClick = (event) => {
     fallbackData.trigger = clickedEdge.data.trigger
   }
 
-  openEdgeEditor(fromId, toId, fallbackData)
+  openEdgeEditor(clickedEdge.id, fromId, toId, fallbackData)
 }
 
 // Autosave when moving nodes
@@ -2125,14 +2184,6 @@ const onConnect = async (connection) => {
       isCreatingConnection.value = false
     }, 10)
     return
-  }
-
-  // Remove the automatically created edge (VueFlow may optimistically add one)
-  const autoCreatedEdgeIndex = edges.value.findIndex(
-    edge => edge.source === connection.source && edge.target === connection.target
-  )
-  if (autoCreatedEdgeIndex !== -1) {
-    edges.value.splice(autoCreatedEdgeIndex, 1)
   }
 
   openDynamicFormGenerator('edge', {
@@ -2345,6 +2396,11 @@ const handleCopySubmit = async () => {
 </script>
 
 <style scoped>
+/* Only listens for edits in the node/edge form; adds no box of its own */
+.form-generator-host {
+  display: contents;
+}
+
 .workflow-view {
   width: 100%;
   height: calc(calc(100 * var(--vh)) - 55px);
@@ -2807,6 +2863,11 @@ const handleCopySubmit = async () => {
   color: var(--text-soft-4);
 }
 
+/* Inset ring: the editor fills its pane, so an outer outline would be clipped */
+.yaml-textarea:focus-visible:not(.yaml-error-border) {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+
 /* Error state via inset shadow so the text does not shift (a border would resize the box) */
 .yaml-error-border {
   box-shadow: inset 0 0 0 2px var(--danger-4);
@@ -2909,7 +2970,8 @@ const handleCopySubmit = async () => {
   transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
-.form-input:focus {
+.form-input:focus,
+.form-input:focus-visible {
   border-color: var(--focus-ring);
   box-shadow: 0 0 0 1px var(--focus-ring);
   background-color: rgb(var(--ink) / 0.08);

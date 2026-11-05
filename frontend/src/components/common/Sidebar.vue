@@ -6,12 +6,27 @@
         </router-link>
 
         <nav ref="navRef" class="sidebar-nav">
-            <router-link to="/">{{ $t('nav.home') }}</router-link>
-            <router-link to="/tutorial">{{ $t('nav.tutorial') }}</router-link>
-            <router-link to="/workflows">{{ $t('nav.workflows') }}</router-link>
-            <router-link to="/launch" target="_blank" rel="noopener">{{ $t('nav.launch') }}</router-link>
-            <router-link to="/lab">{{ $t('nav.laboratory') }}</router-link>
+            <router-link v-for="item in navItems" :key="item.to" :to="item.to" v-bind="item.attrs">{{ $t(item.label) }}</router-link>
         </nav>
+
+        <!-- Phones: one button naming the current page, opening the full list -->
+        <div ref="compactRef" class="nav-compact" @keydown.esc="closeMenu(true)" @focusout="onCompactFocusOut">
+            <button
+                ref="compactBtnRef"
+                type="button"
+                class="nav-compact-btn"
+                aria-haspopup="true"
+                :aria-expanded="menuOpen"
+                aria-controls="nav-compact-list"
+                @click="menuOpen = !menuOpen"
+            >
+                <span class="nav-compact-label">{{ activeLabel }}</span>
+                <svg class="nav-compact-chevron" :class="{ open: menuOpen }" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <nav v-show="menuOpen" id="nav-compact-list" class="nav-compact-list" :aria-label="activeLabel">
+                <router-link v-for="item in navItems" :key="item.to" :to="item.to" v-bind="item.attrs" @click="closeMenu(false)">{{ $t(item.label) }}</router-link>
+            </nav>
+        </div>
         <div class="sidebar-actions">
             <!-- Settings page also holds Connections and Skills -->
             <router-link to="/settings" class="settings-nav-btn" :title="$t('settings.title')" :aria-label="$t('settings.title')">
@@ -29,9 +44,36 @@
 <script setup>
 defineOptions({ name: 'AppSidebar' })
 import { RouterLink, useRoute } from 'vue-router'
-import { ref, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onUnmounted, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const isHidden = ref(false)
+const { t } = useI18n()
+
+const navItems = [
+    { to: '/', label: 'nav.home', attrs: {} },
+    { to: '/tutorial', label: 'nav.tutorial', attrs: {} },
+    { to: '/workflows', label: 'nav.workflows', attrs: {} },
+    { to: '/launch', label: 'nav.launch', attrs: { target: '_blank', rel: 'noopener' } },
+    { to: '/lab', label: 'nav.laboratory', attrs: {} },
+]
+
+// Compact (phone) menu: the button always names the page the user is on.
+const menuOpen = ref(false)
+const compactRef = ref(null)
+const compactBtnRef = ref(null)
+const closeMenu = (refocus) => {
+    if (!menuOpen.value) return
+    menuOpen.value = false
+    if (refocus) compactBtnRef.value?.focus()
+}
+const onCompactFocusOut = (e) => {
+    if (!compactRef.value?.contains(e.relatedTarget)) menuOpen.value = false
+}
+const onDocPointer = (e) => {
+    if (menuOpen.value && !compactRef.value?.contains(e.target)) menuOpen.value = false
+}
+document.addEventListener('pointerdown', onDocPointer)
 
 // An inert (hidden) bar cannot take focus, so Tab itself brings it back for keyboard users.
 const revealOnTab = (e) => { if (e.key === 'Tab' && isHidden.value) isHidden.value = false }
@@ -49,6 +91,14 @@ watch(isHidden, (val) => {
 // link resolves to the "/workflows/:name?" record, so it stays active for every
 // workflow without a path watcher.
 const route = useRoute()
+
+const activeLabel = computed(() => {
+    const p = route.path
+    if (p.startsWith('/settings')) return t('settings.title')
+    const hit = navItems.find((item) => item.to !== '/' && (p === item.to || p.startsWith(`${item.to}/`)))
+    return t(hit ? hit.label : 'nav.home')
+})
+watch(() => route.fullPath, () => { menuOpen.value = false })
 
 // Narrow screens scroll the nav row sideways: keep the current page's link in view.
 const navRef = ref(null)
@@ -111,6 +161,7 @@ watch(() => route.path, () => {
 
 onUnmounted(() => {
     document.removeEventListener('keydown', revealOnTab)
+    document.removeEventListener('pointerdown', onDocPointer)
     toggleScrollListener(false);
     document.body.classList.remove('nav-hidden');
 })
@@ -247,6 +298,111 @@ onUnmounted(() => {
         flex: none;
         white-space: nowrap;
     }
+}
+
+/* Phones: the scrolling row clips labels, so swap it for "current page + menu" */
+.nav-compact {
+    display: none;
+}
+
+@media (max-width: 480px) {
+    .sidebar-nav {
+        display: none;
+    }
+
+    .nav-compact {
+        display: block;
+        position: relative;
+        margin: 0 auto;
+    }
+}
+
+.nav-compact-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    max-width: calc(100vw - 150px);
+    padding: 0 12px;
+    border: 1px solid var(--line-3);
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-strong);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.nav-compact-btn:hover {
+    background: rgb(var(--ink) / 0.06);
+}
+
+.nav-compact-btn:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+}
+
+.nav-compact-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nav-compact-chevron {
+    flex: none;
+    color: var(--fg-muted);
+    transition: transform 0.2s var(--ease-out);
+}
+
+.nav-compact-chevron.open {
+    transform: rotate(180deg);
+}
+
+.nav-compact-list {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-dropdown);
+    display: flex;
+    flex-direction: column;
+    min-width: 200px;
+    padding: 4px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px rgb(var(--shade) / 0.22);
+}
+
+.nav-compact-list a {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 6px;
+    color: var(--fg-muted);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.nav-compact-list a:hover {
+    background: rgb(var(--ink) / 0.06);
+    color: var(--fg);
+}
+
+.nav-compact-list a.router-link-active {
+    color: var(--text-strong);
+    background: rgb(var(--ink) / 0.08);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.nav-compact-list a:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nav-compact-chevron { transition: none; }
 }
 
 /* Active page: solid text plus a 2px accent underline (aria-current is set by the router) */

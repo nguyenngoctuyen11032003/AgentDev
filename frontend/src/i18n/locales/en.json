@@ -4,7 +4,9 @@
       "includes": "Includes: {values}",
       "excludes": "Excludes: {values}",
       "regex": "Regex: {values}",
-      "team_link": "{member} is a team member of {lead} (illustration only, not an executable edge)"
+      "team_link": "{member} is a team member of {lead} (illustration only, not an executable edge)",
+      "when_approved": "When approved",
+      "when_rejected": "When rejected"
     },
     "start_node": {
       "title": "Start Node"
@@ -229,7 +231,10 @@
     "try_in_lab": "Try in Lab",
     "try_in_lab_hint": "Open the Lab on this workflow to run test scenarios and score them",
     "more_actions": "More actions",
-    "delete_workflow": "Delete Workflow"
+    "delete_workflow": "Delete Workflow",
+    "unsaved_form_title": "Discard unsaved changes?",
+    "unsaved_form_detail": "The open node/edge form has unsaved changes.",
+    "unsaved_form_leave": "Leave"
   },
   "batch_run": {
     "title": "Batch run",
@@ -436,7 +441,8 @@
       "project_copy_failed": "Could not bring project {name} into the new session",
       "project_missing": "No copy of project {name} is left on the server. The new session opens without it; add the folder again if needed.",
       "project_workflow_hint": "This is project {name}'s own workflow; other projects keep theirs.",
-      "workflow_locked_hint": "This session ran with the workflow above. Picking another one opens a new session (same project)."
+      "workflow_locked_hint": "This session ran with the workflow above. Picking another one opens a new session (same project).",
+      "load_error": "Couldn't load sessions."
     },
     "title": "Launch",
     "collapse_chat": "Collapse chat",
@@ -1110,7 +1116,8 @@
         "label": "Bypass approvals",
         "desc": "Answers every question and approval step automatically. Paid steps (such as a Veo video render) still never run on their own."
       }
-    }
+    },
+    "close_image": "Close image"
   },
   "form_generator": {
     "advanced_settings": "Advanced Settings",
@@ -2600,7 +2607,48 @@
       "nothing": "No folders matched",
       "failed": "Could not clean up results",
       "oldest": "oldest from {date}"
-    }
+    },
+    "run_status_unjudged": "Not graded",
+    "unjudged_note": "{n} runs could not be graded and are not counted in the pass rate",
+    "unjudged_run_note": "This run finished but could not be graded, so it counts as neither pass nor fail.",
+    "skipped_gate": "Gate {node} was skipped (costs money), not approved",
+    "question_skipped": "skipped, not approved",
+    "reconnecting": "Connection lost, retrying…",
+    "started_other_workflow": "Evaluation of {name} started. Reopen that workflow to follow it.",
+    "cost_estimate_counts": "{scenarios} scenarios × {repeats} = {n} runs + {n} gradings.",
+    "cost_estimate_money": "Estimated ~{total} ({avg}/run on average last time).",
+    "errors": {
+      "lab_job_not_found": "Evaluation {job_id} not found.",
+      "lab_run_not_found": "Run {run} not found in evaluation {job_id}.",
+      "lab_run_invalid": "Invalid run id.",
+      "lab_path_invalid": "Invalid file path.",
+      "lab_path_not_relative": "The path must be relative.",
+      "lab_path_outside": "The path is outside the output folder.",
+      "lab_path_is_folder": "This is a folder, not a file.",
+      "lab_file_not_found": "File not found.",
+      "lab_run_files_missing": "This run's output was deleted or never created.",
+      "lab_file_too_large": "File too large to view (max {max_bytes} bytes).",
+      "lab_site_no_index": "No index.html to open.",
+      "lab_job_running": "The evaluation is still running; wait for it to finish.",
+      "lab_open_failed": "Could not open: {reason}",
+      "preview_no_free_port": "No free port ({first}–{last}) for the preview.",
+      "preview_server_closing": "The server is shutting down; preview unavailable.",
+      "preview_nothing_to_run": "There is nothing to run in this output.",
+      "preview_limit_reached": "Limit of {max} previews at once reached. Stop one first.",
+      "preview_install_timeout": "Installing dependencies took over {seconds}s and was stopped.",
+      "preview_install_failed": "Installing dependencies failed (exit code {exit_code}).",
+      "preview_process_exited": "Process {process} exited (code {exit_code}).",
+      "preview_ready_timeout": "The app did not respond on port {port} after {seconds}s.",
+      "preview_port_taken": "Port {port} is used by another program.",
+      "preview_dir_missing": "The output folder no longer exists.",
+      "preview_dir_outside": "The folder is outside the allowed area.",
+      "preview_run_missing": "Run not found for preview.",
+      "preview_no_product": "This run produced nothing to preview.",
+      "preview_run_invalid": "Invalid run id.",
+      "preview_job_invalid": "Invalid evaluation id.",
+      "preview_internal_error": "Internal preview error."
+    },
+    "workflows_load_failed": "Couldn't load workflows"
   },
   "schema_desc_text": {
     "h11aw3kw": "This agent's job: its scope, working rules and what a good result looks like. The agent follows it on every task. The team lead reads the first line to decide whom to delegate to, so keep that line short and name the specialty.",

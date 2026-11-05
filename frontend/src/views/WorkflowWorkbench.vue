@@ -68,7 +68,12 @@
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               {{ $t('workbench.create_new') }}
             </button>
-            <button type="button" class="btn secondary" @click="handleSelect('software_company')">
+            <button
+              v-if="defaultTemplate"
+              type="button"
+              class="btn secondary"
+              @click="handleSelect(defaultTemplate)"
+            >
               {{ $t('workbench.open_template') }}
             </button>
           </div>
@@ -108,6 +113,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import WorkflowList from './WorkflowList.vue'
 import WorkflowView from './WorkflowView.vue'
+import { pickDefaultTemplate } from '@/components/workflow/workflowTemplates.js'
 import WorkflowTemplateCards from '@/components/workflow/WorkflowTemplateCards.vue'
 import WorkflowAssistantPanel from '@/components/workflow/assistant/WorkflowAssistantPanel.vue'
 import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
@@ -120,6 +126,8 @@ const workflowListRef = ref(null)
 const closeBtnRef = ref(null)
 const openBtnRef = ref(null)
 const existingFiles = ref([])
+// "Open a template": the first department template that exists (or any workflow), never a missing file
+const defaultTemplate = computed(() => pickDefaultTemplate(existingFiles.value))
 const workflowViewRef = ref(null)
 const toggleRef = ref(null)
 const assistant = useWorkflowAssistant()
@@ -225,6 +233,16 @@ const closeAssistant = () => {
   isAssistantOpen.value = false
   nextTick(() => toggleRef.value?.focus())
 }
+
+// The docked panel narrows (or widens) the canvas: refit the graph so it does not sit off-center
+// behind the panel. VueFlow learns its new size through its own ResizeObserver, a frame or two
+// after the layout change, so wait a little before fitting (an immediate fit uses the old width).
+let refitTimer = null
+watch(isAssistantOpen, () => {
+  clearTimeout(refitTimer)
+  refitTimer = setTimeout(() => workflowViewRef.value?.refit?.(), 180)
+})
+onBeforeUnmount(() => clearTimeout(refitTimer))
 
 // While the panel is open it follows the workflow shown on the canvas.
 watch(selectedWorkflow, (name) => {
@@ -397,7 +415,7 @@ const handleRefreshWorkflows = async () => {
   position: absolute;
   top: 5px;
   right: 12px;
-  z-index: 5;
+  z-index: var(--z-raised);
   display: inline-flex;
   align-items: center;
   gap: 6px;

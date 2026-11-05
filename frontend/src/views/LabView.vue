@@ -25,7 +25,7 @@
         <template #icon>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="6" height="6" rx="1.5" /><rect x="15" y="14" width="6" height="6" rx="1.5" /><path d="M9 7h3a3 3 0 0 1 3 3v4" /></svg>
         </template>
-        <option value="" disabled>{{ loadingWorkflows ? $t('lab.workflows_loading') : $t('lab.workflow_placeholder') }}</option>
+        <option value="" disabled>{{ loadingWorkflows ? $t('lab.workflows_loading') : listError ? tr('lab.workflows_load_failed', 'Không tải được danh sách quy trình') : $t('lab.workflow_placeholder') }}</option>
         <option v-for="wf in workflows" :key="wf.name" :value="wf.name">{{ wf.name.replace(/.ya?ml$/, '') }}</option>
       </BaseSelect>
 
@@ -67,7 +67,13 @@
         <p>{{ $t('lab.no_workflows_hint') }}</p>
         <router-link to="/workflows" class="btn primary sm">{{ $t('lab.no_workflows_cta') }}</router-link>
       </div>
-      <p v-if="listError" class="error intro-error" role="alert">{{ listError }}</p>
+      <div v-if="listError" class="intro-error" role="alert">
+        <p class="error">
+          <strong>{{ tr('lab.workflows_load_failed', 'Không tải được danh sách quy trình') }}</strong>
+          <span class="intro-error-detail">{{ listError }}</span>
+        </p>
+        <button type="button" class="btn secondary sm" :disabled="loadingWorkflows" @click="loadWorkflows">{{ $t('common.retry') }}</button>
+      </div>
       <div class="intro-head">
         <p class="intro-cta">{{ tr('lab.empty_cta', 'Chọn một quy trình ở trên để bắt đầu.') }}</p>
         <h2 class="intro-heading">{{ tr('lab.how_it_works', 'Cách kiểm định') }}</h2>
@@ -294,7 +300,10 @@
           <footer class="run-bar">
             <p class="run-note">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8h.01M11 12h1v4h1" /></svg>
-              {{ $t('lab.cost_note', { runs: plannedRuns }) }}
+              <span>
+                {{ $t('lab.cost_note', { runs: plannedRuns }) }}
+                <span v-if="plannedRuns" class="cost-estimate">{{ costEstimate }}</span>
+              </span>
             </p>
             <button
               v-if="!isRunning"
@@ -316,7 +325,7 @@
           </footer>
         </section>
 
-        <LabHistory :workflow="workflow" :current-id="job?.id || ''" :refresh-key="storageRefresh + historyRefresh" @open="openPastJob" />
+        <LabHistory :workflow="workflow" :current-id="job?.id || ''" :refresh-key="storageRefresh + historyRefresh" @open="openPastJob" @loaded="historyJobs = $event" />
 
         <!-- Results -->
         <!-- Always in the DOM so assistive tech announces the changes (a live region created with its text is often skipped). -->
@@ -341,6 +350,8 @@
               <span>{{ $t('lab.verdict_detail', { rate: passPct, threshold: Math.round(job.threshold * 100), errors: job.errors }) }}</span>
               <span v-if="job.config_failed" class="warn-text">{{ tr('lab.verdict_config_failed', 'Bước 1 (kiểm tra cấu hình) đang có lỗi: chưa thể dùng quy trình này.') }}</span>
               <span v-if="job.basic_graded" class="warn-text">{{ tr('lab.basic_graded_note', '{n} lượt chỉ được chấm cơ bản (không gọi được AI chấm điểm).', { n: job.basic_graded }) }}</span>
+              <span v-if="job.unjudged" class="warn-text">{{ tr('lab.unjudged_note', '{n} lượt chưa chấm được, không tính vào tỷ lệ đạt', { n: job.unjudged }) }}</span>
+              <span v-for="node in job.skipped_gates || []" :key="`gate-${node}`" class="warn-text">{{ tr('lab.skipped_gate', 'Cổng {node} bị bỏ qua (tốn phí), không phải đã duyệt', { node }) }}</span>
               <template v-if="job.verdict_reasons?.length">
                 <strong class="reasons-title">{{ tr('lab.verdict_reasons_title', 'Vì sao chưa đạt') }}</strong>
                 <ul class="reasons">
@@ -382,6 +393,7 @@
               <span class="progress-label">
                 <span v-if="isRunning" class="pulse" aria-hidden="true"></span>
                 {{ $t(`lab.job_status.${job.status}`) }}
+                <span v-if="reconnecting" class="warn-text reconnecting">· {{ tr('lab.reconnecting', 'Mất kết nối, đang thử lại…') }}</span>
               </span>
               <span class="progress-num">{{ job.done }}/{{ job.total }}</span>
             </div>
@@ -443,11 +455,11 @@
             <span v-if="failedRuns.length" class="runs-failed">{{ $t('lab.runs_failed_count', { n: failedRuns.length }) }}</span>
           </h3>
           <div v-if="job.results?.length" class="runs">
-            <details v-for="{ r, i } in orderedRuns" :key="i" :class="['run', r.status]" @toggle="onRunToggle(i, $event)">
+            <details v-for="{ r, k } in orderedRuns" :key="k" :class="['run', r.status]" @toggle="onRunToggle(k, $event)">
               <summary>
                 <span class="run-dot" aria-hidden="true"></span>
                 <span class="run-title">{{ scenarioLabel(r.scenario) }} <span class="run-attempt">· {{ $t('lab.attempt', { n: r.repeat }) }}</span></span>
-                <span class="pill">{{ $t(`lab.run_status.${r.status}`) }}</span>
+                <span class="pill">{{ runStatusLabel(r.status) }}</span>
                 <span v-if="r.judge?.judged_by" :class="['judge-tag', r.judge.judged_by]" :title="r.judge.judge_model || undefined">
                   {{ r.judge.judged_by === 'ai' ? tr('lab.judged_ai', 'AI chấm') : tr('lab.judged_basic', 'Chấm cơ bản') }}
                 </span>
@@ -456,17 +468,21 @@
               </summary>
               <div class="run-body">
                 <p v-if="r.judge?.reason" class="judge">
-                  <strong>{{ $t('lab.judge') }}<template v-if="r.judge.judge_model"> ({{ r.judge.judge_model }})</template>:</strong> {{ r.judge.reason }}
+                  <!-- Only an AI judge is shown as "Giám khảo (model)"; the basic check says so plainly. -->
+                  <strong v-if="r.judge.judged_by === 'ai'">{{ $t('lab.judge') }}<template v-if="r.judge.judge_model"> ({{ r.judge.judge_model }})</template>:</strong>
+                  <strong v-else>{{ tr('lab.judged_basic', 'Chấm cơ bản') }}:</strong> {{ r.judge.reason }}
                 </p>
+                <p v-if="r.status === 'unjudged'" class="meta-line warn-text">{{ tr('lab.unjudged_run_note', 'Lượt này chạy xong nhưng chưa chấm được, nên không tính là đạt hay không đạt.') }}</p>
+                <p v-for="node in r.skipped_gates || []" :key="`gate-${node}`" class="meta-line warn-text">{{ tr('lab.skipped_gate', 'Cổng {node} bị bỏ qua (tốn phí), không phải đã duyệt', { node }) }}</p>
                 <p v-if="r.error" class="error">{{ r.error }}</p>
                 <button v-if="['failed', 'error'].includes(r.status)" type="button" class="btn secondary sm fix-btn" @click="fixWithAssistant(r)">
                   {{ tr('lab.fix_this_run', 'Chỉnh sửa theo lượt này') }}
                 </button>
                 <!-- What the run produced (scripts, documents, a web app…): loaded only once the run is opened -->
                 <LabRunOutputs
-                  v-if="openRuns.has(i) && r.status !== 'running'"
+                  v-if="openRuns.has(k) && r.status !== 'running'"
                   :job-id="job.id"
-                  :run="i"
+                  :run="k"
                   :job-running="!!isRunning"
                   @deleted="storageRefresh++"
                 />
@@ -479,17 +495,22 @@
                 </p>
                 <div v-if="r.questions?.length" class="meta-line">
                   <strong>{{ $t('lab.questions_asked') }}:</strong>
-                  <ul><li v-for="(q, qi) in r.questions" :key="qi">{{ q.node }}: {{ q.question }}</li></ul>
+                  <ul>
+                    <li v-for="(q, qi) in r.questions" :key="qi">
+                      {{ q.node }}: {{ q.question }}
+                      <em v-if="q.answer === 'skipped'" class="warn-text"> · {{ tr('lab.question_skipped', 'bỏ qua, không phải đã đồng ý') }}</em>
+                    </li>
+                  </ul>
                 </div>
                 <!-- Rendered only once the run is opened: long answers stay out of the DOM until needed -->
-                <template v-if="r.plan && openRuns.has(i)">
+                <template v-if="r.plan && openRuns.has(k)">
                   <p class="flow-label">{{ tr('lab.plan_then_result', 'Kế hoạch → Kết quả') }}</p>
                   <p class="meta-line"><strong>{{ tr('lab.plan_label', 'Kế hoạch') }}</strong><template v-if="r.plan.node"> · {{ r.plan.node }}</template></p>
                   <div class="answer plan markdown-body" v-html="render(r.plan.text || r.plan.summary)"></div>
-                  <p class="meta-line">{{ tr('lab.plan_approved', 'Đã tự động duyệt: "Đồng ý, làm đi."') }}</p>
+                  <p v-if="!(r.skipped_gates || []).includes(r.plan.node)" class="meta-line">{{ tr('lab.plan_approved', 'Đã tự động duyệt: "Đồng ý, làm đi."') }}</p>
                   <p class="meta-line"><strong>{{ tr('lab.result_label', 'Kết quả') }}</strong></p>
                 </template>
-                <div v-if="r.answer && openRuns.has(i)" class="answer markdown-body" v-html="render(r.answer)"></div>
+                <div v-if="r.answer && openRuns.has(k)" class="answer markdown-body" v-html="render(r.answer)"></div>
               </div>
             </details>
           </div>
@@ -512,6 +533,7 @@ import LabStorage from '@/components/lab/LabStorage.vue'
 import LabHistory from '@/components/lab/LabHistory.vue'
 import { toast } from '@/utils/toast.js'
 import { MAX_SCENARIOS, PACK_IDS, buildPackScenarios, dedupeSamples, detectPack } from '@/utils/labSamples.js'
+import { labErrorText, runKey } from '@/utils/labOutputs.js'
 import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
 import { fetchWorkflowNames, labCancel, labCheck, labEvaluate, labGenerate, labJob, labResume } from '@/api/client'
 
@@ -521,6 +543,10 @@ const router = useRouter()
 // Some lab strings are newer than the locale files: fall back to Vietnamese until they are added.
 const tr = (key, fallback, params) =>
   te(key) ? t(key, params) : String(fallback).replace(/\{(\w+)\}/g, (_, k) => params?.[k] ?? '')
+// Lab API errors: translated by their code (lab.errors.<code>), else the server's message.
+const errText = (error) => labErrorText(error, { t, te })
+const runStatusLabel = (status) =>
+  status === 'unjudged' ? tr('lab.run_status_unjudged', 'Chưa chấm được') : te(`lab.run_status.${status}`) ? t(`lab.run_status.${status}`) : status
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 // Polling replaces the job every 2 s; cache rendered answers so the same text is never parsed twice.
 const renderCache = new Map()
@@ -534,13 +560,14 @@ const render = (text) => {
   }
   return html
 }
+// Opened runs, keyed by run_id (position for older jobs) so a resume or re-order keeps them open.
 const openRuns = ref(new Set())
 // Bumped when results are added or deleted so the storage line re-reads its totals.
 const storageRefresh = ref(0)
-const onRunToggle = (index, event) => {
+const onRunToggle = (key, event) => {
   const next = new Set(openRuns.value)
-  if (event.target.open) next.add(index)
-  else next.delete(index)
+  if (event.target.open) next.add(key)
+  else next.delete(key)
   openRuns.value = next
 }
 // Step titles carry their own "1. " prefix; the intro cards show the number in a badge instead.
@@ -573,7 +600,11 @@ const submitted = ref([])
 let pollTimer = null
 let pollErrors = 0
 let unmounted = false
-const MAX_POLL_ERRORS = 3
+// Polling failed (network, server busy): keep retrying with backoff; the job is "lost" only on a 404.
+const reconnecting = ref(false)
+const POLL_BACKOFF_MAX_MS = 30000
+// Past evaluations of this workflow (from the history list): their cost per run feeds the estimate.
+const historyJobs = ref([])
 
 // "Fix" hands the failed runs to the workflow assistant: the composer opens pre-filled (never sent
 // automatically) so the user can add details first.
@@ -594,9 +625,9 @@ async function copyBrief() {
   }
 }
 // Failed and errored runs first once the job is done: they are what the user has to act on.
-const RUN_ORDER = { failed: 0, error: 0, cancelled: 1, passed: 2 }
+const RUN_ORDER = { failed: 0, error: 0, unjudged: 1, cancelled: 1, passed: 2 }
 const orderedRuns = computed(() => {
-  const list = (job.value?.results || []).map((r, i) => ({ r, i }))
+  const list = (job.value?.results || []).map((r, i) => ({ r, i, k: runKey(r, i) }))
   if (job.value?.status !== 'completed') return list
   return list.sort((a, b) => (RUN_ORDER[a.r.status] ?? 1) - (RUN_ORDER[b.r.status] ?? 1) || a.i - b.i)
 })
@@ -640,6 +671,23 @@ const isRunning = computed(() => job.value && ['queued', 'running'].includes(job
 // A finished job wrote new result folders: refresh the storage totals.
 watch(isRunning, (now, before) => { if (before && !now) storageRefresh.value += 1 })
 const plannedRuns = computed(() => scenarios.value.filter((s) => s.prompt.trim()).length * repeats.value)
+// Average cost of one run in the latest evaluation of this workflow that recorded a cost (none: no price shown).
+const avgRunCost = computed(() => {
+  const past = historyJobs.value.find((j) => Number(j.cost_usd) > 0 && Number(j.done) > 0)
+  if (past) return Number(past.cost_usd) / Number(past.done)
+  const cur = job.value
+  return cur?.workflow === workflow.value && cur?.cost_usd > 0 && cur?.done > 0 ? cur.cost_usd / cur.done : 0
+})
+const costEstimate = computed(() => {
+  const n = plannedRuns.value
+  const counts = tr('lab.cost_estimate_counts', '{scenarios} kịch bản × {repeats} lần = {n} lượt chạy + {n} lượt chấm.', {
+    scenarios: filledScenarios.value, repeats: repeats.value, n
+  })
+  if (!avgRunCost.value) return counts
+  return `${counts} ${tr('lab.cost_estimate_money', 'Ước tính ~{total} (trung bình {avg}/lượt ở lần kiểm định trước).', {
+    total: money(avgRunCost.value * n), avg: money(avgRunCost.value)
+  })}`
+})
 const scenarioLabel = (index) => submitted.value[index]?.name?.trim() || t('lab.scenario_name', { n: index + 1 })
 
 // Summary strip + health panel
@@ -729,7 +777,7 @@ function loadScenarios(name) {
 }
 
 // The latest run per workflow is remembered for this tab, so a reload shows its results again
-// (the run itself lives in the server's memory until the server restarts).
+// (the server also stores finished jobs; the history list reopens older ones).
 const jobKey = (name) => `agentdev.lab.job.${name}`
 const LAST_WORKFLOW_KEY = 'agentdev.lab.workflow'
 function rememberJob(name, id, list) {
@@ -751,6 +799,7 @@ async function openPastJob(id) {
     submitted.value = (data.scenarios || []).map((s) => ({ name: s.name || '', prompt: s.prompt || '', criteria: s.criteria || '' }))
     lastJobSnapshot = JSON.stringify(data)
     pollErrors = 0
+    reconnecting.value = false
     job.value = data
     rememberJob(name, data.id, submitted.value)
     if (isRunning.value) schedulePoll(1500)
@@ -758,7 +807,7 @@ async function openPastJob(id) {
     resultsEl.value?.focus?.()
     resultsEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
   } catch (error) {
-    toast.error(error?.message || tr('lab.history.open_failed', 'Không mở được lần kiểm định này'))
+    toast.error(errText(error) || tr('lab.history.open_failed', 'Không mở được lần kiểm định này'))
   }
 }
 async function restoreJob(name) {
@@ -777,8 +826,9 @@ async function restoreJob(name) {
     pollErrors = 0
     job.value = data
     if (isRunning.value) schedulePoll(1500)
-  } catch {
-    // Gone (server restarted): forget it
+  } catch (error) {
+    // Only a job the server says is gone is forgotten; a network hiccup keeps it for the next visit.
+    if (error?.status !== 404) return
     try {
       sessionStorage.removeItem(jobKey(name))
     } catch {
@@ -793,6 +843,8 @@ watch(workflow, (name, previous) => {
   report.value = null
   checkError.value = ''
   stopPolling()
+  reconnecting.value = false
+  historyJobs.value = []
   job.value = null
   submitted.value = []
   if (name) {
@@ -918,13 +970,17 @@ function schedulePoll(delay) {
   if (!unmounted) pollTimer = setTimeout(poll, delay)
 }
 
-// The run only lives in the server's memory: after a restart it is gone and polling would never end.
+// The server answered 404 for this job: it no longer knows it, so polling would never end.
+// (Network errors and 5xx never land here: poll() keeps retrying with backoff.)
 function markJobLost() {
   const message = tr('lab.job_lost', 'Không còn theo dõi được lượt chạy này (máy chủ có thể đã khởi động lại). Hãy chạy lại.')
+  reconnecting.value = false
   job.value = { ...job.value, status: 'error', error: message }
   evalError.value = message
 }
 
+// Each poll reads the whole job summary. The server caches the costly part (diagnosis, fix brief,
+// budgets) per version of the results, so polling every 2 s does not recompute it.
 async function poll() {
   pollTimer = null
   if (!job.value || unmounted) return
@@ -939,15 +995,21 @@ async function poll() {
       job.value = data
     }
     pollErrors = 0
+    reconnecting.value = false
     evalError.value = ''
   } catch (error) {
     if (unmounted || job.value?.id !== id) return
-    pollErrors += 1
-    if (error.status === 404 || pollErrors >= MAX_POLL_ERRORS) {
+    if (error.status === 404) {
       markJobLost()
       return
     }
-    evalError.value = error.message
+    // The server may still be running the job: show "reconnecting" and retry, waiting longer each time.
+    // Retry whatever the last known status was, or the banner would stay up with nothing retrying;
+    // it stops on success, on a 404, on unmount or when another workflow/job is opened.
+    pollErrors += 1
+    reconnecting.value = true
+    schedulePoll(Math.min(2000 * 2 ** pollErrors, POLL_BACKOFF_MAX_MS))
+    return
   }
   // Background tab: nobody is watching, poll less often.
   if (isRunning.value) schedulePoll(document.hidden ? 6000 : 2000)
@@ -961,12 +1023,21 @@ async function startEval() {
     .filter((s) => s.prompt.trim())
     .map(({ name, prompt, criteria }) => ({ name, prompt, criteria }))
   starting.value = true
+  // The workflow the user pressed Run for: they may switch to another one while the request is in flight.
+  const name = workflow.value
   try {
-    const name = workflow.value
     const started = await labEvaluate({ yamlFile: name, scenarios: list, repeats: repeats.value })
     if (unmounted) return
+    if (workflow.value !== name) {
+      // Started for the previous workflow: keep it there (restored when the user goes back), not here.
+      rememberJob(name, started.id, list)
+      toast.info(tr('lab.started_other_workflow', 'Đã bắt đầu kiểm định quy trình {name}. Mở lại quy trình đó để xem tiến độ.', { name: name.replace(/\.ya?ml$/, '') }))
+      return
+    }
     submitted.value = list
     pollErrors = 0
+    reconnecting.value = false
+    lastJobSnapshot = JSON.stringify(started)
     job.value = started
     rememberJob(name, started.id, list)
     schedulePoll(1500)
@@ -978,7 +1049,7 @@ async function startEval() {
       el.focus({ preventScroll: true })
     })
   } catch (error) {
-    evalError.value = error.message
+    if (workflow.value === name) evalError.value = errText(error)
   } finally {
     starting.value = false
   }
@@ -989,16 +1060,20 @@ async function resumeEval() {
   if (!job.value || resuming.value || isRunning.value) return
   resuming.value = true
   evalError.value = ''
+  const id = job.value.id
   try {
-    const resumed = await labResume(job.value.id)
-    if (unmounted) return
+    const resumed = await labResume(id)
+    if (unmounted || job.value?.id !== id) return
     lastJobSnapshot = JSON.stringify(resumed)
     pollErrors = 0
+    reconnecting.value = false
     job.value = resumed
     schedulePoll(1500)
   } catch (error) {
-    evalError.value = error.message
-    job.value = { ...job.value, resumable: false, error: error.message, interrupted: false }
+    if (job.value?.id !== id) return
+    const message = errText(error)
+    evalError.value = message
+    job.value = { ...job.value, resumable: false, error: message, interrupted: false }
   } finally {
     resuming.value = false
   }
@@ -1014,13 +1089,15 @@ async function stopEval() {
     job.value = cancelled
   } catch (error) {
     if (error.status === 404) markJobLost()
-    else evalError.value = error.message
+    else evalError.value = errText(error)
   } finally {
     stopping.value = false
   }
 }
 
-onMounted(async () => {
+async function loadWorkflows() {
+  loadingWorkflows.value = true
+  listError.value = ''
   try {
     // Only the names are shown: one request instead of one per workflow
     workflows.value = (await fetchWorkflowNames()).map((name) => ({ name }))
@@ -1030,6 +1107,10 @@ onMounted(async () => {
   } finally {
     loadingWorkflows.value = false
   }
+}
+
+onMounted(async () => {
+  await loadWorkflows()
   let preset = route.query.workflow
   if (!preset) {
     try {
@@ -1082,7 +1163,9 @@ onBeforeUnmount(() => {
 .results:focus { outline: none; }
 .results:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .intro-empty { margin-bottom: 24px; }
-.intro-error { margin: 0 0 16px; }
+.intro-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px; }
+.intro-error .error { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.intro-error-detail { font-size: 12.5px; opacity: 0.85; }
 .stab-meta { margin-left: auto; font-size: 12px; color: var(--fg-muted); text-align: right; }
 .judge-tag { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--tint-2); color: var(--fg-muted); }
 .judge-tag.basic { color: var(--warn); }
@@ -1191,7 +1274,7 @@ onBeforeUnmount(() => {
 .skip-tag { flex: none; padding: 2px 9px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 .scenario-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .sample-menu { position: relative; }
-.sample-menu-list { position: absolute; z-index: 20; left: 0; bottom: calc(100% + 6px); min-width: 260px; max-width: calc(100vw - 32px); margin: 0; padding: 4px; list-style: none; background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgb(var(--shade) / 0.22); }
+.sample-menu-list { position: absolute; z-index: var(--z-dropdown); left: 0; bottom: calc(100% + 6px); min-width: 260px; max-width: calc(100vw - 32px); margin: 0; padding: 4px; list-style: none; background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgb(var(--shade) / 0.22); }
 .sample-menu-item { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
 .sample-menu-item { min-height: 36px; }
 .sample-menu-item:hover, .sample-menu-item:focus-visible { background: var(--tint-2); }
@@ -1209,6 +1292,8 @@ onBeforeUnmount(() => {
 }
 .run-note { display: flex; gap: 8px; align-items: flex-start; flex: 1; min-width: 220px; margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--fg-muted); }
 .run-note svg { flex: none; margin-top: 2px; }
+.cost-estimate { display: block; margin-top: 2px; font-variant-numeric: tabular-nums; color: var(--fg); }
+.reconnecting { font-size: 12px; }
 .run-hint { margin: 16px 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--fg-muted); }
 .run-hint + .run-bar { margin-top: 10px; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -1284,6 +1369,7 @@ onBeforeUnmount(() => {
 .run.passed { --tone: var(--success); }
 .run.failed, .run.error { --tone: var(--danger); }
 .run.running { --tone: var(--accent); }
+.run.unjudged { --tone: var(--warn); }
 .run summary { display: flex; gap: 10px; align-items: center; cursor: pointer; font-size: 13px; padding: 11px 14px; list-style: none; transition: background-color 0.15s ease; }
 .run summary:hover { background: var(--tint); }
 .run summary::-webkit-details-marker { display: none; }

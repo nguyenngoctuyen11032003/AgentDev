@@ -1,7 +1,9 @@
 <template>
   <aside
+    ref="panelRef"
     class="assistant-panel"
-    :style="{ width: `${width}px` }"
+    :class="{ overlay: isOverlay }"
+    :style="{ width: `${shownWidth}px` }"
     role="complementary"
     :aria-label="$t('workflow_assistant.title')"
     @keydown.esc="onEscape"
@@ -14,10 +16,10 @@
       :aria-label="$t('workflow_assistant.resize')"
       :aria-valuemin="MIN_WIDTH"
       :aria-valuemax="MAX_WIDTH"
-      :aria-valuenow="width"
+      :aria-valuenow="shownWidth"
       @pointerdown="startResize"
-      @keydown.left.prevent="setWidth(width + 20)"
-      @keydown.right.prevent="setWidth(width - 20)"
+      @keydown.left.prevent="setWidth(shownWidth + 20)"
+      @keydown.right.prevent="setWidth(shownWidth - 20)"
     ></div>
 
     <header class="panel-head">
@@ -270,8 +272,45 @@ const VENDOR_FALLBACK_LABELS = { anthropic: 'Claude', openai: 'Codex', gemini: '
 // ---------------------------------------------------------------- width (drag the left edge)
 const MIN_WIDTH = 340
 const MAX_WIDTH = 720
+// Docked next to the canvas, the panel takes at most this share of the workbench and leaves the canvas
+// at least MIN_CANVAS px; below OVERLAY_BELOW px of window width it floats over the canvas instead.
+const MAX_SHARE = 0.45
+const MIN_CANVAS = 420
+const OVERLAY_BELOW = 1200
 const WIDTH_KEY = 'agentdev:assistant-width'
 const clampWidth = (value) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(Number(value) || 420)))
+const panelRef = ref(null)
+const overlayQuery = typeof window !== 'undefined' && window.matchMedia
+  ? window.matchMedia(`(max-width: ${OVERLAY_BELOW - 1}px)`)
+  : null
+const isOverlay = ref(!!overlayQuery?.matches)
+// Width of the workbench row and of the fixed-width columns beside the canvas (e.g. a docked sidebar)
+const containerWidth = ref(0)
+const fixedSiblingsWidth = ref(0)
+const measureContainer = () => {
+  const panel = panelRef.value
+  const parent = panel?.parentElement
+  if (!parent) return
+  containerWidth.value = parent.clientWidth
+  let fixed = 0
+  for (const child of parent.children) {
+    if (child === panel) continue
+    const style = getComputedStyle(child)
+    // The canvas is the column that grows; absolute/fixed layers (overlay sidebar, toggles) take no room
+    if (style.position === 'absolute' || style.position === 'fixed' || style.display === 'none') continue
+    if (Number.parseFloat(style.flexGrow) > 0) continue
+    fixed += child.offsetWidth
+  }
+  fixedSiblingsWidth.value = fixed
+}
+// The widest the panel may be right now: re-computed on every resize, the stored preference is kept
+const maxWidth = computed(() => {
+  const container = containerWidth.value
+  if (!container) return MAX_WIDTH
+  if (isOverlay.value) return Math.max(Math.min(MIN_WIDTH, container), Math.min(MAX_WIDTH, container))
+  const docked = Math.min(MAX_WIDTH, Math.floor(container * MAX_SHARE), container - fixedSiblingsWidth.value - MIN_CANVAS)
+  return Math.max(MIN_WIDTH, docked)
+})
 const readWidth = () => {
   try {
     return clampWidth(localStorage.getItem(WIDTH_KEY) || 420)
@@ -280,8 +319,9 @@ const readWidth = () => {
   }
 }
 const width = ref(readWidth())
+const shownWidth = computed(() => Math.min(width.value, maxWidth.value))
 const setWidth = (value) => {
-  width.value = clampWidth(value)
+  width.value = clampWidth(Math.min(value, maxWidth.value))
   try {
     localStorage.setItem(WIDTH_KEY, String(width.value))
   } catch {
@@ -291,7 +331,7 @@ const setWidth = (value) => {
 let resizeStart = null
 const onResizeMove = (event) => {
   if (!resizeStart) return
-  width.value = clampWidth(resizeStart.width + (resizeStart.x - event.clientX))
+  width.value = clampWidth(Math.min(resizeStart.width + (resizeStart.x - event.clientX), maxWidth.value))
 }
 const stopResize = () => {
   if (!resizeStart) return
@@ -302,7 +342,7 @@ const stopResize = () => {
   setWidth(width.value)
 }
 const startResize = (event) => {
-  resizeStart = { x: event.clientX, width: width.value }
+  resizeStart = { x: event.clientX, width: shownWidth.value }
   document.body.style.userSelect = 'none'
   window.addEventListener('pointermove', onResizeMove)
   window.addEventListener('pointerup', stopResize)
@@ -552,7 +592,19 @@ const scrollToEnd = () =>
   })
 watch(() => [thread.value, thread.value.messages.length, thread.value.status], scrollToEnd)
 
+let containerObserver = null
+const onOverlayChange = (event) => {
+  isOverlay.value = event.matches
+  measureContainer()
+}
 onMounted(async () => {
+  measureContainer()
+  if (typeof ResizeObserver !== 'undefined' && panelRef.value?.parentElement) {
+    containerObserver = new ResizeObserver(measureContainer)
+    containerObserver.observe(panelRef.value.parentElement)
+  }
+  window.addEventListener('resize', measureContainer)
+  overlayQuery?.addEventListener('change', onOverlayChange)
   focusInput()
   scrollToEnd()
   await refreshProviders()
@@ -562,6 +614,9 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearInterval(tick)
   stopResize()
+  containerObserver?.disconnect()
+  window.removeEventListener('resize', measureContainer)
+  overlayQuery?.removeEventListener('change', onOverlayChange)
 })
 </script>
 
@@ -577,7 +632,7 @@ onBeforeUnmount(() => {
   background: var(--bg-deep);
   color: var(--text-1);
   font-family: inherit;
-  z-index: 6;
+  z-index: calc(var(--z-raised) + 1); /* above the workbench assistant toggle */
 }
 
 .resize-handle {
@@ -1006,14 +1061,25 @@ onBeforeUnmount(() => {
   border: 0;
 }
 
+/* Below 1200px the canvas is too narrow to share: the panel floats over its right side
+   (the close button in the header stays in reach) */
+.assistant-panel.overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  max-width: 100%;
+  z-index: var(--z-dropdown);
+  box-shadow: -12px 0 32px rgb(0 0 0 / 0.28);
+}
+
 /* Narrow screens: the panel covers the whole workbench */
 @media (max-width: 899px) {
-  .assistant-panel {
-    position: absolute;
+  .assistant-panel.overlay {
     inset: 0;
     width: 100% !important;
     border-left: 0;
-    z-index: 20;
+    box-shadow: none;
   }
 
   .resize-handle {

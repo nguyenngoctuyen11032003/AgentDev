@@ -925,8 +925,14 @@ const closeDropdown = () => {
   window.removeEventListener('mousedown', handleOutsideClick)
 }
 
-const closeOnScroll = () => {
-  if (showDropdown.value) closeDropdown()
+// The page or the form scrolled under the open list: close it (it is positioned once, on open).
+// Scrolling the list itself (wheel, or an option scrolled into view) must keep it open, else the
+// click that follows lands on whatever was below it and the choice is lost.
+const closeOnScroll = (event) => {
+  if (!showDropdown.value) return
+  const target = event?.target
+  if (target instanceof Element && target.closest(`#${listboxId}`)) return
+  closeDropdown()
 }
 
 const handleOutsideClick = (e) => {
