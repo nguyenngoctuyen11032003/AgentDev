@@ -62,6 +62,10 @@ class EventType(str, Enum):
     NODE_START = "NODE_START"
     NODE_END = "NODE_END"
     EDGE_PROCESS = "EDGE_PROCESS"
+    # An edge actually fired (condition met and trigger on): details {"from", "to"}.
+    HANDOFF = "HANDOFF"
+    # An edge condition raised; the edge did not fire (fail-closed): details {"from", "to", "error", ...}.
+    EDGE_CONDITION_ERROR = "EDGE_CONDITION_ERROR"
     MODEL_CALL = "MODEL_CALL"
     TOOL_CALL = "TOOL_CALL"
     AGENT_CALL = "AGENT_CALL"

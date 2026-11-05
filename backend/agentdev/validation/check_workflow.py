@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from agentdev.validation import check_yaml
 from agentdev.utils.io_utils import read_yaml
+from agentdev.utils.function_manager import is_true_function_name
 
 
 def _node_ids(graph: Dict[str, Any]) -> List[str]:
@@ -14,6 +15,49 @@ def _node_ids(graph: Dict[str, Any]) -> List[str]:
         if isinstance(nid, str):
             ids.append(nid)
     return ids
+
+
+def is_always_true_condition(condition: Any) -> bool:
+    """True when an edge condition always passes, whatever spelling it uses: missing, ``true``/``"true"``, or
+    the canvas default ``{type: function, config: {name: "true"}}`` (a function condition without a name
+    also defaults to ``true``). Mirrored by ``isAlwaysTrueCondition`` in the workflow editor."""
+    if condition is None or condition is True:
+        return True
+    if isinstance(condition, str):
+        return is_true_function_name(condition)
+    if isinstance(condition, dict) and condition.get("type", "function") == "function":
+        config = condition.get("config")
+        if config is None:
+            return True
+        if isinstance(config, dict):
+            name = config.get("name")
+            return name is None or is_true_function_name(name)
+    return False
+
+
+def _condition_function_name(condition: Any) -> str | None:
+    """The function a non-trivial function condition calls, or None (keyword/regex/always-true conditions)."""
+    if is_always_true_condition(condition):
+        return None
+    if isinstance(condition, str):
+        return condition.strip() or None
+    if isinstance(condition, dict) and condition.get("type", "function") == "function":
+        config = condition.get("config")
+        name = config.get("name") if isinstance(config, dict) else None
+        return name.strip() if isinstance(name, str) and name.strip() else None
+    return None
+
+
+def _edge_function_exists(name: str, functions_dir: Any = None) -> bool:
+    """Whether an edge-condition function is registered. Uses the shared registry the runtime uses, which re-scans
+    the directory on a miss when files changed, so a function added after the first lint is found without a restart.
+    Unknown (functions dir unreadable) counts as present so the lint never blocks a workflow on an environment problem."""
+    try:
+        from agentdev.utils.function_manager import EDGE_FUNCTION_DIR, get_function_manager
+
+        return get_function_manager(functions_dir or EDGE_FUNCTION_DIR).get_function(name) is not None
+    except Exception:
+        return True
 
 
 def _edge_list(graph: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -91,11 +135,19 @@ def _analyze_graph(graph: Dict[str, Any], base_path: str, errors: List[str]) -> 
     # decision (e.g. the "revise" branch of a gate), so such a node may only have unconditional outgoing edges.
     soft = {n.get("id") for n in graph.get("nodes", []) or [] if isinstance(n, dict) and n.get("continue_on_error")}
     for e in _edge_list(graph):
-        cond = e.get("condition", "true")
-        if e.get("from") in soft and cond not in (None, "true", True):
+        if e.get("from") in soft and not is_always_true_condition(e.get("condition")):
             errors.append(
                 f"{base_path}: node '{e.get('from')}' has continue_on_error, so its edge to '{e.get('to')}' cannot have "
                 "a condition (a failure note would be read as a decision)"
+            )
+
+    # A condition naming a function that doesn't exist never fires at runtime (fail-closed), which silently cuts the
+    # branch off: flag it here so a typo is caught before the run.
+    for e in _edge_list(graph):
+        name = _condition_function_name(e.get("condition"))
+        if name and not _edge_function_exists(name):
+            errors.append(
+                f"{base_path}: edge '{e.get('from')}' -> '{e.get('to')}' uses unknown condition function '{name}'"
             )
 
     # Recurse into subgraphs

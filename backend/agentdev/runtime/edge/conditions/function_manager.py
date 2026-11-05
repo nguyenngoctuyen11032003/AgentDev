@@ -6,7 +6,8 @@ from agentdev.entity.configs.edge.edge_condition import FunctionEdgeConditionCon
 from agentdev.utils.structured_logger import get_server_logger
 from .base import ConditionFactoryContext
 from .base import EdgeConditionManager
-from agentdev.utils.function_manager import FunctionManager
+from agentdev.utils.function_manager import FunctionManager, is_true_function_name
+from agentdev.utils.human_prompt import AUTO_SKIP_PAID
 from ...node.executor import ExecutionContext
 
 
@@ -19,21 +20,20 @@ class FunctionEdgeConditionManager(EdgeConditionManager[FunctionEdgeConditionCon
         self._evaluator = self._build_evaluator()
 
     def _build_evaluator(self) -> Callable[[str], bool]:
-        if self._name == "true":
+        if is_true_function_name(self._name):
             return lambda _: True
 
         function_obj = self._resolve_function(self._name, self.ctx.function_manager)
         if function_obj is None:
             logger = get_server_logger()
-            logger.warning(f"Edge condition function '{self._name}' not found; defaulting to true")
+            logger.warning(f"Edge condition function '{self._name}' not found; the edge will not fire")
             self.metadata = {"function": self._name, "missing": True}
 
             def missing(_: str) -> bool:
-                if self.ctx.log_manager:
-                    self.ctx.log_manager.warning(
-                        f"Condition function '{self._name}' not found, defaulting to true"
-                    )
-                return True
+                # Fail-closed: raising routes through the shared error path, which
+                # skips the edge and emits EDGE_CONDITION_ERROR. A typo must never
+                # open a (possibly paid) branch.
+                raise LookupError(f"Condition function '{self._name}' not found")
 
             return missing
 
@@ -49,8 +49,13 @@ class FunctionEdgeConditionManager(EdgeConditionManager[FunctionEdgeConditionCon
         from_node,
         log_manager,
     ) -> None:
+        evaluator = self._evaluator
+        if is_true_function_name(self._name) and _is_paid_gate(from_node):
+            # An unconditional edge cannot tell approval from refusal: when a paid gate was skipped
+            # automatically (Lab), the refusal must not flow into the next (paid) step. The run stops there.
+            evaluator = lambda data: AUTO_SKIP_PAID not in (data or "")  # noqa: E731
         self._process_with_condition(
-            self._evaluator,
+            evaluator,
             label=self.label,
             metadata=self.metadata,
             edge_link=edge_link,
@@ -65,3 +70,15 @@ class FunctionEdgeConditionManager(EdgeConditionManager[FunctionEdgeConditionCon
         if not function_manager:
             return None
         return function_manager.get_function(name)
+
+
+def _is_paid_gate(node) -> bool:
+    if getattr(node, "node_type", None) != "human":
+        return False
+    try:
+        from agentdev.entity.configs.node.human import HumanConfig
+
+        cfg = node.as_config(HumanConfig)
+    except Exception:
+        return False
+    return bool(getattr(cfg, "paid", False))
