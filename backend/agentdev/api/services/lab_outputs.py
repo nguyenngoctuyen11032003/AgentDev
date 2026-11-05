@@ -211,11 +211,93 @@ def resolve_run_dir(job_id: str, run: RunRef) -> Path | None:
     no usable folder (it failed before starting, or the path is outside the warehouse). The folder may no
     longer exist on disk (deleted): callers check ``is_dir()``.
     """
-    results = _job_results(_get_job(job_id))
+    job = _get_job(job_id)
+    results = _job_results(job)
     found = _find_run(results, run) if valid_run_ref(run) else None
     if found is None:
         raise _run_not_found(job_id, run)
-    return checked_run_dir(found[1].get("output_dir"))
+    index, result = found
+    recorded = checked_run_dir(result.get("output_dir"))
+    if recorded is not None:
+        return recorded
+    return inferred_run_dirs(job).get(index)
+
+
+# Lab graph folders are named ``lab_<workflow>_<YYYYmmddHHMMSS>_<6 hex>_<YYYYmmddHHMMSS>`` (session, then turn).
+_SESSION_NAME = re.compile(r"^lab_(?P<stem>.+)_(?P<start>\d{14})_[0-9a-f]{6}_\d{14}$")
+
+
+def inferred_run_dirs(job: Any, referenced: set[str] | None = None) -> dict[int, Path]:
+    """Folders of failed runs that recorded none (older versions dropped ``output_dir`` on an error or timeout).
+
+    The job's unreferenced sessions of the same workflow that started inside its time window are matched, in
+    start order, to its failed runs without a folder (runs start in the same order). Only an exact count match
+    is trusted: when another job ran the same workflow at the same time the pairing is ambiguous, so nothing is
+    inferred. Each folder returned is the session's last turn.
+    """
+    if is_running(job):
+        return {}
+    data = job.to_dict() or {}
+    stem = Path(str(data.get("workflow") or "")).stem
+    started, finished = data.get("started_at"), data.get("finished_at")
+    if not stem or not started or not finished:
+        return {}
+    results = _job_results(job)
+    missing = [i for i, r in enumerate(results)
+               if r.get("status") == "error" and checked_run_dir(r.get("output_dir")) is None]
+    if not missing:
+        return {}
+    if referenced is None:
+        referenced = _recorded_sessions()
+    low = datetime.fromtimestamp(float(started) - 5).strftime("%Y%m%d%H%M%S")
+    high = datetime.fromtimestamp(float(finished)).strftime("%Y%m%d%H%M%S")
+    sessions: dict[str, list[Path]] = {}
+    for folder in _lab_dirs():
+        match = _SESSION_NAME.match(folder.name)
+        if not match or match["stem"] != stem or not low <= match["start"] <= high:
+            continue
+        key = session_key(folder.name)
+        if key not in referenced:
+            sessions.setdefault(key, []).append(folder)
+    if len(sessions) != len(missing):
+        return {}
+    ordered = sorted(sessions.values(), key=lambda turns: min(t.name for t in turns))
+    return {index: max(turns, key=lambda t: t.name) for index, turns in zip(missing, ordered)}
+
+
+def job_products(job_id: str) -> dict[str, Any]:
+    """One line per run for the Lab's product overview: what it made and whether it can be opened or run."""
+    job = _get_job(job_id)
+    results = _job_results(job)
+    inferred = inferred_run_dirs(job)
+    manager = _preview_manager()
+    runs: list[dict[str, Any]] = []
+    for index, result in enumerate(results):
+        run_dir = checked_run_dir(result.get("output_dir")) or inferred.get(index)
+        key = run_key(result, index)
+        entry: dict[str, Any] = {"run": index, "run_id": key, "scenario": result.get("scenario", 0), "repeat": result.get("repeat", 1),
+                                 "status": result.get("status", ""), "available": False, "inferred": index in inferred,
+                                 "file_count": 0, "total_bytes": 0, "kinds": {}, "project": _no_project(),
+                                 "preview": None}
+        if run_dir is not None and run_dir.is_dir():
+            root = product_dir(run_dir)
+            is_graph_dir = root == run_dir
+            kinds: dict[str, int] = {}
+            for rel, size in _walk(root):
+                if _is_internal(rel, is_graph_dir):
+                    continue
+                entry["file_count"] += 1
+                entry["total_bytes"] += size
+                kind = file_kind(rel.rsplit("/", 1)[-1])
+                kinds[kind] = kinds.get(kind, 0) + 1
+            entry.update(available=entry["file_count"] > 0, kinds=kinds, project=detect_project(root))
+            if manager is not None:
+                with contextlib.suppress(Exception):
+                    status = manager.status(job_id, key)
+                    if status.get("status") in ("installing", "starting", "running"):
+                        entry["preview"] = {k: status.get(k) for k in ("status", "url", "frameable")}
+        runs.append(entry)
+    return {"job_id": job_id, "runs": runs}
 
 
 def product_dir(run_dir: Path) -> Path:
@@ -291,24 +373,70 @@ def _walk(root: Path) -> Iterable[tuple[str, int]]:
         pending.extend(reversed(subdirs))
 
 
-def list_files(job_id: str, run_index: RunRef) -> dict[str, Any]:
-    run_dir = resolve_run_dir(job_id, run_index)
-    if run_dir is None or not run_dir.is_dir():
-        return {"available": False, "root": str(run_dir) if run_dir else "", "total_bytes": 0, "file_count": 0,
-                "truncated": False, "files": [], "project": _no_project()}
-    root = product_dir(run_dir)
-    is_graph_dir = root == run_dir
+def empty_listing(root: str = "") -> dict[str, Any]:
+    """The listing of a product folder that does not exist (deleted, or nothing written yet)."""
+    return {"available": False, "root": root, "total_bytes": 0, "file_count": 0, "truncated": False, "files": [],
+            "project": _no_project()}
+
+
+def list_dir(root: Path, *, is_graph_dir: bool = False, max_scan: int | None = None,
+             hide_top: frozenset[str] = frozenset(), project: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Every product file under ``root`` (at most ``MAX_FILES`` listed) with totals and the project type.
+
+    ``max_scan`` stops counting after that many files (a large opened project); ``scan_capped`` then says the
+    totals are a lower bound. ``hide_top`` names top-level folders that are not product (inputs). ``project``
+    replaces the detection at ``root`` when the caller found the app elsewhere.
+    """
     files: list[dict[str, Any]] = []
     total = count = 0
+    capped = False
     for rel, size in _walk(root):
-        if _is_internal(rel, is_graph_dir):
+        if _is_internal(rel, is_graph_dir) or (hide_top and rel.split("/", 1)[0] in hide_top):
             continue
+        if max_scan is not None and count >= max_scan:
+            capped = True
+            break
         total += size
         count += 1
         if len(files) < MAX_FILES:
             files.append({"path": rel, "size": size, "kind": file_kind(rel.rsplit("/", 1)[-1])})
-    return {"available": True, "root": str(root), "total_bytes": total, "file_count": count,
-            "truncated": count > len(files), "files": files, "project": detect_project(root)}
+    listing = {"available": True, "root": str(root), "total_bytes": total, "file_count": count,
+               "truncated": count > len(files) or capped, "files": files,
+               "project": project if project is not None else detect_project(root)}
+    if capped:
+        listing["scan_capped"] = True
+    return listing
+
+
+def summarize_dir(root: Path, *, is_graph_dir: bool = False, max_scan: int | None = None,
+                  hide_top: frozenset[str] = frozenset(), project: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Counts of what ``root`` holds (no file list): for a one-line product summary. Options as ``list_dir``."""
+    count = total = 0
+    kinds: dict[str, int] = {}
+    capped = False
+    for rel, size in _walk(root):
+        if _is_internal(rel, is_graph_dir) or (hide_top and rel.split("/", 1)[0] in hide_top):
+            continue
+        if max_scan is not None and count >= max_scan:
+            capped = True
+            break
+        count += 1
+        total += size
+        kind = file_kind(rel.rsplit("/", 1)[-1])
+        kinds[kind] = kinds.get(kind, 0) + 1
+    return {"available": count > 0, "file_count": count, "total_bytes": total, "kinds": kinds,
+            "project": project if project is not None else detect_project(root), "scan_capped": capped}
+
+
+def list_files(job_id: str, run_index: RunRef) -> dict[str, Any]:
+    run_dir = resolve_run_dir(job_id, run_index)
+    if run_dir is None or not run_dir.is_dir():
+        return empty_listing(str(run_dir) if run_dir else "")
+    root = product_dir(run_dir)
+    listing = list_dir(root, is_graph_dir=root == run_dir)
+    found = _find_run(_job_results(_get_job(job_id)), run_index)
+    listing["inferred"] = found is None or not checked_run_dir(found[1].get("output_dir"))
+    return listing
 
 
 # ----------------------------------------------------------------------------------- project type
@@ -460,24 +588,34 @@ def response_headers(path: Path) -> dict[str, str]:
     return headers
 
 
-def run_file(job_id: str, run_index: RunRef, relative_path: str) -> Path:
-    """The file to send for the viewer; text over 2 MB is refused (the viewer would freeze on it)."""
-    target = resolve_product_file(_existing_product(job_id, run_index), relative_path)
+def viewer_file(root: Path, relative_path: str) -> Path:
+    """The file of ``root`` to send for the viewer; text over 2 MB is refused (the viewer would freeze on it)."""
+    target = resolve_product_file(root, relative_path)
     if file_kind(target.name) in TEXT_KINDS and target.stat().st_size > MAX_TEXT_BYTES:
         raise LabOutputsError(413, "This text file is too large to show (over 2 MB); open it on the machine",
                               "lab_file_too_large", {"max_bytes": MAX_TEXT_BYTES})
     return target
 
 
-def site_file(job_id: str, run_index: RunRef, relative_path: str) -> Path:
-    """A file of the product served as a static site: a folder (or the root) gives its index.html."""
-    target = resolve_product_file(_existing_product(job_id, run_index), relative_path, allow_dir=True)
+def site_file_in(root: Path, relative_path: str) -> Path:
+    """A file of ``root`` served as a static site: a folder (or the root) gives its index.html."""
+    target = resolve_product_file(root, relative_path, allow_dir=True)
     if target.is_dir():
         index = target / "index.html"
         if not index.is_file():
             raise LabOutputsError(404, "No index.html in this folder", "lab_site_no_index")
         target = index
     return target
+
+
+def run_file(job_id: str, run_index: RunRef, relative_path: str) -> Path:
+    """The file to send for the viewer; text over 2 MB is refused (the viewer would freeze on it)."""
+    return viewer_file(_existing_product(job_id, run_index), relative_path)
+
+
+def site_file(job_id: str, run_index: RunRef, relative_path: str) -> Path:
+    """A file of the product served as a static site: a folder (or the root) gives its index.html."""
+    return site_file_in(_existing_product(job_id, run_index), relative_path)
 
 
 def open_target(job_id: str, run_index: RunRef, relative_path: str) -> Path:
@@ -636,6 +774,17 @@ def _all_jobs() -> list[Any]:
     return list(jobs.values())
 
 
+def _recorded_sessions() -> set[str]:
+    """Sessions some job recorded as a run's folder (not counting inferred ones)."""
+    recorded: set[str] = set()
+    for job in _all_jobs():
+        for result in _job_results(job):
+            run_dir = checked_run_dir(result.get("output_dir"))
+            if run_dir is not None:
+                recorded.add(session_key(run_dir.name))
+    return recorded
+
+
 def _references() -> tuple[set[str], set[str], float | None]:
     """(sessions referenced by any job, sessions of running jobs, start time of the oldest running job)."""
     referenced: set[str] = set()
@@ -654,6 +803,10 @@ def _references() -> tuple[set[str], set[str], float | None]:
             referenced.add(key)
             if live:
                 running.add(key)
+    recorded = set(referenced)
+    for job in _all_jobs():
+        with contextlib.suppress(Exception):
+            referenced.update(session_key(d.name) for d in inferred_run_dirs(job, recorded).values())
     return referenced, running, oldest_running
 
 

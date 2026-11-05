@@ -416,6 +416,9 @@ class WorkflowSessionStore:
             session.message_buffer = list(draft.message_buffer)
             session.turns = list(draft.turns)
             session.files_changed = draft.files_changed
+            # The follow-up prompt lists the files earlier turns changed; without this copy that
+            # list was always empty (and the next save wrote it back empty).
+            session.changed_files = dict(draft.changed_files)
             session.checkpoint = draft.checkpoint
             if draft.turns and draft.title and not self._retitle_after_small_talk(draft, session.title):
                 # A follow-up message keeps the conversation's title

@@ -249,6 +249,7 @@ class WorkflowRunService:
     ) -> None:
         session = self.session_store.get_session(session_id)
         cancel_event = session.cancel_event if session else None
+        run_started = time.time()
         try:
             # Parsing the YAML, building the graph and the runtime, and reading attachments are
             # blocking work: keep them off the event loop so other sessions' sockets stay responsive.
@@ -357,6 +358,7 @@ class WorkflowRunService:
             )
         finally:
             self._release(session_id, session)
+            await asyncio.to_thread(_stop_leftover_processes, session_id, run_started)
 
     def _prepare_run(
         self,
@@ -560,12 +562,14 @@ class WorkflowRunService:
         try:
             answer = ""
             exchanges: List[Dict[str, str]] = []
+            notes: List[str] = []
             if executor is not None:
                 try:
                     answer = executor.get_final_output()
                 except Exception as exc:  # history is best effort
                     self.logger.warning("Could not read final output for session %s: %s", session_id, exc)
                 exchanges = self._user_exchanges(executor)
+                notes = self._taken_notes(executor)
             answer = answer if isinstance(answer, str) else ""
             refs: List[Any] = []
             if attachment_ids:
@@ -575,7 +579,7 @@ class WorkflowRunService:
                     )
                 except Exception:  # fall back to plain names
                     refs = list(self._attachment_names(session_id, attachment_ids))
-            turn = make_turn(prompt, answer, refs, exchanges)
+            turn = make_turn(prompt, answer, refs, exchanges, notes=notes)
             turn["status"] = status  # how the run ended: completed / cancelled / error
             if status == "completed" and self._pending_plan(executor) is not None:
                 turn["kind"] = "plan"  # the answer is a plan waiting for the user's approval
@@ -631,6 +635,17 @@ class WorkflowRunService:
         except Exception:  # best effort, like the rest of the turn history
             return []
 
+    @staticmethod
+    def _taken_notes(executor) -> List[str]:
+        """Notes the user wrote mid-run that the lead took in (best effort, like the exchanges)."""
+        try:
+            from agentdev.runtime.node.agent.interject import INBOX_KEY
+
+            inbox = executor._get_execution_context().global_state.get(INBOX_KEY)
+            return inbox.taken_texts() if inbox is not None else []
+        except Exception:  # noqa: BLE001
+            return []
+
     def _resolve_yaml_path(self, yaml_filename: str) -> Path:
         """Validate and resolve YAML paths inside the configured directory."""
 
@@ -639,3 +654,18 @@ class WorkflowRunService:
         if not yaml_path.exists():
             raise ValidationError("YAML file not found", details={"yaml_file": safe_name})
         return yaml_path
+
+
+def _stop_leftover_processes(session_id: str, since: float) -> None:
+    """Kill what the agents started in this session's own folder during the run and left running (dev servers,
+    watchers). Only the session folder in the warehouse: an opened project is the user's, where they may run
+    their own servers. The "Chạy thử" previews are protected."""
+    try:
+        from agentdev.paths import WAREHOUSE_DIR
+        from agentdev.utils.process_sweep import sweep
+
+        folder = Path(WAREHOUSE_DIR) / session_directory_name(session_id)
+        if folder.is_dir():
+            sweep([folder], since)
+    except Exception:  # noqa: BLE001 - housekeeping must not affect the run
+        logging.getLogger(__name__).debug("Leftover process sweep failed", exc_info=True)

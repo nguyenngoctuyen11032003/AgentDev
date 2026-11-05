@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 
+from agentdev.paths import WAREHOUSE_DIR
+from agentdev.utils.workspace_paths import session_directory_name
 from agentdev.api.services.local_projects import open_on_machine, opened_project_folder, resolve_project_file
 from agentdev.api.state import get_websocket_manager
 from agentdev.connections.security import require_local_origin
@@ -146,3 +148,36 @@ async def open_local_file(session_id: str, body: OpenLocalFileRequest):
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Could not open the file: {exc}") from exc
     return {"status": action, "path": str(target)}
+
+
+def _output_location(session_id: str) -> dict:
+    """Where this session's results land: the opened project, else the session's own workspace."""
+    manager = get_websocket_manager()
+    session = manager.session_store.get_session(session_id)
+    root = opened_project_folder(session) if session else None
+    if root is not None:
+        return {"kind": "project", "path": str(root)}
+    try:
+        folder = WAREHOUSE_DIR / session_directory_name(session_id) / "code_workspace"
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"kind": "session", "path": str(folder)}
+
+
+@router.get("/api/sessions/{session_id}/output-location", dependencies=[Depends(require_local_origin)])
+async def get_output_location(session_id: str):
+    """Tell the chat where code, videos and other deliverables are saved for this session."""
+    return _output_location(session_id)
+
+
+@router.post("/api/sessions/{session_id}/output-location/open", dependencies=[Depends(require_local_origin)])
+async def open_output_location(session_id: str):
+    """Show the output folder in the file manager (created first when nothing has been written yet)."""
+    location = _output_location(session_id)
+    target = Path(location["path"])
+    try:
+        await asyncio.to_thread(target.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(open_on_machine, target, reveal=True)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not open the folder: {exc}") from exc
+    return location

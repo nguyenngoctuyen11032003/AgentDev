@@ -699,6 +699,75 @@ export async function browseLocalFolders(path = '') {
   return response.json()
 }
 
+/** Create a new empty folder inside `parent`; resolves to the new folder's listing. */
+export async function createLocalFolder(parent, name) {
+  const response = await fetch(apiUrl('/api/local-folders'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent, name })
+  })
+  if (!response.ok) {
+    throw await responseError('errors.api.local_folders_failed', response)
+  }
+  return response.json()
+}
+
+/** Where this session saves code, videos and other results: its opened project, else its own workspace folder. */
+export async function fetchOutputLocation(sessionId) {
+  const response = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(sessionId)}/output-location`))
+  if (!response.ok) {
+    throw await responseError('errors.api.local_folders_failed', response)
+  }
+  return response.json()
+}
+
+/** Show that output folder in the file manager. */
+export async function openOutputLocation(sessionId) {
+  const response = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(sessionId)}/output-location/open`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}'
+  })
+  if (!response.ok) {
+    throw await responseError('errors.api.local_folders_failed', response)
+  }
+  return response.json()
+}
+
+// --- What a chat session produced (its output folder), browsed and run like a Lab run's product ---
+const sessionOutputsPath = (sessionId) => `/api/sessions/${encodeURIComponent(sessionId)}/outputs`
+const encodeOutputPath = (path) => String(path || '').split('/').map(encodeURIComponent).join('/')
+
+async function sessionOutputsRequest(sessionId, suffix, options = {}) {
+  const response = await fetch(apiUrl(`${sessionOutputsPath(sessionId)}${suffix}`), {
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    ...options
+  })
+  if (!response.ok) throw await responseError('errors.api.local_folders_failed', response)
+  return response.json()
+}
+
+/** -> {available, file_count, total_bytes, kinds, project, location: 'project'|'session', root, preview} */
+export const sessionOutputsSummary = (sessionId) => sessionOutputsRequest(sessionId, '/summary')
+/** -> {available, root, total_bytes, file_count, truncated, files: [{path, size, kind}], project, location} */
+export const sessionOutputsFiles = (sessionId) => sessionOutputsRequest(sessionId, '/files')
+export const sessionOutputsFileUrl = (sessionId, path) =>
+  apiUrl(`${sessionOutputsPath(sessionId)}/file?path=${encodeURIComponent(path)}`)
+export const sessionOutputsSiteUrl = (sessionId, path = '') =>
+  apiUrl(`${sessionOutputsPath(sessionId)}/site/${encodeOutputPath(path)}`)
+export async function sessionOutputsFileText(sessionId, path, { signal } = {}) {
+  const response = await fetch(sessionOutputsFileUrl(sessionId, path), { cache: 'no-store', signal })
+  if (!response.ok) throw await responseError('errors.api.local_folders_failed', response)
+  return response.text()
+}
+export const sessionOutputsOpen = (sessionId, { path = '', reveal = false } = {}) =>
+  sessionOutputsRequest(sessionId, '/open', { method: 'POST', body: JSON.stringify({ path, reveal }) })
+// "Chạy thử": start / poll / stop the session's web app or site (ports 47100-47199, stops itself when idle)
+export const sessionPreviewStart = (sessionId) => sessionOutputsRequest(sessionId, '/preview', { method: 'POST', body: '{}' })
+export const sessionPreviewStatus = (sessionId) => sessionOutputsRequest(sessionId, '/preview')
+export const sessionPreviewStop = (sessionId) => sessionOutputsRequest(sessionId, '/preview', { method: 'DELETE' })
+
 /**
  * Open a folder on this machine in place, like "Open Folder" in VS Code: nothing is
  * uploaded, the agents read and edit the real project.
@@ -825,17 +894,29 @@ export const fetchAssistantProviders = () => assistantRequest('/providers')
 
 // -> {success, reply, quick_replies, proposal, model_used, validation_errors}
 //    or {success: false, error?: code, detail?, message, status?}
-export const sendAssistantMessage = ({ vendor, workflow, messages, pendingYaml, requestId }) =>
+export const sendAssistantMessage = ({ vendor, model, workflow, messages, pendingYaml, requestId }) =>
   assistantRequest('/chat', {
     method: 'POST',
     body: JSON.stringify({
       vendor,
+      model: model || null,
       workflow: workflow || null,
       messages,
       pending_yaml: pendingYaml || null,
       request_id: requestId
     })
   })
+
+// Saved assistant conversations (one per chat; each belongs to a workflow or to "new workflow").
+// -> {success, sessions: [{id, workflow, title, created_at, updated_at, message_count}]}
+export const fetchAssistantSessions = (workflow) =>
+  assistantRequest(`/sessions${workflow ? `?workflow=${encodeURIComponent(workflow)}` : ''}`)
+// -> {success, id, workflow, title, messages, pending_message_id, ...}
+export const fetchAssistantSession = (id) => assistantRequest(`/sessions/${encodeURIComponent(id)}`)
+export const saveAssistantSession = (id, session) =>
+  assistantRequest(`/sessions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(session) })
+export const deleteAssistantSession = (id) =>
+  assistantRequest(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
 // -> {success, cancelled}
 export const cancelAssistantRequest = (requestId) =>
@@ -968,6 +1049,13 @@ const labRunPath = (jobId, run) => `/jobs/${encodeURIComponent(jobId)}/runs/${en
 const encodeRelPath = (path) => String(path || '').split('/').map(encodeURIComponent).join('/')
 
 /** -> {available, root, total_bytes, file_count, truncated, files: [{path, size, kind}], project} */
+// What every run of a job produced (type, file kinds, a running preview) for the product overview
+export const labProducts = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/products`)
+// After an evaluation: offer to delete this workflow's older products (keeps this job and the latest passing one)
+export const labCleanupSuggestion = (workflow, keepJob = '') =>
+  labRequest(`/storage/suggestion?workflow=${encodeURIComponent(workflow)}&keep_job=${encodeURIComponent(keepJob)}`)
+export const labCleanupWorkflow = (workflow, keepJob = '') =>
+  labRequest('/storage/cleanup-workflow', { method: 'POST', body: JSON.stringify({ workflow, keep_job: keepJob }) })
 export const labRunFiles = (jobId, run) => labRequest(`${labRunPath(jobId, run)}/files`)
 
 /** Raw URL of one product file (img/video src, download link, text fetch). */

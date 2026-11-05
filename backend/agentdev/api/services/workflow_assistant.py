@@ -622,6 +622,38 @@ def _trim_history(messages: List[dict]) -> List[dict]:
     return [messages[first_index]] + tail
 
 
+DIGEST_USER_CHARS = 280
+DIGEST_ASSISTANT_CHARS = 160
+DIGEST_MAX_CHARS = 6_000
+
+
+def _one_line(text: str, limit: int) -> str:
+    flat = " ".join((text or "").split())
+    return flat if len(flat) <= limit else flat[: limit - 1].rstrip() + "…"
+
+
+def history_digest(messages: List[dict], kept: List[dict]) -> str:
+    """A short recap of the messages ``_trim_history`` dropped (oldest first), so a long chat keeps the
+    gist of what was asked and agreed without resending every reply. Empty when nothing was dropped."""
+    kept_ids = {id(m) for m in kept}
+    lines: List[str] = []
+    for m in messages:
+        if id(m) in kept_ids:
+            continue
+        if m["role"] == "user":
+            lines.append(f"- User: {_one_line(m['content'], DIGEST_USER_CHARS)}")
+        elif m["content"].strip():
+            lines.append(f"- You: {_one_line(m['content'], DIGEST_ASSISTANT_CHARS)}")
+    if not lines:
+        return ""
+    body = "\n".join(lines)
+    if len(body) > DIGEST_MAX_CHARS:  # keep the most recent part of the recap
+        body = "…\n" + body[-DIGEST_MAX_CHARS:].split("\n", 1)[-1]
+    return ("## Earlier in this chat (older messages, shortened)\n"
+            "These turns are no longer sent in full. Use them for context; the current workflow file "
+            "below is always the source of truth.\n" + body)
+
+
 def _read_workflow(workflow: str) -> str:
     try:
         name = validate_workflow_filename(workflow, require_yaml_extension=True)
@@ -660,7 +692,7 @@ def _log_failed_turn(vendor: str, model: Optional[str], code: str, started: floa
 
 
 def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pending_yaml: Optional[str],
-             request_id: str, call: Optional[ModelCall] = None) -> dict:
+             request_id: str, call: Optional[ModelCall] = None, model: Optional[str] = None) -> dict:
     """One chat turn: ``{reply, quick_replies, proposal, intent, model_used, validation_errors, usage}``;
     raises ``AssistantError``. ``validation_errors`` lists what was still wrong when the repair loop gave
     up (``proposal`` is then None); it is empty otherwise. ``intent`` is what the model said the turn
@@ -669,6 +701,7 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
     cache_read_tokens, duration_ms, calls}`` summed over the turn's model calls (repairs included);
     token counts are None when the provider does not report them.
 
+    ``model`` picks one of the account's models (None: the account default).
     ``call`` replaces the provider (tests); ``model_used`` is then None. Blocking: run it in a worker
     thread. ``cancel(request_id)`` from another thread stops it with code ``cancelled``."""
     if vendor not in VENDOR_LABELS:
@@ -680,6 +713,7 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
             f"The chat is too long to send (over {MAX_REQUEST_CHARS:,} characters of messages and pending "
             "proposal). Start a new chat; the open workflow is sent again automatically.")
     history = _trim_history(cleaned)
+    digest = history_digest(cleaned, history)
     # Every user turn counts as a request: the diff is against the saved file, so a change asked for in an
     # earlier turn (still pending, not applied) is in it too. Taken before repair messages are appended.
     user_texts = [m["content"] for m in cleaned if m["role"] == "user"]
@@ -694,7 +728,7 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
             raise AssistantError("not_signed_in", f"{provider['label']} is not signed in")
         # An empty model name is fine: the Claude/Codex CLI providers then omit ``--model`` and the CLI
         # uses its own default.
-        model_used = provider["model"] or ""
+        model_used = (model or "").strip() or provider["model"] or ""
         call = _provider_call(provider["connection_id"], model_used)
 
     # The system prompt is the same bytes on every turn (a prompt-cache hit). The open workflow's saved YAML
@@ -705,6 +739,8 @@ def run_turn(*, vendor: str, workflow: Optional[str], messages: List[dict], pend
     turn = turn_context(current_yaml=saved_text, current_name=workflow if workflow else None,
                         pending_yaml=pending_yaml or None, existing_files=context["existing_files"],
                         chat_vendor=vendor, user_text="\n".join(user_texts))
+    if digest:
+        turn = digest + "\n\n" + turn
     history = history[:-1] + [{"role": "user", "content": with_context(history[-1]["content"], turn)}]
     block = workflow_block(current_yaml=saved_text, current_name=workflow if workflow else None)
     history = with_workflow_block(history, block)

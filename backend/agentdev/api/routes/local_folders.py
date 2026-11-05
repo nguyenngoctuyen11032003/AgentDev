@@ -3,8 +3,9 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
-from agentdev.api.services.local_projects import list_folders, list_locations
+from agentdev.api.services.local_projects import create_folder, list_folders, list_locations
 from agentdev.connections.security import require_local_origin
 from agentdev.utils.exceptions import ValidationError
 
@@ -24,5 +25,19 @@ def browse(path: Optional[str] = None):
         return {"locations": list_locations()}
     try:
         return list_folders(path)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class CreateFolderBody(BaseModel):
+    parent: str
+    name: str
+
+
+@router.post("")
+def create(body: CreateFolderBody):
+    """Make a new empty folder inside ``parent`` so a project can start from scratch."""
+    try:
+        return list_folders(str(create_folder(body.parent, body.name)))
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

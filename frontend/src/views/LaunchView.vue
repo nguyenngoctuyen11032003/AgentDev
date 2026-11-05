@@ -18,14 +18,16 @@
           :class="{ active: viewMode === option.mode }"
           :aria-selected="viewMode === option.mode"
           :tabindex="viewMode === option.mode ? 0 : -1"
-          :aria-label="$t(option.label)"
-          :title="$t(option.label)"
+          :aria-label="tabLabel(option)"
+          :title="tabLabel(option)"
           @click="selectView(option.mode)"
         >
           <!-- Icons only show on very narrow screens, where inactive tabs drop their label -->
           <svg class="view-tab-icon" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path v-for="(d, i) in option.icon" :key="i" :d="d"></path></svg>
-          <span class="view-tab-label">{{ $t(option.label) }}</span>
+          <span class="view-tab-label">{{ tabLabel(option) }}</span>
           <span v-if="option.mode === 'review' && reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
+          <!-- How many files the team wrote for this session (a dot while its app runs) -->
+          <span v-if="option.mode === 'products' && productsSummary?.file_count" class="toggle-badge products-badge" :class="{ 'is-live': productsLive }">{{ productsSummary.file_count > 999 ? '999+' : productsSummary.file_count }}</span>
         </button>
       </div>
       <div class="header-actions">
@@ -645,6 +647,12 @@
                   {{ $t('launch.composer.pick_workflow_action') }}
                 </button>
               </p>
+              <!-- Only while no project is open: tell where results will be saved (with a project open that is obvious) -->
+              <OutputLocation
+                v-if="!currentProjectName"
+                :session-id="activeSessionId"
+                @choose="handleFolderButtonClick({ newSession: !activeSessionId })"
+              />
               <!-- The last run stopped before it finished: one click continues it with what it already did -->
               <p v-if="canResumeRun" class="composer-hint" role="status">
                 <span>{{ $t('launch.resume.banner') }}</span>
@@ -653,12 +661,12 @@
               <!-- One tray above the box: while the team works, the live line on top; once the turn is
                    over, the next-step chips on the left and its totals as a quiet line on the right -->
               <div
-                v-if="liveProgress || quickReplies.length"
+                v-if="liveLineVisible || quickReplies.length"
                 class="turn-footer"
-                :class="{ 'is-settled': !liveProgress || ['done', 'muted'].includes(liveProgress.tone) }"
+                :class="{ 'is-settled': !liveLineVisible }"
               >
               <LiveProgress
-                v-if="liveProgress"
+                v-if="liveLineVisible"
                 :workers="liveProgress.workers"
                 :headline="liveProgress.headline"
                 :tone="liveProgress.tone"
@@ -781,6 +789,16 @@
                     @change="onAttachmentSelected"
                   />
                   <div class="composer-actions">
+                  <!-- Time, steps and token use of the finished turn: a small icon, shown on hover -->
+                  <TurnInfo
+                    v-if="settledTurn"
+                    :headline="settledTurn.headline"
+                    :tone="settledTurn.tone"
+                    :started-at="settledTurn.startedAt"
+                    :ended-at="settledTurn.endedAt"
+                    :steps="settledTurn.steps"
+                    :usage="settledTurn.usage"
+                  />
                   <!-- How much this turn asks before acting (sent with each message) -->
                   <ModePicker v-model="runMode" :run-active="isWorkflowRunning" />
                   <!-- While the team works: Send (a message for the lead) next to Stop -->
@@ -925,6 +943,16 @@
           />
         </div>
 
+        <!-- What the team made for this session: browse the files, open them, run the web app -->
+        <div v-if="visitedViews.products" v-show="viewMode === 'products'" class="graph-panel insight-panel" :style="insetStyle">
+          <ProductsView
+            :session-id="activeSessionId || ''"
+            :refresh-key="productsRefreshKey"
+            :autostart-key="productsAutostart"
+            :visible="viewMode === 'products'"
+          />
+        </div>
+
         <div v-if="visitedViews.dashboard" v-show="viewMode === 'dashboard'" class="graph-panel insight-panel" :style="insetStyle">
           <DashboardView
             :graph="officeGraph"
@@ -977,10 +1005,15 @@
           :recent-events="recentEvents"
           :is-run-finished="isRunFinished"
           :format-time="formatTime"
+          :show-products="!!activeSessionId"
+          :products-summary="productsSummary"
+          :products-live="productsLive"
+          :products-line="productsLine"
           @close="closeControls"
           @select-workflow="selectWorkflow"
           @open-team="selectView('office')"
           @download-logs="downloadLogs"
+          @open-products="openProducts"
         />
       </div>
     </div>
@@ -1026,15 +1059,19 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, postWorkflowExecute } from '@/api/client.js'
+import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, postWorkflowExecute, sessionOutputsSummary } from '@/api/client.js'
 import { collectDroppedItems } from '@/utils/projectFiles.js'
 import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
+import OutputLocation from '@/components/launch/OutputLocation.vue'
+import ProductsView from '@/components/launch/ProductsView.vue'
+import { formatBytes } from '@/utils/labOutputs.js'
 import KanbanView from '@/components/launch/KanbanView.vue'
 import DashboardView from '@/components/launch/DashboardView.vue'
 import ReviewView from '@/components/launch/ReviewView.vue'
 import { createRunTracker, usageTotals, formatCost, stepStatus } from '@/utils/runTracker.js'
 import StatusPill from '@/components/launch/StatusPill.vue'
 import LiveProgress from '@/components/launch/chat/LiveProgress.vue'
+import TurnInfo from '@/components/launch/chat/TurnInfo.vue'
 import QuickReplies from '@/components/launch/chat/QuickReplies.vue'
 import ModePicker from '@/components/launch/chat/ModePicker.vue'
 import { localizeErrorText } from '@/utils/errorTranslate.js'
@@ -2024,7 +2061,7 @@ const isRightPanelOpen = ref(true)
 const runTracker = createRunTracker()
 const workflowTitle = computed(() => (selectedFile.value ? selectedFile.value.replace(/\.ya?ml$/i, '') : ''))
 // Mounted on first use only, then kept so switching views is instant
-const visitedViews = reactive({ board: false, dashboard: false, review: false })
+const visitedViews = reactive({ board: false, dashboard: false, review: false, products: false })
 watch(viewMode, (mode) => {
   if (mode in visitedViews) visitedViews[mode] = true
 }, { immediate: true })
@@ -2036,12 +2073,15 @@ watch(viewMode, (mode) => {
 // Most used first: talk to the lead, then watch the team, then the work around it
 const viewOptions = [
   { mode: 'chat', label: 'launch.chat', icon: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'] },
+  { mode: 'products', label: 'launch.products.view', fallback: 'Sản phẩm', icon: ['M21 8 12 3 3 8v8l9 5 9-5z', 'M3 8l9 5 9-5', 'M12 13v8'] },
   { mode: 'office', label: 'launch.office.view', icon: ['M6 3h12a2 2 0 0 1 2 2v16H4V5a2 2 0 0 1 2-2z', 'M9 7h1M14 7h1M9 11h1M14 11h1', 'M10 21v-4h4v4'] },
   { mode: 'board', label: 'launch.board.view', icon: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M9 3v18M15 3v18'] },
   { mode: 'review', label: 'launch.review.view', icon: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z', 'm9 12 2 2 4-4'] },
   { mode: 'dashboard', label: 'launch.dashboard.view', icon: ['M3 20h18', 'M6 20v-6M11 20V6M16 20v-9M21 20V4'] },
   { mode: 'graph', label: 'launch.graph', icon: ['M3 6a3 3 0 1 0 6 0 3 3 0 1 0-6 0M15 6a3 3 0 1 0 6 0 3 3 0 1 0-6 0M9 18a3 3 0 1 0 6 0 3 3 0 1 0-6 0', 'M9 6h6M7.5 8.6l3 6.8M16.5 8.6l-3 6.8'] }
 ]
+// A tab whose key a locale still lacks shows its Vietnamese fallback
+const tabLabel = (option) => (option.fallback && !te(option.label) ? option.fallback : t(option.label))
 const selectView = (mode) => {
   isControlSheetOpen.value = false
   isSessionsDrawerOpen.value = false
@@ -2548,10 +2588,76 @@ const flushPendingNotes = () => {
   taskPrompt.value = text
   nextTick(() => launchWorkflow())
 }
+// The run failed or was stopped with notes the lead never picked up: they go back into the box
+// (not sent on their own: after a stop or an error the user decides what comes next).
+const returnPendingNotes = () => {
+  if (!pendingNotes.size) return
+  const notes = [...pendingNotes.values()]
+  pendingNotes.clear()
+  notes.forEach(dropNoteBubble)
+  const text = notes.map((note) => note.text).join('\n\n')
+  const draft = taskPrompt.value.trim()
+  taskPrompt.value = draft ? `${text}\n\n${draft}` : text
+  toast.info(t('launch.interject.moved_to_box'))
+}
+// Replayed notes still on screen: a note the lead never took was sent again as the next turn's
+// message, so that message replaces its note bubble (instead of showing the text twice).
+let replayedNotes = []
+// Answer put back in the box when the socket dropped before the server confirmed it.
+let unconfirmedAnswer = ''
 
 // A finished run (completed, cancelled or failed) whose composer holds a new message continues
 // the same session as a follow-up turn; with an empty composer the button relaunches instead.
 const isRunFinished = computed(() => isFinishedStatus(status.value))
+
+// ---------------------------------------------------------------- products ("Sản phẩm")
+// What the team wrote for this session (its opened project, else its own folder): a one-line
+// summary in the control panel and on the view tab, refreshed when a turn ends or the folder changes.
+const trl = (key, fallback, params) =>
+  te(key) ? t(key, params) : String(fallback).replace(/\{(\w+)\}/g, (_, k) => params?.[k] ?? '')
+const productsSummary = ref(null)
+const productsRefreshKey = ref(0)
+const productsAutostart = ref(0)
+const PREVIEW_LIVE = ['installing', 'starting', 'running']
+const productsLive = computed(() => PREVIEW_LIVE.includes(productsSummary.value?.preview?.status))
+const productsLine = computed(() => {
+  const data = productsSummary.value
+  if (!data?.file_count) return ''
+  const parts = []
+  if (data.project?.type && data.project.type !== 'none') parts.push(data.project.summary)
+  parts.push(trl('launch.products.files', '{n} file', { n: data.file_count.toLocaleString(i18nLocale.value) }) + (data.scan_capped ? '+' : ''))
+  parts.push(formatBytes(data.total_bytes, i18nLocale.value))
+  return parts.join(' · ')
+})
+let productsToken = 0
+const loadProductsSummary = async () => {
+  const id = ++productsToken
+  const sessionId = activeSessionId.value
+  if (!sessionId) {
+    productsSummary.value = null
+    return
+  }
+  try {
+    const data = await sessionOutputsSummary(sessionId)
+    if (id === productsToken) productsSummary.value = data
+  } catch {
+    if (id === productsToken) productsSummary.value = null
+  }
+}
+const refreshProducts = () => {
+  productsRefreshKey.value += 1
+  loadProductsSummary()
+}
+watch(activeSessionId, loadProductsSummary, { immediate: true })
+// A turn ended (its files are final) or another folder was opened for the session
+watch(isRunFinished, (done) => { if (done) refreshProducts() })
+watch(currentProjectName, () => refreshProducts())
+// The tab and the panel show whether the app still runs: re-read when the view is left
+watch(viewMode, (mode, previous) => { if (previous === 'products') loadProductsSummary() })
+const openProducts = (run = false) => {
+  if (run) productsAutostart.value += 1
+  selectView('products')
+}
 
 // ---------------------------------------------------------------- plan approval
 // The lead ended its turn with a plan: the run is "done" for the server, but for you it
@@ -2672,6 +2778,10 @@ const liveProgress = computed(() => {
   }
   return null
 })
+// A running / waiting / failed turn keeps its live line above the box; a finished or stopped one is only a
+// fact, so it moves behind the small info icon in the box.
+const settledTurn = computed(() => (liveProgress.value && ['done', 'muted'].includes(liveProgress.value.tone) ? liveProgress.value : null))
+const liveLineVisible = computed(() => !!liveProgress.value && !settledTurn.value)
 
 // ---------------------------------------------------------------- quick replies
 // What makes sense to say next, by state. `act`: done at once (no new text to write);
@@ -2695,13 +2805,6 @@ const quickReplies = computed(() => {
     return [
       { key: 'progress', label: t('launch.quick.progress'), text: t('launch.quick.progress_text'), send: true, hint: t('launch.quick.progress_hint') },
       { key: 'note', label: t('launch.quick.note'), text: t('launch.quick.note_text') }
-    ]
-  }
-  if (status.value === RUN_STATUS.COMPLETED) {
-    return [
-      { key: 'summary', label: t('launch.quick.summary'), text: t('launch.quick.summary_text') },
-      { key: 'next', label: t('launch.quick.next'), text: t('launch.quick.next_text') },
-      { key: 'tests', label: t('launch.quick.tests'), text: t('launch.quick.tests_text') }
     ]
   }
   if ([RUN_STATUS.ERROR, RUN_STATUS.FAILED, RUN_STATUS.CANCELLED].includes(status.value)) {
@@ -3938,6 +4041,12 @@ const establishWebSocketConnection = (options = {}) => {
     const lostSession = sessionId
     status.value = RUN_STATUS.DISCONNECTED
     pendingOpenSessionId = null
+    // An answer sent just before the drop may never have reached the server: put it back in
+    // the box. If the replay after the reconnect shows it was received, the box is cleared again.
+    if (pendingInput?.text && !taskPrompt.value.trim()) {
+      taskPrompt.value = pendingInput.text
+      unconfirmedAnswer = pendingInput.text
+    }
     // The same session was opened in another tab (the server keeps one socket per session,
     // see websocket_manager.connect): reconnecting here would just take it back from that
     // tab, and so on forever. Stay put and say so; the banner's "open here" takes it back,
@@ -3986,6 +4095,7 @@ const clearReplayedState = () => {
   cancelRequested = false
   endStopping()
   chatMessages.value = []
+  replayedNotes = []
   nodesLoadingMessagesMap.clear()
   runningLoadingEntries.value = 0
   stopLoadingTimer()
@@ -4671,6 +4781,10 @@ const launchWorkflowOnce = async () => {
     toast.warning(t('launch.alert_ws_not_ready'))
     return
   }
+  // The session this send belongs to. The user may open another one while a request is in
+  // flight: from then on nothing here may touch the screen, which shows the other session.
+  const launchSid = sessionId
+  const switchedAway = () => sessionId !== launchSid
 
   // Block the run early when a node references a connection that is missing or has no credential.
   // A failed check (e.g. network) must not stop the launch; the runtime still reports the error.
@@ -4679,6 +4793,7 @@ const launchWorkflowOnce = async () => {
     const check = precheckIsFresh(checkedFile)
       ? { ok: true }
       : await checkWorkflowConnections(await fetchWorkflowYAML(checkedFile))
+    if (switchedAway()) return
     if (check.ok && !precheckIsFresh(checkedFile)) precheckPassed = { key: workflowKey(checkedFile), at: Date.now() }
     if (!check.ok) {
       toast.error(t('connections.precheck_failed'), {
@@ -4689,6 +4804,7 @@ const launchWorkflowOnce = async () => {
   } catch (error) {
     console.warn('Connection pre-check skipped:', error)
   }
+  if (switchedAway()) return
 
   shouldGlow.value = false
   launchError.value = ''
@@ -4708,11 +4824,16 @@ const launchWorkflowOnce = async () => {
   const startedBefore = workflowStartedCount
   const rejectedBefore = launchRejectedCount
   runTracker.begin(trimmedPrompt, attachmentNames)
+  // Set before the POST: a start failure can arrive over the socket before the POST returns, and
+  // its Retry must resend this prompt (not the previous turn's).
+  const lastPromptBefore = lastLaunchPrompt
+  lastLaunchPrompt = trimmedPrompt
   // A launch that did not happen puts everything back as it was
   const undoLaunch = () => {
     takeBackBubble()
     Object.assign(runTracker.state, trackerBefore)
     isWorkflowRunning.value = false
+    lastLaunchPrompt = lastPromptBefore
   }
 
   // Show the message right away (before the server's "started" notice), like a chat does;
@@ -4734,6 +4855,9 @@ const launchWorkflowOnce = async () => {
       attachments: attachmentIds,
       mode: runMode.value
     })
+    // Opened another session meanwhile: this run goes on (or not) on the server and shows up when
+    // the user comes back; the session on screen must not be changed by it.
+    if (switchedAway()) return
 
     if (response.ok) {
       // The server may still turn it down over the socket (run_in_progress) before it
@@ -4752,7 +4876,6 @@ const launchWorkflowOnce = async () => {
         pendingLaunch = { undo: undoRejected }
       }
 
-      lastLaunchPrompt = trimmedPrompt
       // Clear uploaded attachments
       clearUploadedAttachments()
 
@@ -4794,6 +4917,7 @@ const launchWorkflowOnce = async () => {
     }
   } catch (error) {
     console.error('Error calling execute API:', error)
+    if (switchedAway()) return
     undoLaunch()
     invalidatePrecheck()
     status.value = RUN_STATUS.ERROR
@@ -4835,7 +4959,9 @@ const retryRun = async (message) => {
   const draft = taskPrompt.value
   taskPrompt.value = message.retryPrompt
   await launchWorkflow()
-  if (draft.trim() && !taskPrompt.value.trim()) taskPrompt.value = draft
+  // Sent: the box is empty again. Not sent (pre-check, 409, network): the retry text is still in
+  // the box. Either way the user's own draft comes back.
+  if (draft.trim() && (!taskPrompt.value.trim() || taskPrompt.value === message.retryPrompt)) taskPrompt.value = draft
   nextTick(() => taskInputRef.value?.focus())
 }
 
@@ -5196,6 +5322,15 @@ const processMessage = async (msg) => {
   if (msg.type === 'user_message') {
     const { text, names } = userMessageParts(msg.data)
     const parts = [text.trim(), names.length ? t('launch.attachments_line', { names: names.join(', ') }) : '']
+    for (const note of replayedNotes) {
+      if (note.text && text.includes(note.text)) dropNoteBubble(note)
+    }
+    replayedNotes = []
+    // The server did get the answer that was put back in the box when the socket dropped.
+    if (unconfirmedAnswer && text.trim() === unconfirmedAnswer.trim()) {
+      if (taskPrompt.value.trim() === unconfirmedAnswer.trim()) taskPrompt.value = ''
+      unconfirmedAnswer = ''
+    }
     addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'), at)
     // The task of a new turn, or the answer to a pending question (see userMessageRole)
     if (userMessageRole(runTracker.state) === 'reply') runTracker.inputSent(text, at ?? undefined)
@@ -5209,7 +5344,8 @@ const processMessage = async (msg) => {
 
   // A note the user wrote while the team worked (only arrives when a saved session is replayed)
   if (msg.type === 'user_note') {
-    addDialogue(USER_SENDER, msg.data?.text || '', at)
+    const text = (msg.data?.text || '').trim()
+    replayedNotes.push({ text, bubble: addDialogue(USER_SENDER, msg.data?.text || '', at) })
     return
   }
   // The lead's answer to such a note: a status report, or "passed to the lead"
@@ -5791,7 +5927,8 @@ const processMessage = async (msg) => {
     endStopping()
     pendingInput = null
     pendingLaunch = null
-    pendingNotes.clear()
+    if (isReconnecting.value) pendingNotes.clear()
+    else returnPendingNotes()
     // The problems the run died with stay readable; the next turn starts its own groups
     settleAllToolIssues({ recovered: false })
   }
@@ -5804,7 +5941,8 @@ const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
   locallyCancelled = false
   pendingInput = null
   pendingLaunch = null
-  pendingNotes.clear()
+  if (isReconnecting.value) pendingNotes.clear()
+  else returnPendingNotes()
   settleAllToolIssues({ recovered: false })
   if (message) addChatNotification(message, { ...(at ? { at } : {}), coalesce: 'run-stop' })
   if (runTracker.state.task && !runTracker.state.outcome) runTracker.finish('cancelled', { summary })

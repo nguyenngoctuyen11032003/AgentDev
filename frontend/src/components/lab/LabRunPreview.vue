@@ -110,13 +110,15 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { labPreviewHeartbeat, labPreviewStart, labPreviewStatus, labPreviewStop } from '@/api/client'
 import { labErrorText } from '@/utils/labOutputs.js'
+import { labOutputSource } from '@/utils/outputSources.js'
 
 const props = defineProps({
-  jobId: { type: String, required: true },
-  // run_id of the run (position for jobs stored before run ids existed)
-  run: { type: [String, Number], required: true },
+  // A Lab run (jobId + run: its run_id, or position for jobs stored before run ids existed) or any
+  // product folder through an adapter (`source.preview`, see utils/outputSources.js)
+  jobId: { type: String, default: '' },
+  run: { type: [String, Number], default: -1 },
+  source: { type: Object, default: null },
   // true: start the preview right away (user pressed "Chạy thử"); false: only show the current state
   autostart: { type: Boolean, default: false }
 })
@@ -134,6 +136,7 @@ const DEVICES = [
 const POLL_MS = 1500
 // While the preview is on screen the server is told it is still watched, so it is not stopped as idle.
 const HEARTBEAT_MS = 60_000
+const api = computed(() => (props.source || labOutputSource(props.jobId, props.run)).preview)
 
 const EMPTY = { status: 'idle', url: null, port: null, kind: null, log_tail: '', error: null, error_code: null, error_params: null, frameable: null }
 const state = reactive({ ...EMPTY })
@@ -174,7 +177,7 @@ function schedule() {
 async function refresh() {
   timer = null
   try {
-    apply(await labPreviewStatus(props.jobId, props.run))
+    apply(await api.value.status())
     error.value = ''
   } catch (err) {
     if (!alive) return
@@ -188,7 +191,7 @@ async function start() {
   acting.value = true
   error.value = ''
   try {
-    apply(await labPreviewStart(props.jobId, props.run))
+    apply(await api.value.start())
     frameKey.value += 1
   } catch (err) {
     error.value = errText(err)
@@ -201,7 +204,7 @@ async function stop() {
   if (acting.value) return
   acting.value = true
   try {
-    apply(await labPreviewStop(props.jobId, props.run))
+    apply(await api.value.stop())
     if (!['stopped', 'idle'].includes(state.status)) state.status = 'stopped'
   } catch (err) {
     error.value = errText(err)
@@ -220,9 +223,10 @@ watch(() => state.log_tail, () => nextTick(() => {
 let beatTimer = null
 const watching = () => alive && document.visibilityState === 'visible' && ['installing', 'starting', 'running'].includes(state.status)
 async function beat() {
-  if (!watching()) return
+  // Sources without a heartbeat endpoint (chat sessions) rely on the server's own idle rules.
+  if (!watching() || typeof api.value.heartbeat !== 'function') return
   try {
-    const res = await labPreviewHeartbeat(props.jobId, props.run)
+    const res = await api.value.heartbeat()
     // The server already stopped it (idle, crash): show the real state instead of a dead frame.
     if (alive && res && res.alive === false && state.status === 'running') refresh()
   } catch {

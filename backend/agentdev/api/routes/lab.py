@@ -176,6 +176,15 @@ def _send_file(target) -> FileResponse:
     return FileResponse(target, media_type=lab_outputs.content_type(target), headers=lab_outputs.response_headers(target))
 
 
+@router.get("/jobs/{job_id}/products")
+def job_products(job_id: str):
+    """What every run of a job produced (type, size, running preview), for the Lab's product overview."""
+    try:
+        return lab_outputs.job_products(job_id)
+    except lab_outputs.LabOutputsError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.http_detail()) from exc
+
+
 @router.get("/jobs/{job_id}/runs/{run}/files")
 def run_files(job_id: str, run: str):
     return _outputs_call(lab_outputs.list_files, job_id, run)
@@ -212,6 +221,26 @@ def delete_run_outputs(job_id: str, run: str):
 @router.get("/storage")
 def lab_storage():
     return lab_outputs.storage_stats()
+
+
+class WorkflowCleanupRequest(BaseModel):
+    workflow: str = Field(..., min_length=1, max_length=200)
+    keep_job: str = Field("", max_length=64)
+
+
+@router.get("/storage/suggestion")
+def lab_storage_suggestion(workflow: str, keep_job: str = ""):
+    """Offer to clean this workflow's old products after an evaluation (keeps it and the latest passing one)."""
+    from agentdev.api.services import lab_cleanup
+
+    return lab_cleanup.suggestion(workflow, keep_job)
+
+
+@router.post("/storage/cleanup-workflow")
+def lab_storage_cleanup_workflow(payload: WorkflowCleanupRequest):
+    from agentdev.api.services import lab_cleanup
+
+    return lab_cleanup.cleanup(payload.workflow, payload.keep_job)
 
 
 @router.post("/storage/cleanup")

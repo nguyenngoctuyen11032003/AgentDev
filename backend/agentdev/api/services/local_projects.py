@@ -152,6 +152,28 @@ def list_locations() -> List[Dict[str, str]]:
     return locations
 
 
+_INVALID_NAME_CHARS = set('<>:"/\|?*')
+_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+
+
+def create_folder(parent: str, name: str) -> Path:
+    """Create one new sub-folder (a plain name, never a path) inside an existing folder."""
+    base = _resolve_folder(parent)
+    clean = (name or "").strip()
+    if not clean or clean in {".", ".."} or clean.endswith(".") or any(c in _INVALID_NAME_CHARS or ord(c) < 32 for c in clean):
+        raise ValidationError("Invalid folder name", field="name")
+    if clean.split(".")[0].upper() in _RESERVED_NAMES:
+        raise ValidationError("Invalid folder name", field="name")
+    target = base / clean
+    if target.exists():
+        raise ValidationError(f"Already exists: {clean}", field="name")
+    try:
+        target.mkdir()
+    except OSError as exc:
+        raise ValidationError(f"Cannot create folder: {exc.strerror or exc}", field="name") from exc
+    return target
+
+
 def list_folders(raw_path: str) -> Dict[str, object]:
     """Sub-folders of one folder (names only, never file contents)."""
     path = _resolve_folder(raw_path)

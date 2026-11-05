@@ -1158,6 +1158,21 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
         raise
     finally:
         cancel_event.set()  # stops the watchdog
+        _stop_leftover_processes(session, started)
+
+
+def _stop_leftover_processes(session: str, started: float) -> None:
+    """Kill dev servers and watchers the agents started in this run's folders and left running: they hold
+    ports (a Lab app once kept AgentDev's own 5173) and keep files locked for the cleanup."""
+    try:
+        from agentdev.runtime.sdk import OUTPUT_ROOT
+        from agentdev.utils.process_sweep import sweep
+
+        folders = [p for p in Path(OUTPUT_ROOT).glob(f"{session}_*") if p.is_dir()]
+        if folders:
+            sweep(folders, started)
+    except Exception:  # noqa: BLE001 - housekeeping must not change the run's outcome
+        pass
 
 
 def _session_output_dir(session: str) -> str:

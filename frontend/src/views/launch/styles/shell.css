@@ -285,12 +285,13 @@
 .chat-header-btn:hover,
 .chat-header-btn.active { background: var(--surface-raised); color: var(--fg); }
 
-/* Reading measure: prose of a turn stops at ~70 characters; code and tables may run wider */
+/* Reading measure: prose of a turn fills the width of the chat (so a wide chat is not a narrow column
+   with empty sides) and only stops growing on very wide screens, where lines would get too long */
 .chat-messages :deep(.dialogue:not(.dialogue-right) .markdown-body) > :not(.md-code):not(.md-table):not(pre):not(table) {
-  max-width: 70ch;
+  max-width: min(100%, 112ch);
 }
 .activity,
-.plan-card { max-width: 76ch; }
+.plan-card { max-width: min(100%, 112ch); }
 
 /* ---- "Open in another tab": the single notice for it, inside the chat, under the header ---- */
 .replaced-banner {

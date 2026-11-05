@@ -51,6 +51,27 @@
       </dl>
     </section>
 
+    <!-- What the team made for this session, one glance; the "Sản phẩm" view has the files and the app -->
+    <section v-if="showProducts" class="panel-block">
+      <div class="panel-heading-row">
+        <h3 class="panel-heading">{{ trl('launch.products.title', 'Sản phẩm') }}</h3>
+        <button v-if="productsSummary?.file_count" type="button" class="panel-link" @click="emit('open-products', false)">{{ trl('launch.products.view_files', 'Xem file') }}</button>
+      </div>
+      <template v-if="productsSummary?.file_count">
+        <p class="products-line">
+          <span v-if="productsLive" class="products-live">{{ trl('launch.products.running', 'Đang chạy thử') }}</span>
+          {{ productsLine }}
+        </p>
+        <div v-if="productsSummary.project?.can_preview" class="products-actions">
+          <button type="button" class="btn primary sm" @click="emit('open-products', !productsLive)">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+            {{ productsLive ? trl('launch.products.open_preview', 'Xem bản chạy thử') : trl('launch.products.run', 'Chạy thử') }}
+          </button>
+        </div>
+      </template>
+      <p v-else class="panel-note">{{ trl('launch.products.panel_empty', 'Chưa có file nào. Khi nhóm làm ra mã nguồn, trang web hay tài liệu, chúng hiện ở đây.') }}</p>
+    </section>
+
     <section v-if="selectedFile" class="panel-block">
       <div class="panel-heading-row">
         <h3 class="panel-heading">{{ $t('launch.panel.team') }}</h3>
@@ -98,6 +119,7 @@
 // the run, recent activity and the log export. Lives in a column (chat view), a drawer
 // (other views) or a bottom sheet (narrow); the parent decides where and when it shows.
 import { ref, watch, nextTick, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSkeleton from '@/components/ui/BaseSkeleton.vue'
 import StatusPill from '@/components/launch/StatusPill.vue'
@@ -123,9 +145,19 @@ const props = defineProps({
   teamMembers: { type: Array, default: () => [] },
   recentEvents: { type: Array, default: () => [] },
   isRunFinished: { type: Boolean, default: false },
-  formatTime: { type: Function, required: true }
+  formatTime: { type: Function, required: true },
+  // The session's products block (only with a session): summary from /session-outputs/summary
+  showProducts: { type: Boolean, default: false },
+  productsSummary: { type: Object, default: null },
+  productsLive: { type: Boolean, default: false },
+  productsLine: { type: String, default: '' }
 })
-const emit = defineEmits(['close', 'select-workflow', 'open-team', 'download-logs'])
+// open-products(run): show the "Sản phẩm" view; run=true also starts the app preview
+const emit = defineEmits(['close', 'select-workflow', 'open-team', 'download-logs', 'open-products'])
+
+const { t, te } = useI18n()
+// Translated text, or the Vietnamese fallback while a locale lacks the key
+const trl = (key, fallback) => (te(key) ? t(key) : fallback)
 
 // The workflow picker's box: the parent focuses its <select> (see focusWorkflowPicker)
 const picker = ref(null)
@@ -353,4 +385,10 @@ onUnmounted(() => descriptionObserver?.disconnect())
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
   50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 35%, transparent); }
 }
+
+/* The session's products in one line */
+.products-line { margin: 0; font-size: 13px; line-height: 1.5; color: var(--fg-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.products-live { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; font-weight: 650; color: var(--success); }
+.products-live::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.products-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 </style>

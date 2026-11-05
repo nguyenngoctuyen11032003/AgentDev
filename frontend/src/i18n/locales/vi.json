@@ -297,6 +297,28 @@
     "hint_connecting": "Đang kết nối tới máy chủ..."
   },
   "launch": {
+    "products": {
+      "view": "Sản phẩm",
+      "title": "Sản phẩm",
+      "view_files": "Xem file",
+      "files": "{n} file",
+      "running": "Đang chạy thử",
+      "run": "Chạy thử",
+      "open_preview": "Xem bản chạy thử",
+      "panel_empty": "Chưa có file nào. Khi nhóm làm ra mã nguồn, trang web hay tài liệu, chúng hiện ở đây.",
+      "where_project": "Thư mục dự án",
+      "where_session": "Thư mục của phiên",
+      "updated": "Cập nhật {time}",
+      "refresh": "Tải lại danh sách file",
+      "no_session_title": "Chưa có phiên làm việc",
+      "no_session_hint": "Giao việc cho nhóm trong khung chat. Mã nguồn, trang web, tài liệu nhóm làm ra sẽ hiện ở đây để bạn xem và chạy thử.",
+      "gone_title": "Chưa có thư mục kết quả",
+      "gone_hint": "Nhóm chưa ghi file nào cho phiên này. Khi nhóm tạo mã nguồn, trang web hay tài liệu, chúng sẽ hiện ở đây.",
+      "empty_title": "Thư mục kết quả đang trống",
+      "empty_hint": "Nhóm chưa tạo file nào. Hãy giao việc trong khung chat, ví dụ \"làm trang web giới thiệu sản phẩm\".",
+      "open_folder_hint": "Mở thư mục kết quả của phiên trên máy này",
+      "tree_label": "Cây thư mục kết quả"
+    },
     "live": {
       "starting": "Đội đang bắt đầu…",
       "stopping": "Đang dừng lượt chạy…",
@@ -305,6 +327,8 @@
       "others": "+{n} người khác",
       "elapsed": "Thời gian đã chạy",
       "steps": "{n} lượt gọi",
+      "steps_label": "Số lượt gọi",
+      "usage_label": "Token và chi phí",
       "issues": "{n} lỗi công cụ đang xử lý",
       "issues_hint": "Xem các lỗi công cụ mà tác tử đang tự khắc phục",
       "finished_completed": "Lượt này đã xong",
@@ -1006,6 +1030,14 @@
         "instruction": "Hãy làm lại theo đúng góp ý trên: giữ lại những phần đã đạt, khắc phục từng vấn đề và báo cáo rõ những gì đã thay đổi."
       }
     },
+    "output": {
+      "project": "Kết quả (mã nguồn, video, tệp) được lưu trong dự án:",
+      "session": "Chưa mở dự án nào. Kết quả (mã nguồn, video, tệp) sẽ lưu trong thư mục riêng của phiên này:",
+      "session_later": "Đường dẫn hiện ra sau khi bạn gửi tin đầu tiên.",
+      "open": "Mở thư mục",
+      "choose": "Chọn thư mục lưu",
+      "open_failed": "Không mở được thư mục kết quả"
+    },
     "open_folder": {
       "title": "Mở thư mục dự án",
       "subtitle": "Chọn một dự án trên máy để làm việc, giống Open Folder trong VS Code.",
@@ -1023,7 +1055,11 @@
       "opened": "Đã mở dự án \"{name}\"",
       "opened_detail": "{count} tệp · {path}",
       "failed": "Không mở được thư mục",
-      "drop_hint": "Bạn vừa thả thư mục \"{name}\". Hãy tìm và mở nó ở đây: agent sẽ làm việc trực tiếp trong thư mục, không cần tải lên."
+      "drop_hint": "Bạn vừa thả thư mục \"{name}\". Hãy tìm và mở nó ở đây: agent sẽ làm việc trực tiếp trong thư mục, không cần tải lên.",
+      "new_folder": "Thư mục mới",
+      "new_folder_name": "Tên thư mục mới",
+      "new_folder_create": "Tạo",
+      "empty_create": "Tạo thư mục mới ở đây để bắt đầu một dự án trống."
     },
     "team": {
       "assigned": "{lead} giao việc cho {member}",
@@ -2877,6 +2913,54 @@
       "not_ready": "Chưa đạt",
       "open_failed": "Không mở được lần kiểm định này"
     },
+    "products": {
+      "title": "Sản phẩm của lần kiểm định",
+      "count": "{n} lượt có sản phẩm",
+      "empty_runs": "{n} lượt không tạo file",
+      "files": "{n} file",
+      "inferred": "Ghép theo thời gian chạy",
+      "inferred_hint": "Bản cũ chưa ghi thư mục cho lượt lỗi hoặc hết giờ: thư mục được ghép với lượt này theo thời gian chạy.",
+      "open_web": "Mở web",
+      "new_tab": "mở trong tab mới",
+      "wait_hint": "Lần đầu có thể mất vài phút.",
+      "preview_failed": "Không chạy thử được.",
+      "preview_failed_hint": "Xem nhật ký trong phần file của lượt này.",
+      "open_site": "Mở trang",
+      "view_in_lab": "Xem trong Lab",
+      "run": "Chạy thử",
+      "retry": "Thử lại",
+      "view_files": "Xem file",
+      "stop": "Dừng",
+      "stop_label": "Dừng bản chạy thử của {name}",
+      "type": {
+        "webapp": "Web app",
+        "site": "Trang web",
+        "media": "Video/ảnh",
+        "docs": "Tài liệu",
+        "code": "Mã nguồn",
+        "files": "Tệp"
+      },
+      "chip": {
+        "webapp": "Web app",
+        "site": "Trang web",
+        "media": "{n} ảnh/video",
+        "docs": "{n} tài liệu",
+        "code": "{n} file mã",
+        "files": "{n} file"
+      }
+    },
+    "cleanup": {
+      "title_passed": "Kiểm định đạt. Dọn {n} lượt thử cũ ({size}) của quy trình này?",
+      "title": "Có {n} lượt thử cũ ({size}) của quy trình này. Dọn bớt cho nhẹ máy?",
+      "keeps": "Vẫn giữ: sản phẩm của lần vừa chạy{baseline}, điểm và lịch sử mọi lần.",
+      "keeps_baseline": " và của lần đạt gần nhất",
+      "confirm": "Dọn ngay",
+      "later": "Để sau",
+      "never": "Không hỏi lại",
+      "done": "Đã dọn {n} lượt, giải phóng {size}",
+      "failed": "Không dọn được kết quả cũ",
+      "never_note": "Sẽ không hỏi nữa. Vẫn dọn được bằng nút \"Dọn kết quả cũ\" cuối trang."
+    },
     "storage": {
       "line": "Kết quả thử nghiệm: {size} · {n} lượt",
       "empty": "Chưa có kết quả thử nghiệm nào trên máy",
@@ -3057,6 +3141,27 @@
       "code_execution": "Một số agent dùng công cụ chạy mã hoặc lệnh, nhưng máy chủ đang tắt quyền này nên các công cụ đó sẽ không chạy.",
       "unreachable": "Một số nút không có liên kết tới và không thuộc nhóm nào, nên sẽ không bao giờ chạy.",
       "other": "Kiểm tra này chưa đạt. Xem chi tiết bên dưới."
-    }
+    },
+    "history": "Lịch sử trò chuyện",
+    "history_for": "Các phiên · {name}",
+    "history_loading": "Đang tải…",
+    "history_empty": "Chưa có phiên nào được lưu. Mỗi cuộc trò chuyện sẽ tự lưu lại ở đây.",
+    "untitled": "Phiên chưa đặt tên",
+    "message_count": "{n} tin nhắn",
+    "delete_session": "Xoá phiên này",
+    "delete_confirm": "Bấm lần nữa để xoá vĩnh viễn",
+    "delete_confirm_short": "Xoá?",
+    "time_now": "vừa xong",
+    "time_minutes": "{n} phút trước",
+    "time_hours": "{n} giờ trước",
+    "time_days": "{n} ngày trước",
+    "model_name_label": "Model",
+    "model_hint": "Chọn model của tài khoản. Model nhỏ/nhanh tốn ít token hơn cho câu hỏi đơn giản; model mạnh cho thiết kế hoặc sửa quy trình phức tạp.",
+    "model_default": "Model mặc định",
+    "model_default_named": "Mặc định ({model})",
+    "meta_tokens": "{n} token",
+    "meta_detail": "Vào: {input} token · Ra: {output} token · Cache: {cached} · {calls} lượt gọi",
+    "copy": "Sao chép",
+    "copied": "Đã chép"
   }
 }

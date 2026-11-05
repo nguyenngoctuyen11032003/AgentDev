@@ -255,6 +255,28 @@
     "hint_connecting": "正在连接服务器..."
   },
   "launch": {
+    "products": {
+      "view": "产物",
+      "title": "产物",
+      "view_files": "查看文件",
+      "files": "{n} 个文件",
+      "running": "正在试运行",
+      "run": "试运行",
+      "open_preview": "查看试运行",
+      "panel_empty": "还没有文件。团队生成的代码、网页或文档会显示在这里。",
+      "where_project": "项目文件夹",
+      "where_session": "会话文件夹",
+      "updated": "更新于 {time}",
+      "refresh": "重新加载文件列表",
+      "no_session_title": "还没有会话",
+      "no_session_hint": "在聊天中给团队分配任务。团队生成的代码、网页和文档会显示在这里，供你查看和试运行。",
+      "gone_title": "还没有结果文件夹",
+      "gone_hint": "团队尚未为此会话写入任何文件。生成的代码、网页或文档会显示在这里。",
+      "empty_title": "结果文件夹为空",
+      "empty_hint": "团队还没有创建任何文件。请在聊天中分配任务，例如“制作产品介绍页”。",
+      "open_folder_hint": "在本机打开此会话的结果文件夹",
+      "tree_label": "结果文件夹树"
+    },
     "live": {
       "starting": "团队正在开始…",
       "stopping": "正在停止运行…",
@@ -263,6 +285,8 @@
       "others": "另有 {n} 人",
       "elapsed": "已用时间",
       "steps": "{n} 次调用",
+      "steps_label": "调用次数",
+      "usage_label": "令牌与费用",
       "issues": "{n} 个工具错误处理中",
       "issues_hint": "查看智能体正在自行修复的工具错误",
       "finished_completed": "本轮已完成",
@@ -964,6 +988,14 @@
         "instruction": "请按上述意见返工：保留已经正确的部分，逐一解决问题，并清楚说明修改了哪些内容。"
       }
     },
+    "output": {
+      "project": "结果（源代码、视频、文件）保存在项目中：",
+      "session": "尚未打开项目。结果（源代码、视频、文件）将保存在本会话专属的文件夹中：",
+      "session_later": "发送第一条消息后会显示路径。",
+      "open": "打开文件夹",
+      "choose": "选择保存位置",
+      "open_failed": "无法打开结果文件夹"
+    },
     "open_folder": {
       "title": "打开项目文件夹",
       "subtitle": "选择本机上的一个项目进行处理，就像 VS Code 的“打开文件夹”。",
@@ -981,7 +1013,11 @@
       "opened": "已打开项目“{name}”",
       "opened_detail": "{count} 个文件 · {path}",
       "failed": "无法打开文件夹",
-      "drop_hint": "你拖入了文件夹“{name}”。请在这里找到并打开它：智能体会直接在其中工作，无需上传。"
+      "drop_hint": "你拖入了文件夹“{name}”。请在这里找到并打开它：智能体会直接在其中工作，无需上传。",
+      "new_folder": "新建文件夹",
+      "new_folder_name": "新文件夹名称",
+      "new_folder_create": "创建",
+      "empty_create": "在此新建文件夹，开始一个空项目。"
     },
     "team": {
       "assigned": "{lead} 将任务分配给 {member}",
@@ -2590,6 +2626,54 @@
       "not_ready": "未通过",
       "open_failed": "无法打开此次评估"
     },
+    "products": {
+      "title": "本次评估的产物",
+      "count": "{n} 次运行有产物",
+      "empty_runs": "{n} 次运行未生成文件",
+      "files": "{n} 个文件",
+      "inferred": "按运行时间匹配",
+      "inferred_hint": "旧版本未记录失败或超时运行的文件夹：已按运行时间将文件夹匹配到此运行。",
+      "open_web": "打开网页应用",
+      "new_tab": "在新标签页中打开",
+      "wait_hint": "首次启动可能需要几分钟。",
+      "preview_failed": "无法启动应用。",
+      "preview_failed_hint": "请查看此运行文件中的日志。",
+      "open_site": "打开页面",
+      "view_in_lab": "在实验室中查看",
+      "run": "试运行",
+      "retry": "重试",
+      "view_files": "查看文件",
+      "stop": "停止",
+      "stop_label": "停止 {name} 的试运行",
+      "type": {
+        "webapp": "网页应用",
+        "site": "网页",
+        "media": "视频/图片",
+        "docs": "文档",
+        "code": "源代码",
+        "files": "文件"
+      },
+      "chip": {
+        "webapp": "网页应用",
+        "site": "网页",
+        "media": "{n} 个图片/视频",
+        "docs": "{n} 个文档",
+        "code": "{n} 个代码文件",
+        "files": "{n} 个文件"
+      }
+    },
+    "cleanup": {
+      "title_passed": "评估通过。清理此工作流的 {n} 次旧运行（{size}）？",
+      "title": "此工作流有 {n} 次旧运行（{size}）。清理以释放空间？",
+      "keeps": "保留：本次运行的产物{baseline}，以及所有运行的得分和历史。",
+      "keeps_baseline": "和最近一次通过的运行的产物",
+      "confirm": "立即清理",
+      "later": "稍后",
+      "never": "不再询问",
+      "done": "已清理 {n} 次运行，释放 {size}",
+      "failed": "无法清理旧结果",
+      "never_note": "不再询问。仍可使用页面底部的“清理旧结果”按钮。"
+    },
     "storage": {
       "line": "实验结果：{size} · {n} 轮",
       "empty": "本机还没有实验结果",
@@ -3057,6 +3141,27 @@
       "code_execution": "部分智能体使用了运行代码或命令的工具，但服务器关闭了此权限，这些工具将无法运行。",
       "unreachable": "部分节点没有指向它的连线，也不属于任何团队，因此永远不会运行。",
       "other": "此项检查未通过，详情见下方。"
-    }
+    },
+    "history": "聊天记录",
+    "history_for": "会话 · {name}",
+    "history_loading": "加载中…",
+    "history_empty": "还没有保存的会话。每次对话都会自动保存在这里。",
+    "untitled": "未命名会话",
+    "message_count": "{n} 条消息",
+    "delete_session": "删除此会话",
+    "delete_confirm": "再次点击以永久删除",
+    "delete_confirm_short": "删除？",
+    "time_now": "刚刚",
+    "time_minutes": "{n} 分钟前",
+    "time_hours": "{n} 小时前",
+    "time_days": "{n} 天前",
+    "model_name_label": "模型",
+    "model_hint": "选择账户的模型。简单问题用小而快的模型更省 token；设计或修改复杂流程用强模型。",
+    "model_default": "默认模型",
+    "model_default_named": "默认（{model}）",
+    "meta_tokens": "{n} token",
+    "meta_detail": "输入：{input} token · 输出：{output} token · 缓存：{cached} · {calls} 次调用",
+    "copy": "复制",
+    "copied": "已复制"
   }
 }

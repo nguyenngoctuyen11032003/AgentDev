@@ -250,6 +250,9 @@
   background: var(--warn);
   vertical-align: 1px;
 }
+/* A count, not a warning: quiet until the app runs */
+.toggle-badge.products-badge { color: var(--fg-muted); background: rgb(var(--ink) / 0.1); font-variant-numeric: tabular-nums; }
+.toggle-badge.products-badge.is-live { color: var(--on-accent); background: var(--success); }
 
 /* Active Nodes */
 .active-nodes-display {

@@ -13,11 +13,13 @@
       <span class="mode-icon" aria-hidden="true" v-html="current.icon"></span>
       <span class="mode-trigger-label">{{ current.label }}</span>
     </button>
+    <Teleport to="body">
     <Transition name="mode-menu">
       <div
         v-if="open"
         ref="menuRef"
         class="mode-menu"
+        :style="menuStyle"
         role="menu"
         :aria-label="$t('launch.mode.title')"
         @keydown="onMenuKey"
@@ -47,6 +49,7 @@
         <p v-if="runActive" class="mode-menu-note">{{ $t('launch.mode.next_turn') }}</p>
       </div>
     </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -89,9 +92,30 @@ const focusItem = (index) => {
   const n = itemRefs.length
   itemRefs[((index % n) + n) % n]?.focus()
 }
+// The menu is teleported to <body> and placed against the viewport, so a narrow chat panel (or any
+// overflow:hidden ancestor) can no longer clip it. It stays inside the window and scrolls if tall.
+const MENU_WIDTH = 340
+const GAP = 8
+const menuStyle = ref({})
+const placeMenu = () => {
+  const trigger = triggerRef.value
+  if (!trigger) return
+  const rect = trigger.getBoundingClientRect()
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const width = Math.min(MENU_WIDTH, vw - GAP * 2)
+  const left = Math.min(Math.max(GAP, rect.right - width), vw - width - GAP)
+  const above = rect.top - GAP * 2
+  const below = vh - rect.bottom - GAP * 2
+  const openUp = above >= Math.min(420, below) || above >= below
+  menuStyle.value = openUp
+    ? { left: `${left}px`, width: `${width}px`, bottom: `${vh - rect.top + GAP}px`, maxHeight: `${Math.max(160, above)}px` }
+    : { left: `${left}px`, width: `${width}px`, top: `${rect.bottom + GAP}px`, maxHeight: `${Math.max(160, below)}px` }
+}
 const toggle = async () => {
   open.value = !open.value
   if (open.value) {
+    placeMenu()
     await nextTick()
     focusItem(Math.max(0, MODE_KEYS.indexOf(props.modelValue)))
   }
@@ -111,16 +135,29 @@ const onMenuKey = (event) => {
   else if (event.key === 'ArrowUp') { event.preventDefault(); focusItem(index - 1) }
   else if (event.key === 'Home') { event.preventDefault(); focusItem(0) }
   else if (event.key === 'End') { event.preventDefault(); focusItem(itemRefs.length - 1) }
+  else if (event.key === 'Escape') { event.stopPropagation(); close(true) }
   else if (event.key === 'Tab') close(false)
 }
 const onOutside = (event) => {
-  if (rootRef.value && !rootRef.value.contains(event.target)) close(false)
+  if (rootRef.value?.contains(event.target) || menuRef.value?.contains(event.target)) return
+  close(false)
 }
 watch(open, (isOpen) => {
-  if (isOpen) document.addEventListener('pointerdown', onOutside, true)
-  else document.removeEventListener('pointerdown', onOutside, true)
+  if (isOpen) {
+    document.addEventListener('pointerdown', onOutside, true)
+    window.addEventListener('resize', placeMenu)
+    window.addEventListener('scroll', placeMenu, true)
+  } else {
+    document.removeEventListener('pointerdown', onOutside, true)
+    window.removeEventListener('resize', placeMenu)
+    window.removeEventListener('scroll', placeMenu, true)
+  }
 })
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside, true))
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onOutside, true)
+  window.removeEventListener('resize', placeMenu)
+  window.removeEventListener('scroll', placeMenu, true)
+})
 </script>
 
 <style scoped>
@@ -165,11 +202,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside, tru
 }
 
 .mode-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 30;
-  width: min(340px, calc(100vw - 32px));
+  position: fixed;
+  z-index: 1000;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 14px;

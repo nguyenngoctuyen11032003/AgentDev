@@ -80,8 +80,11 @@
   .view-tab:not(.active) .view-tab-label { display: none; }
   .view-tab:not(.active) .toggle-badge { position: absolute; top: 2px; right: 0; }
 }
-/* Phone width: six icons only just fit, so the active tab is marked by its colour and underline */
+/* Phone width: seven icons only just fit, so the active tab is marked by its colour and underline */
 @media (max-width: 399.98px) {
+  .view-tabs { gap: 0; }
+  .view-tab { padding: 0 5px; }
+  .view-tab::after { left: 5px; right: 5px; }
   .view-tab.active .view-tab-label { display: none; }
   .view-tab.active .toggle-badge { position: absolute; top: 2px; right: 0; }
 }
