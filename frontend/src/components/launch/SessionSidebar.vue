@@ -162,6 +162,10 @@
             <BaseSkeleton width="46%" height="18px" radius="99px" />
           </div>
         </div>
+        <div v-else-if="!sessions.length && loadError" class="sidebar-empty is-error" role="alert">
+          <p>{{ t('launch.sessions.load_error') }}</p>
+          <button type="button" class="empty-action" @click="emit('retry')">{{ t('common.retry') }}</button>
+        </div>
         <div v-else-if="!sessions.length && !draft" class="sidebar-empty is-first">
           <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M8 9h8M8 13h5" /></svg>
           <p class="empty-title">{{ t('launch.sessions.empty_title') }}</p>
@@ -270,6 +274,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseSkeleton from '@/components/ui/BaseSkeleton.vue'
 import StatusPill from './StatusPill.vue'
+import { isRestartInterruption } from './runStatus.js'
 
 const props = defineProps({
   sessions: { type: Array, default: () => [] },
@@ -282,10 +287,12 @@ const props = defineProps({
   projectWorkflows: { type: Object, default: () => ({}) },
   collapsed: { type: Boolean, default: false },
   // The list has not arrived yet: say so instead of "no sessions"
-  loading: { type: Boolean, default: false }
+  loading: { type: Boolean, default: false },
+  // The last load failed: say so (with a retry) instead of "no sessions yet"
+  loadError: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['select', 'new', 'add-project', 'rename', 'delete', 'delete-group', 'toggle'])
+const emit = defineEmits(['select', 'new', 'add-project', 'rename', 'delete', 'delete-group', 'toggle', 'retry'])
 
 const { t, te } = useI18n()
 
@@ -343,7 +350,7 @@ const stoppedByYou = (item) => USER_STOP_RE.test(String(item.interrupt_reason ||
 const interruptTitle = (item) => {
   const reason = String(item.interrupt_reason || '')
   if (stoppedByYou(item)) return t('launch.sessions.stopped_hint')
-  if (/server restart/i.test(reason)) return t('launch.sessions.interrupted_restart')
+  if (isRestartInterruption(reason)) return t('launch.sessions.interrupted_restart')
   return t('launch.resume.banner')
 }
 

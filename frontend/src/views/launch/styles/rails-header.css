@@ -1,0 +1,218 @@
+/* ---- Rails: a folded sessions list / chat keeps a slim strip of icon buttons ---- */
+.sessions-rail,
+.chat-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 48px;
+  padding: var(--space-1) 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.sessions-rail { flex: none; }
+/* Standalone (sessions list open): a small floating pill, not a full-height strip */
+.chat-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--z-launch-rail);
+  padding: var(--space-1);
+  width: auto;
+  animation: fade-in 0.18s var(--ease-out);
+}
+.rail-sep {
+  width: 24px;
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
+}
+.rail-btn.is-active { background: var(--surface-raised); color: var(--fg); }
+/* The chat toggle is the rail's main action: solid accent while folded, a soft accent tint while open */
+.rail-btn.rail-btn-chat {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out), transform 0.15s var(--ease-out);
+}
+.rail-btn.rail-btn-chat:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.rail-btn.rail-btn-chat:active { transform: none; }
+.rail-btn.rail-btn-chat.is-active,
+.rail-btn.rail-btn-chat.is-active:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  filter: none;
+  transform: none;
+}
+.rail-btn.rail-btn-chat .rail-dot { top: 5px; right: 5px; background: var(--warn); }
+.rail-btn.rail-btn-chat .rail-dot:not(.is-waiting) { background: #fff; box-shadow: 0 0 0 2px var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .rail-btn.rail-btn-chat, .rail-btn.rail-btn-chat:hover { transition: none; transform: none; }
+}
+.rail-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+.rail-btn:hover { background: var(--surface-raised); color: var(--fg); }
+.rail-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.rail-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.rail-dot.is-waiting { background: var(--warn); }
+
+/* Drag handle on the chat column's right edge (wide screens, outside the chat view) */
+.chat-resizer {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  right: -7px;
+  width: 14px;
+  z-index: var(--z-launch-resizer);
+  cursor: col-resize;
+  pointer-events: auto;
+  touch-action: none;
+  border-radius: 7px;
+}
+.chat-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 5px;
+  width: 4px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  opacity: 0;
+  transition: opacity 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+}
+.chat-resizer:hover::after,
+.chat-resizer:focus-visible::after,
+.is-resizing .chat-resizer::after { opacity: 1; }
+.chat-resizer:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.is-resizing .chat-resizer::after { background: var(--accent); }
+.chat-panel.is-resizing { transition: none; user-select: none; }
+
+/* Chat header: session title + run state, then project and workflow; actions on the right */
+.chat-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-header-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-header-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.chat-header-status { flex: none; display: inline-flex; max-width: 70%; }
+
+.chat-header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.chat-header-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+
+/* The project is context, not a warning: a neutral chip */
+.chat-header-project {
+  flex: 0 0 auto;
+  max-width: 65%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 20px;
+  padding: 0 7px 0 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--fg);
+  font-weight: 550;
+}
+.chat-header-project svg { flex: none; color: var(--fg-muted); }
+.chat-header-project-name,
+.chat-header-workflow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-header-workflow { flex: 0 1 auto; }
+/* The state outranks the title when room runs out: the title truncates first */
+.chat-panel:not(.chat-panel-fullscreen) .chat-header-actions { gap: 0; }
+.chat-panel:not(.chat-panel-fullscreen) .chat-header { padding-right: 4px; }
+
+.chat-header-actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.chat-header-btn {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(var(--ink) / 0.65);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.chat-header-btn:hover,
+.chat-header-btn.active {
+  background: rgb(var(--ink) / 0.08);
+  color: var(--text-1);
+}
+
+/* Scoped keyframes are renamed per <style> block: this file needs its own copy (same as shell.css) */
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
