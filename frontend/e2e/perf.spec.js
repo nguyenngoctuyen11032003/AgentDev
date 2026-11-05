@@ -29,7 +29,7 @@ const PAGES = [
   { name: 'settings-general', url: '/settings/general' },
   { name: 'settings-connections', url: '/settings/connections' },
   { name: 'settings-skills', url: '/settings/skills' },
-  { name: 'batch-run', url: '/batch-run' },
+  { name: 'lab-batch', url: '/lab?tab=batch' },
 ]
 const CYCLE = PAGES.slice(0, 8)
 

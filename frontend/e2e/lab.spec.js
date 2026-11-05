@@ -96,3 +96,17 @@ test('lab: workflow list load error is shown with a retry button', async ({ page
   await expect(page.locator('.intro-error')).toBeVisible()
   await expect(page.locator('.intro-error').getByRole('button', { name: 'Thử lại' })).toBeVisible()
 })
+
+test('Batch Run is a tab of the Lab; /batch-run deep link opens it', async ({ page }) => {
+  await page.goto('/batch-run')
+  await expect(page).toHaveURL(/\/lab\?.*tab=batch/)
+  await expect(page.getByRole('tab', { name: /Excel\/CSV|batch/i })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('#lab-panel-batch .launch-view')).toBeVisible()
+  // Back to scoring: keyboard on the tablist
+  await page.getByRole('tab', { selected: true }).press('ArrowLeft')
+  await expect(page).not.toHaveURL(/tab=batch/)
+  await expect(page.locator('#lab-panel-batch')).toHaveCount(0)
+  await expect(page.locator('#lab-panel-score')).toBeVisible()
+  // No second entry point to /batch-run left in the Lab
+  await expect(page.locator('a[href="/batch-run"]')).toHaveCount(0)
+})

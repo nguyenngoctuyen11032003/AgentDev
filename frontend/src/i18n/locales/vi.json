@@ -2540,6 +2540,12 @@
     },
     "subtitle": "Kiểm định một quy trình trước khi dùng thật: kiểm tra cấu hình, rồi chạy thử với các kịch bản để xem kết quả có đúng, có ổn định và tốn bao nhiêu.",
     "batch_link": "Chạy hàng loạt từ Excel/CSV →",
+    "tabs": {
+      "label": "Các tab của Phòng thí nghiệm",
+      "score": "Chấm điểm quy trình",
+      "batch": "Chạy hàng loạt từ Excel/CSV",
+      "loading": "Đang tải chạy hàng loạt..."
+    },
     "batch_link_label": "Chạy hàng loạt từ Excel/CSV",
     "run_for_real": "Chạy quy trình này thật",
     "run_for_real_hint": "Mở trang Chạy với quy trình này.",

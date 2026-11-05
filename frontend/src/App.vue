@@ -10,8 +10,8 @@ const route = useRoute()
 
 // Hide the navigation bar only on the full-screen run chat (/launch); every other page keeps it.
 const showSidebar = computed(() => route.path !== '/launch')
-// Launch and Batch views render multiple root nodes, so they are mounted without <Transition>.
-const useRouteFade = computed(() => showSidebar.value && route.path !== '/batch-run')
+// Launch and the Lab batch tab render multiple root nodes, so they are mounted without <Transition>.
+const useRouteFade = computed(() => showSidebar.value && route.query.tab !== 'batch')
 const isHomeRoute = computed(() => route.path === '/')
 
 // Keep <html lang> in sync with the UI language (accessibility, spell-check, hyphenation)

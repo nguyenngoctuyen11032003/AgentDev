@@ -2253,6 +2253,12 @@
     },
     "subtitle": "Validate a workflow before relying on it: check its configuration, then run test scenarios to see whether results are correct, stable, and what they cost.",
     "batch_link": "Batch run from Excel/CSV →",
+    "tabs": {
+      "label": "Lab tabs",
+      "score": "Score a workflow",
+      "batch": "Batch run from Excel/CSV",
+      "loading": "Loading batch run..."
+    },
     "batch_link_label": "Batch run from Excel/CSV",
     "run_for_real": "Run this workflow for real",
     "run_for_real_hint": "Opens the Run page with this workflow.",

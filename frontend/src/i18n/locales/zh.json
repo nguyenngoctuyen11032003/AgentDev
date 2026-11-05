@@ -2253,6 +2253,12 @@
     },
     "subtitle": "在正式使用前验证工作流：检查配置，再用测试场景运行，查看结果是否正确、稳定以及成本。",
     "batch_link": "从 Excel/CSV 批量运行 →",
+    "tabs": {
+      "label": "实验室标签页",
+      "score": "为工作流评分",
+      "batch": "从 Excel/CSV 批量运行",
+      "loading": "正在加载批量运行..."
+    },
     "batch_link_label": "从 Excel/CSV 批量运行",
     "run_for_real": "真实运行此工作流",
     "run_for_real_hint": "打开“运行”页面并选中此工作流。",

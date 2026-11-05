@@ -6,10 +6,6 @@
         <h1 class="hero-title">{{ $t('lab.title') }}</h1>
         <p class="hero-sub">{{ $t('lab.subtitle') }}</p>
       </div>
-      <router-link to="/batch-run" class="btn">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" /></svg>
-        {{ $t('lab.batch_link_label') }}
-      </router-link>
     </header>
 
     <!-- ================================================================ control bar -->

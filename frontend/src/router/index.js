@@ -18,11 +18,12 @@ const routes = [
     {
         path: '/lab',
         name: 'lab',
-        component: () => import('@/views/LabView.vue')
+        component: () => import('@/views/LabWorkbench.vue')
     },
     {
+        // Old deep link: Batch Run now lives in the Lab as a tab (query such as ?workflow= is kept)
         path: '/batch-run',
-        component: () => import('@/views/BatchRunView.vue')
+        redirect: (to) => ({ path: '/lab', query: { ...to.query, tab: 'batch' }, hash: to.hash })
     },
     {
         path: '/workflows/:name?',
