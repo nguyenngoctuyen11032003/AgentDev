@@ -3,28 +3,41 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from agentdev.api import state
+from agentdev.connections.security import host_headers_ok
 from agentdev.api.config_schema_router import router as config_schema_router
 from agentdev.api.routes import ALL_ROUTERS
 from agentdev.utils.error_handler import add_exception_handlers
 from agentdev.utils.middleware import add_middleware
 
 
+class HostGuardMiddleware:
+    """Pure ASGI guard (HTTP and WebSocket): only loopback / AGENTDEV_ALLOWED_HOSTS Host values pass."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            hosts = [v.decode("latin-1") for k, v in scope.get("headers", []) if k == b"host"]
+            if not host_headers_ok(hosts):
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 1008})
+                else:
+                    await JSONResponse({"detail": "Invalid Host header"}, status_code=400)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
 def init_app(app: FastAPI) -> None:
     """Apply shared middleware, routers, and global state to ``app``."""
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
     add_exception_handlers(app)
     add_middleware(app)
+    # Outermost: reject foreign Host headers (DNS rebinding) before anything else runs.
+    app.add_middleware(HostGuardMiddleware)
 
     state.init_state()
 

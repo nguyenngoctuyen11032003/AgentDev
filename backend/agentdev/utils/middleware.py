@@ -8,8 +8,64 @@ from fastapi.responses import JSONResponse
 import time
 import re
 import os
+import logging
+from urllib.parse import unquote_plus
 
 from agentdev.utils.structured_logger import get_server_logger
+
+
+_SENSITIVE_QUERY = re.compile(r"code|state|token|secret|key|password|authorization", re.I)
+
+
+def _is_sensitive(name: str) -> bool:
+    return bool(_SENSITIVE_QUERY.search(unquote_plus(name)))
+
+
+def redact_query(params: dict) -> dict:
+    """Mask OAuth codes, tokens and secrets before a query is logged."""
+    return {k: ("***" if _is_sensitive(k) else v) for k, v in params.items()}
+
+
+def redact_query_string(query: str) -> str:
+    """Mask every value (repeated params too) of sensitive parameters in a raw query string."""
+    parts = []
+    for piece in query.split("&"):
+        name, sep, _ = piece.partition("=")
+        parts.append(f"{name}=***" if sep and _is_sensitive(name) else piece)
+    return "&".join(parts)
+
+
+def redact_url(request: Request) -> str:
+    url = request.url
+    if not url.query:
+        return str(url)
+    return str(url.replace(query=redact_query_string(url.query)))
+
+
+class AccessLogRedactFilter(logging.Filter):
+    """Mask sensitive query values in uvicorn access log lines."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple):
+            record.args = tuple(
+                redact_target(a) if isinstance(a, str) and "?" in a and a.startswith("/") else a for a in args
+            )
+        return True
+
+
+def redact_target(target: str) -> str:
+    path, _, query = target.partition("?")
+    return f"{path}?{redact_query_string(query)}"
+
+
+def install_access_log_filter() -> None:
+    lg = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, AccessLogRedactFilter) for f in lg.filters):
+        lg.addFilter(AccessLogRedactFilter())
+
+
+install_access_log_filter()
 
 
 async def correlation_id_middleware(request: Request, call_next: Callable):
@@ -25,10 +81,10 @@ async def correlation_id_middleware(request: Request, call_next: Callable):
     logger = get_server_logger()
     logger.log_request(
         request.method,
-        str(request.url),
+        redact_url(request),
         correlation_id=correlation_id,
         path=request.url.path,
-        query_params=dict(request.query_params),
+        query_params=redact_query(dict(request.query_params)),
         client_host=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent")
     )
@@ -120,6 +176,7 @@ def add_cors_middleware(app: FastAPI) -> None:
 
 def add_middleware(app: FastAPI):
     """Add all middleware to the FastAPI application."""
+    install_access_log_filter()
     # Attach CORS first to handle preflight requests and allow origins.
     add_cors_middleware(app)
 

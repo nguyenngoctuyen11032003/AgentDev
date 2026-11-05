@@ -8,11 +8,13 @@ services:
     volumes:
       - .:/app
     ports:
-      - "6400:6400"
+      - "127.0.0.1:6400:6400"
     env_file:
       - .env
     environment:
       BACKEND_BIND: 0.0.0.0
+      # Vite proxy in the frontend container reaches the backend with Host: backend:6400
+      AGENTDEV_ALLOWED_HOSTS: backend
       CORS_ALLOW_ORIGINS: http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173}
     restart: unless-stopped
 
