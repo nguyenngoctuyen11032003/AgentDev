@@ -56,7 +56,8 @@ def _run(tmp_path, **answers):
 
 def test_happy_path_runs_each_step_once(tmp_path, runs):
     result = _run(tmp_path)
-    assert result.final_message is not None and "Đã lưu" in result.final_message.text_content()
+    # Several end steps: the one that finishes last (Render Skipped, after Archivist) gives the answer
+    assert result.final_message is not None and "bỏ qua bước tạo video" in result.final_message.text_content()
     for step in ("Writer", "Script Reviewer", "Visual Director", "Voice & Subtitles", "Thumbnail Title",
                  "Production QA", "Video Approval", "Archivist"):
         assert runs[step] == 1, (step, dict(runs))
@@ -67,7 +68,7 @@ def test_script_review_loop_stops_at_its_limit(tmp_path, runs):
     result = _run(tmp_path, **{"Script Reviewer": "Cần sửa: mở đầu yếu"})
     assert runs["Writer"] == 2 and runs["Script Reviewer"] == 2, dict(runs)
     assert runs["Script Approval"] == 1 and runs["Archivist"] == 1, dict(runs)
-    assert "Đã lưu" in result.final_message.text_content()
+    assert "bỏ qua bước tạo video" in result.final_message.text_content()
 
 
 def test_production_loop_stops_after_three_revisions(tmp_path, runs):
@@ -77,7 +78,7 @@ def test_production_loop_stops_after_three_revisions(tmp_path, runs):
     assert runs["Visual Director"] == 4, dict(runs)  # first package + 3 revisions
     assert runs["Video Approval"] == 4, dict(runs)
     assert runs["Final Approval"] == 1 and runs["Archivist"] == 1, dict(runs)
-    assert "Đã lưu" in result.final_message.text_content()
+    assert "bỏ qua bước tạo video" in result.final_message.text_content()
 
 
 def test_production_loop_can_stop_without_archiving(tmp_path, runs):

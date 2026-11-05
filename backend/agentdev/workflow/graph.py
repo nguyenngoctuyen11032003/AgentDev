@@ -1,5 +1,6 @@
 ﻿"""Graph orchestration adapted to AgentDev design_0.4.0 workflows."""
 
+import itertools
 import os
 import threading
 import time
@@ -95,6 +96,9 @@ class GraphExecutor:
         self.majority_result = None
         self.graph: GraphContext = graph
         self.outputs = {}
+        # Order in which nodes last finished: with several end steps, the one that finished last gives the answer
+        self._completion_seq: Dict[str, int] = {}
+        self._completion_counter = itertools.count(1)
         self.logger = self._create_logger()
         self._cancel_event = cancel_event or threading.Event()
         self._cancel_reason: Optional[str] = None
@@ -702,6 +706,7 @@ class GraphExecutor:
                 msg = self._ensure_source_output(raw_output, node.id)
                 node.append_output(msg)
                 output_messages.append(msg)
+            self._completion_seq[node.id] = next(self._completion_counter)
 
             # Use first output for context trace handling (backward compat)
             unified_output = output_messages[0] if output_messages else None
@@ -822,6 +827,7 @@ class GraphExecutor:
             )
         for msg in outputs:
             node.append_output(msg)
+        self._completion_seq[node.id] = next(self._completion_counter)
         return outputs
 
     def _process_result(self, node: Node, input_payload: List[Message]) -> List[Message]:
@@ -944,16 +950,20 @@ class GraphExecutor:
         return results
 
     def _get_final_node(self) -> Node:
-        """Return the explicitly configured end node, or sink node as fallback."""
+        """Return the end node that finished last with output, or the sink node when no end is declared."""
         end_node_ids = self.graph.config.definition.end_nodes
 
         if end_node_ids:
+            # The end step that finished last wins; a tie (or no record) keeps declaration order
+            best, best_seq = None, -1
             for end_node_id in end_node_ids:
-                if end_node_id in self.graph.nodes:
-                    node = self.graph.nodes[end_node_id]
-                    # Check if node has output
-                    if node.output:
-                        return node
+                node = self.graph.nodes.get(end_node_id)
+                if node is not None and node.output:
+                    seq = self._completion_seq.get(end_node_id, 0)
+                    if seq > best_seq:
+                        best, best_seq = node, seq
+            if best is not None:
+                return best
 
         if end_node_ids:
             # End steps are declared and none produced output: never hand back some other branch's output instead
