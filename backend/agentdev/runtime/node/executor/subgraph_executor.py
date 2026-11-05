@@ -74,7 +74,25 @@ class SubgraphNodeExecutor(NodeExecutor):
         # Execute the subgraph (requires importing ``GraphExecutor``)
         from agentdev.workflow.graph import GraphExecutor
         
-        executor = GraphExecutor.execute_graph(subgraph, task_prompt=task_payload)
+        # The subgraph runs under the parent's controls: its cancel event (stop / Lab timeout reaches nested
+        # nodes), its prompt channel (gates answered where the parent's are, e.g. the Lab's automatic answers that
+        # never approve a paid gate, instead of a console prompt) and its token tracker (usage and run budgets
+        # count the nested calls). The nested nodes are recorded in the parent as ``<node.id>/<id>`` so a nested
+        # ``W`` never uses up the parent's own ``W`` cap, and the subgraph's own run_limits still apply.
+        parent = self.context
+        executor = GraphExecutor(subgraph, cancel_event=getattr(parent, "cancel_event", None))
+        prompt_service = getattr(parent, "human_prompt_service", None)
+        if prompt_service is not None:
+            executor._human_prompt_service = prompt_service
+        tracker = getattr(parent, "token_tracker", None)
+        if tracker is not None and hasattr(tracker, "scoped"):
+            executor.token_tracker = tracker.scoped(
+                node.id, getattr(getattr(subgraph, "config", None), "run_limits", None),
+                cancel_cb=lambda msg: executor.request_cancel(msg),
+            )
+        elif tracker is not None:
+            executor.token_tracker = tracker
+        executor._execute(task_payload)
         result_messages = executor.get_final_output_messages()
         
         final_results = []
