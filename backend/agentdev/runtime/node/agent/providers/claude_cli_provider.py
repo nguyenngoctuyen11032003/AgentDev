@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from agentdev.paths import SKILLS_DIR
 from agentdev.connections.cli_auth import find_cli
-from agentdev.entity.messages import Message, MessageRole
+from agentdev.entity.messages import Message, MessageRole, ToolCallPayload
 from agentdev.entity.tool_spec import ToolSpec
 from agentdev.runtime.node.agent import ModelProvider, ModelResponse
 from agentdev.runtime.node.agent.providers._cli_common import (
@@ -52,6 +52,7 @@ from agentdev.runtime.node.agent.providers._native import (
     absolutize_attachments,
     changed_files_note,
     native_preamble,
+    native_calls_of_listed_tools,
     read_claude_stream,
     with_preamble,
 )
@@ -154,6 +155,18 @@ def _stream_error_text(stdout: str) -> str:
                 if isinstance(block, dict) and block.get("type") == "text":
                     parts.append(str(block.get("text") or ""))
     return chr(10).join(p for p in parts if p)
+
+
+# Flag AGENTDEV_NATIVE_TOOL_RESCUE (1/0). The built-in default stays False until the real A/B says otherwise
+# (docs/adr/0005-native-tool-rescue.md).
+NATIVE_TOOL_RESCUE_DEFAULT = False
+
+
+def native_tool_rescue_enabled() -> bool:
+    raw = os.environ.get("AGENTDEV_NATIVE_TOOL_RESCUE")
+    if raw is None or not raw.strip():
+        return NATIVE_TOOL_RESCUE_DEFAULT
+    return raw.strip().lower() in ("1", "true", "on", "yes")
 
 
 class ClaudeCliProvider(ModelProvider):
@@ -357,6 +370,10 @@ class ClaudeCliProvider(ModelProvider):
         record_token_usage(self, data, "claude_cli")
         if tool_specs:
             text, tool_calls = parse_tool_reply(data.get("structured_output"), text, tool_specs)
+            if not tool_calls:
+                tool_calls = self._recover_native_calls(out, tool_specs)
+                if tool_calls:
+                    text = ""  # the text only says the tool was unavailable; the call is made now
             return ModelResponse(
                 message=Message(role=MessageRole.ASSISTANT, content=text, tool_calls=tool_calls),
                 raw_response=data,
@@ -365,6 +382,17 @@ class ClaudeCliProvider(ModelProvider):
             message=Message(role=MessageRole.ASSISTANT, content=text),
             raw_response=data,
         )
+
+    @staticmethod
+    def _recover_native_calls(stdout: str, tool_specs: List[ToolSpec]) -> List[ToolCallPayload]:
+        """Host tools the model called natively (the CLI refused them): hand them to the host as tool calls."""
+        if not native_tool_rescue_enabled():
+            return []
+        return [
+            ToolCallPayload(id=f"call_{uuid.uuid4().hex[:16]}", function_name=name,
+                            arguments=json.dumps(args, ensure_ascii=False))
+            for name, args in native_calls_of_listed_tools(stdout, [spec.name for spec in tool_specs])
+        ]
 
     @staticmethod
     def _apply_session_cost(data: Dict[str, Any], session: CliSession, resuming: bool) -> None:

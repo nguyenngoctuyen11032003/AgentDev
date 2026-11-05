@@ -100,6 +100,33 @@ def _jsonl(stdout: str):
             yield event
 
 
+def native_calls_of_listed_tools(stdout: str, names: Any) -> List[Tuple[str, Dict[str, Any]]]:
+    """Tool calls the model made natively (stream ``tool_use`` blocks) for tools that only exist in the host protocol.
+
+    The CLI answers those with "No such tool available" and a small model then often ends with a plain text
+    reply, so the host never sees the call. Only names in ``names`` count (never a built-in tool); repeats of the
+    same call (the model retrying) are merged. Order is kept.
+    """
+    known = set(names)
+    found: List[Tuple[str, Dict[str, Any]]] = []
+    seen: set = set()
+    for event in _jsonl(stdout):
+        if event.get("type") != "assistant":
+            continue
+        message = event.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict) or block.get("type") != "tool_use" or block.get("name") not in known:
+                continue
+            args = block.get("input") if isinstance(block.get("input"), dict) else {}
+            key = (block["name"], json.dumps(args, sort_keys=True, default=str))
+            if key not in seen:
+                seen.add(key)
+                found.append((block["name"], args))
+    return found
+
+
+
 def _tool_result_text(content: Any) -> str:
     if isinstance(content, str):
         return content

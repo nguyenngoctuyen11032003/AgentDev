@@ -1,0 +1,63 @@
+{
+  "mode": "real",
+  "workflow": "bugfix_team",
+  "model": "claude-haiku-5-5",
+  "generated_at": "2026-11-05T22:40:12",
+  "limits": {
+    "max_runs": 1,
+    "max_usd": 0.15,
+    "planned_runs": 1
+  },
+  "runs": [
+    {
+      "task": "a",
+      "label": "a_ok",
+      "failure_mode": null,
+      "success": true,
+      "clean": true,
+      "acceptance": {
+        "passed": true,
+        "checks": {
+          "hidden_clamp_test": true,
+          "no_test_removed": true
+        }
+      },
+      "wall_s": 201.58,
+      "model_calls": 24,
+      "agent_turns": 6,
+      "nodes_run": [
+        "Code Scout",
+        "Repro Analyst",
+        "Bug Fixer",
+        "QA Verifier",
+        "QA Verifier",
+        "Tech Lead"
+      ],
+      "tokens_in": 570318,
+      "tokens_out": 30404,
+      "cache_read": 517770,
+      "total_tokens": 600722,
+      "cost_usd": 0.032635,
+      "cost_known": true,
+      "files_changed": [
+        "pkg/core/mathx.py"
+      ],
+      "files_outside_scope": [],
+      "corrupted_files": [],
+      "tests_before": "red",
+      "tests_after": "green",
+      "tests_after_counts": {
+        "passed": 1205,
+        "failed": 0,
+        "errors": 0
+      },
+      "repo_files": 1631,
+      "engine_error": null,
+      "lead_final": "The fix to clamp() passed QA's independent test run in repo_a_ok, but I have not confirmed that folder is your project.\n\n- Root cause: clamp() returned `hi - 1` for values above the upper bound, so clamp(15, 0, 10) returned 9 instead of 10.\n- Change: line 9 of pkg/core/mathx.py in C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-bench-projects-5ww99qu3\\repo_a_ok was changed to `return hi`. No test files were touched.\n- Verified: QA Verifier ran `python -m pytest tests/test_core_mathx.py -q -p no:cacheprovider` in repo_a_ok: exit code 0, 3 passed, including test_clamp_above.\n- Not verified: QA could ",
+      "plan_submitted": false
+    }
+  ],
+  "stopped": null,
+  "total_cost_usd": 0.0326,
+  "cost_note": null
+}

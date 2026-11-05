@@ -144,3 +144,11 @@ def test_report_records_which_nodes_ran(report):
     for run in report["runs"]:
         assert "Tech Lead" in run["nodes_run"]
         assert isinstance(run["nodes_run"], list)
+
+
+def test_report_records_lead_final_text_and_plan_flag(report):
+    # To tell "lead stopped at the plan gate" from "lead answered conversationally", each run keeps the lead's
+    # final text (truncated) and whether it submitted a plan.
+    for run in report["runs"]:
+        assert isinstance(run["lead_final"], str) and len(run["lead_final"]) <= 600
+        assert run["plan_submitted"] in (True, False)

@@ -431,6 +431,19 @@ class _SummaryCapture(logging.Handler):
             pass
 
 
+def _lead_outcome(executor: Any) -> "tuple[str, bool]":
+    """The lead's final text (first 600 chars) and whether it submitted a plan for approval (best effort)."""
+    try:
+        text = str(executor.get_final_output() or "").strip()
+    except Exception:  # noqa: BLE001 - diagnostic only
+        text = ""
+    try:
+        plan = executor._get_execution_context().global_state.get("plan_pending")
+    except Exception:  # noqa: BLE001
+        plan = None
+    return text[:600], bool(isinstance(plan, dict) and plan.get("plan"))
+
+
 def execute(yaml_path: Path, prompt: str, workspace: Path, session: str, timeout_s: float) -> Dict[str, Any]:
     """The same steps as ``run_workflow`` but with the project folder opened in place as the workspace."""
     import agentdev.runtime.sdk as sdk
@@ -451,6 +464,8 @@ def execute(yaml_path: Path, prompt: str, workspace: Path, session: str, timeout
     timer.daemon = True
     error = None
     usage: Dict[str, Any] = {}
+    lead_final = ""
+    plan_submitted = False
     started = time.perf_counter()
     try:
         timer.start()
@@ -464,6 +479,7 @@ def execute(yaml_path: Path, prompt: str, workspace: Path, session: str, timeout
         finally:
             if executor.token_tracker:
                 usage = executor.token_tracker.get_token_usage() or {}
+            lead_final, plan_submitted = _lead_outcome(executor)
     except Exception as exc:  # noqa: BLE001 - the benchmark reports how the run ended
         error = f"{type(exc).__name__}: {str(exc)[:160]}"
     finally:
@@ -472,7 +488,8 @@ def execute(yaml_path: Path, prompt: str, workspace: Path, session: str, timeout
         summary_logger.setLevel(old_level)
     if cancel.is_set() and not error:
         error = f"timeout after {timeout_s:.0f}s"
-    return {"error": error, "wall_s": round(time.perf_counter() - started, 2), "usage": usage, "turns": handler.rows}
+    return {"error": error, "wall_s": round(time.perf_counter() - started, 2), "usage": usage, "turns": handler.rows,
+            "lead_final": lead_final, "plan_submitted": plan_submitted}
 
 
 # --------------------------------------------------------------------------- one run
@@ -539,6 +556,8 @@ def run_one(task: str, mode: str, failure: Optional[str], yaml_path: Path, tmp: 
         "tests_after_counts": {k: tests[k] for k in ("passed", "failed", "errors")},
         "repo_files": info["file_count"],
         "engine_error": result["error"],
+        "lead_final": result["lead_final"],
+        "plan_submitted": result["plan_submitted"],
     }
 
 

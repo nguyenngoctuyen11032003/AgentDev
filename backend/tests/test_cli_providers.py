@@ -534,3 +534,52 @@ def test_shell_tool_keeps_git_inside_the_run_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("MAC_ALLOW_UNSAFE_CODE_EXECUTION", "1")
     out = shell.run_shell_command("git rev-parse --show-toplevel", _context={"python_workspace_root": str(root)})
     assert "not a git repository" in out
+
+def _stream(*events):
+    return "\n".join(json.dumps(e) for e in events)
+
+
+def test_claude_tools_native_call_of_a_listed_tool_is_recovered(monkeypatch):
+    monkeypatch.setenv("AGENTDEV_NATIVE_TOOL_RESCUE", "1")
+    # Haiku sometimes calls a listed tool as a native tool_use; the CLI answers "No such tool available" and the
+    # model then ends with a plain text reply. The attempted call must still reach the host as a tool call.
+    use = {"type": "tool_use", "id": "t1", "name": "get_temperature", "input": {"city": "Hanoi"}}
+    stream = _stream(
+        {"type": "assistant", "message": {"content": [use]}},
+        {"type": "assistant", "message": {"content": [dict(use, id="t2")]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": True,
+                                                  "content": "No such tool available: get_temperature"}]}},
+        {"type": "result", "is_error": False, "result": "The tool is unavailable.",
+         "usage": {"input_tokens": 1, "output_tokens": 1}},
+    )
+    p = ClaudeCliProvider(_cfg())
+    fake, _ = _capture_claude(stream)
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake):
+        resp = p.call_model(CliClient("claude"), _conv(), [], tool_specs=[WEATHER])
+    assert resp.has_tool_calls() and len(resp.message.tool_calls) == 1
+    assert json.loads(resp.message.tool_calls[0].arguments) == {"city": "Hanoi"}
+    assert "unavailable" not in resp.message.content
+
+
+def test_claude_tools_native_call_of_an_unlisted_tool_is_not_recovered(monkeypatch):
+    monkeypatch.setenv("AGENTDEV_NATIVE_TOOL_RESCUE", "1")
+    use = {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "rm -rf /"}}
+    stream = _stream({"type": "assistant", "message": {"content": [use]}},
+                     {"type": "result", "is_error": False, "result": "done", "usage": {}})
+    p = ClaudeCliProvider(_cfg())
+    fake, _ = _capture_claude(stream)
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake):
+        resp = p.call_model(CliClient("claude"), _conv(), [], tool_specs=[WEATHER])
+    assert not resp.has_tool_calls()
+
+
+def test_claude_tools_native_rescue_flag_off_keeps_old_behaviour(monkeypatch):
+    monkeypatch.setenv("AGENTDEV_NATIVE_TOOL_RESCUE", "0")
+    use = {"type": "tool_use", "id": "t1", "name": "get_temperature", "input": {"city": "Hanoi"}}
+    stream = _stream({"type": "assistant", "message": {"content": [use]}},
+                     {"type": "result", "is_error": False, "result": "The tool is unavailable.", "usage": {}})
+    p = ClaudeCliProvider(_cfg())
+    fake, _ = _capture_claude(stream)
+    with patch("agentdev.connections.cli_auth.run_capture", side_effect=fake):
+        resp = p.call_model(CliClient("claude"), _conv(), [], tool_specs=[WEATHER])
+    assert not resp.has_tool_calls() and "unavailable" in resp.message.content

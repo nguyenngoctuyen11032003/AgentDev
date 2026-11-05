@@ -98,3 +98,21 @@ Kết luận trung thực: ON không tốt hơn (5/9 so với 7/9). Với n = 9 
 - A8-6: "Lượt gọi model" chỉ đếm lượt chạy có gọi model (`modelCallStats`); trước đó audit đã bác bỏ phần đếm sai, chỉ chỉnh số lượt kèm theo.
 - Chạy hàng loạt là tab trong Phòng thí nghiệm (`/lab?tab=batch`, `LabWorkbench.vue`); `/batch-run` chuyển hướng vào tab; bỏ nút liên kết trùng trong Lab.
 - 375px: mọi điều khiển >= 44px (đo lại: 0 phần tử nhỏ hơn), vùng aria-live của trạng thái đầu trang và gợi ý composer luôn có trong DOM, vòng focus cho ô tìm phiên, tay kéo panel và mục chọn chế độ. Tiêu đề 9px không tái hiện (đã bác bỏ ở A8); tương phản màu chỉ kiểm bằng a11y.spec.js (axe), không đo thêm.
+
+## 9. Lead dừng sớm: bản sửa tool native (`AGENTDEV_NATIVE_TOOL_RESCUE`)
+
+Nguyên nhân (bằng chứng ở `findings/lead-early-stop.md`): Haiku gọi `delegate_parallel` như tool native của Claude CLI, CLI chạy `--tools ""` trả "No such tool available", Haiku thử lại rồi trả text thuần; engine không thấy `tool_calls` nên coi đó là câu trả lời cuối. Bản sửa chuyển tool_use native trùng tên tool của host thành tool call (không bao giờ chuyển built-in như Bash).
+
+A/B thật, `bugfix_team`, Haiku, chỉ task a, xen kẽ, n = 8 mỗi bên (dữ liệu thô `docs/audit/ab-rescue/`):
+
+| | Cờ tắt | Cờ bật |
+|---|---|---|
+| Thành công | 7/8 | 8/8 |
+| Lead chạy một mình | 1 | 0 |
+| Thời gian TB | 104 s | 138 s |
+| Lời gọi model TB | 14 | 19,9 |
+| Chi phí | 0,114 USD | 0,157 USD |
+
+Quyết định: **cờ vẫn TẮT mặc định.** Hướng có lợi nhưng n = 8 chưa đủ để gọi là rõ rệt (chênh 1 lượt), và lượt lỗi duy nhất của nhánh tắt lần này không mang dấu hiệu "No such tool" (lead nói chưa điều tra, không sửa gì). Bật làm tăng thời gian và chi phí do lead làm đủ việc hơn. Cần n ≥ 20 mỗi bên trên cả 3 nhiệm vụ để kết luận. Chưa kiểm Codex.
+
+Chi tiêu thật mục 9: khoảng 0,27 USD cho 16 lượt. Tổng cả vòng khoảng 0,65 USD và khoảng 46 lượt, vượt trần 30 lượt theo duyệt của người dùng (A/B verify gate, A/B này).
