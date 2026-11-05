@@ -96,6 +96,9 @@ const reveal = async () => {
   font-weight: 600;
   cursor: pointer;
 }
+@media (pointer: coarse), (max-width: 899.98px) {
+  .output-loc-btn { min-height: 44px; }
+}
 .output-loc-btn:hover:not(:disabled) { border-color: var(--accent); }
 .output-loc-btn.is-primary { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent); }
 .output-loc-btn:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -603,6 +603,8 @@ const commitRename = (item) => {
 
 .search-icon { width: 14px; height: 14px; flex: none; color: var(--fg-subtle); }
 
+/* The input itself has no outline: the wrapper shows the focus ring instead */
+.sidebar-search:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .sidebar-search input {
   flex: 1;
   min-width: 0;

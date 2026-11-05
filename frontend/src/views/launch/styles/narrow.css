@@ -111,3 +111,16 @@
     transition-delay: 0s !important;
   }
 }
+
+/* Touch targets: at least 44x44 CSS px for controls on touch / narrow screens (WCAG 2.5.5).
+ * Seven view tabs x 44 = 308px, which still fits a 375px screen. */
+@media (pointer: coarse), (max-width: 899.98px) {
+  .brand-link,
+  .header-btn,
+  .chat-header-btn,
+  .composer-icon-btn,
+  .composer-send,
+  .view-tab { min-width: 44px; min-height: 44px; }
+  .chat-empty-pick,
+  .chat-empty-chip { min-height: 44px; }
+}

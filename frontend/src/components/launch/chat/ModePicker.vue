@@ -183,6 +183,9 @@ onBeforeUnmount(() => {
 .mode-trigger:hover,
 .mode-trigger[aria-expanded="true"] { background: rgb(var(--ink) / 0.08); color: var(--fg); }
 .mode-trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (pointer: coarse), (max-width: 899.98px) {
+  .mode-trigger { min-height: 44px; min-width: 44px; }
+}
 .mode-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mode-icon,
 .mode-item-icon { display: inline-flex; flex: none; }
@@ -245,7 +248,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .mode-item:hover,
-.mode-item:focus-visible { background: rgb(var(--ink) / 0.07); outline: none; }
+.mode-item:focus-visible { background: rgb(var(--ink) / 0.07); outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .mode-item:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
 .mode-item.is-selected { background: rgb(var(--ink) / 0.09); }
 .mode-item-icon { margin-top: 2px; color: rgb(var(--ink) / 0.7); }

@@ -815,8 +815,8 @@ onBeforeUnmount(() => {
 .resize-handle:hover,
 .resize-handle:focus-visible {
   background: rgb(var(--accent-sky-rgb) / 0.35);
-  outline: none;
 }
+.resize-handle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
 .panel-head {
   display: flex;

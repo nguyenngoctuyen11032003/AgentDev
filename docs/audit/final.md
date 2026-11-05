@@ -84,3 +84,17 @@ Thiết lập: `bugfix_team`, Haiku, 3 nhiệm vụ a,b,c x 3 lần mỗi nhánh
 Chi tiêu thật của A/B: 0,284 USD, 18 lượt, toàn bộ cost đã biết.
 
 Kết luận trung thực: ON không tốt hơn (5/9 so với 7/9). Với n = 9 mỗi nhánh, chênh lệch nằm trong nhiễu (c 1/3 so với 3/3 là các lỗi đổi tên còn sót, không liên quan tới cổng vì repo xanh nên cổng không chạy lệnh nào khác). Điểm đáng nói: ở ON lượt a đầu tiên, cổng chạy 2 vòng (3 lời gọi) nhưng Tech Lead vẫn không giao việc và kết thúc với test đỏ; nhiệm vụ b (repo xanh) cổng không có tác dụng theo thiết kế. Ở nhánh OFF lần này, kiểu lỗi "lead chạy một mình" ở nhiệm vụ a không xuất hiện (0/3), nên không có mẫu đủ để chứng minh cổng sửa được nó. Quyết định: **giữ cờ TẮT mặc định**, không chỉnh để thắng. Giả thuyết cần kiểm tra tiếp: lead dừng ở bước kế hoạch/xin duyệt (plan gate) chứ không phải do quên giao việc, khi đó cổng kiểm chứng không phải thuốc đúng; cần ghi lại câu trả lời cuối của lead trong bench để phân biệt.
+
+## 8. Giao diện: cửa sổ render tin nhắn, bước bỏ qua, tab hàng loạt, a11y 375px
+
+| Chỉ số (phiên 1000 tin, e2e/perf.spec.js) | Trước | Sau |
+|---|---|---|
+| DOM khi mở phiên (cửa sổ mặc định) | 3357 node, 160 tin | 2655 node, 120 tin |
+| DOM khi bấm "Hiện tin cũ" hết cỡ | 18054 node, 1000 tin (7 lần bấm) | 4242 node, 180 tin (15 lần bấm) |
+| Ngân sách kiểm trong test | chỉ báo cáo | `expanded < 5000` và có nút "Hiện tin mới hơn" |
+
+- Thiết kế: `utils/messageWindow.js` (logic thuần, có Vitest). Cửa sổ `{start, end}` tối đa 180 tin; kéo lên đọc cũ thì tin mới nhất bị gỡ khỏi DOM, hiện nút "Hiện N tin mới hơn" và nút nhảy tới tin mới nhất. Giữ nguyên `updateMessage`, tự cuộn khi stream (chỉ khi `end = null`), vị trí cuộn được neo theo tin đầu khung nhìn.
+- Bước không chạy khi run hoàn tất có trạng thái riêng `skipped` (`STEP_STATUS`, i18n vi/en/zh, có icon gạch ngang và chữ, không chỉ màu). Không đổi backend, chỉ dựa tracker.
+- A8-6: "Lượt gọi model" chỉ đếm lượt chạy có gọi model (`modelCallStats`); trước đó audit đã bác bỏ phần đếm sai, chỉ chỉnh số lượt kèm theo.
+- Chạy hàng loạt là tab trong Phòng thí nghiệm (`/lab?tab=batch`, `LabWorkbench.vue`); `/batch-run` chuyển hướng vào tab; bỏ nút liên kết trùng trong Lab.
+- 375px: mọi điều khiển >= 44px (đo lại: 0 phần tử nhỏ hơn), vùng aria-live của trạng thái đầu trang và gợi ý composer luôn có trong DOM, vòng focus cho ô tìm phiên, tay kéo panel và mục chọn chế độ. Tiêu đề 9px không tái hiện (đã bác bỏ ở A8); tương phản màu chỉ kiểm bằng a11y.spec.js (axe), không đo thêm.

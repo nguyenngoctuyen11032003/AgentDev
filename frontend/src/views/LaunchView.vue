@@ -171,8 +171,8 @@
                 <div class="chat-header-row">
                   <span class="chat-header-title" :title="currentSessionTitle">{{ currentSessionTitle }}</span>
                   <!-- The one place the run state lives: visible in every view -->
-                  <span v-if="selectedFile" class="chat-header-status" role="status">
-                    <StatusPill compact :tone="statusPillTone" :label="isStopping ? $t('launch.stopping') : statusLabel" />
+                  <span class="chat-header-status" role="status">
+                    <StatusPill v-if="selectedFile" compact :tone="statusPillTone" :label="isStopping ? $t('launch.stopping') : statusLabel" />
                   </span>
                 </div>
                 <span v-if="selectedFile" class="chat-header-sub">
@@ -646,13 +646,16 @@
                 </button>
               </div>
               <!-- Why the box cannot send yet (the old Run button's disabled reasons live here now) -->
-              <p v-if="composerHint" class="composer-hint" role="status">
+              <!-- The live region stays in the DOM (one that appears together with its text is often not announced) -->
+              <div role="status" class="composer-hint-live">
+              <p v-if="composerHint" class="composer-hint">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12.5"></line><circle cx="12" cy="16" r="0.6" fill="currentColor"></circle></svg>
                 <span>{{ composerHint }}</span>
                 <button v-if="!selectedFile && !loading && chatMessages.length" type="button" class="composer-hint-action" @click="focusWorkflowPicker">
                   {{ $t('launch.composer.pick_workflow_action') }}
                 </button>
               </p>
+              </div>
               <!-- Only while no project is open: tell where results will be saved (with a project open that is obvious) -->
               <OutputLocation
                 v-if="!currentProjectName"
