@@ -429,7 +429,7 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 10;
+  z-index: var(--z-raised);
   pointer-events: none;
   user-select: none;
 }

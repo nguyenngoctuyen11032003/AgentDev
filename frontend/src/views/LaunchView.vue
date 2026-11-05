@@ -1,5 +1,5 @@
 <template>
-  <div class="launch-view">
+  <div ref="launchRootRef" class="launch-view">
     <div class="header">
       <!-- The app's own nav is hidden on this page (it opens in a tab of its own): the logo is the way back -->
       <router-link to="/" target="_blank" rel="noopener" class="brand-link" :aria-label="$t('launch.shell.home')" :title="$t('launch.shell.home')">
@@ -7,7 +7,7 @@
       </router-link>
       <h1>{{ $t('launch.title') }}</h1>
       <!-- Persistent view switcher: the same in every mode and at every width -->
-      <div class="view-tabs" role="tablist" :aria-label="$t('launch.view')" @keydown="onViewTabKey">
+      <div ref="viewTabsRef" class="view-tabs" :class="{ 'is-overflowing': viewTabsOverflow }" role="tablist" :aria-label="$t('launch.view')" @keydown="onViewTabKey">
         <button
           v-for="option in viewOptions"
           :id="`view-tab-${option.mode}`"
@@ -18,9 +18,13 @@
           :class="{ active: viewMode === option.mode }"
           :aria-selected="viewMode === option.mode"
           :tabindex="viewMode === option.mode ? 0 : -1"
+          :aria-label="tabLabel(option)"
+          :title="tabLabel(option)"
           @click="selectView(option.mode)"
         >
-          {{ option.fallback && !$te(option.label) ? option.fallback : $t(option.label) }}
+          <!-- Icons only show on very narrow screens, where inactive tabs drop their label -->
+          <svg class="view-tab-icon" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path v-for="(d, i) in option.icon" :key="i" :d="d"></path></svg>
+          <span class="view-tab-label">{{ tabLabel(option) }}</span>
           <span v-if="option.mode === 'review' && reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
           <!-- How many files the team wrote for this session (a dot while its app runs) -->
           <span v-if="option.mode === 'products' && productsSummary?.file_count" class="toggle-badge products-badge" :class="{ 'is-live': productsLive }">{{ productsSummary.file_count > 999 ? '999+' : productsSummary.file_count }}</span>
@@ -106,6 +110,8 @@
           :project-workflows="projectWorkflows"
           :collapsed="false"
           :loading="!sessionsLoaded"
+          :load-error="sessionsLoadFailed"
+          @retry="refreshSessions"
           @select="onSidebarSelect"
           @new="onSidebarNew"
           @add-project="handleAddProject"
@@ -428,7 +434,7 @@
                       <summary>{{ $t('launch.plan.show') }}</summary>
                       <CollapsibleMessage
                         v-if="message.plan.plan || message.text"
-                        :html-content="message.plan.plan ? renderMarkdown(message.plan.plan) : (message.htmlContent || renderMarkdown(message.text))"
+                        :html-content="message.plan.plan ? renderRowMarkdown(message, message.plan.plan) : (message.htmlContent || renderRowMarkdown(message, message.text))"
                         :raw-content="message.plan.plan || message.text"
                         :default-expanded="true"
                       />
@@ -446,7 +452,7 @@
                   <template v-else-if="message.text">
                     <CollapsibleMessage
                       v-if="!userAttachments(message) || userAttachments(message).body"
-                      :html-content="userAttachments(message) ? renderMarkdown(userAttachments(message).body) : (message.htmlContent || renderMarkdown(message.text))"
+                      :html-content="userAttachments(message) ? renderRowMarkdown(message, userAttachments(message).body) : (message.htmlContent || renderRowMarkdown(message, message.text))"
                       :raw-content="userAttachments(message) ? userAttachments(message).body : message.text"
                       :default-expanded="true"
                     />
@@ -576,7 +582,7 @@
             </div>
           </div>
             </div>
-            <div class="input-area">
+            <div ref="inputAreaRef" class="input-area">
               <!-- Scrolled up while new messages came in: one click back to the latest -->
               <Transition name="jump-latest">
                 <button
@@ -754,7 +760,7 @@
                       :aria-label="$t('launch.upload_file')"
                       aria-haspopup="menu"
                       :aria-expanded="showAttachMenu"
-                      :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || isStopping || (isWorkflowRunning && status !== 'Waiting for input...')"
+                      :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || isStopping || (isWorkflowRunning && !isWaitingForInput)"
                       @click="showAttachMenu = !showAttachMenu"
                     >
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -815,7 +821,7 @@
                     :class="{ glow: shouldGlow && !isStopMode, 'is-stop': isStopMode, 'is-stalled': isStopMode && stallLevel >= 2 }"
                     :title="buttonLabel"
                     :aria-label="buttonLabel"
-                    :disabled="isStopping || (!isStopMode && (loading || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady)))"
+                    :disabled="isStopping || (!isStopMode && (loading || launchPending || (isWorkflowRunning && !hasComposerContent) || (!isWorkflowRunning && !isRunFinished && !isConnectionReady)))"
                     @click="isStopMode ? cancelWorkflow() : handlePanelRunClick()"
                   >
                     <svg v-if="isStopMode" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -907,7 +913,7 @@
             :active-nodes="activeNodes"
             :status="status"
             :workflow-name="selectedFile ? selectedFile.replace(/\.yaml$/i, '') : ''"
-            :tracker="runTracker.state"
+            :tracker="trackerFor('office')"
             :visible="viewMode === 'office'"
           />
         </div>
@@ -916,7 +922,7 @@
           <KanbanView
             :graph="officeGraph"
             :sprite-map="nodeSpriteMap"
-            :tracker="runTracker.state"
+            :tracker="trackerFor('board')"
             :status="status"
             :workflow-name="workflowTitle"
             :visible="viewMode === 'board'"
@@ -951,7 +957,7 @@
           <DashboardView
             :graph="officeGraph"
             :sprite-map="nodeSpriteMap"
-            :tracker="runTracker.state"
+            :tracker="trackerFor('dashboard')"
             :status="status"
             :workflow-name="workflowTitle"
             :sessions="sessions"
@@ -963,7 +969,7 @@
 
       </div>
 
-      <div v-if="isNarrow && isControlSheetOpen" class="sheet-backdrop" @click="isControlSheetOpen = false"></div>
+      <div v-if="isNarrow && isControlSheetOpen" class="sheet-backdrop sheet-backdrop-above-composer" @click="isControlSheetOpen = false"></div>
 
       <!-- Control panel. Chat view: a column (can be folded away from the header). Other views:
            a drawer on the right, opened from the header. Narrow: a bottom sheet. -->
@@ -978,119 +984,37 @@
         }"
         :inert="(isNarrow && !isControlSheetOpen) || (!isNarrow && !isControlsVisible) ? true : undefined"
       >
-        <div v-show="isNarrow || isControlsVisible" class="control-section" role="region" :aria-label="$t('launch.panel.toggle')">
-          <div v-if="isNarrow || viewMode !== 'chat'" class="sheet-head">
-            <span v-if="isNarrow" class="sheet-grip" aria-hidden="true"></span>
-            <h2 class="sheet-title">{{ $t('launch.panel.toggle') }}</h2>
-            <button type="button" class="chat-header-btn" :aria-label="$t('launch.panel.close')" :title="$t('launch.panel.close')" @click="closeControls">
-              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
-            </button>
-          </div>
-
-          <section class="panel-block">
-            <label class="panel-heading" for="launch-workflow-select">{{ $t('launch.workflow_selection') }}</label>
-            <div ref="workflowPickerRef" class="workflow-picker" :class="{ 'needs-workflow': !selectedFile && !loading, nudge: pickerNudge }">
-              <BaseSkeleton v-if="loading && !workflowFiles.length" height="40px" radius="10px" />
-              <BaseSelect
-                v-else
-                id="launch-workflow-select"
-                :model-value="selectedFile"
-                :disabled="loading || isWorkflowRunning"
-                @update:model-value="selectWorkflow"
-              >
-                <option value="" disabled>{{ loading ? $t('launch.loading') : $t('launch.select_yaml') }}</option>
-                <option v-for="workflow in workflowFiles" :key="workflow.name" :value="workflow.name">{{ workflow.name.replace(/\.ya?ml$/i, '') }}</option>
-              </BaseSelect>
-            </div>
-            <template v-if="selectedDescription">
-              <p id="launch-workflow-desc" ref="descriptionRef" class="panel-note" :class="{ 'is-clamped': !isDescriptionOpen }">{{ selectedDescription }}</p>
-              <button
-                v-if="isDescriptionLong"
-                type="button"
-                class="panel-link"
-                aria-controls="launch-workflow-desc"
-                :aria-expanded="isDescriptionOpen"
-                @click="isDescriptionOpen = !isDescriptionOpen"
-              >{{ isDescriptionOpen ? $t('components.collapsible_message.show_less') : $t('components.collapsible_message.show_more') }}</button>
-            </template>
-            <p v-if="workflowHint" class="workflow-hint">{{ workflowHint }}</p>
-          </section>
-
-          <!-- Details of this run; its state itself is the chip in the chat header -->
-          <section v-if="runFacts.length" class="panel-block">
-            <h3 class="panel-heading">{{ $t('launch.panel.run') }}</h3>
-            <dl class="status-facts">
-              <div v-for="fact in runFacts" :key="fact.key" class="status-fact">
-                <dt>{{ fact.label }}</dt>
-                <dd :class="{ 'is-num': fact.numeric }">
-                  <LiveDuration v-if="fact.key === 'elapsed'" :started-at="runTracker.state.startedAt" :ended-at="runTracker.state.endedAt || 0" />
-                  <template v-else>{{ fact.value }}</template>
-                </dd>
-              </div>
-            </dl>
-          </section>
-
-          <!-- What the team made for this session, one glance; the "Sản phẩm" view has the files and the app -->
-          <section v-if="activeSessionId" class="panel-block">
-            <div class="panel-heading-row">
-              <h3 class="panel-heading">{{ trl('launch.products.title', 'Sản phẩm') }}</h3>
-              <button v-if="productsSummary?.file_count" type="button" class="panel-link" @click="openProducts(false)">{{ trl('launch.products.view_files', 'Xem file') }}</button>
-            </div>
-            <template v-if="productsSummary?.file_count">
-              <p class="products-line">
-                <span v-if="productsLive" class="products-live">{{ trl('launch.products.running', 'Đang chạy thử') }}</span>
-                {{ productsLine }}
-              </p>
-              <div v-if="productsSummary.project?.can_preview" class="products-actions">
-                <button type="button" class="btn primary sm" @click="openProducts(!productsLive)">
-                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                  {{ productsLive ? trl('launch.products.open_preview', 'Xem bản chạy thử') : trl('launch.products.run', 'Chạy thử') }}
-                </button>
-              </div>
-            </template>
-            <p v-else class="panel-note">{{ trl('launch.products.panel_empty', 'Chưa có file nào. Khi nhóm làm ra mã nguồn, trang web hay tài liệu, chúng hiện ở đây.') }}</p>
-          </section>
-
-          <section v-if="selectedFile" class="panel-block">
-            <div class="panel-heading-row">
-              <h3 class="panel-heading">{{ $t('launch.panel.team') }}</h3>
-              <button v-if="teamSize" type="button" class="panel-link" @click="selectView('office')">{{ $t('launch.panel.team_all', { n: teamSize }) }}</button>
-            </div>
-            <ul v-if="teamMembers.length" class="team-list">
-              <li v-for="member in teamMembers" :key="member.id" class="team-row">
-                <span class="team-avatar" aria-hidden="true">
-                  <img v-if="member.sprite" :src="member.sprite" alt="" />
-                </span>
-                <span class="team-name" :title="member.id">{{ member.id }}</span>
-                <StatusPill compact :tone="member.status" :label="$t(`launch.panel.step_${member.status}`)" />
-              </li>
-            </ul>
-            <p v-else class="panel-note">{{ $t('launch.panel.team_empty') }}</p>
-          </section>
-
-          <section v-if="selectedFile" class="panel-block">
-            <h3 class="panel-heading">{{ $t('launch.panel.activity') }}</h3>
-            <ol v-if="recentEvents.length" class="activity-feed">
-              <li v-for="event in recentEvents" :key="event.id" class="activity-feed-item">
-                <span class="activity-feed-text">{{ event.text }}</span>
-                <time class="activity-feed-time">{{ formatTime(event.at) }}</time>
-              </li>
-            </ol>
-            <p v-else class="panel-note">{{ $t('launch.panel.activity_empty') }}</p>
-          </section>
-
-          <!-- Starting, continuing and stopping a run all live in the composer; only the log export stays here -->
-          <div class="button-section">
-            <button
-              type="button"
-              class="btn secondary sm"
-              :disabled="!isRunFinished"
-              @click="downloadLogs"
-            >
-              {{ $t('launch.download_logs') }}
-            </button>
-          </div>
-        </div>
+        <LaunchControlPanel
+          v-show="isNarrow || isControlsVisible"
+          ref="controlPanelRef"
+          :show-head="isNarrow || viewMode !== 'chat'"
+          :show-grip="isNarrow"
+          :visible="isControlsVisible"
+          :loading="loading"
+          :workflow-files="workflowFiles"
+          :selected-file="selectedFile"
+          :is-workflow-running="isWorkflowRunning"
+          :picker-nudge="pickerNudge"
+          :selected-description="selectedDescription"
+          :workflow-hint="workflowHint"
+          :run-facts="runFacts"
+          :started-at="runTracker.state.startedAt"
+          :ended-at="runTracker.state.endedAt"
+          :team-size="teamSize"
+          :team-members="teamMembers"
+          :recent-events="recentEvents"
+          :is-run-finished="isRunFinished"
+          :format-time="formatTime"
+          :show-products="!!activeSessionId"
+          :products-summary="productsSummary"
+          :products-live="productsLive"
+          :products-line="productsLine"
+          @close="closeControls"
+          @select-workflow="selectWorkflow"
+          @open-team="selectView('office')"
+          @download-logs="downloadLogs"
+          @open-products="openProducts"
+        />
       </div>
     </div>
   </div>
@@ -1105,7 +1029,7 @@
       @click.self="closeImageModal"
     >
       <div class="image-modal-content">
-        <button ref="imageModalCloseRef" type="button" class="image-modal-close" aria-label="Đóng ảnh" @click="closeImageModal">
+        <button ref="imageModalCloseRef" type="button" class="image-modal-close" :aria-label="$t('launch.close_image')" @click="closeImageModal">
           <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
         </button>
         <img
@@ -1135,7 +1059,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, fetchSessions, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, sessionOutputsSummary } from '@/api/client.js'
+import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, postWorkflowExecute, sessionOutputsSummary } from '@/api/client.js'
 import { collectDroppedItems } from '@/utils/projectFiles.js'
 import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
 import OutputLocation from '@/components/launch/OutputLocation.vue'
@@ -1158,88 +1082,33 @@ import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import { onWorkflowChanged, workflowKey } from '@/utils/workflowSync.js'
 import OfficeView from '@/components/office/OfficeView.vue'
 import SessionSidebar from '@/components/launch/SessionSidebar.vue'
-import BaseSelect from '@/components/ui/BaseSelect.vue'
+import LaunchControlPanel from '@/components/launch/LaunchControlPanel.vue'
 import BaseSkeleton from '@/components/ui/BaseSkeleton.vue'
 import { computeTeamLinks, layoutOrgTree } from '@/utils/teamLinks.js'
 import yaml from 'js-yaml'
-import MarkdownIt from 'markdown-it'
+import { useMarkdown } from '@/composables/useMarkdown.js'
+import { useSessions } from '@/composables/useSessions.js'
+import {
+  userMessageParts,
+  userMessageRole,
+  resumedSessionPlan,
+  humanInputPrompt,
+  artifactFile,
+  logAlert,
+  infoLogKind,
+  memoryStepLabelKey,
+  noticeCoalesceKey,
+  nodeEndOutcome,
+  isCancelRequestLog,
+  handoffOf,
+  completionNotice,
+  errorKind
+} from '@/views/launch/launchEvents.js'
+import { buildSocketUrl, createClientId, createIncomingQueue, createReconnector, parseSocketFrame } from '@/composables/useLaunchSocket.js'
+import { useLaunchLayout, useChatColumn, CHAT_MIN_W, CHAT_MAX_W, CHAT_DEFAULT_W } from '@/composables/useLaunchLayout.js'
+import { readStorage, writeStorage } from '@/views/launch/layoutStorage.js'
 import SettingsModal from '@/components/common/SettingsModal.vue'
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  typographer: true
-})
-// Code blocks get their own copy button (like Claude / ChatGPT) and wide tables scroll
-// sideways instead of squeezing a column per letter. The button label is localized at
-// render time, so the markdown cache is keyed by locale too.
-const CODE_COPY_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>'
-let codeCopyLabel = 'Copy'
-const withCopyButton = (rule) => (tokens, idx, options, env, self) => {
-  const html = rule(tokens, idx, options, env, self)
-  const lang = (tokens[idx].info || '').trim().split(/\s+/)[0]
-  const label = md.utils.escapeHtml(codeCopyLabel)
-  const langTag = lang ? `<span class="md-code-lang">${md.utils.escapeHtml(lang)}</span>` : ''
-  return `<div class="md-code">${langTag}<button type="button" class="md-code-copy" data-code-copy title="${label}" aria-label="${label}">${CODE_COPY_ICON}<span>${label}</span></button>${html}</div>`
-}
-md.renderer.rules.fence = withCopyButton(md.renderer.rules.fence)
-md.renderer.rules.code_block = withCopyButton(md.renderer.rules.code_block)
-md.renderer.rules.table_open = () => '<div class="md-table"><table>\n'
-md.renderer.rules.table_close = () => '</table></div>\n'
-// Links in a message open in a new tab and never get a handle back on this page
-const defaultLinkOpen = md.renderer.rules.link_open || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
-md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-  tokens[idx].attrSet('target', '_blank')
-  tokens[idx].attrSet('rel', 'noopener noreferrer')
-  return defaultLinkOpen(tokens, idx, options, env, self)
-}
-
-// Memoize markdown output by source text so re-renders never re-parse the same message
-const MARKDOWN_CACHE_LIMIT = 300
-const markdownCache = new Map()
-// Above this size a message is shown as preformatted text: running markdown-it
-// (linkify + typographer) over hundreds of KB blocks the WebSocket handler and
-// freezes the page for a noticeable moment.
-const MARKDOWN_MAX_CHARS = 120_000
-const preformatted = (text, lang = '') =>
-  `<pre><code${lang ? ` class="language-${lang}"` : ''}>${md.utils.escapeHtml(text)}</code></pre>`
-
-const renderMarkdown = (text) => {
-  const source = text || ''
-  codeCopyLabel = t('launch.copy_code')
-  const cacheKey = `${i18nLocale.value}\u0000${source}`
-  const cached = markdownCache.get(cacheKey)
-  if (cached !== undefined) return cached
-  const html = source.length > MARKDOWN_MAX_CHARS ? preformatted(source) : md.render(source)
-  if (markdownCache.size >= MARKDOWN_CACHE_LIMIT) {
-    markdownCache.delete(markdownCache.keys().next().value)
-  }
-  markdownCache.set(cacheKey, html)
-  return html
-}
-
-// One delegated listener for every code block's copy button in the chat
-const copiedTimers = new WeakMap()
-const handleChatClick = async (event) => {
-  const button = event.target.closest?.('[data-code-copy]')
-  if (!button) return
-  event.stopPropagation()
-  const code = button.parentElement?.querySelector('pre')?.innerText ?? ''
-  try {
-    await navigator.clipboard.writeText(code.replace(/\n$/, ''))
-  } catch (error) {
-    console.warn('Copy failed:', error)
-    toast.error(t('launch.copy_failed'))
-    return
-  }
-  const label = button.querySelector('span')
-  if (label) label.textContent = t('launch.copied')
-  button.classList.add('copied')
-  clearTimeout(copiedTimers.get(button))
-  copiedTimers.set(button, setTimeout(() => {
-    button.classList.remove('copied')
-    if (label) label.textContent = t('launch.copy_code')
-  }, 1600))
-}
+// Markdown rendering lives in useMarkdown(); it is wired up after useI18n() below
 
 // Intl.DateTimeFormat is expensive to create; keep one per locale
 const timeFormatterCache = new Map()
@@ -1273,10 +1142,12 @@ import CollapsibleMessage from '@/components/common/CollapsibleMessage.vue'
 // Ticking durations render themselves; the chat list no longer re-renders every second.
 import LiveDuration from '@/components/common/LiveDuration.js'
 import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
+import { RUN_STATUS, STATUS_LABEL_KEYS, isFinishedStatus } from '@/components/launch/runStatus.js'
 
 const router = useRouter()
 const route = useRoute()
 const { t, te, locale: i18nLocale } = useI18n()
+const { preformatted, renderMarkdown, renderRowMarkdown, handleChatClick } = useMarkdown({ t, locale: i18nLocale })
 
 // Map i18n locale to a date locale for 24h time display
 const TIME_LOCALE_MAP = {
@@ -1423,28 +1294,8 @@ const fitView = async (options = {}) => {
 
 const getTranslatedStatus = (statusText) => {
   if (!statusText) return ''
-  // Internal status values (kept in English for logic) -> i18n keys
-  const statusKeyMap = {
-    'Waiting for workflow selection...': 'launch.status_waiting_workflow',
-    'Waiting for file selection...': 'launch.status_waiting_file',
-    'Pending workflow selection': 'launch.status_waiting_workflow',
-    'Pending file selection': 'launch.status_waiting_file',
-    'Connecting...': 'launch.status_connecting',
-    'Connected': 'launch.status_connected',
-    'Connection error': 'launch.status_connection_error',
-    'Disconnected': 'launch.status_disconnected',
-    'Waiting for launch...': 'launch.status_waiting_launch',
-    'Pending launch': 'launch.status_waiting_launch',
-    'Launching...': 'launch.status_launching',
-    'Running...': 'launch.status_running',
-    'In Progress': 'launch.status_running',
-    'Waiting for input...': 'launch.status_waiting_input',
-    'Completed': 'launch.status_completed',
-    'Cancelled': 'launch.status_cancelled',
-    'Failed': 'launch.status_failed',
-    'Error': 'launch.status_error'
-  }
-  const key = statusKeyMap[statusText]
+  // Internal status values (RUN_STATUS, kept in English for logic) -> i18n keys
+  const key = STATUS_LABEL_KEYS[statusText]
   return key ? localizeOrRaw(key, statusText) : statusText
 }
 
@@ -1456,7 +1307,7 @@ const workflowFiles = ref([])
 const selectedFile = ref('')
 
 // Status state
-const status = ref('Waiting for workflow selection...')
+const status = ref(RUN_STATUS.NO_WORKFLOW)
 const loading = ref(false)
 
 // Session ID for downloads
@@ -1464,6 +1315,16 @@ let sessionIdToDownload = null
 
 // All notifications and dialogues
 const chatMessages = ref([])
+// Every change to a chat row goes through here. Rows are memoized on `rev` (v-memo in the
+// template): a change that does not bump it stays invisible until something else re-renders
+// the row. `patch` is an object of fields to set, or a function that mutates the message.
+const updateMessage = (message, patch = null) => {
+  if (!message) return message
+  if (typeof patch === 'function') patch(message)
+  else if (patch) Object.assign(message, patch)
+  message.rev = (message.rev || 0) + 1
+  return message
+}
 // Stable v-for keys: a finished turn can move below the delegation lines, and index keys
 // combined with v-memo would then show a stale row
 const messageKeys = new WeakMap()
@@ -1597,7 +1458,7 @@ const addLoadingEntry = (nodeId, baseKey, label, { isModel = false, at = Date.no
   nodeState.entryMap.set(key, entry)
   nodeState.baseKeyToKey.set(baseKey, key)
   nodeState.message.loadingEntries.push(entry)
-  nodeState.message.rev += 1
+  updateMessage(nodeState.message)
   runningLoadingEntries.value += 1
   if (runningLoadingEntries.value === 1) {
     startLoadingTimer()
@@ -1620,7 +1481,7 @@ const finishLoadingEntry = (nodeId, baseKey, at = Date.now()) => {
   entry.status = 'done'
   entry.endedAt = Math.max(at, entry.startedAt)
   nodeState.baseKeyToKey.delete(baseKey)
-  nodeState.message.rev += 1
+  updateMessage(nodeState.message)
   if (wasRunning) {
     runningLoadingEntries.value = Math.max(0, runningLoadingEntries.value - 1)
     if (runningLoadingEntries.value === 0) {
@@ -1643,7 +1504,7 @@ const finalizeAllLoadingEntries = (nodeState, endedAt = Date.now()) => {
   }
   nodeState.baseKeyToKey.clear()
   if (finishedCount) {
-    nodeState.message.rev += 1
+    updateMessage(nodeState.message)
     runningLoadingEntries.value = Math.max(0, runningLoadingEntries.value - finishedCount)
     if (runningLoadingEntries.value === 0) {
       stopLoadingTimer()
@@ -1679,7 +1540,7 @@ const settleNodeTurn = (nodeId, content = null, at = Date.now()) => {
     // The bubble stays where it is: the team's steps went into its activity block, so the
     // answer lands right below that block instead of the bubble jumping to the bottom
   }
-  message.rev += 1
+  updateMessage(message)
   // An agent's answer landed in its bubble while you read further up
   if (merged && !isNearBottom) hasUnseenMessages.value = true
   scheduleScrollToBottom()
@@ -1692,10 +1553,7 @@ const settleAllNodeTurns = ({ at = Date.now(), interrupted = false } = {}) => {
   for (const [nodeId, nodeState] of [...nodesLoadingMessagesMap.entries()]) {
     const message = nodeState.message
     settleNodeTurn(nodeId, null, at)
-    if (interrupted) {
-      message.interrupted = true
-      message.rev += 1
-    }
+    if (interrupted) updateMessage(message, { interrupted: true })
   }
 }
 
@@ -1757,7 +1615,7 @@ const addTeamStep = (message, { label, startedAt = 0, endedAt = 0, detail = null
     detailHtml: built?.htmlContent || '',
     detailOpen: false
   })
-  message.rev += 1
+  updateMessage(message)
   scheduleScrollToBottom()
   return true
 }
@@ -1766,8 +1624,9 @@ const addTeamStep = (message, { label, startedAt = 0, endedAt = 0, detail = null
 const stepLabel = (entry) => (entry.status === 'running' ? entry.label : entry.doneLabel || entry.label)
 
 const toggleStepDetail = (message, entry) => {
-  entry.detailOpen = !entry.detailOpen
-  message.rev += 1
+  updateMessage(message, () => {
+    entry.detailOpen = !entry.detailOpen
+  })
 }
 
 // A file the turn produced: one card on the bubble that speaks for the turn, however many
@@ -1795,7 +1654,7 @@ const attachTurnFile = (message, { nodeId, fileName, mimeType, attachmentId, ope
       addTeamStep(message, { label: t('launch.activity.member_file', { member: nodeId, file: fileName }) })
     }
   }
-  message.rev += 1
+  updateMessage(message)
   scheduleScrollToBottom()
   if (isImage && sessionId && attachmentId) {
     file.loading = true
@@ -1807,16 +1666,16 @@ const attachTurnFile = (message, { nodeId, fileName, mimeType, attachmentId, ope
       })
       .finally(() => {
         file.loading = false
-        message.rev += 1
+        updateMessage(message)
       })
   }
 }
 
 const downloadTurnFile = async (message, file) => {
   const pending = downloadArtifact(file)
-  message.rev += 1
+  updateMessage(message)
   await pending
-  message.rev += 1
+  updateMessage(message)
 }
 
 // Human-friendly activity labels (no raw model ids in the chat). Covers the workflow's own
@@ -1965,12 +1824,30 @@ const liveStep = (message) => {
 
 // While running, the last few finished steps stay in view above the live line
 const LIVE_STEP_ROWS = 3
-const finishedSteps = (message) => (message.loadingEntries || []).filter((entry) => entry.status !== 'running')
-const shownSteps = (message) => {
-  if (!message.isLoading) return message.loadingEntries || []
-  const done = finishedSteps(message)
-  return message.activityOpen ? done : done.slice(-LIVE_STEP_ROWS)
+// The template asks for these several times per row and per render: computed once per `rev`
+// (every change to a row bumps it, see updateMessage)
+const stepCache = new WeakMap()
+const stepsOf = (message) => {
+  const raw = toRaw(message)
+  const cached = stepCache.get(raw)
+  if (cached && cached.rev === raw.rev && cached.loading === raw.isLoading && cached.open === raw.activityOpen) {
+    return cached
+  }
+  // Read through the reactive message: the rows keep tracking their entries' fields
+  const entries = message.loadingEntries || []
+  const finished = entries.filter((entry) => entry.status !== 'running')
+  const value = {
+    rev: raw.rev,
+    loading: raw.isLoading,
+    open: raw.activityOpen,
+    finished,
+    shown: !message.isLoading ? entries : message.activityOpen ? finished : finished.slice(-LIVE_STEP_ROWS)
+  }
+  stepCache.set(raw, value)
+  return value
 }
+const finishedSteps = (message) => stepsOf(message).finished
+const shownSteps = (message) => stepsOf(message).shown
 const hiddenStepCount = (message) => Math.max(0, finishedSteps(message).length - LIVE_STEP_ROWS)
 // A step that took no measurable time (e.g. a CLI agent's steps, reported all at once) shows none
 const showStepTime = (entry) =>
@@ -2008,7 +1885,7 @@ const addMemberStep = (member, toolName, args, at) => {
     entries.push(entry)
   }
   memberStepKeys.set(`${member}|${toolName}`, { entry, message })
-  message.rev += 1
+  updateMessage(message)
   scheduleScrollToBottom()
 }
 
@@ -2016,7 +1893,7 @@ const endMemberStep = (key, found, at) => {
   memberStepKeys.delete(key)
   found.entry.status = 'done'
   found.entry.endedAt = Math.max(at, found.entry.startedAt)
-  found.message.rev += 1
+  updateMessage(found.message)
 }
 
 const finishMemberStep = (member, toolName, at) => {
@@ -2044,8 +1921,9 @@ const activityHeadline = (message) => {
 }
 
 const toggleActivity = (message) => {
-  message.activityOpen = !message.activityOpen
-  message.rev += 1
+  updateMessage(message, (m) => {
+    m.activityOpen = !m.activityOpen
+  })
 }
 
 // Global timer for updating loading bubble durations
@@ -2128,7 +2006,23 @@ const scheduleWorkflowRefresh = ({ graphChanged = false } = {}) => {
   }, 120)
 }
 
+// A view hidden by v-show gets the tracker without reactivity: it does not re-render on every
+// event of a live run while nobody sees it, and gets the live object back (and refreshes) when shown.
+const trackerFor = (mode) => (viewMode.value === mode ? runTracker.state : toRaw(runTracker.state))
+
+// A passed connection pre-check is reused for the next sends of the same workflow: it is redone
+// only when the workflow changed (workflowSync), after a failed launch or run, or after
+// PRECHECK_TTL_MS (an account may have been disconnected meanwhile).
+const PRECHECK_TTL_MS = 5 * 60 * 1000
+let precheckPassed = { key: '', at: 0 }
+const invalidatePrecheck = () => {
+  precheckPassed = { key: '', at: 0 }
+}
+const precheckIsFresh = (file) =>
+  Boolean(file) && precheckPassed.key === workflowKey(file) && Date.now() - precheckPassed.at < PRECHECK_TTL_MS
+
 const handleWorkflowChanged = (detail) => {
+  if (detail?.key && workflowKey(detail.key) === precheckPassed.key) invalidatePrecheck()
   if (!detail?.key || !selectedFile.value) return
   if (workflowKey(detail.key) !== workflowKey(selectedFile.value)) return
   scheduleWorkflowRefresh({ graphChanged: detail.kind === 'graph' })
@@ -2178,14 +2072,16 @@ watch(viewMode, (mode) => {
 })
 // Most used first: talk to the lead, then watch the team, then the work around it
 const viewOptions = [
-  { mode: 'chat', label: 'launch.chat' },
-  { mode: 'products', label: 'launch.products.view', fallback: 'Sản phẩm' },
-  { mode: 'office', label: 'launch.office.view' },
-  { mode: 'board', label: 'launch.board.view' },
-  { mode: 'review', label: 'launch.review.view' },
-  { mode: 'dashboard', label: 'launch.dashboard.view' },
-  { mode: 'graph', label: 'launch.graph' }
+  { mode: 'chat', label: 'launch.chat', icon: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'] },
+  { mode: 'products', label: 'launch.products.view', fallback: 'Sản phẩm', icon: ['M21 8 12 3 3 8v8l9 5 9-5z', 'M3 8l9 5 9-5', 'M12 13v8'] },
+  { mode: 'office', label: 'launch.office.view', icon: ['M6 3h12a2 2 0 0 1 2 2v16H4V5a2 2 0 0 1 2-2z', 'M9 7h1M14 7h1M9 11h1M14 11h1', 'M10 21v-4h4v4'] },
+  { mode: 'board', label: 'launch.board.view', icon: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M9 3v18M15 3v18'] },
+  { mode: 'review', label: 'launch.review.view', icon: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z', 'm9 12 2 2 4-4'] },
+  { mode: 'dashboard', label: 'launch.dashboard.view', icon: ['M3 20h18', 'M6 20v-6M11 20V6M16 20v-9M21 20V4'] },
+  { mode: 'graph', label: 'launch.graph', icon: ['M3 6a3 3 0 1 0 6 0 3 3 0 1 0-6 0M15 6a3 3 0 1 0 6 0 3 3 0 1 0-6 0M9 18a3 3 0 1 0 6 0 3 3 0 1 0-6 0', 'M9 6h6M7.5 8.6l3 6.8M16.5 8.6l-3 6.8'] }
 ]
+// A tab whose key a locale still lacks shows its Vietnamese fallback
+const tabLabel = (option) => (option.fallback && !te(option.label) ? option.fallback : t(option.label))
 const selectView = (mode) => {
   isControlSheetOpen.value = false
   isSessionsDrawerOpen.value = false
@@ -2196,9 +2092,27 @@ const selectView = (mode) => {
   else viewMode.value = mode
 }
 // Keep the active tab in view when the strip scrolls (narrow screens)
-watch(viewMode, (mode) => {
+const revealActiveTab = (mode) => {
   nextTick(() => document.getElementById(`view-tab-${mode}`)?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' }))
+}
+watch(viewMode, revealActiveTab)
+// Fade the strip's edges only when it actually scrolls (the fade is the "more tabs" cue)
+const viewTabsRef = ref(null)
+const viewTabsOverflow = ref(false)
+let viewTabsObserver = null
+const measureViewTabs = () => {
+  const el = viewTabsRef.value
+  viewTabsOverflow.value = Boolean(el && el.scrollWidth > el.clientWidth + 1)
+}
+onMounted(() => {
+  revealActiveTab(viewMode.value)
+  measureViewTabs()
+  if (typeof ResizeObserver === 'function' && viewTabsRef.value) {
+    viewTabsObserver = new ResizeObserver(measureViewTabs)
+    viewTabsObserver.observe(viewTabsRef.value)
+  }
 })
+onUnmounted(() => viewTabsObserver?.disconnect())
 // Tab list keyboard support: arrows / Home / End move the focus, Enter or Space opens the view
 const onViewTabKey = (event) => {
   const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
@@ -2214,68 +2128,26 @@ const onViewTabKey = (event) => {
   document.getElementById(`view-tab-${modes[next]}`)?.focus()
 }
 
-// Per-browser layout memory (localStorage may be unavailable: private mode, blocked storage)
-const readStorage = (key) => {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-const writeStorage = (key, value) => {
-  try {
-    if (value === null) localStorage.removeItem(key)
-    else localStorage.setItem(key, value)
-  } catch {
-    // per-browser convenience only
-  }
-}
 
 // ---------------------------------------------------------------- layout: wide vs narrow
-// Below 900px the status panel becomes a bottom sheet and the session list a drawer
-const NARROW_QUERY = '(max-width: 899.98px)'
-const narrowMql = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(NARROW_QUERY) : null
-const isNarrow = ref(Boolean(narrowMql?.matches))
-const isControlSheetOpen = ref(false)
-const isSessionsDrawerOpen = ref(false)
-const onNarrowChange = (event) => {
-  isNarrow.value = event.matches
-  isControlSheetOpen.value = false
-  isSessionsDrawerOpen.value = false
-}
-narrowMql?.addEventListener?.('change', onNarrowChange)
-onUnmounted(() => narrowMql?.removeEventListener?.('change', onNarrowChange))
-
-// Chat view (wide): the control panel is a column the person can fold away (remembered)
-const STATUS_COLUMN_KEY = 'agentdev.launch.statusColumnOpen'
-const isStatusColumnOpen = ref(readStorage(STATUS_COLUMN_KEY) !== '0')
-watch(isStatusColumnOpen, (open) => writeStorage(STATUS_COLUMN_KEY, open ? '1' : '0'))
-const isControlsVisible = computed(() => {
-  if (isNarrow.value) return isControlSheetOpen.value
-  return viewMode.value === 'chat' ? isStatusColumnOpen.value : isRightPanelOpen.value
+const {
+  isNarrow,
+  isControlSheetOpen,
+  isSessionsDrawerOpen,
+  inputAreaRef,
+  launchRootRef,
+  isStatusColumnOpen,
+  isControlsVisible,
+  closeControls,
+  toggleControls,
+  revealControls,
+  toggleSessionsPanel
+} = useLaunchLayout({
+  viewMode,
+  isRightPanelOpen,
+  showSettingsModal,
+  toggleSessionSidebar: () => { isSessionSidebarOpen.value = !isSessionSidebarOpen.value }
 })
-const setControlsOpen = (open) => {
-  if (isNarrow.value) {
-    if (open) isSessionsDrawerOpen.value = false
-    isControlSheetOpen.value = open
-  } else if (viewMode.value === 'chat') {
-    isStatusColumnOpen.value = open
-  } else {
-    isRightPanelOpen.value = open
-  }
-}
-const toggleControls = () => setControlsOpen(!isControlsVisible.value)
-const closeControls = () => setControlsOpen(false)
-// Show the panel (workflow picker) wherever it lives in the current layout
-const revealControls = () => setControlsOpen(true)
-const toggleSessionsPanel = () => {
-  if (isNarrow.value) {
-    isControlSheetOpen.value = false
-    isSessionsDrawerOpen.value = !isSessionsDrawerOpen.value
-  } else {
-    isSessionSidebarOpen.value = !isSessionSidebarOpen.value
-  }
-}
 const onSidebarSelect = (...args) => {
   isSessionsDrawerOpen.value = false
   return openSession(...args)
@@ -2284,18 +2156,11 @@ const onSidebarNew = (...args) => {
   isSessionsDrawerOpen.value = false
   return startNewSession(...args)
 }
-// Esc closes whichever sheet is open
-const onSheetEscape = (event) => {
-  if (event.key !== 'Escape' || event.defaultPrevented || showSettingsModal.value) return
-  if (isControlSheetOpen.value) isControlSheetOpen.value = false
-  else if (isSessionsDrawerOpen.value) isSessionsDrawerOpen.value = false
-  else if (!isNarrow.value && viewMode.value !== 'chat' && isRightPanelOpen.value) isRightPanelOpen.value = false
-}
-document.addEventListener('keydown', onSheetEscape)
-onUnmounted(() => document.removeEventListener('keydown', onSheetEscape))
 
 // ---------------------------------------------------------------- status panel
-const workflowPickerRef = ref(null)
+// The control panel component; its workflow picker box is focused from the composer's hint
+const controlPanelRef = ref(null)
+const workflowPickerRef = computed(() => controlPanelRef.value?.picker || null)
 const pickerNudge = ref(false)
 let pickerNudgeTimer = null
 // Bring the workflow picker into view and focus it (also from the composer's hint)
@@ -2317,10 +2182,10 @@ const statusTone = computed(() => {
   if (isStopping.value) return 'warn'
   if (isAwaitingPlan.value) return 'warn'
   const value = status.value
-  if (value === 'Running...' || value === 'Launching...') return 'running'
-  if (value === 'Waiting for input...') return 'warn'
-  if (value === 'Completed') return 'success'
-  if (value === 'Error' || value === 'Failed') return 'danger'
+  if (value === RUN_STATUS.RUNNING || value === RUN_STATUS.LAUNCHING) return 'running'
+  if (value === RUN_STATUS.WAITING_INPUT) return 'warn'
+  if (value === RUN_STATUS.COMPLETED) return 'success'
+  if (value === RUN_STATUS.ERROR || value === RUN_STATUS.FAILED) return 'danger'
   return 'muted'
 })
 const activeNodeNames = computed(() => (isRunActive.value ? activeNodes.value.join(', ') : ''))
@@ -2371,12 +2236,6 @@ const userAttachments = (message) => {
   return value
 }
 // ---------------------------------------------------------------- chat column (outside the chat view)
-// Resizable by drag or arrow keys (double-click resets), remembered per browser.
-const CHAT_MIN_W = 320
-const CHAT_MAX_W = 560
-const CHAT_DEFAULT_W = 380
-const CHAT_RAIL_W = 48
-const CHAT_WIDTH_KEY = 'agentdev.launch.chatWidth'
 // The chat's mode (manual / plan / auto / bypass): sent with each turn, remembered across visits
 const RUN_MODE_KEY = 'agentdev.launch.runMode'
 const RUN_MODES = ['manual', 'plan', 'auto', 'bypass']
@@ -2386,91 +2245,20 @@ watch(runMode, (mode) => writeStorage(RUN_MODE_KEY, mode))
 const cycleRunMode = () => {
   runMode.value = RUN_MODES[(RUN_MODES.indexOf(runMode.value) + 1) % RUN_MODES.length]
 }
-const clampChatWidth = (value) => Math.round(Math.min(CHAT_MAX_W, Math.max(CHAT_MIN_W, Number(value) || CHAT_DEFAULT_W)))
-const chatWidth = ref(clampChatWidth(readStorage(CHAT_WIDTH_KEY)))
-const setChatWidth = (value) => { chatWidth.value = clampChatWidth(value) }
-const leftPanelRef = ref(null)
-const isResizingChat = ref(false)
-let chatResizeRaf = 0
-let chatResizeCleanup = null
-const startChatResize = (event) => {
-  if (event.button !== 0) return
-  event.preventDefault()
-  const left = leftPanelRef.value?.getBoundingClientRect().left || 0
-  isResizingChat.value = true
-  const onMove = (moveEvent) => {
-    cancelAnimationFrame(chatResizeRaf)
-    chatResizeRaf = requestAnimationFrame(() => setChatWidth(moveEvent.clientX - left))
-  }
-  const onUp = () => chatResizeCleanup?.()
-  chatResizeCleanup = () => {
-    window.removeEventListener('pointermove', onMove)
-    window.removeEventListener('pointerup', onUp)
-    window.removeEventListener('pointercancel', onUp)
-    cancelAnimationFrame(chatResizeRaf)
-    isResizingChat.value = false
-    writeStorage(CHAT_WIDTH_KEY, String(chatWidth.value))
-    chatResizeCleanup = null
-  }
-  window.addEventListener('pointermove', onMove)
-  window.addEventListener('pointerup', onUp)
-  window.addEventListener('pointercancel', onUp)
-}
-const onChatResizeKey = (event) => {
-  const step = event.shiftKey ? 64 : 16
-  const next = {
-    ArrowLeft: chatWidth.value - step,
-    ArrowRight: chatWidth.value + step,
-    Home: CHAT_MIN_W,
-    End: CHAT_MAX_W
-  }[event.key]
-  if (next === undefined) return
-  event.preventDefault()
-  setChatWidth(next)
-  writeStorage(CHAT_WIDTH_KEY, String(chatWidth.value))
-}
-onUnmounted(() => chatResizeCleanup?.())
-// The chat column never takes more than half the work area
-const chatColumnCss = computed(() => `min(${chatWidth.value}px, 50%)`)
-const chatWidthStyle = computed(() => ({ '--chat-w': chatColumnCss.value }))
-// The width the chat covers on the left of a view: its column, or the rail when folded
-const chatCoverCss = computed(() => {
-  if (viewMode.value === 'chat') return '0px'
-  if (isChatPanelOpen.value) return chatColumnCss.value
-  // Folded into the sessions rail: the view gets the whole width
-  return isChatRailMerged.value ? '0px' : `${CHAT_RAIL_W}px`
-})
-// Views pad their content by --inset-left + 34px (room for an old edge toggle): subtract it
-// so content starts one gutter (16px) right of the chat column or rail
-const insetStyle = computed(() => ({
-  '--inset-left': `calc(${chatCoverCss.value} - 18px)`,
-  '--graph-inset': chatCoverCss.value
-}))
-// the office map cancels the page zoom (see OfficeView), so convert the chat width into its units
-const officeInsetStyle = computed(() => ({ '--office-inset-left': `calc(${chatCoverCss.value} * var(--ui-zoom, 1))` }))
+const {
+  chatWidth,
+  setChatWidth,
+  leftPanelRef,
+  isResizingChat,
+  startChatResize,
+  onChatResizeKey,
+  chatWidthStyle,
+  insetStyle,
+  officeInsetStyle
+} = useChatColumn({ viewMode, isChatPanelOpen, isChatRailMerged: () => isChatRailMerged.value })
 
 // ---------------------------------------------------------------- control panel content
-// A long workflow description folds to three lines
-const isDescriptionOpen = ref(false)
-const isDescriptionLong = ref(false)
-const descriptionRef = ref(null)
-// The toggle shows only when three lines really cut the text (measured, so the panel's
-// width - column, drawer or sheet - decides)
-const measureDescription = () => {
-  const el = descriptionRef.value
-  if (!el || isDescriptionOpen.value) return
-  isDescriptionLong.value = el.scrollHeight > el.clientHeight + 1
-}
-let descriptionObserver = null
-watch(descriptionRef, (el, previous) => {
-  if (previous) descriptionObserver?.unobserve(previous)
-  if (!el || typeof ResizeObserver === 'undefined') return
-  if (!descriptionObserver) descriptionObserver = new ResizeObserver(() => measureDescription())
-  descriptionObserver.observe(el)
-})
-watch(selectedFile, () => { isDescriptionOpen.value = false })
-watch([selectedDescription, isControlsVisible], () => nextTick(measureDescription))
-onUnmounted(() => descriptionObserver?.disconnect())
+// (the workflow description folding lives in LaunchControlPanel)
 // StatusPill tone for the run state (same chip vocabulary as the session list)
 const statusPillTone = computed(() => ({
   running: 'working',
@@ -2545,8 +2333,28 @@ onUnmounted(() => clearTimeout(graphRefitTimer))
 const SIDEBAR_OPEN_KEY = 'agentdev.sessions.sidebarOpen'
 const LAST_SESSION_KEY = 'agentdev.launch.lastSession'
 
-const sessions = ref([])
-const sessionsLoaded = ref(false)
+// The URL carries the open session (?session=...), so it is the single source of truth
+const activeSessionId = computed(() => {
+  const value = route.query?.session
+  return typeof value === 'string' ? value : ''
+})
+const {
+  sessions,
+  sessionsLoaded,
+  sessionsLoadFailed,
+  hasLiveSession,
+  refreshSessions,
+  scheduleSessionsRefresh,
+  startSessionsPolling,
+  stopSessionsPolling
+} = useSessions({
+  t,
+  activeSessionId,
+  sessionProject: (item) => sessionProject(item),
+  openSession: (item) => openSession(item),
+  // Edits made elsewhere (another browser, a teammate) show up when the tab is back
+  onVisible: () => { if (isPageReady) scheduleWorkflowRefresh() }
+})
 // Open or folded to a rail, remembered per view: the chat keeps its list by default, the
 // work views (office, board, ...) start folded so the work gets the width. An explicit
 // choice in a view sticks for that view.
@@ -2573,7 +2381,6 @@ const isSessionSidebarOpen = computed({
 })
 // Wide screen with the sessions list folded: the chat toggle sits in the sessions rail
 const isChatRailMerged = computed(() => !isNarrow.value && !isSessionSidebarOpen.value)
-const hasLiveSession = computed(() => sessions.value.some((item) => ['running', 'cancelling', 'waiting_for_input'].includes(item.status)))
 const sessionsDrawerRef = ref(null)
 // Rail search: open the list and put the cursor in its search box
 const openSessionSearch = async () => {
@@ -2582,11 +2389,6 @@ const openSessionSearch = async () => {
   sessionsDrawerRef.value?.querySelector('.session-sidebar input[type="text"]')?.focus()
 }
 
-// The URL carries the open session (?session=...), so it is the single source of truth
-const activeSessionId = computed(() => {
-  const value = route.query?.session
-  return typeof value === 'string' ? value : ''
-})
 const draftWorkflow = computed(() => (activeSessionId.value ? '' : selectedFile.value || ''))
 const currentSessionTitle = computed(() => {
   const current = sessions.value.find((item) => item.session_id === activeSessionId.value)
@@ -2680,83 +2482,7 @@ const takeComposer = (key) => {
   return value
 }
 
-// ---------------------------------------------------------------- background sessions
-// Runs keep going on the server while another session is open here. Watch their
-// status and say when one needs an answer or has finished.
-const LIVE_STATUSES = new Set(['running', 'waiting_for_input'])
-const knownStatuses = new Map()
-let statusesPrimed = false
-const notifyBackgroundChanges = (list) => {
-  for (const item of list) {
-    const previous = knownStatuses.get(item.session_id)
-    knownStatuses.set(item.session_id, item.status)
-    if (!statusesPrimed || !previous || previous === item.status) continue
-    if (item.session_id === activeSessionId.value) continue
-    const title = item.title || t('launch.sessions.untitled')
-    const project = sessionProject(item)?.name
-    const name = project ? `${project} · ${title}` : title
-    const action = { label: t('launch.sessions.menu.open'), run: () => openSession(item) }
-    if (item.status === 'waiting_for_input') {
-      toast.warning(t('launch.sessions.bg_waiting', { name }), { action, duration: 15000 })
-    } else if (item.status === 'completed') {
-      toast.success(t('launch.sessions.bg_completed', { name }), { action, duration: 8000 })
-    } else if (item.status === 'error') {
-      toast.error(t('launch.sessions.bg_error', { name }), { action, duration: 12000 })
-    }
-  }
-  statusesPrimed = true
-}
-const waitingElsewhere = computed(
-  () => sessions.value.filter((item) => item.status === 'waiting_for_input' && item.session_id !== activeSessionId.value).length
-)
-const BASE_TITLE = document.title
-watch(waitingElsewhere, (count) => {
-  document.title = count ? `(${count}) ${BASE_TITLE}` : BASE_TITLE
-})
-
-let sessionsPollTimer = null
-let sessionsRefreshTimer = null
-// A slow answer must not overwrite a newer one, and an unchanged list is not re-assigned
-// (the poll runs every few seconds: a new array would re-render the whole sidebar)
-let sessionsRequestSeq = 0
-let sessionsSnapshot = ''
-const refreshSessions = async () => {
-  const seq = ++sessionsRequestSeq
-  try {
-    const list = await fetchSessions()
-    if (seq !== sessionsRequestSeq) return
-    const snapshot = JSON.stringify(list)
-    if (snapshot !== sessionsSnapshot) {
-      sessionsSnapshot = snapshot
-      sessions.value = list
-      notifyBackgroundChanges(list)
-    }
-  } catch (error) {
-    console.warn('Failed to load sessions:', error)
-  } finally {
-    sessionsLoaded.value = true
-  }
-}
-// Coalesce bursts of status changes into one request
-const scheduleSessionsRefresh = () => {
-  clearTimeout(sessionsRefreshTimer)
-  sessionsRefreshTimer = setTimeout(refreshSessions, 400)
-}
-// Poll often while a run is live (here or in the background), slowly otherwise
-const schedulePoll = () => {
-  clearTimeout(sessionsPollTimer)
-  const live = sessions.value.some((item) => LIVE_STATUSES.has(item.status))
-  sessionsPollTimer = setTimeout(async () => {
-    if (document.visibilityState === 'visible') await refreshSessions()
-    schedulePoll()
-  }, live ? 4000 : 15000)
-}
-const onVisibilityChange = () => {
-  if (document.visibilityState !== 'visible') return
-  refreshSessions()
-  // Edits made elsewhere (another browser, a teammate) show up when the tab is back
-  if (isPageReady) scheduleWorkflowRefresh()
-}
+// Background sessions (polling, toasts, title badge): see useSessions()
 
 // WebSocket reference
 let ws = null
@@ -2773,6 +2499,9 @@ let lastLaunchPrompt = ''
 let pendingOpenSessionId = null
 // Set when Stop was pressed here, so the server's confirmation adds no second notice
 let locallyCancelled = false
+// The run is being (or was) stopped, whoever asked: the engine's cancel line or the server's
+// confirmation. Steps that end after it were cut short, never "done". Cleared by the next launch.
+let cancelRequested = false
 // Stop was pressed and the server has not confirmed it yet: the composer stays locked
 const isStopping = ref(false)
 let stopFallbackTimer = null
@@ -2796,10 +2525,10 @@ const replacedSessionId = ref('')
 const hasComposerContent = computed(() =>
   Boolean(taskPrompt.value.trim()) || uploadedAttachments.value.length > 0
 )
-const isWaitingForInput = computed(() => status.value === 'Waiting for input...')
+const isWaitingForInput = computed(() => status.value === RUN_STATUS.WAITING_INPUT)
 // A run the server is working on, also while it waits for your answer (it can be stopped then too)
 const isRunActive = computed(() =>
-  isWorkflowRunning.value && (status.value === 'Running...' || status.value === 'Launching...' || isWaitingForInput.value)
+  isWorkflowRunning.value && (status.value === RUN_STATUS.RUNNING || status.value === RUN_STATUS.LAUNCHING || isWaitingForInput.value)
 )
 // While the workflow is working the composer button turns into a Stop button; while it waits
 // for your answer it becomes Send again as soon as you type one.
@@ -2810,7 +2539,7 @@ const isStopMode = computed(() => isStopping.value || (isRunActive.value && !(is
 // a status question is answered at once from the real progress, anything else is handed to the
 // lead, who picks it up before its next model call. Nothing that is running gets interrupted.
 const canInterject = computed(() =>
-  status.value === 'Running...' && isWorkflowRunning.value && !isStopping.value && Boolean(taskPrompt.value.trim())
+  status.value === RUN_STATUS.RUNNING && isWorkflowRunning.value && !isStopping.value && Boolean(taskPrompt.value.trim())
 )
 // Notes the lead has not picked up yet: id -> { text, bubble }. Whatever is still here when the
 // run ends is sent as a follow-up turn, so nothing the user wrote is lost.
@@ -2879,7 +2608,7 @@ let unconfirmedAnswer = ''
 
 // A finished run (completed, cancelled or failed) whose composer holds a new message continues
 // the same session as a follow-up turn; with an empty composer the button relaunches instead.
-const isRunFinished = computed(() => ['Completed', 'Cancelled', 'Error', 'Failed'].includes(status.value))
+const isRunFinished = computed(() => isFinishedStatus(status.value))
 
 // ---------------------------------------------------------------- products ("Sản phẩm")
 // What the team wrote for this session (its opened project, else its own folder): a one-line
@@ -2933,7 +2662,7 @@ const openProducts = (run = false) => {
 // ---------------------------------------------------------------- plan approval
 // The lead ended its turn with a plan: the run is "done" for the server, but for you it
 // waits on your go-ahead. Your next message (approval or changes) opens the next turn.
-const isAwaitingPlan = computed(() => Boolean(runTracker.state.plan) && !isWorkflowRunning.value && status.value === 'Completed')
+const isAwaitingPlan = computed(() => Boolean(runTracker.state.plan) && !isWorkflowRunning.value && status.value === RUN_STATUS.COMPLETED)
 const statusLabel = computed(() => (isAwaitingPlan.value ? t('launch.plan.status') : getTranslatedStatus(status.value)))
 // Only the latest plan of the session, while nothing newer started, can still be answered
 const isPlanOpen = (message) => Boolean(message?.plan && isAwaitingPlan.value && runTracker.state.plan?.id === message.plan.id)
@@ -2960,8 +2689,7 @@ const showProposedPlan = (data = {}) => {
   }
   if (!target) target = addDialogue(node || t('launch.unknown_node'), plan.plan || plan.summary)
   if (!target) return
-  target.plan = plan
-  target.rev += 1
+  updateMessage(target, { plan })
   scheduleScrollToBottom()
 }
 const approvePlan = () => {
@@ -2972,7 +2700,7 @@ const approvePlan = () => {
 // A run that was stopped or failed can be continued: the backend resumes from its saved progress
 const canResumeRun = computed(() => {
   if (loading.value || isStopping.value || isAwaitingPlan.value || !isRunFinished.value) return false
-  if (['Cancelled', 'Error', 'Failed'].includes(status.value)) return true
+  if ([RUN_STATUS.CANCELLED, RUN_STATUS.ERROR, RUN_STATUS.FAILED].includes(status.value)) return true
   return Boolean(sessions.value.find((s) => s.session_id === activeSessionId.value)?.resumable)
 })
 const resumeRun = () => {
@@ -3073,16 +2801,16 @@ const quickReplies = computed(() => {
   // The lead's question card is above the box: the answer is yours to write
   if (isWaitingForInput.value) return []
   if (isRunActive.value) {
-    if (status.value !== 'Running...' || !isWorkflowRunning.value) return []
+    if (status.value !== RUN_STATUS.RUNNING || !isWorkflowRunning.value) return []
     return [
       { key: 'progress', label: t('launch.quick.progress'), text: t('launch.quick.progress_text'), send: true, hint: t('launch.quick.progress_hint') },
       { key: 'note', label: t('launch.quick.note'), text: t('launch.quick.note_text') }
     ]
   }
-  if (['Error', 'Failed', 'Cancelled'].includes(status.value)) {
+  if ([RUN_STATUS.ERROR, RUN_STATUS.FAILED, RUN_STATUS.CANCELLED].includes(status.value)) {
     // "Continue" lives on the resume banner right above
     // A stopped run did not fail: asking why makes no sense there
-    const failed = status.value !== 'Cancelled'
+    const failed = status.value !== RUN_STATUS.CANCELLED
     return [
       ...(failed ? [{ key: 'why', label: t('launch.quick.why_failed'), text: t('launch.quick.why_failed_text') }] : []),
       { key: 'other_way', label: t('launch.quick.other_way'), text: t('launch.quick.other_way_text') }
@@ -3103,7 +2831,7 @@ const pickQuickReply = (item) => {
 }
 // Could a note be sent now (same rule as canInterject, for a text not typed yet)
 const canInterjectWith = (text) =>
-  status.value === 'Running...' && isWorkflowRunning.value && !isStopping.value && Boolean(String(text || '').trim())
+  status.value === RUN_STATUS.RUNNING && isWorkflowRunning.value && !isStopping.value && Boolean(String(text || '').trim())
 
 // Arrow Up in an empty box brings back your last message to edit (like a terminal or Slack)
 const recallLastPrompt = (event) => {
@@ -3237,6 +2965,7 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
   pendingLaunch = null
   if (!keepSession) {
     locallyCancelled = false
+    cancelRequested = false
     endStopping()
     replacedSessionId.value = ''
     sessionId = null
@@ -3479,7 +3208,7 @@ const delegateTarget = (toolName, rawArgs) =>
 // A delegated member started, ended or changed activity: the lead's running activity line
 // ("Project Manager → QA Tester · reading files") must re-render
 const touchWorkingTurns = () => {
-  for (const state of nodesLoadingMessagesMap.values()) state.message.rev += 1
+  for (const state of nodesLoadingMessagesMap.values()) updateMessage(state.message)
 }
 
 // Add a notification (supports levels)
@@ -3493,17 +3222,13 @@ const addChatNotification = (message, { type = 'notification', at = null, retryP
     for (let i = list.length - 1; i >= Math.max(0, list.length - COALESCE_LOOKBACK); i -= 1) {
       const item = list[i]
       if (item.coalesce !== coalesce) continue
-      item.message = message
-      item.timestamp = at ?? Date.now()
-      item.rev += 1
+      updateMessage(item, { message, timestamp: at ?? Date.now() })
       return
     }
   }
   const last = list[list.length - 1]
   if (!retryPrompt && type !== 'notification' && last && last.type === type && last.message === message && !last.retryPrompt) {
-    last.repeat = (last.repeat || 1) + 1
-    last.timestamp = at ?? Date.now()
-    last.rev += 1
+    updateMessage(last, { repeat: (last.repeat || 1) + 1, timestamp: at ?? Date.now() })
     return
   }
   list.push({
@@ -3564,7 +3289,7 @@ const addToolIssue = (nodeId, toolName, reason, at = null) => {
   group.lastReason = short
   group.recovered = false
   group.timestamp = at ?? Date.now()
-  group.rev += 1
+  updateMessage(group)
   recountToolIssues()
 }
 // The agent moved on (a tool call worked, or its step ended): the group folds away.
@@ -3574,9 +3299,7 @@ const markToolsRecovered = (nodeId, { close = false } = {}) => {
   const group = toolIssueGroups.get(id)
   if (!group) return
   if (!group.recovered) {
-    group.recovered = true
-    group.open = false
-    group.rev += 1
+    updateMessage(group, { recovered: true, open: false })
   }
   if (close) toolIssueGroups.delete(id)
   recountToolIssues()
@@ -3593,8 +3316,9 @@ const clearToolIssues = () => {
   openToolIssueCount.value = 0
 }
 const toggleToolIssues = (message) => {
-  message.open = !message.open
-  message.rev += 1
+  updateMessage(message, (m) => {
+    m.open = !m.open
+  })
 }
 const toolIssuesHeadline = (message) => {
   const name = message.nodeId || t('launch.unknown_node')
@@ -3647,7 +3371,7 @@ const isAttachmentUploadAllowed = () => {
   if (!isConnectionReady.value || !sessionId || isUploadingAttachment.value) {
     return false
   }
-  if (isWorkflowRunning.value && status.value !== 'Waiting for input...') {
+  if (isWorkflowRunning.value && status.value !== RUN_STATUS.WAITING_INPUT) {
     return false
   }
   return true
@@ -3901,7 +3625,7 @@ const handleEnterKey = (e) => {
     return
   }
   // Check disabled state logically similar to button
-  if (isStopMode.value || loading.value || (isWorkflowRunning.value && !hasComposerContent.value) || (!isWorkflowRunning.value && !isRunFinished.value && !isConnectionReady.value)) {
+  if (isStopMode.value || loading.value || launchPending.value || (isWorkflowRunning.value && !hasComposerContent.value) || (!isWorkflowRunning.value && !isRunFinished.value && !isConnectionReady.value)) {
     return
   }
   // An empty message box never relaunches a finished run from the keyboard
@@ -4055,7 +3779,7 @@ const handleButtonClick = () => {
     if (!isWaitingForInput.value) return
     if (!sendHumanInput()) return
 
-    status.value = "Running..."
+    status.value = RUN_STATUS.RUNNING
     shouldGlow.value = false
   } else if (isRunFinished.value) {
     // Follow-up turn: keep the current session (and its chat) and run the workflow again with
@@ -4159,11 +3883,9 @@ const restorePendingInput = (code = '') => {
   runTracker.undoInput(code === 'not_waiting' ? [] : waitingIds)
   if (!taskPrompt.value.trim()) taskPrompt.value = text
   // Still waiting for an answer unless the server said it was not
-  if (code !== 'not_waiting' && status.value === 'Running...' && statusBefore === 'Waiting for input...') status.value = statusBefore
+  if (code !== 'not_waiting' && status.value === RUN_STATUS.RUNNING && statusBefore === RUN_STATUS.WAITING_INPUT) status.value = statusBefore
 }
 
-// Messages of the socket are handled strictly in order (see onmessage)
-let processQueue = Promise.resolve()
 // The workflow file of a session being opened is fetched while the socket connects
 let prefetchedYaml = null
 const prefetchWorkflowYaml = (file) => {
@@ -4180,47 +3902,17 @@ const takeWorkflowYaml = (file) => {
 // (and one render) for a burst instead of one per event. The order is kept.
 const lastEventAt = ref(0)
 const stallLevel = ref(0)
-let incomingBuffer = []
-let flushTimer = null
-let flushRaf = null
-const flushIncoming = () => {
-  if (flushTimer) clearTimeout(flushTimer)
-  if (flushRaf) cancelAnimationFrame(flushRaf)
-  flushTimer = flushRaf = null
-  const batch = incomingBuffer
-  incomingBuffer = []
-  if (!batch.length) return
-  lastEventAt.value = Date.now()
-  processQueue = processQueue
-    .then(async () => {
-      // processMessage runs synchronously up to its first await, so the whole batch lands in
-      // one go; only session_resumed (it waits for the workflow file) is waited for.
-      for (const { socket, msg } of batch) {
-        if (ws !== socket) continue
-        try {
-          const pending = processMessage(msg)
-          if (msg.type === 'session_resumed') await pending
-          else pending.catch((e) => console.error('Failed to handle a WebSocket message:', e))
-        } catch (e) {
-          console.error('Failed to handle a WebSocket message:', e)
-        }
-      }
-    })
-    .catch((processError) => console.error('Failed to handle a WebSocket message:', processError))
-}
-const enqueueMessage = (socket, msg) => {
-  incomingBuffer.push({ socket, msg })
-  if (flushTimer) return
-  // rAF does not run in a hidden tab: the timer keeps the chat moving there
-  flushTimer = setTimeout(flushIncoming, 50)
-  if (typeof requestAnimationFrame === 'function') flushRaf = requestAnimationFrame(flushIncoming)
-}
+// Messages of the socket are handled strictly in order (see onmessage)
+const { enqueue: enqueueMessage } = createIncomingQueue({
+  isCurrent: (socket) => ws === socket,
+  process: (msg) => processMessage(msg),
+  onFlush: () => { lastEventAt.value = Date.now() }
+})
 
 // Establish a WebSocket connection
 // One id per page load plus a counter per socket: the server tells our own overlapping
 // sockets (reconnect, draft -> session switch) from a really different tab.
-const clientId =
-  (typeof crypto !== 'undefined' && crypto.randomUUID?.()) || `c${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+const clientId = createClientId()
 let socketSeq = 0
 const establishWebSocketConnection = (options = {}) => {
   let { sessionId: reconnectSid, fresh = false } = options
@@ -4238,7 +3930,7 @@ const establishWebSocketConnection = (options = {}) => {
   if (reconnecting) {
     isReconnecting.value = true
     resetConnectionState({ closeSocket: true, keepSession: true })
-    status.value = 'Connecting...'
+    status.value = RUN_STATUS.CONNECTING
   } else {
     resetConnectionState()
     if (!selectedFile.value) {
@@ -4246,28 +3938,8 @@ const establishWebSocketConnection = (options = {}) => {
     }
   }
 
-  const apiBase = import.meta.env.VITE_API_BASE_URL || ''
-  // Defaults: same-origin (works with Vite dev proxy)
-  const defaultScheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  let scheme = defaultScheme
-  let host = window.location.host
-
-  // In production, prefer explicit API base if provided
-  if (!import.meta.env.DEV && apiBase) {
-    try {
-      const api = new URL(apiBase, window.location.origin)
-      scheme = api.protocol === 'https:' ? 'wss:' : 'ws:'
-      host = api.host
-    } catch {
-      // keep defaults
-    }
-  }
-
   socketSeq += 1
-  const clientParams = `client=${encodeURIComponent(clientId)}&seq=${socketSeq}`
-  const wsUrl = reconnecting
-    ? `${scheme}//${host}/ws?session_id=${encodeURIComponent(reconnectSid)}&batch=1&${clientParams}`
-    : `${scheme}//${host}/ws?${clientParams}`
+  const wsUrl = buildSocketUrl({ sessionId: reconnecting ? reconnectSid : '', clientId, seq: socketSeq })
   const socket = new WebSocket(wsUrl)
   ws = socket
 
@@ -4280,33 +3952,29 @@ const establishWebSocketConnection = (options = {}) => {
     // Ignore messages from sockets that are no longer current
     if (ws !== socket) return
 
-    let msg
-    try {
-      msg = JSON.parse(event.data)
-      // A replay sent as one frame: handle its messages like single ones, in order
-      if (msg?.type === 'batch' && Array.isArray(msg.data)) {
-        for (const inner of msg.data) {
-          if (inner && typeof inner === 'object') enqueueMessage(socket, inner)
-        }
-        return
-      }
-      // Another tab took this session: remember it so the close that follows is not
-      // mistaken for a dropped connection (which would reconnect and take it back).
-      if (msg?.type === 'session_replaced') {
-        socket.__replaced = true
-        return
-      }
-    } catch (parseError) {
-      console.warn('Ignoring malformed WebSocket message:', parseError)
+    const frame = parseSocketFrame(event.data)
+    if (frame.kind === 'invalid') {
+      if (frame.error) console.warn('Ignoring malformed WebSocket message:', frame.error)
       return
     }
-    if (!msg || typeof msg !== 'object') return
+    // A replay sent as one frame: handle its messages like single ones, in order
+    if (frame.kind === 'batch') {
+      for (const inner of frame.messages) enqueueMessage(socket, inner)
+      return
+    }
+    // Another tab took this session: remember it so the close that follows is not
+    // mistaken for a dropped connection (which would reconnect and take it back).
+    if (frame.kind === 'replaced') {
+      socket.__replaced = true
+      return
+    }
+    const { msg } = frame
 
     if (msg.type === 'connection') {
       sessionId = msg.data?.session_id || null
 
       if (!sessionId) {
-        status.value = 'Connection error'
+        status.value = RUN_STATUS.CONNECTION_ERROR
         toast.error(t('launch.errors.missing_session'))
         resetConnectionState()
         return
@@ -4315,9 +3983,9 @@ const establishWebSocketConnection = (options = {}) => {
       isConnectionReady.value = true
       // This socket is connected: any "opened in another tab" notice is out of date
       replacedSessionId.value = ''
-      reconnectAttempts = 0
-      if (autoReconnecting) {
-        autoReconnecting = false
+      reconnector.attempts = 0
+      if (reconnector.auto) {
+        reconnector.auto = false
         if (msg.data?.resumed) clearReplayedState()
       }
       // The saved events follow, then session_resumed: build the chat off screen meanwhile
@@ -4339,7 +4007,7 @@ const establishWebSocketConnection = (options = {}) => {
       // For new connections, set initial state; reconnections are handled by session_resumed
       if (!isReconnecting.value) {
         shouldGlow.value = true
-        status.value = 'Waiting for launch...'
+        status.value = RUN_STATUS.READY
         nextTick(() => {
           taskInputRef.value?.focus()
         })
@@ -4363,7 +4031,7 @@ const establishWebSocketConnection = (options = {}) => {
     if (ws !== socket) return
     console.error('WebSocket error:', error)
     // Retries after a dropped connection stay quiet: the status line already says it
-    if (!reconnectAttempts) toast.error(t('launch.errors.ws_connection'))
+    if (!reconnector.attempts) toast.error(t('launch.errors.ws_connection'))
   }
 
   socket.onclose = (event) => {
@@ -4371,7 +4039,7 @@ const establishWebSocketConnection = (options = {}) => {
     if (ws !== socket) return
 
     const lostSession = sessionId
-    status.value = 'Disconnected'
+    status.value = RUN_STATUS.DISCONNECTED
     pendingOpenSessionId = null
     // An answer sent just before the drop may never have reached the server: put it back in
     // the box. If the replay after the reconnect shows it was received, the box is cleared again.
@@ -4398,29 +4066,17 @@ const establishWebSocketConnection = (options = {}) => {
 
 // The server went away (restart, network): reconnect to the same session with backoff,
 // keeping what is being typed in the message box.
-let reconnectTimer = null
-let reconnectAttempts = 0
-// Set while an automatic reconnect is in flight (see clearReplayedState)
-let autoReconnecting = false
-const cancelReconnect = () => {
-  clearTimeout(reconnectTimer)
-  reconnectTimer = null
-  reconnectAttempts = 0
-  autoReconnecting = false
-}
+const reconnector = createReconnector()
+const cancelReconnect = () => reconnector.cancel()
 const scheduleReconnect = (lostSession) => {
-  clearTimeout(reconnectTimer)
-  const delay = Math.min(1000 * 2 ** reconnectAttempts, 10000)
-  reconnectAttempts += 1
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null
+  reconnector.schedule(() => {
     // Something else opened a connection meanwhile (the user switched sessions)
     if (ws || sessionId !== lostSession) return
-    const attempts = reconnectAttempts
+    const attempts = reconnector.attempts
     establishWebSocketConnection({ sessionId: lostSession })
-    reconnectAttempts = attempts
-    autoReconnecting = true
-  }, delay)
+    reconnector.attempts = attempts
+    reconnector.auto = true
+  })
 }
 // The session moved to another tab: take it back here (the newest socket wins on the
 // server). Like an automatic reconnect, the chat stays until the server replays it.
@@ -4429,13 +4085,14 @@ const takeOverSession = () => {
   if (!target) return
   replacedSessionId.value = ''
   establishWebSocketConnection({ sessionId: target })
-  autoReconnecting = true
+  reconnector.auto = true
 }
 
 // Set while an automatic reconnect is in flight: the chat is cleared only once the server
 // answers (it then replays the whole session), so a failed retry leaves it on screen.
 const clearReplayedState = () => {
   locallyCancelled = false
+  cancelRequested = false
   endStopping()
   chatMessages.value = []
   replayedNotes = []
@@ -4470,7 +4127,7 @@ const openSession = async (item) => {
   pendingProject = null
   // Set before the URL changes so the route watch does not open a draft
   isReconnecting.value = true
-  status.value = 'Connecting...'
+  status.value = RUN_STATUS.CONNECTING
   taskPrompt.value = ''
   currentProjectName.value = sessionProject(item)?.name || ''
   if (item.yaml_file) setWorkflowSelection(item.yaml_file)
@@ -4492,7 +4149,7 @@ const openDraft = async (file, { project = '', source = null } = {}) => {
   const query = { ...route.query, workflow: file }
   delete query.session
   await router.replace({ query })
-  status.value = 'Connecting...'
+  status.value = RUN_STATUS.CONNECTING
   taskPrompt.value = takeComposer(composerKey(project, file))?.prompt || ''
   handleYAMLSelection(file)
   establishWebSocketConnection({ fresh: true })
@@ -4790,9 +4447,9 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
   chatMessagesRef.value?.addEventListener('scroll', handleChatScroll, { passive: true })
-  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('pagehide', onPageHide)
   stopWorkflowSync = onWorkflowChanged(handleWorkflowChanged)
-  refreshSessions().finally(schedulePoll)
+  startSessionsPolling()
   // Coming back to the page without a target: reopen the session that was open last time
   if (!route.query?.workflow && !route.query?.session) {
     try {
@@ -4815,19 +4472,32 @@ onMounted(async () => {
   } else if (selectedFile.value) {
     openDraft(selectedFile.value)
   } else {
-    status.value = 'Waiting for workflow selection...'
+    status.value = RUN_STATUS.NO_WORKFLOW
   }
   isPageReady = true
 })
 
+// Leaving or reloading the page: close the socket right now, so the server releases the
+// session before the reloaded page reconnects (a socket left to time out kept the session
+// tied to the page that is gone, e.g. while a human gate waits).
+const onPageHide = (event) => {
+  if (event?.persisted) return // kept in the back/forward cache: the page may come back as is
+  const socket = ws
+  if (!socket) return
+  ws = null // its onclose must not schedule a reconnect
+  try {
+    socket.close(1000, 'Page closed')
+  } catch {
+    // already closing
+  }
+}
+
 onUnmounted(() => {
-  clearTimeout(sessionsPollTimer)
-  clearTimeout(sessionsRefreshTimer)
+  stopSessionsPolling()
   clearTimeout(workflowRefreshTimer)
   clearTimeout(stopFallbackTimer)
   stopWorkflowSync?.()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
-  document.title = BASE_TITLE
+  window.removeEventListener('pagehide', onPageHide)
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
   chatMessagesRef.value?.removeEventListener('scroll', handleChatScroll)
@@ -5073,16 +4743,16 @@ const switchToGraph = async () => {
   await loadVueFlowGraph({ fit: true })
 }
 
-// One send at a time: the connection pre-check awaits the network before the run state flips to
-// "Launching...", so a quick second Enter (or Enter + click) would otherwise launch twice.
-let launchInFlight = false
+// True from the click until the execute request answered: the checks before the POST await
+// (connection pre-check), so without it a double click could post two launches.
+const launchPending = ref(false)
 const launchWorkflow = async () => {
-  if (launchInFlight) return
-  launchInFlight = true
+  if (launchPending.value) return
+  launchPending.value = true
   try {
     await launchWorkflowOnce()
   } finally {
-    launchInFlight = false
+    launchPending.value = false
   }
 }
 
@@ -5119,8 +4789,12 @@ const launchWorkflowOnce = async () => {
   // Block the run early when a node references a connection that is missing or has no credential.
   // A failed check (e.g. network) must not stop the launch; the runtime still reports the error.
   try {
-    const check = await checkWorkflowConnections(await fetchWorkflowYAML(selectedFile.value))
+    const checkedFile = selectedFile.value
+    const check = precheckIsFresh(checkedFile)
+      ? { ok: true }
+      : await checkWorkflowConnections(await fetchWorkflowYAML(checkedFile))
     if (switchedAway()) return
+    if (check.ok && !precheckIsFresh(checkedFile)) precheckPassed = { key: workflowKey(checkedFile), at: Date.now() }
     if (!check.ok) {
       toast.error(t('connections.precheck_failed'), {
         items: check.problems.map((problem) => `${problem.nodeId}: ${problem.message}`)
@@ -5135,14 +4809,18 @@ const launchWorkflowOnce = async () => {
   shouldGlow.value = false
   launchError.value = ''
   // A failed follow-up leaves a finished session as it was (not a draft "waiting for launch")
-  const statusBefore = ['Completed', 'Cancelled', 'Error', 'Failed'].includes(status.value) ? status.value : 'Waiting for launch...'
+  const statusBefore = isFinishedStatus(status.value) ? status.value : RUN_STATUS.READY
   // The run is live from the moment it is posted: the server may already stream its first
   // events (a question, an error, even the end) before the POST returns, and those must win
   // over what happens below. This also stops a second launch while this one is in flight.
-  status.value = 'Launching...'
+  status.value = RUN_STATUS.LAUNCHING
   isWorkflowRunning.value = true
   locallyCancelled = false
-  const trackerBefore = JSON.parse(JSON.stringify(runTracker.state))
+  cancelRequested = false
+  // begin() only replaces top-level fields and appends to events/turns: a shallow copy undoes it
+  // (a deep JSON copy of the whole session's tracker cost a lot on long sessions)
+  const trackerRaw = toRaw(runTracker.state)
+  const trackerBefore = { ...trackerRaw, events: [...trackerRaw.events], turns: [...trackerRaw.turns] }
   const startedBefore = workflowStartedCount
   const rejectedBefore = launchRejectedCount
   runTracker.begin(trimmedPrompt, attachmentNames)
@@ -5170,16 +4848,12 @@ const launchWorkflowOnce = async () => {
   }
 
   try {
-    const response = await fetch('/api/workflow/execute', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        yaml_file: selectedFile.value,
-        task_prompt: trimmedPrompt,
-        session_id: sessionId,
-        attachments: attachmentIds,
-        mode: runMode.value
-      })
+    const response = await postWorkflowExecute({
+      yamlFile: selectedFile.value,
+      taskPrompt: trimmedPrompt,
+      sessionId,
+      attachments: attachmentIds,
+      mode: runMode.value
     })
     // Opened another session meanwhile: this run goes on (or not) on the server and shows up when
     // the user comes back; the session on screen must not be changed by it.
@@ -5198,21 +4872,18 @@ const launchWorkflowOnce = async () => {
         undoRejected()
         return
       }
-      if (status.value === 'Launching...' && workflowStartedCount === startedBefore) {
+      if (status.value === RUN_STATUS.LAUNCHING && workflowStartedCount === startedBefore) {
         pendingLaunch = { undo: undoRejected }
       }
 
       // Clear uploaded attachments
       clearUploadedAttachments()
 
-      await response.json().catch(() => null)
-      if (switchedAway()) return
-
       // Only clear what was sent (not an answer typed meanwhile to an early question)
       if (taskPrompt.value.trim() === trimmedPrompt) taskPrompt.value = ''
 
       // Events that arrived during the POST (question, error, end) already set the state
-      if (status.value === 'Launching...') status.value = 'Running...'
+      if (status.value === RUN_STATUS.LAUNCHING) status.value = RUN_STATUS.RUNNING
       hasLaunched.value = true
       // The project runs this workflow from now on (until the user picks another)
       if (currentProjectName.value) rememberProjectWorkflow(currentProjectName.value, selectedFile.value)
@@ -5228,16 +4899,16 @@ const launchWorkflowOnce = async () => {
     } else if (response.status === 409) {
       // The server is still running a turn of this session (e.g. started from another tab):
       // nothing was launched, so the run state stays as it was
-      const error = await response.json().catch(() => ({}))
-      console.warn('Launch rejected, a run is in progress:', error)
+      console.warn('Launch rejected, a run is in progress:', response.data)
       undoLaunch()
       status.value = statusBefore
       toast.warning(t('launch.run_in_progress'))
     } else {
-      const error = await response.json().catch(() => ({}))
+      const error = response.data || {}
       console.error('Failed to launch workflow:', error)
       undoLaunch()
-      status.value = 'Failed'
+      invalidatePrecheck()
+      status.value = RUN_STATUS.FAILED
       launchError.value = errorWithDetail('launch.errors.launch_failed', error.detail || error.error?.message || (response.status ? `HTTP ${response.status}` : ''))
       shouldGlow.value = true
       if (isConnectionReady.value) {
@@ -5248,7 +4919,8 @@ const launchWorkflowOnce = async () => {
     console.error('Error calling execute API:', error)
     if (switchedAway()) return
     undoLaunch()
-    status.value = 'Error'
+    invalidatePrecheck()
+    status.value = RUN_STATUS.ERROR
     launchError.value = errorWithDetail('launch.errors.execute_failed', error)
     shouldGlow.value = true
     if (isConnectionReady.value) {
@@ -5301,7 +4973,7 @@ watch(activeSessionId, () => {
 
 // When workflow is finished or cancelled, re-enable glow
 watch(status, (newStatus) => {
-  if (newStatus === 'Completed' || newStatus === 'Cancelled') {
+  if (newStatus === RUN_STATUS.COMPLETED || newStatus === RUN_STATUS.CANCELLED) {
     shouldGlow.value = true
   }
 })
@@ -5349,18 +5021,11 @@ const downloadArtifact = async (message) => {
   }
 }
 
-// Handle edge condition messages and trigger sprite animation
-const handleEdgeConditionMessage = (message, at) => {
-  // Parse message format: "Edge condition met for Source Node -> Target Node"
-  const edgeMatch = message.match(/Edge condition met for (.+) -> (.+)/)
-  if (!edgeMatch) {
-    console.warn('Could not parse edge condition message:', message)
-    return
-  }
-
-  const sourceNode = edgeMatch[1].trim()
-  const targetNode = edgeMatch[2].trim()
-
+// A handoff: an edge of the workflow really fired (structured event from the engine, see
+// the HANDOFF branch of the log handler). The source agent walks over to the target, the
+// run tracker records it and a sprite runs along the edge.
+const handleHandoff = (sourceNode, targetNode, at) => {
+  if (!sourceNode || !targetNode) return
   // Office view: the source agent walks over to hand its result to the target
   officeRef.value?.handoff(sourceNode, targetNode)
   runTracker.handoff(sourceNode, targetNode, at)
@@ -5655,8 +5320,7 @@ const processMessage = async (msg) => {
   if (msg.type === 'log' && msg.data?.timestamp) lastLogAt = eventTime(msg.data.timestamp)
   // What the user typed earlier; only arrives when a saved session is replayed
   if (msg.type === 'user_message') {
-    const text = msg.data?.text || ''
-    const names = Array.isArray(msg.data?.attachments) ? msg.data.attachments : []
+    const { text, names } = userMessageParts(msg.data)
     const parts = [text.trim(), names.length ? t('launch.attachments_line', { names: names.join(', ') }) : '']
     for (const note of replayedNotes) {
       if (note.text && text.includes(note.text)) dropNoteBubble(note)
@@ -5668,14 +5332,13 @@ const processMessage = async (msg) => {
       unconfirmedAnswer = ''
     }
     addDialogue(USER_SENDER, parts.filter(Boolean).join('\n\n'), at)
-    // The first message of a run is the task, later ones are replies to the agents; a message
-    // after a finished run opens the next turn of the session (kept with the earlier ones).
-    // A reply only answers a question that is pending: a request while nobody waits is a new
-    // turn, even when the turn before never recorded its end (e.g. the server restarted).
-    const tracker = runTracker.state
-    const awaitingAnswer = Object.values(tracker.nodes).some((node) => node.waiting)
-    if (tracker.task && !tracker.outcome && awaitingAnswer) runTracker.inputSent(text, at ?? undefined)
-    else runTracker.begin(text, names, at ?? undefined, { closeOpen: true })
+    // The task of a new turn, or the answer to a pending question (see userMessageRole)
+    if (userMessageRole(runTracker.state) === 'reply') runTracker.inputSent(text, at ?? undefined)
+    else {
+      runTracker.begin(text, names, at ?? undefined, { closeOpen: true })
+      // A replayed new turn: an earlier turn's stop says nothing about this one
+      cancelRequested = false
+    }
     return
   }
 
@@ -5732,68 +5395,53 @@ const processMessage = async (msg) => {
       if (ws !== socketBefore) return
     }
 
+    const plan = resumedSessionPlan(data, { hasOpenTurn: Boolean(runTracker.state.task && !runTracker.state.outcome) })
     isReconnecting.value = false
     setReplaying(false)
     pendingOpenSessionId = null
     currentProjectName.value = stripSlash(data.projects?.[0]?.name)
-    hasLaunched.value = Boolean(data.status) && data.status !== 'idle'
+    hasLaunched.value = plan.hasLaunched
     const composer = takeComposer(sessionId)
     if (composer?.prompt) taskPrompt.value = composer.prompt
 
-    // Restore workflow status
-    const statusMap = {
-      // A draft: projects were added but it was never launched
-      'idle': 'Waiting for launch...',
-      'running': 'Running...',
-      'waiting_for_input': 'Waiting for input...',
-      'completed': 'Completed',
-      'error': 'Error',
-      'cancelled': 'Cancelled',
-      // Stop was pressed and the run is winding down: locked until workflow_cancelled
-      'cancelling': 'Running...',
-    }
-    status.value = statusMap[data.status] || 'Connected'
+    // Restore workflow status (an unknown server status reads as just connected)
+    status.value = plan.status
 
-    if (data.status === 'running' || data.status === 'waiting_for_input' || data.status === 'cancelling') {
+    if (plan.running) {
       isWorkflowRunning.value = true
-      if (data.status === 'cancelling') startStopping()
+      if (plan.stopping) startStopping()
     } else {
       // The run this page was following ended while the connection was down (e.g. a server
       // restart): unlock the box instead of still saying the team is at work
       isWorkflowRunning.value = false
       endStopping()
     }
-    if (!['running', 'waiting_for_input', 'cancelling'].includes(data.status) && runTracker.state.task && !runTracker.state.outcome) {
+    if (plan.closeOutcome) {
       // The replay never recorded the end of the last turn, but the server is not running it:
       // close it, so the next request starts a turn of its own
-      const outcome = { completed: 'completed', error: 'error' }[data.status] || 'cancelled'
-      runTracker.finish(outcome, { error: outcome === 'error' ? formatErrorDetail(data.error_message) : '', settled: true })
+      const reason = plan.restarted ? t('launch.sessions.interrupted_restart') : data.error_message
+      runTracker.finish(plan.closeOutcome, { error: plan.closeOutcome === 'error' ? formatErrorDetail(reason) : '', settled: true })
       activeNodes.value = []
     }
-    const isLive = ['running', 'waiting_for_input', 'cancelling'].includes(data.status)
     // Nothing runs any more: tool problems of the replay no longer count as being handled
-    if (!isLive) settleAllToolIssues({ recovered: data.status === 'completed' })
-    if (!isLive || data.error_message === 'Interrupted by a server restart') {
+    if (plan.settleToolIssues) settleAllToolIssues(plan.settleToolIssues)
+    if (plan.settleOpenTurns) {
       // The replay left turns open (the run was cut off, e.g. by a server restart): close them
       // at their last recorded activity rather than letting their timers run on
       const lastAt = (state) => Math.max(state.message.startedAt, ...state.message.loadingEntries.map((e) => e.endedAt || e.startedAt))
       for (const [nodeId, state] of [...nodesLoadingMessagesMap.entries()]) {
         const message = state.message
         settleNodeTurn(nodeId, null, lastAt(state))
-        if (data.status !== 'completed') {
-          message.interrupted = true
-          message.rev += 1
-        }
+        if (plan.markTurnsInterrupted) updateMessage(message, { interrupted: true })
       }
     }
 
-    if (data.status === 'waiting_for_input') {
+    if (plan.glow) {
       shouldGlow.value = true
     }
 
     // Reopened draft: put its projects back in the message box, ready for the first prompt
-    if (data.status === 'idle') {
-      shouldGlow.value = true
+    if (plan.restoreProjects) {
       uploadedAttachments.value = composer?.attachments?.length ? composer.attachments : (data.projects || []).map((project) => ({
         success: true,
         kind: 'project',
@@ -5802,16 +5450,16 @@ const processMessage = async (msg) => {
         fileCount: project.file_count,
         workspacePath: project.workspace_path
       }))
-    } else if (data.status === 'waiting_for_input' && composer?.attachments?.length) {
+    } else if (plan.restoreComposerAttachments && composer?.attachments?.length) {
       uploadedAttachments.value = composer.attachments
     }
 
-    if (data.status === 'completed' || data.status === 'error' || data.status === 'cancelled') {
+    if (plan.downloadable) {
       sessionIdToDownload = sessionId
     }
 
-    if (isLive && data.current_node_id && !activeNodes.value.includes(data.current_node_id)) {
-      activeNodes.value.push(data.current_node_id)
+    if (plan.activeNode && !activeNodes.value.includes(plan.activeNode)) {
+      activeNodes.value.push(plan.activeNode)
     }
 
     isConnectionReady.value = true
@@ -5819,9 +5467,9 @@ const processMessage = async (msg) => {
     // (fonts, tables, images) has settled
     scheduleScrollToBottom(true)
     setTimeout(() => scheduleScrollToBottom(true), 250)
-    if (data.error_message === 'Interrupted by a server restart') {
+    if (plan.notice === 'interrupted') {
       addChatNotification(t('launch.sessions.interrupted_notice'), { type: 'warning' })
-    } else if (data.status === 'running' || data.status === 'waiting_for_input') {
+    } else if (plan.notice === 'reconnected') {
       // Only worth saying while the run is live; a finished or draft session just opens
       addChatNotification(t('launch.reconnected'))
     }
@@ -5836,22 +5484,7 @@ const processMessage = async (msg) => {
   if (msg.type === 'human_input_required') {
     // A human step usually gets the previous agent's reply as its input: that reply is
     // already the last bubble, so it is not shown a second time
-    const lastAgentBubble = (() => {
-      const list = chatMessages.value
-      for (let i = list.length - 1; i >= 0; i -= 1) {
-        if (list[i].type !== 'dialogue') continue
-        return list[i].isRight ? null : list[i].text ? list[i] : null
-      }
-      return null
-    })()
-    const rawInput = msg.data?.input
-    const localizedInput = localizeInputHeaders(rawInput)
-    const lastText = String(lastAgentBubble?.text || '').trim()
-    const repeatsLast = Boolean(lastText) &&
-      [rawInput, localizedInput].some((part) => typeof part === 'string' && part.trim() === lastText)
-    const fullMessage = [msg.data?.task_description, repeatsLast ? null : localizedInput]
-      .filter((part) => part !== null && part !== undefined && String(part).trim())
-      .join('\n\n')
+    const { lastAgentBubble, repeatsLast, fullMessage } = humanInputPrompt(chatMessages.value, msg.data, localizeInputHeaders)
     // The question closes the agent's current activity row and becomes its message;
     // work after the user's answer starts a fresh row below it.
     const askingNode = msg.data?.node_id
@@ -5870,8 +5503,7 @@ const processMessage = async (msg) => {
     }
     // Shown as the lead's question, waiting for your answer
     if (question?.type === 'dialogue' && !question.isRight) {
-      question.isQuestion = true
-      question.rev += 1
+      updateMessage(question, { isQuestion: true })
     }
     // Ready to answer: the box takes the focus unless you are typing somewhere else
     nextTick(() => {
@@ -5881,7 +5513,7 @@ const processMessage = async (msg) => {
     officeRef.value?.waitingInput(msg.data?.node_id, msg.data?.task_description || msg.data?.input)
     runTracker.waitingInput(msg.data?.node_id)
 
-    status.value = "Waiting for input..."
+    status.value = RUN_STATUS.WAITING_INPUT
     shouldGlow.value = true
   }
 
@@ -5890,13 +5522,7 @@ const processMessage = async (msg) => {
     const events = msg?.data?.events
     if (Array.isArray(events)) {
       for (const event of events) {
-        const nodeName = event?.node_id || t('launch.artifact_sender')
-        const fileName = event?.file_name || 'artifact'
-        const mimeType = event?.mime_type || ''
-        const attachmentId = event?.attachment_id
-        // A file of a project opened in place: opens on this machine instead of downloading
-        const openLocal = !!event?.extra?.open_local
-        const relativePath = event?.relative_path || fileName
+        const { nodeName, fileName, mimeType, attachmentId, openLocal, relativePath, isImage } = artifactFile(event, t('launch.artifact_sender'))
 
         // The turn's agent bubble (the lead's, for a member's file) shows it once, under its answer
         const turnBubble = findTurnBubble(event?.node_id)
@@ -5926,7 +5552,7 @@ const processMessage = async (msg) => {
           attachmentId,
           openLocal,
           relativePath,
-          isImage: !!mimeType && mimeType.includes('image'),
+          isImage,
           dataUri: null,
           loading: true,
           error: null,
@@ -5958,21 +5584,19 @@ const processMessage = async (msg) => {
     }
   }
 
+  const alert = logAlert(msg)
   // Account ran out of quota: say plainly which account took over (or that none is left)
-  const accountEvent = msg.type === 'log' ? msg.data?.details?.event : null
-  if (accountEvent === 'account_fallback' || accountEvent === 'account_exhausted') {
-    const params = { from: msg.data.details.from || '', to: msg.data.details.to || '', model: msg.data.details.model || '' }
-    const key = accountEvent === 'account_fallback' ? 'launch.account_fallback' : 'launch.account_exhausted'
-    addChatNotification(t(key, params), { type: accountEvent === 'account_fallback' ? 'warning' : 'error', at })
-    toast[accountEvent === 'account_fallback' ? 'warning' : 'error'](t(key, params))
+  if (alert?.kind === 'account') {
+    const key = alert.event === 'account_fallback' ? 'launch.account_fallback' : 'launch.account_exhausted'
+    addChatNotification(t(key, alert.params), { type: alert.level, at })
+    toast[alert.level](t(key, alert.params))
   }
 
   // Handle warning/error messages
-  else if (msg.type === 'log' && (msg.data.level === 'WARNING' || msg.data.level === 'ERROR')) {
+  else if (alert) {
     // A failed tool call is fed back to the agent, which retries on its own: show it as a
     // warning with the real reason instead of the bare "Tool call X for node Y" line.
-    const isToolFailure = msg.data.event_type === 'TOOL_CALL'
-    if (isToolFailure) {
+    if (alert.kind === 'tool_failure') {
       // Grouped per agent and step (see addToolIssue); the failed call's step also ends here,
       // or its spinner would run on until the whole turn settles
       const details = msg.data.details || {}
@@ -5986,7 +5610,7 @@ const processMessage = async (msg) => {
         handleToolCallEnd(msg.data.node_id, { ...details, success: false }, eventTime(msg.data.timestamp), msg.data.timestamp)
       }
     } else {
-      const notificationType = msg.data.level === 'WARNING' ? 'warning' : 'error'
+      const notificationType = alert.level
       // Backend warning/error text is technical English; give it a localized lead-in
       const detail = formatErrorDetail(msg.data.message)
       const fallbackKey = notificationType === 'warning' ? 'launch.unknown_warning' : 'launch.unknown_error'
@@ -6004,9 +5628,11 @@ const processMessage = async (msg) => {
 
     const delegatedBy = msg.data.details?.delegated_by
     const eventAt = eventTime(msg.data.timestamp)
+    if (isCancelRequestLog(msg.data)) cancelRequested = true
+    const kind = infoLogKind(msg.data, { setupLogRe: SETUP_LOG_RE, logEventKeys: LOG_EVENT_KEYS, turnHasAgentBubble })
 
     // Node active
-    if (eventType === 'NODE_START') {
+    if (kind === 'node_start') {
       if (nodeId && !activeNodes.value.includes(nodeId)) {
         activeNodes.value.push(nodeId)
       }
@@ -6032,7 +5658,7 @@ const processMessage = async (msg) => {
     }
 
     // Model call
-    else if (eventType === 'MODEL_CALL') {
+    else if (kind === 'model_call') {
       // Model call started
       if (msg.data.details.stage === "before") {
         const baseKey = `model-${msg.data.details.model_name || 'unknown'}`
@@ -6065,7 +5691,7 @@ const processMessage = async (msg) => {
     }
 
     // Tool call (a node may call tools multiple times)
-    else if (eventType === 'TOOL_CALL') {
+    else if (kind === 'tool_call') {
       // Tool call started
       if (msg.data.details.stage === "before") {
         const baseKey = `tool-${msg.data.details.tool_name || 'unknown'}`
@@ -6098,7 +5724,7 @@ const processMessage = async (msg) => {
     }
 
     // Node ended (with output)
-    else if (eventType === 'NODE_END') {
+    else if (kind === 'node_end') {
       if (nodeId) {
         // Remove from active node list
         const index = activeNodes.value.indexOf(nodeId)
@@ -6110,10 +5736,7 @@ const processMessage = async (msg) => {
 
       // A member cut short by Stop ends with nothing to hand over: it did not report anything
       const details = msg.data.details || {}
-      const memberCancelled = Boolean(delegatedBy) && (
-        details.cancelled === true || details.status === 'cancelled' || isStopping.value || locallyCancelled
-      )
-      const memberReported = Boolean(delegatedBy) && !memberCancelled && details.output_count !== 0
+      const { memberReported, endStatus } = nodeEndOutcome(details, { delegatedBy, stopping: isStopping.value || locallyCancelled || cancelRequested })
       if (delegatedBy && nodeId) {
         settleNodeTurn(nodeId, null, eventAt)
         finishMemberSteps(nodeId, eventAt)
@@ -6142,36 +5765,29 @@ const processMessage = async (msg) => {
       // The step is over: its tool problems were handled (or no longer matter)
       if (nodeId) markToolsRecovered(nodeId, { close: true })
       if (nodeId) officeRef.value?.nodeEnd(nodeId, msg.data.details?.output)
-      // An optional step (continue_on_error) that failed ends with failed: true: it is not done
-      const endStatus = memberCancelled ? 'cancelled' : (msg.data.details?.failed ? 'error' : 'done')
+      // An optional step (continue_on_error) that failed ends with failed: true: it is not done (nodeEndOutcome)
       runTracker.nodeEnd(nodeId, msg.data.details?.output, msg.data.timestamp, { status: endStatus })
     }
 
-    // Edge condition met - trigger sprite animation
-    else if (msg.data.message && msg.data.message.includes('Edge condition met for')) {
-      handleEdgeConditionMessage(msg.data.message, msg.data.timestamp)
+    // An edge fired: details {from, to}. Built only from this structured event: "Edge condition
+    // met" lines also come for edges with trigger: false, which hand nothing over.
+    else if (kind === 'handoff') {
+      const { from, to, timestamp } = handoffOf(msg)
+      handleHandoff(from, to, timestamp)
     }
 
-    // Other log messages
-    // "Received your input for CTO": your own bubble already says it
-    else if (eventType === 'HUMAN_INTERACTION') {
-      // nothing to add
-    }
-
-    // "Run started" / "run finished": the turn's bubble already shows it working and done.
-    // The end line stays only for a turn where no agent said anything.
-    else if (eventType === 'WORKFLOW_START' || (eventType === 'WORKFLOW_END' && turnHasAgentBubble())) {
+    // Nothing to add (see infoLogKind): "Edge condition met for A -> B" (only that a condition
+    // held), "Received your input for CTO" (your own bubble says it), run started / finished
+    // (the turn's bubble shows it working and done), set-up chatter
+    else if (kind === 'quiet') {
       // nothing to add
     }
 
     // An agent looked up / saved memory or reflected: a step of its own turn, not a chat line
     // (a member's goes nowhere: its lead's block lists what it did)
-    else if (eventType === 'MEMORY_OPERATION' || eventType === 'THINKING_PROCESS') {
+    else if (kind === 'memory') {
       if (nodeId && !delegatedNodes.has(nodeId)) {
-        const details = msg.data.details || {}
-        const label = eventType === 'THINKING_PROCESS'
-          ? t('launch.activity_done.reflect')
-          : t(String(details.operation_type || '').toUpperCase() === 'RETRIEVE' ? 'launch.activity_done.memory_read' : 'launch.activity_done.memory_write')
+        const label = t(memoryStepLabelKey(eventType, msg.data.details))
         const baseKey = `note-${eventType}`
         addLoadingEntry(nodeId, baseKey, label, { at: eventAt, doneLabel: label })
         finishLoadingEntry(nodeId, baseKey, eventAt)
@@ -6180,22 +5796,24 @@ const processMessage = async (msg) => {
       }
     }
 
-    // Set-up chatter ("Global memory 'X' built successfully", "Memory manager built for node A")
-    else if (!eventType && SETUP_LOG_RE.test(msg.data.message || '')) {
-      // nothing to add
-    }
-
     // Only logs the UI knows how to say reach the chat: a mapped event type (localized) or a tagged event such as
     // "still thinking". Any other INFO line is the engine's own English bookkeeping ("Cancellation requested for
     // workflow session_...", "Executing node X with edge dynamic config ...") and stays in the downloadable log.
-    else if (msg.data.message && (LOG_EVENT_KEYS[eventType] || msg.data.details?.event)) {
+    else if (kind === 'notice') {
       // "Still thinking (N+ min)" comes back every few minutes: one line per agent, kept current
-      const coalesce = msg.data.details?.event === 'cli_idle' ? `idle:${nodeId || ''}` : ''
+      const coalesce = noticeCoalesceKey(msg.data)
       addChatNotification(localizeLogMessage(msg.data), { at, coalesce })
     }
   }
 
   // The lead ended its turn with a plan that waits for your approval (replayed on reload)
+  // The same handoff as a top-level event: {type: 'handoff', data: {from, to, timestamp}}
+  if (msg.type === 'handoff') {
+    const { from, to, timestamp } = handoffOf(msg)
+    handleHandoff(from, to, timestamp)
+    return
+  }
+
   if (msg.type === 'plan_proposed') {
     showProposedPlan(msg.data || {})
     scheduleSessionsRefresh()
@@ -6206,18 +5824,20 @@ const processMessage = async (msg) => {
   if (msg.type === 'workflow_completed') {
     // The backend summary ("Workflow finished with N node outputs...") is technical and the
     // WORKFLOW_END log line already said the run is over: only say it when nothing did.
-    const endLine = t('launch.log_events.workflow_end')
-    const last = chatMessages.value[chatMessages.value.length - 1]
-    const isEndLine = last?.type === 'notification' && last.message === endLine
-    if (runTracker.state.plan) {
-      // The turn ended with a plan waiting for approval: "finished" would mislead
-      if (isEndLine) chatMessages.value.pop()
-    } else if (!isEndLine && !turnHasAgentBubble()) addChatNotification(t('launch.workflow_completed'), { at })
+    // A turn that ended with a plan waiting for approval: "finished" would mislead
+    const notice = completionNotice({
+      lastMessage: chatMessages.value[chatMessages.value.length - 1],
+      endLine: t('launch.log_events.workflow_end'),
+      hasPlan: Boolean(runTracker.state.plan),
+      turnHasAgentBubble
+    })
+    if (notice.dropEndLine) chatMessages.value.pop()
+    else if (notice.addCompleted) addChatNotification(t('launch.workflow_completed'), { at })
     runTracker.finish('completed', { summary: formatErrorDetail(msg.data?.summary), tokenUsage: msg.data?.token_usage })
     settleAllNodeTurns({ at: at || Date.now() })
     // The run got to its end: every tool problem on the way was dealt with
     settleAllToolIssues()
-    status.value = 'Completed'
+    status.value = RUN_STATUS.COMPLETED
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
     endStopping()
@@ -6238,13 +5858,10 @@ const processMessage = async (msg) => {
 
   if (msg.type === 'human_input_timeout') {
     for (const item of chatMessages.value) {
-      if (item.isQuestion) {
-        item.isQuestion = false
-        item.rev += 1
-      }
+      if (item.isQuestion) updateMessage(item, { isQuestion: false })
     }
     runTracker.inputTimedOut(msg.data?.node_id)
-    if (status.value === 'Waiting for input...') status.value = 'Running...'
+    if (status.value === RUN_STATUS.WAITING_INPUT) status.value = RUN_STATUS.RUNNING
     shouldGlow.value = false
     addChatNotification(t('launch.human_input_timeout'), { type: 'warning', at })
     return
@@ -6263,7 +5880,8 @@ const processMessage = async (msg) => {
   }
 
   // Handle direct error messages (e.g., workflow execution errors)
-  if (msg.type === 'error' && msg.data?.code === 'run_in_progress') {
+  const failure = msg.type === 'error' ? errorKind(msg.data) : null
+  if (failure === 'run_in_progress') {
     // A follow-up was turned down because a run is still going: a notice, not a failure.
     // The turn it opened here (and its message) is taken back; the live run carries on.
     launchRejectedCount += 1
@@ -6274,7 +5892,7 @@ const processMessage = async (msg) => {
     if (!isReconnecting.value) toast.warning(t('launch.run_in_progress'))
     return
   }
-  if (msg.type === 'error' && msg.data?.code === 'not_running' && msg.data?.note_id) {
+  if (failure === 'note_not_running') {
     // The run ended just before the note arrived: take the note back into the box
     const note = pendingNotes.get(msg.data.note_id)
     pendingNotes.delete(msg.data.note_id)
@@ -6284,7 +5902,7 @@ const processMessage = async (msg) => {
     }
     return
   }
-  if (msg.type === 'error' && msg.data?.fatal === false) {
+  if (failure === 'rejected') {
     // A request was turned down (an answer nobody waits for, an empty or malformed message):
     // say so, but the run and its state carry on; a turned-down answer goes back in the box
     restorePendingInput(msg.data?.code || '')
@@ -6295,14 +5913,15 @@ const processMessage = async (msg) => {
     }
     return
   }
-  if (msg.type === 'error') {
+  if (failure === 'fatal') {
     const errorMessage = withErrorHint(errorWithDetail('launch.errors.workflow_error', msg.data?.message))
     // Live failures of a turn sent from this page can be retried in place
     const retryPrompt = !isReconnecting.value ? lastLaunchPrompt : ''
     addChatNotification(errorMessage, { type: 'error', at, retryPrompt })
     runTracker.finish('error', { error: formatErrorDetail(msg.data?.message) })
     settleAllNodeTurns({ at: at || Date.now(), interrupted: true })
-    status.value = 'Error'
+    invalidatePrecheck()
+    status.value = RUN_STATUS.ERROR
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
     endStopping()
@@ -6317,6 +5936,7 @@ const processMessage = async (msg) => {
 
 // The run is over after a stop: notice, run record, status, and the open activity rows
 const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
+  cancelRequested = true
   endStopping()
   locallyCancelled = false
   pendingInput = null
@@ -6326,7 +5946,7 @@ const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
   settleAllToolIssues({ recovered: false })
   if (message) addChatNotification(message, { ...(at ? { at } : {}), coalesce: 'run-stop' })
   if (runTracker.state.task && !runTracker.state.outcome) runTracker.finish('cancelled', { summary })
-  status.value = 'Cancelled'
+  status.value = RUN_STATUS.CANCELLED
   isWorkflowRunning.value = false
   sessionIdToDownload = sessionId
   settleAllNodeTurns({ at: at || Date.now(), interrupted: true })
@@ -6505,2665 +6125,11 @@ watch(
 )
 </script>
 
-<style scoped>
-
-/* ---- Rails: a folded sessions list / chat keeps a slim strip of icon buttons ---- */
-.sessions-rail,
-.chat-rail {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-  width: 48px;
-  padding: var(--space-1) 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-}
-.sessions-rail { flex: none; }
-/* Standalone (sessions list open): a small floating pill, not a full-height strip */
-.chat-rail {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 9;
-  padding: var(--space-1);
-  width: auto;
-  animation: fade-in 0.18s var(--ease-out);
-}
-.rail-sep {
-  width: 24px;
-  height: 1px;
-  margin: var(--space-1) 0;
-  background: var(--border);
-}
-.rail-btn.is-active { background: var(--surface-raised); color: var(--fg); }
-/* The chat toggle is the rail's main action: solid accent while folded, a soft accent tint while open */
-.rail-btn.rail-btn-chat {
-  background: var(--accent);
-  color: var(--on-accent);
-  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 60%, transparent);
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out), transform 0.15s var(--ease-out);
-}
-.rail-btn.rail-btn-chat:hover {
-  background: var(--accent);
-  color: var(--on-accent);
-  filter: brightness(1.08);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px -2px color-mix(in srgb, var(--accent) 70%, transparent);
-}
-.rail-btn.rail-btn-chat:active { transform: none; }
-.rail-btn.rail-btn-chat.is-active,
-.rail-btn.rail-btn-chat.is-active:hover {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
-  filter: none;
-  transform: none;
-}
-.rail-btn.rail-btn-chat .rail-dot { top: 5px; right: 5px; background: var(--warn); }
-.rail-btn.rail-btn-chat .rail-dot:not(.is-waiting) { background: #fff; box-shadow: 0 0 0 2px var(--accent); }
-@media (prefers-reduced-motion: reduce) {
-  .rail-btn.rail-btn-chat, .rail-btn.rail-btn-chat:hover { transition: none; transform: none; }
-}
-.rail-btn {
-  position: relative;
-  width: 40px;
-  height: 40px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
-}
-.rail-btn:hover { background: var(--surface-raised); color: var(--fg); }
-.rail-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.rail-dot {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 2px var(--surface);
-}
-.rail-dot.is-waiting { background: var(--warn); }
-
-/* Drag handle on the chat column's right edge (wide screens, outside the chat view) */
-.chat-resizer {
-  position: absolute;
-  top: 12px;
-  bottom: 12px;
-  right: -7px;
-  width: 14px;
-  z-index: 12;
-  cursor: col-resize;
-  pointer-events: auto;
-  touch-action: none;
-  border-radius: 7px;
-}
-.chat-resizer::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 5px;
-  width: 4px;
-  height: 36px;
-  margin-top: -18px;
-  border-radius: 2px;
-  background: var(--border-strong);
-  opacity: 0;
-  transition: opacity 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
-}
-.chat-resizer:hover::after,
-.chat-resizer:focus-visible::after,
-.is-resizing .chat-resizer::after { opacity: 1; }
-.chat-resizer:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.is-resizing .chat-resizer::after { background: var(--accent); }
-.chat-panel.is-resizing { transition: none; user-select: none; }
-
-/* Chat header: session title + run state, then project and workflow; actions on the right */
-.chat-header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 12px 10px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.chat-header-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.chat-header-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.chat-header-status { flex: none; display: inline-flex; max-width: 70%; }
-
-.chat-header-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg);
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.chat-header-sub {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  font-size: var(--fs-xs);
-  color: var(--fg-muted);
-}
-
-/* The project is context, not a warning: a neutral chip */
-.chat-header-project {
-  flex: 0 0 auto;
-  max-width: 65%;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  min-height: 20px;
-  padding: 0 7px 0 6px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: var(--fg);
-  font-weight: 550;
-}
-.chat-header-project svg { flex: none; color: var(--fg-muted); }
-.chat-header-project-name,
-.chat-header-workflow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-header-workflow { flex: 0 1 auto; }
-/* The state outranks the title when room runs out: the title truncates first */
-.chat-panel:not(.chat-panel-fullscreen) .chat-header-actions { gap: 0; }
-.chat-panel:not(.chat-panel-fullscreen) .chat-header { padding-right: 4px; }
-
-.workflow-hint {
-  margin: -2px 0 2px;
-  font-size: 11.5px;
-  line-height: 1.4;
-  color: rgb(var(--ink) / 0.5);
-}
-
-.chat-header-actions {
-  flex: none;
-  display: flex;
-  gap: 4px;
-}
-
-.chat-header-btn {
-  width: 40px;
-  height: 40px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: rgb(var(--ink) / 0.65);
-  cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.chat-header-btn:hover,
-.chat-header-btn.active {
-  background: rgb(var(--ink) / 0.08);
-  color: var(--text-1);
-}
-
-/* Chat Box */
-.chat-box {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.chat-messages::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.chat-messages::-webkit-scrollbar-track {
-  background: transparent;
-}
-.chat-messages::-webkit-scrollbar-thumb {
-  background-color: rgb(var(--neutral-160) / 0.28);
-  border-radius: 8px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-.chat-messages::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(var(--neutral-160) / 0.48);
-}
-
-.chat-messages {
-  flex: 1;
-  /* Extra room at the bottom: the "new messages" button never sits on the last line */
-  padding: 24px clamp(16px, 4%, 48px) 52px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scroll-behavior: auto;
-  color: var(--text-2);
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-/* Empty session */
-
-/* Markdown extras rendered by renderMarkdown: code blocks with a copy button, scrolling tables */
-.chat-messages :deep(.md-code) {
-  position: relative;
-  margin: 4px 0 10px;
-}
-.chat-messages :deep(.md-code pre) {
-  margin: 0;
-  padding-top: 30px;
-}
-.chat-messages :deep(.md-code-lang) {
-  position: absolute;
-  top: 7px;
-  left: 12px;
-  font-size: var(--fs-xs);
-  color: var(--text-muted-7);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  pointer-events: none;
-}
-.chat-messages :deep(.md-code-copy) {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 7px;
-  font-size: var(--fs-xs);
-  color: var(--text-muted-7);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  cursor: pointer;
-}
-.chat-messages :deep(.md-code-copy:hover),
-.chat-messages :deep(.md-code-copy:focus-visible) {
-  color: var(--text-strong);
-  background: rgb(var(--ink) / 0.08);
-  border-color: rgb(var(--ink) / 0.12);
-}
-.chat-messages :deep(.md-code-copy.copied) {
-  color: var(--accent-green, #34d399);
-}
-.chat-messages :deep(.md-table) {
-  max-width: 100%;
-  overflow-x: auto;
-  margin: 4px 0 10px;
-}
-.chat-messages :deep(.md-table table) {
-  border-collapse: collapse;
-  font-size: 13px;
-  min-width: 100%;
-}
-.chat-messages :deep(.md-table th),
-.chat-messages :deep(.md-table td) {
-  border: 1px solid rgb(var(--ink) / 0.12);
-  padding: 6px 10px;
-  text-align: left;
-  vertical-align: top;
-  min-width: 72px;
-  max-width: 360px;
-}
-/* The user's own line breaks stay as typed (a single Enter is a soft break in markdown) */
-.chat-messages :deep(.dialogue-right .markdown-body p) {
-  white-space: pre-line;
-}
-/* Long URLs / unbroken words wrap instead of widening the bubble (code blocks keep scrolling) */
-.chat-messages :deep(.markdown-body p),
-.chat-messages :deep(.markdown-body li),
-.chat-messages :deep(.markdown-body td),
-.chat-messages :deep(.markdown-body blockquote) {
-  overflow-wrap: anywhere;
-}
-.chat-messages :deep(.md-table th) {
-  background: rgb(var(--ink) / 0.05);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* Keep a readable column, centred like ChatGPT / Claude */
-.chat-message-item {
-  width: 100%;
-  max-width: 820px;
-  margin: 0 auto;
-}
-
-/* Each message lays out independently so a growing bubble does not invalidate the whole list */
-.chat-message-item {
-  contain: layout style;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
-}
-
-/* Chat Notification */
-/* System events: a quiet centred caption, not a card */
-.chat-notification {
-  display: flex;
-  justify-content: center;
-  margin: 0;
-}
-
-.notification-content {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 2px 12px;
-  max-width: 90%;
-  animation: slideIn 0.3s ease-out;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.notification-text {
-  color: rgb(var(--ink) / 0.45);
-  font-size: 12px;
-  font-weight: 500;
-  text-align: center;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-
-.chat-notification:not(.chat-notification-warning):not(.chat-notification-error) .message-timestamp {
-  display: none;
-}
-
-.chat-notification-warning .notification-content,
-.chat-notification-error .notification-content {
-  flex-direction: column;
-  align-items: center;
-  padding: 8px 14px;
-}
-
-.chat-notification-warning .notification-content {
-  background: rgba(255, 204, 0, 0.08);
-  border-color: rgba(255, 204, 0, 0.3);
-}
-
-.chat-notification-warning .notification-text {
-  color: var(--warn-soft-2);
-}
-
-.chat-notification-error .notification-content {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  color: var(--danger-soft);
-}
-
-.notification-repeat {
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  background: rgb(var(--ink) / 0.08);
-}
-
-/* Older messages of a long session: rendered on demand */
-.chat-older {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  margin: 4px 0 8px;
-}
-.chat-older-btn {
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.chat-older-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
-.chat-older-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.chat-older-note { font-size: 11px; color: rgb(var(--ink) / 0.4); }
-
-/* Failed tool calls of one agent's step, grouped; quiet once the agent moved on */
-.tool-issues {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  max-width: min(90%, 640px);
-  margin: 0 auto;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 204, 0, 0.3);
-  background: rgba(255, 204, 0, 0.06);
-}
-.tool-issues.is-recovered {
-  border-color: transparent;
-  background: transparent;
-}
-.tool-issues-summary {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  padding: 6px 12px;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  color: var(--warn-soft-2);
-  cursor: pointer;
-}
-.tool-issues.is-recovered .tool-issues-summary {
-  justify-content: center;
-  padding: 2px 12px;
-  color: rgb(var(--ink) / 0.45);
-}
-.tool-issues-summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: 10px; }
-.tool-issues-chevron {
-  flex: none;
-  align-self: center;
-  transition: transform 0.15s var(--ease-out);
-}
-.tool-issues.is-open .tool-issues-chevron { transform: rotate(90deg); }
-.tool-issues-text {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tool-issues.is-open .tool-issues-text { white-space: normal; overflow-wrap: anywhere; }
-.tool-issues-summary .message-timestamp { margin: 0 0 0 auto; padding-left: 8px; }
-.tool-issues.is-recovered .tool-issues-summary .message-timestamp { display: none; }
-.tool-issues-list {
-  list-style: none;
-  margin: 0;
-  padding: 0 12px 8px 29px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.7);
-}
-.tool-issues-item { overflow-wrap: anywhere; }
-.tool-issues-tool { font-weight: 600; margin-right: 6px; font-family: var(--font-mono, ui-monospace, monospace); }
-.tool-issues-count { margin-left: 6px; color: rgb(var(--ink) / 0.45); font-variant-numeric: tabular-nums; }
-@media (prefers-reduced-motion: reduce) {
-  .tool-issues-chevron { transition: none; }
-}
-
-.question-tag {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 6px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
-}
-
-.message-timestamp {
-  font-size: 0.75rem;
-  color: rgb(var(--ink) / 0.4);
-  margin-left: 8px;
-  flex-shrink: 0;
-}
-
-.chat-notification .message-timestamp {
-  margin-left: 0;
-  margin-top: 2px;
-  color: rgb(var(--ink) / 0.3);
-}
-
-.user-name .message-timestamp {
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.dialogue:hover .user-name .message-timestamp {
-  opacity: 1;
-}
-
-.dialogue-right .message-timestamp {
-  margin-left: 0;
-  margin-right: 8px;
-}
-
-.user-name {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
-}
-
-.dialogue-right .user-name {
-  flex-direction: row-reverse;
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Dialogue Messages */
-.dialogue {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.dialogue-right {
-  flex-direction: row-reverse;
-}
-
-.message-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: stretch;
-}
-
-.dialogue-right .message-content {
-  max-width: 80%;
-  flex: 0 1 auto;
-  align-items: flex-end;
-}
-
-.user-name {
-  font-size: 13px;
-  color: rgb(var(--ink) / 0.85);
-  font-weight: 600;
-  margin: 0;
-  min-height: 28px;
-  align-items: center;
-}
-
-.dialogue-right .user-name {
-  text-align: right;
-}
-
-/* Chat avatar: pixel-art chibi inside a soft pastel rounded-square tile */
-.profile-picture {
-  --avatar-size: 28px;
-  --avatar-sprite-size: 26px;
-  --avatar-bg: linear-gradient(145deg, rgb(var(--accent-indigo-rgb) / 0.28), rgba(201, 167, 235, 0.22) 55%, rgba(255, 180, 237, 0.2));
-  --avatar-base: rgb(var(--ink) / 0.06);
-  --avatar-border: rgb(var(--ink) / 0.18);
-  --avatar-shadow: 0 2px 6px rgb(var(--shade) / 0.35);
-
-  flex-shrink: 0;
-  position: relative;
-  width: var(--avatar-size);
-  height: var(--avatar-size);
-  border-radius: 8px;
-  overflow: hidden;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding-bottom: 2px;
-  box-sizing: border-box;
-  background: var(--avatar-bg), var(--avatar-base);
-  /* 1px inner border + small outer shadow */
-  box-shadow: inset 0 0 0 1px var(--avatar-border), var(--avatar-shadow);
-}
-
-/* Faint ground spot so the character looks like it stands in the tile */
-.profile-picture::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 1px;
-  width: 60%;
-  height: 7px;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgb(var(--shade) / 0.28), transparent 70%);
-  filter: blur(1px);
-}
-
-.profile-picture img {
-  position: relative;
-  width: var(--avatar-sprite-size);
-  height: var(--avatar-sprite-size);
-  object-fit: contain;
-  object-position: 50% 100%;
-  image-rendering: crisp-edges;
-  image-rendering: pixelated;
-  filter: drop-shadow(0 1px 1px rgb(var(--shade) / 0.3));
-}
-
-/* Light theme is applied via :root[data-theme="light"] (configStore.applyTheme), not the OS preference */
-:root[data-theme="light"] .profile-picture {
-  --avatar-bg: linear-gradient(145deg, rgb(var(--accent-indigo-rgb) / 0.55), rgba(201, 167, 235, 0.45) 55%, rgba(255, 180, 237, 0.45));
-  --avatar-base: rgb(var(--panel-20) / 0.9);
-  --avatar-border: rgba(30, 30, 50, 0.1);
-  --avatar-shadow: 0 2px 6px rgba(30, 30, 50, 0.12);
-}
-
-/* Assistant turns: plain text on the page (no card), like Claude / ChatGPT */
-.message-bubble {
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  padding: 0;
-  position: relative;
-  color: rgb(var(--ink) / 0.92);
-  font-size: 15px;
-  line-height: 1.65;
-}
-
-/* User turns: a soft rounded bubble on the right, no avatar */
-.dialogue-right .message-bubble {
-  background: rgb(var(--ink) / 0.07);
-  border: 1px solid rgb(var(--ink) / 0.06);
-  border-radius: 18px;
-  border-bottom-right-radius: 6px;
-  padding: 2px 16px;
-}
-
-.loading-bubble {
-  min-height: 24px;
-}
-
-/* ---------- Activity line ---------- */
-.activity {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  margin: 0 0 4px;
-}
-
-.activity-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  padding: 4px 8px 4px 2px;
-  margin-left: -2px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: rgb(var(--ink) / 0.5);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.4;
-  cursor: pointer;
-  text-align: left;
-  transition: color 0.15s ease, background-color 0.15s ease;
-}
-
-.activity-summary:hover {
-  color: rgb(var(--ink) / 0.8);
-  background: rgb(var(--ink) / 0.05);
-}
-
-.activity-summary:focus-visible {
-  outline: 2px solid rgb(var(--accent-sky-rgb) / 0.6);
-  outline-offset: 1px;
-}
-
-.activity-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Running label shimmers instead of glowing borders */
-.activity-running .activity-label {
-  color: rgb(var(--ink) / 0.85);
-  animation: activityPulse 1.8s ease-in-out infinite;
-}
-
-@keyframes activityPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-
-/* The step going on now, under the finished ones */
-.activity-live {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  min-width: 0;
-  padding: 4px 8px 4px 2px;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-/* "+4 earlier steps": opens the whole list while the turn runs */
-.activity-more {
-  padding: 2px 6px 2px 2px;
-  margin: 0 0 -2px 21px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: rgb(var(--ink) / 0.42);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.activity-more:hover {
-  color: rgb(var(--ink) / 0.75);
-  background: rgb(var(--ink) / 0.05);
-}
-
-.activity-more:focus-visible {
-  outline: 2px solid rgb(var(--accent-sky-rgb) / 0.6);
-  outline-offset: 1px;
-}
-
-.activity-step-count {
-  font-variant-numeric: tabular-nums;
-  color: rgb(var(--ink) / 0.4);
-}
-
-.activity-time {
-  font-variant-numeric: tabular-nums;
-  color: rgb(var(--ink) / 0.4);
-  font-size: 12px;
-}
-
-.activity-spinner {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  border: 2px solid rgb(var(--ink) / 0.15);
-  border-top-color: var(--accent-mint);
-  animation: activitySpin 0.9s linear infinite;
-}
-
-@keyframes activitySpin {
-  to { transform: rotate(360deg); }
-}
-
-.activity-chevron {
-  flex-shrink: 0;
-  transition: transform 0.15s ease;
-}
-
-.activity-open .activity-chevron {
-  transform: rotate(90deg);
-}
-
-.activity-steps {
-  list-style: none;
-  margin: 2px 0 6px 7px;
-  padding: 2px 0 2px 14px;
-  border-left: 1px solid rgb(var(--ink) / 0.12);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.activity-step {
-  display: flex;
-  flex-direction: column;
-  font-size: 12.5px;
-  color: rgb(var(--ink) / 0.55);
-}
-
-.activity-step-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-}
-
-/* A member's report: the row opens it */
-.activity-step-toggle {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.activity-step-toggle:hover .activity-step-label {
-  color: rgb(var(--ink) / 0.85);
-}
-
-.activity-step-toggle:focus-visible {
-  outline: 2px solid var(--accent-mint);
-  outline-offset: 2px;
-}
-
-.activity-step-label {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.activity-step-chevron {
-  flex-shrink: 0;
-  opacity: 0.7;
-  transition: transform 0.15s ease;
-}
-
-.activity-step-chevron.is-open {
-  transform: rotate(90deg);
-}
-
-.activity-step-detail {
-  margin: 6px 0 4px 13px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgb(var(--ink) / 0.04);
-  color: var(--text-2);
-  font-size: 13px;
-}
-
-/* Files of the turn, under the answer */
-.turn-files {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.turn-files .artifact-file-wrapper {
-  padding: 4px 0;
-}
-
-.activity-step-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: rgb(var(--ink) / 0.3);
-  flex-shrink: 0;
-}
-
-.step-running .activity-step-dot {
-  background: var(--accent-mint);
-}
-
-.step-running .activity-step-label {
-  color: rgb(var(--ink) / 0.85);
-}
-
-.activity-step-time {
-  margin-left: auto;
-  padding-left: 12px;
-  font-variant-numeric: tabular-nums;
-  color: rgb(var(--ink) / 0.35);
-}
-
-.message-text {
-  color: var(--text-1);
-  font-size: 14px;
-  line-height: 1.5;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-}
-
-/* Artifact wrappers */
-.artifact-image-wrapper {
-  padding: 10px 0;
-}
-
-.artifact-file-wrapper {
-  padding: 10px 0;
-}
-
-.artifact-image {
-  max-width: 260px;
-  max-height: 200px;
-  display: block;
-  cursor: zoom-in;
-  border-radius: 6px;
-  padding: 0 0 10px 0;
-}
-
-.artifact-filename {
-  margin-top: 4px;
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.7);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.artifact-filename-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.artifact-filename-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.artifact-download-button {
-  margin-top: 15px;
-  padding: 4px 10px;
-  border-radius: 10px;
-  border: 1px solid rgb(var(--ink) / 0.3);
-  background: rgb(var(--ink) / 0.06);
-  color: var(--text-1);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.artifact-download-button:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.12);
-}
-
-.artifact-download-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.artifact-status {
-  font-size: 12px;
-  color: rgb(var(--ink) / 0.6);
-}
-
-.artifact-status.artifact-error {
-  color: var(--danger-2);
-}
-
-/* Input Area */
-.input-area {
-  flex: 0 0 auto;
-  position: relative;
-}
-
-/* Back to the latest: a small round arrow while merely scrolled up; a labelled accent pill
-   when something new arrived. Sits right of center so it never covers the line being read. */
-.jump-latest {
-  position: absolute;
-  right: 14px;
-  bottom: calc(100% + 12px);
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 34px;
-  height: 34px;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.08), 0 6px 18px -6px rgb(15 23 42 / 0.35);
-  transition: transform 0.15s var(--ease-out), border-color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
-}
-.jump-latest.has-new {
-  padding: 0 12px 0 14px;
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.jump-latest:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
-.jump-latest.has-new:hover { border-color: transparent; filter: brightness(1.06); }
-.jump-latest:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-.jump-latest-enter-active,
-.jump-latest-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-.jump-latest-enter-from,
-.jump-latest-leave-to {
-  opacity: 0;
-  transform: translateY(6px);
-}
-@media (prefers-reduced-motion: reduce) {
-  .jump-latest, .jump-latest-enter-active, .jump-latest-leave-active { transition: none; }
-  .jump-latest:hover { transform: none; }
-}
-
-/* Live line + next-step chips: one tray, no stacked boxes */
-.turn-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
-  margin: 0 0 8px;
-  padding-top: 8px;
-}
-.turn-footer :deep(.live-progress),
-.turn-footer :deep(.quick-replies) { margin: 0; }
-.turn-footer :deep(.live-progress) { flex: 1 1 100%; }
-/* Settled: chips first, the totals pushed right on the same row (they wrap under on narrow widths) */
-.turn-footer.is-settled :deep(.quick-replies) { order: 1; flex: 0 1 auto; }
-.turn-footer.is-settled :deep(.live-progress) { order: 2; flex: 0 1 auto; margin-left: auto; min-width: 0; }
-
-/* A send that failed: inline above the composer, with Retry (like ChatGPT / Claude) */
-.send-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  padding: 8px 10px 8px 14px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  color: var(--danger-soft);
-  font-size: 13px;
-  line-height: 1.45;
-}
-.send-error-text {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.send-error-btn {
-  flex-shrink: 0;
-  padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.send-error-btn:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.08);
-}
-.send-error-btn:focus-visible {
-  outline: 2px solid var(--accent-blue-1);
-  outline-offset: 2px;
-}
-.send-error-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.send-error-retry {
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-  font-weight: 600;
-}
-.notification-retry {
-  margin-top: 6px;
-}
-
-/* The lead's open question, pinned right above the composer */
-.question-card {
-  margin-bottom: 8px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
-  background: color-mix(in srgb, var(--warn) 8%, transparent);
-  color: var(--text-1);
-  font-size: 13px;
-  line-height: 1.5;
-  max-height: calc(40 * var(--vh));
-  overflow-y: auto;
-}
-.question-card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: var(--warn);
-  margin-bottom: 4px;
-}
-.question-card-dot {
-  width: 8px;
-  height: 8px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--warn);
-  animation: question-pulse 1.6s ease-in-out infinite;
-}
-@keyframes question-pulse {
-  50% { opacity: 0.35; }
-}
-.question-card-text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.question-card-text.is-clamped {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.question-card-toggle {
-  margin-top: 4px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent-blue-1);
-  font-size: 12px;
-  cursor: pointer;
-}
-.question-card-toggle:hover {
-  text-decoration: underline;
-}
-@media (prefers-reduced-motion: reduce) {
-  .question-card-dot { animation: none; }
-  .jump-latest-enter-active,
-  .jump-latest-leave-active { transition-duration: 0.01ms; }
-}
-
-.input-shell {
-  height: 100%;
-  display: flex;
-  flex-direction: row;
-  /* Near-opaque instead of backdrop-filter: this panel can float over the animated
-     office map / graph, where a blur would be recomputed every frame. Over the flat
-     page background it looks the same as the former translucent fill. */
-  background-color: rgb(32 32 34 / 0.94);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  transition: border-color 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
-  position: relative;
-}
-
-.input-shell:focus-within {
-  border-color: rgb(var(--ink) / 0.3);
-  background-color: rgb(var(--ink) / 0.05);
-}
-
-/* "Your turn" is carried by the send button; the box itself only lights up on focus */
-.composer-send.glow:not(:disabled) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
-
-.input-shell.drag-active {
-  border-color: rgb(var(--accent-sky-rgb) / 0.9);
-  background-color: rgb(var(--accent-sky-rgb) / 0.08);
-  box-shadow: 0 0 20px rgb(var(--accent-sky-rgb) / 0.35);
-}
-
-/* Composer (message box): attachment chips on top, textarea, then a toolbar */
-.input-shell.composer {
-  flex-direction: column;
-  height: auto;
-  border-radius: 16px;
-  padding: 0;
-}
-
-.composer .task-input {
-  flex: none;
-  min-height: 44px;
-  max-height: 200px;
-  padding: 14px 16px 6px;
-  overflow-y: auto;
-}
-
-.composer-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px 12px 0;
-}
-
-.attachment-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  min-width: 0;
-  padding: 5px 6px 5px 8px;
-  border-radius: 8px;
-  border: 1px solid rgb(var(--ink) / 0.14);
-  background: rgb(var(--ink) / 0.06);
-  color: var(--text-1);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.chip-thumb {
-  width: 22px;
-  height: 22px;
-  flex: none;
-  border-radius: 5px;
-  object-fit: cover;
-  background: rgb(var(--ink) / 0.1);
-}
-
-.chip-icon { flex: none; font-size: 14px; line-height: 1; }
-
-.chip-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chip-meta { flex: none; font-weight: 400; color: rgb(var(--ink) / 0.5); }
-
-.chip-remove {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: rgb(var(--ink) / 0.55);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.chip-remove:hover { background: rgb(var(--ink) / 0.14); color: var(--text-1); }
-
-.chip-uploading { color: rgb(var(--ink) / 0.7); font-weight: 500; }
-
-.chip-spinner {
-  width: 12px;
-  height: 12px;
-  flex: none;
-  border-radius: 50%;
-  border: 2px solid rgb(var(--ink) / 0.2);
-  border-top-color: var(--accent-sky);
-  animation: chip-spin 0.8s linear infinite;
-}
-
-@keyframes chip-spin { to { transform: rotate(360deg); } }
-
-.composer-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px 10px;
-}
-
-.attach-menu-wrap { position: relative; }
-.composer-actions { display: flex; align-items: center; gap: 8px; }
-
-.composer-icon-btn,
-.composer-send {
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
-}
-
-.composer-icon-btn {
-  border: 1px solid rgb(var(--ink) / 0.18);
-  background: transparent;
-  color: rgb(var(--ink) / 0.75);
-}
-
-.composer-icon-btn:hover:not(:disabled),
-.composer-icon-btn.active { background: rgb(var(--ink) / 0.1); color: var(--text-1); }
-
-.composer-send:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.attach-menu {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
-  min-width: 170px;
-  display: flex;
-  flex-direction: column;
-  padding: 4px;
-  border-radius: 10px;
-  border: 1px solid rgb(var(--ink) / 0.12);
-  background: var(--surface-3);
-  box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
-  z-index: 20;
-}
-
-.attach-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-2);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.attach-menu-item:hover { background: rgb(var(--ink) / 0.08); color: var(--text-1); }
-
-/* Office view: own stacking context so the map's high z-index HUD/roster cannot paint over the chat panel */
-.insight-panel {
-  position: relative;
-  min-width: 0;
-  min-height: 0;
-}
-
-.office-panel {
-  position: relative;
-  z-index: 0;
-  isolation: isolate;
-}
-
-.drag-overlay {
-  position: absolute;
-  inset: 6px;
-  border-radius: 10px;
-  border: 1px dashed rgb(var(--accent-sky-rgb) / 0.6);
-  background: rgb(var(--panel-20b) / 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.drag-overlay-content {
-  font-size: 12px;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: rgb(var(--accent-sky-rgb) / 0.95);
-}
-
-.task-input {
-  flex: 1;
-  padding: 16px;
-  border: none;
-  font-family: 'Inter', sans-serif;
-  font-size: 14px;
-  resize: none;
-  outline: none;
-  background: transparent;
-  color: var(--text-1);
-  line-height: 1.5;
-}
-
-.task-input::placeholder {
-  color: rgb(var(--ink) / 0.3);
-}
-
-.input-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding: 10px 12px 10px 6px;
-  border-top: 1px solid rgb(var(--ink) / 0.05);
-}
-
-.input-footer-buttons {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  flex-direction: column;
-  height: 100%;
-}
-
-.attachment-upload {
-  position: relative;
-}
-
-.attachment-button-wrapper {
-  position: relative;
-  display: inline-flex;
-  gap: 6px;
-}
-
-.attachment-button {
-  padding: 6px 16px;
-  border-radius: 20px;
-  border: 1px solid rgb(var(--ink) / 0.2);
-  background: rgb(var(--ink) / 0.05);
-  color: rgb(var(--ink) / 0.8);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-}
-
-.attachment-button:hover:not(:disabled) {
-  background: rgb(var(--ink) / 0.1);
-  border-color: rgb(var(--ink) / 0.4);
-  color: var(--text-1);
-}
-
-.attachment-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.hidden-file-input {
-  display: none;
-}
-
-.attachment-count {
-  position: absolute;
-  top: -8px;
-  right: -6px;
-  background: var(--accent-sky);
-  color: var(--bg-base);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 10px;
-}
-
-/* Attachment Modal */
-.attachment-modal {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
-  width: 240px;
-  background: var(--surface-3);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 8px;
-  padding: 8px;
-  box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  z-index: 10;
-}
-
-.attachment-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  background: rgb(var(--ink) / 0.05);
-  border-radius: 4px;
-}
-
-.attachment-name {
-  font-size: 12px;
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.attachment-kind {
-  margin-right: 4px;
-}
-
-.attachment-meta {
-  margin-left: 6px;
-  font-size: var(--fs-xs);
-  color: var(--text-3, rgb(var(--ink) / 0.5));
-}
-
-.remove-attachment {
-  border: none;
-  background: transparent;
-  color: var(--accent-sky);
-  cursor: pointer;
-  padding: 0 4px;
-}
-
-/* Plan waiting for approval */
-.plan-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.plan-card-head { display: flex; align-items: center; gap: 8px; }
-
-.plan-card-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 9px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 650;
-  color: rgb(var(--ink) / 0.6);
-  background: rgb(var(--ink) / 0.06);
-  border: 1px solid rgb(var(--ink) / 0.12);
-}
-
-.plan-card-open .plan-card-badge {
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
-  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-}
-
-.plan-card-summary {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-}
-
-.plan-card-details > summary {
-  cursor: pointer;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: rgb(var(--ink) / 0.6);
-  margin-bottom: 6px;
-}
-
-.plan-card-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
-
-.plan-btn {
-  padding: 7px 14px;
-  border-radius: 9px;
-  border: 1px solid rgb(var(--ink) / 0.18);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-
-.plan-btn:hover:not(:disabled) { background: rgb(var(--ink) / 0.06); }
-.plan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.plan-btn-primary {
-  border-color: transparent;
-  background: var(--accent-indigo);
-  color: #fff;
-}
-
-.plan-btn-primary:hover:not(:disabled) { background: var(--accent-indigo); filter: brightness(1.1); }
-
-/* View Toggle */
-/* The session moved to another tab */
-/* Work waiting for your review */
-.toggle-badge {
-  display: inline-grid;
-  place-items: center;
-  min-width: 16px;
-  height: 16px;
-  margin-left: 4px;
-  padding: 0 4px;
-  border-radius: 99px;
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  line-height: 1;
-  color: var(--on-warn);
-  background: var(--warn);
-  vertical-align: 1px;
-}
-/* A count, not a warning: quiet until the app runs */
-.toggle-badge.products-badge { color: var(--fg-muted); background: rgb(var(--ink) / 0.1); font-variant-numeric: tabular-nums; }
-.toggle-badge.products-badge.is-live { color: var(--on-accent); background: var(--success); }
-
-/* Control panel: the session's products in one line */
-.products-line { margin: 0; font-size: 13px; line-height: 1.5; color: var(--fg-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.products-live { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; font-weight: 650; color: var(--success); }
-.products-live::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.products-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-
-/* Active Nodes */
-.active-nodes-display {
-  flex: 1;
-  background: rgb(var(--shade) / 0.2);
-  border-radius: 8px;
-  padding: 10px;
-  overflow-y: auto;
-  min-height: 100px;
-}
-
-.no-active-nodes {
-  color: rgb(var(--ink) / 0.3);
-  font-size: 13px;
-  text-align: center;
-  margin-top: 10px;
-}
-
-.active-node-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  background: rgb(var(--ink) / 0.05);
-  border-radius: 4px;
-  font-size: 13px;
-}
-
-.node-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--accent-sky);
-  box-shadow: 0 0 6px var(--accent-sky);
-}
-
-/* Markdown Styles moved to CollapsibleMessage.vue */
-
-@keyframes glowPulse {
-  0% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0.4); }
-  50% { box-shadow: 0 0 0 5px rgb(var(--accent-sky-rgb) / 0); }
-  100% { box-shadow: 0 0 0 0 rgb(var(--accent-indigo-rgb) / 0); }
-}
-
-/* Graph Panel */
-.graph-panel {
-  flex: 1;
-  background-color: rgb(var(--ink) / 0.03);
-  border: 1px solid rgb(var(--ink) / 0.1);
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.vueflow-graph {
-  width: 100%;
-  height: 100%;
-}
-
-/* The chat panel floats over the left of the canvas: the graph starts right of it, so
-   fit-to-view never hides the lead behind the chat */
-.graph-flow-panel {
-  position: relative;
-}
-.graph-flow-panel { --graph-bar-h: 52px; }
-.graph-flow-panel .vueflow-graph {
-  position: absolute;
-  top: var(--graph-bar-h);
-  right: 0;
-  bottom: 0;
-  left: var(--graph-inset, 0px);
-  width: auto;
-  height: auto;
-}
-/* Title + zoom tools in a bar of their own above the canvas */
-.graph-bar {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: var(--graph-inset, 0px);
-  height: var(--graph-bar-h);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: 0 var(--space-3) 0 var(--space-4);
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-.graph-bar-title {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--fg);
-}
-.graph-tools { flex: none; display: flex; align-items: center; gap: 2px; }
-.graph-tool {
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
-}
-.graph-tool:hover { background: var(--surface-raised); color: var(--fg); }
-.graph-tool[aria-pressed="true"] { background: var(--surface-raised); color: var(--fg); }
-.graph-tool:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.graph-zoom {
-  min-width: 44px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--fg-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.image-modal {
-  position: fixed;
-  inset: 0;
-  background: rgb(var(--shade) / 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-}
-
-.image-modal-close {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text-1);
-  cursor: pointer;
-}
-
-.image-modal-close:hover { background: rgb(var(--ink) / 0.1); }
-.image-modal-close:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-
-.image-modal-content {
-  position: relative;
-  max-width: 95vw;
-  max-height: calc(95 * var(--vh));
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: center;
-  background: rgb(var(--panel-26) / 0.9);
-  padding: 20px;
-  border: 1px solid rgb(var(--ink) / 0.1);
-}
-
-.image-modal-content img {
-  max-width: 70vw;
-  max-height: calc(65 * var(--vh));
-  box-shadow: 0 20px 40px rgb(var(--shade) / 0.5);
-}
-
-.image-modal-enter-active,
-.image-modal-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.image-modal-enter-from,
-.image-modal-leave-to {
-  opacity: 0;
-}
-
-/* ===========================================================================
- * Shell: header with the persistent view tabs, then sessions | chat+views | status
- * Semantic tokens only, so dark and light themes both resolve from main.css.
- * ========================================================================= */
-.launch-view {
-  --header-h: 48px;
-  width: 100%;
-  height: calc(100 * var(--vh));
-  height: calc(100 * var(--dvh));
-  display: flex;
-  flex-direction: column;
-  background-color: var(--bg);
-  color: var(--fg);
-  position: relative;
-  overflow: hidden;
-  /* Browser-drawn parts follow the theme too */
-  caret-color: var(--accent);
-  scrollbar-color: color-mix(in srgb, var(--fg-muted) 45%, transparent) transparent;
-  scrollbar-width: thin;
-}
-.launch-view ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; }
-.launch-view :deep(::selection) { background: color-mix(in srgb, var(--accent) 30%, transparent); }
-
-.header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  height: var(--header-h);
-  padding: 0 var(--space-4);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  position: relative;
-  z-index: 2;
-}
-
-.header h1 {
-  margin: 0;
-  padding-right: var(--space-2);
-  color: var(--fg);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-.brand-link {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  margin-left: calc(var(--space-2) * -1);
-  border-radius: var(--radius-md);
-  transition: background-color 0.15s var(--ease-out);
-}
-.brand-link:hover { background: var(--surface-raised); }
-.brand-link img { display: block; width: 24px; height: 24px; }
-
-.header-actions {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding-left: var(--space-2);
-  margin-left: var(--space-1);
-  border-left: 1px solid var(--border);
-}
-.header-btn {
-  position: relative;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 10px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--fg-muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
-}
-.header-btn svg { flex: none; }
-.header-btn:hover { background: var(--surface-raised); color: var(--fg); }
-.header-btn.active { background: var(--surface-raised); color: var(--fg); }
-.header-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-/* No workflow yet: the panel holding the picker asks for attention */
-.header-btn.needs-workflow { color: var(--fg); box-shadow: inset 0 0 0 1.5px var(--accent); }
-
-.view-tabs {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent);
-}
-.view-tabs::-webkit-scrollbar { display: none; }
-
-.view-tab {
-  position: relative;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 34px;
-  padding: 0 var(--space-3);
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--fg-muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
-}
-.view-tab::after {
-  content: '';
-  position: absolute;
-  left: var(--space-3);
-  right: var(--space-3);
-  bottom: 2px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-  transform: scaleX(0);
-  transition: transform 0.18s var(--ease-out);
-}
-.view-tab:hover { background: var(--surface-raised); color: var(--fg); }
-.view-tab.active { color: var(--fg); font-weight: 600; }
-.view-tab.active::after { transform: scaleX(1); }
-.view-tab:focus-visible,
-.chat-header-btn:focus-visible,
-.composer-send:focus-visible,
-.composer-icon-btn:focus-visible,
-.chat-empty-chip:focus-visible,
-.composer-hint-action:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-/* Labels give way to icons as the header narrows (aria-label/title always name them) */
-@media (max-width: 1279.98px) {
-  .header-link .header-btn-label { display: none; }
-}
-@media (max-width: 1099.98px) {
-  .header-btn-label:not(.settings-label) { display: none; }
-}
-@media (max-width: 899.98px) {
-  .settings-label { display: none; }
-  .header-btn { width: 40px; height: 40px; padding: 0; justify-content: center; }
-}
-@media (max-width: 639.98px) {
-  .header-link { display: none; }
-}
-
-.content {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-  padding: var(--space-4);
-  gap: var(--space-4);
-  position: relative;
-  z-index: 1;
-  min-height: 0;
-}
-
-/* The session list is its own wrapper only so it can become a drawer on narrow screens */
-.sessions-drawer:not(.is-drawer) { display: contents; }
-
-.left-panel {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  min-width: 0;
-  position: relative;
-}
-
-/* ---- Chat panel: full width in the chat, a solid card over the canvas elsewhere ---- */
-.chat-panel {
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: var(--chat-w, 380px);
-  z-index: 10;
-  display: flex;
-  flex-direction: row;
-  pointer-events: none;
-  /* Slides on the compositor only: no layout or text re-wrapping while it moves */
-  transition: transform 0.2s var(--ease-out);
-}
-.chat-panel-fullscreen {
-  position: relative;
-  width: 100%;
-  max-width: 100%;
-  flex: 1;
-  flex-direction: column;
-  pointer-events: auto;
-  z-index: auto;
-  min-height: 0;
-}
-.chat-panel-collapsed { transform: translateX(calc(-100% - 24px)); }
-.chat-panel-collapsed .chat-panel-content {
-  visibility: hidden;
-  transition: visibility 0s linear 0.2s;
-}
-.chat-panel-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  min-width: 0;
-  min-height: 0;
-  pointer-events: auto;
-  /* Opaque: scene labels and graph nodes never ghost through the messages */
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-  padding: 0;
-}
-.chat-panel:not(.chat-panel-fullscreen) .chat-panel-content {
-  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.45);
-  animation: panel-in-left 0.2s var(--ease-out);
-}
-.chat-panel-fullscreen .chat-panel-content { animation: view-in 0.18s var(--ease-out); }
-
-/* ---- Views fade in as they are shown ---- */
-.graph-panel { animation: view-in 0.18s var(--ease-out); }
-@keyframes view-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes panel-in-left {
-  from { opacity: 0; transform: translateX(-10px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes panel-in-right {
-  from { opacity: 0; transform: translateX(10px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes msg-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes nudge {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
-  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 35%, transparent); }
-}
-
-.chat-message-item { animation: msg-in 0.18s var(--ease-out) both; }
-
-/* Chat header: helper text stays >= 12px */
-.chat-header { min-height: 60px; padding: 8px 8px 8px 16px; }
-.chat-header-actions { gap: 2px; }
-.chat-header-btn { position: relative; color: var(--fg-muted); }
-.chat-header-btn:hover,
-.chat-header-btn.active { background: var(--surface-raised); color: var(--fg); }
-
-/* Reading measure: prose of a turn fills the width of the chat (so a wide chat is not a narrow column
-   with empty sides) and only stops growing on very wide screens, where lines would get too long */
-.chat-messages :deep(.dialogue:not(.dialogue-right) .markdown-body) > :not(.md-code):not(.md-table):not(pre):not(table) {
-  max-width: min(100%, 112ch);
-}
-.activity,
-.plan-card { max-width: min(100%, 112ch); }
-
-/* ---- "Open in another tab": the single notice for it, inside the chat, under the header ---- */
-.replaced-banner {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
-  flex: none;
-  margin: var(--space-2) var(--space-3) 0;
-  padding: 10px var(--space-3);
-  border-radius: var(--radius-md);
-  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
-  background: color-mix(in srgb, var(--warn) 12%, var(--surface));
-  color: var(--fg);
-  font-size: 13px;
-  line-height: 1.45;
-  animation: msg-in 0.18s var(--ease-out);
-}
-.replaced-banner-text { flex: 1; min-width: 160px; }
-.replaced-banner-button {
-  min-height: 32px;
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-sm);
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.replaced-banner-button:hover { filter: brightness(1.08); }
-
-/* ---- Empty new session: greeting, starter prompts, plan note ---- */
-.chat-empty {
-  margin: auto;
-  max-width: 520px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-5) var(--space-2);
-  text-align: center;
-}
-.chat-empty-avatar {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  margin-bottom: var(--space-2);
-  border-radius: 50%;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-}
-.chat-empty-title {
-  margin: 0;
-  font-size: 20px;
-  line-height: 1.3;
-  font-weight: 600;
-  color: var(--fg);
-  text-wrap: balance;
-}
-.chat-empty-hint {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--fg-muted);
-  text-wrap: pretty;
-}
-.chat-empty-suggest {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-.chat-empty-chip {
-  max-width: 100%;
-  min-height: 36px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  color: var(--fg);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.4;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
-}
-.chat-empty-chip:hover:not(:disabled) { background: var(--surface-raised); border-color: var(--accent); }
-.chat-empty-chip:disabled { opacity: 0.5; cursor: not-allowed; }
-.chat-empty-note {
-  margin: var(--space-3) 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--fg-muted);
-}
-.chat-empty-pick { margin-top: var(--space-3); }
-
-.chat-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  width: 100%;
-  max-width: 560px;
-  margin: 0 auto;
-}
-
-/* Attachment line of a user message: one chip per file or folder */
-.msg-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 6px 0 8px;
-  padding: 0;
-  list-style: none;
-}
-.dialogue-right .msg-attachments { justify-content: flex-end; }
-.msg-attachment {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--fg);
-  font-size: 13px;
-  line-height: 1.4;
-}
-.msg-attachment svg { flex: none; color: var(--fg-muted); }
-.msg-attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
-
-/* ---- Composer ---- */
-.composer-hint {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px var(--space-2);
-  margin: 0;
-  padding: var(--space-2) var(--space-4);
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--fg-muted);
-}
-.composer-hint svg { flex: none; }
-.composer-hint-action {
-  padding: 2px 4px;
-  border: none;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-.input-shell { background-color: var(--surface); border-color: var(--border-strong); }
-.input-shell:focus-within {
-  border-color: var(--accent);
-  background-color: var(--surface);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
-}
-.composer-icon-btn { border-color: var(--border-strong); color: var(--fg-muted); }
-.composer-icon-btn:hover:not(:disabled),
-.composer-icon-btn.active { background: var(--surface-raised); color: var(--fg); }
-.composer-send {
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.composer-send:hover:not(:disabled) { filter: brightness(1.08); }
-.composer-send:active:not(:disabled) { transform: scale(0.96); }
-/* While a run is active the same button is Stop: neutral, never alarm-red */
-.composer-send.is-stop {
-  border-radius: 10px;
-  background: var(--fg);
-  color: var(--bg);
-  animation: composer-stop-pulse 1.6s var(--ease-out) infinite;
-}
-/* A run quiet for 3 minutes: Stop gets a steadier, larger ring */
-.composer-send.is-stop.is-stalled {
-  animation: none;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 55%, transparent);
-}
-@keyframes composer-stop-pulse {
-  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
-  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent); }
-}
-.composer-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.task-input::placeholder { color: var(--fg-muted); }
-.jump-latest { background: var(--surface-raised); border-color: var(--border-strong); color: var(--fg); font-size: 13px; }
-
-/* ---- Status panel (wide: a column; outside the chat: a floating card) ---- */
-.right-panel {
-  flex: 0 0 clamp(260px, 22vw, 320px);
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.right-panel-hidden { display: none; }
-/* Outside the chat view: a drawer on the right, opened from the header */
-.right-panel-overlay {
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
-  bottom: var(--space-4);
-  width: 320px;
-  max-width: 40%;
-  z-index: 10;
-  flex: none;
-  pointer-events: none;
-  transition: transform 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
-}
-.right-panel-overlay .control-section {
-  flex: 1 1 auto;
-  pointer-events: auto;
-  animation: panel-in-right 0.2s var(--ease-out);
-  box-shadow: 0 16px 40px -12px rgb(0 0 0 / 0.5);
-}
-.right-panel-collapsed { transform: translateX(16px); opacity: 0; }
-.right-panel-collapsed .control-section { visibility: hidden; }
-
-.control-section {
-  flex: 0 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: var(--space-2) var(--space-4) var(--space-4);
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-}
-/* Sections: spacing and a hairline, never cards inside the card */
-.panel-block {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-  padding: var(--space-4) 0;
-}
-.panel-block + .panel-block { border-top: 1px solid var(--border); }
-.control-section > .button-section { padding-top: var(--space-4); border-top: 1px solid var(--border); }
-.panel-heading-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
-.panel-link {
-  align-self: flex-start;
-  min-height: 28px;
-  padding: 2px 6px;
-  margin-left: -6px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.panel-heading-row .panel-link { margin: 0 -6px 0 0; }
-.panel-link:hover { background: var(--surface-raised); text-decoration: underline; text-underline-offset: 3px; }
-.panel-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.panel-note.is-clamped {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  overflow: hidden;
-}
-
-/* Team of this run */
-.team-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.team-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 32px;
-  min-width: 0;
-}
-.team-avatar {
-  flex: none;
-  display: grid;
-  place-items: end center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-.team-avatar img { width: 22px; height: 22px; object-fit: contain; object-position: 50% 100%; image-rendering: pixelated; }
-.team-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 550;
-  color: var(--fg);
-}
-
-/* Recent activity: newest first, time aligned on the right */
-.activity-feed { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
-.activity-feed-item { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; font-size: 13px; line-height: 1.4; }
-.activity-feed-text {
-  flex: 1;
-  min-width: 0;
-  color: var(--fg);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-.activity-feed-time { flex: none; font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
-.panel-heading {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--fg);
-}
-.panel-note,
-.workflow-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-muted); }
-.workflow-picker { border-radius: var(--radius-md); }
-.workflow-picker.needs-workflow :deep(.select) {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
-}
-.workflow-picker.nudge { animation: nudge 0.9s var(--ease-out) 2; }
-
-.status-facts { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
-.status-fact { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
-.status-fact dt { flex: none; font-size: 12px; color: var(--fg-muted); }
-.status-fact dd { margin: 0; min-width: 0; font-size: 13px; color: var(--fg); text-align: right; overflow-wrap: anywhere; }
-.status-fact dd.is-num { font-variant-numeric: tabular-nums; }
-.button-section { display: flex; flex-direction: column; gap: var(--space-2); }
-
-.sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  position: relative;
-  margin-right: calc(var(--space-2) * -1);
-  padding-top: var(--space-1);
-}
-.sheet-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
-.sheet-backdrop {
-  position: fixed;
-  inset: var(--header-h) 0 0 0;
-  z-index: var(--z-backdrop);
-  background: rgb(0 0 0 / 0.5);
-  animation: fade-in 0.15s var(--ease-out);
-}
-
-/* Canvases keep a solid surface; nothing ghosts behind them */
-.graph-panel { background-color: var(--surface); border-color: var(--border); }
-.image-modal { background: rgb(0 0 0 / 0.7); }
-
-/* ===========================================================================
- * Narrow (< 900px): status panel = bottom sheet, sessions = left drawer,
- * composer pinned to the bottom of the dynamic viewport.
- * ========================================================================= */
-@media (max-width: 899.98px) {
-  .content { padding: var(--space-2); gap: 0; flex-direction: column; }
-  .left-panel { flex: 1 1 auto; min-height: 0; }
-  .chat-panel-content { border-radius: var(--radius-md); }
-  .chat-panel-fullscreen .chat-panel-content { border-left: none; border-right: none; border-radius: 0; }
-  .chat-panel:not(.chat-panel-fullscreen) { width: calc(100% - 48px); max-width: calc(100% - 48px); }
-  .input-area { padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--surface); }
-  .chat-messages { padding: var(--space-4) var(--space-3) 52px; }
-  .view-tab { height: 40px; }
-  .chat-header-btn { width: 40px; height: 40px; }
-  .composer-icon-btn,
-  .composer-send { width: 40px; height: 40px; }
-  .attach-menu-item { min-height: 44px; }
-
-  .sessions-drawer.is-drawer {
-    position: fixed;
-    top: var(--header-h);
-    bottom: 0;
-    left: 0;
-    width: min(340px, 88vw);
-    z-index: var(--z-modal);
-    display: flex;
-    transform: translateX(-100%);
-    visibility: hidden;
-    transition: transform 0.2s var(--ease-out), visibility 0s linear 0.2s;
-  }
-  .sessions-drawer.is-drawer.is-open { transform: none; visibility: visible; transition: transform 0.2s var(--ease-out); }
-  .sessions-drawer.is-drawer > .session-sidebar,
-  .sessions-drawer.is-drawer > .session-sidebar:not(.collapsed) {
-    flex: 1 1 auto;
-    width: 100%;
-    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
-    background: var(--surface);
-    border-left: none;
-  }
-
-  .right-panel.is-sheet {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    top: auto;
-    width: auto;
-    max-width: none;
-    flex: none;
-    z-index: var(--z-modal);
-    transform: translateY(100%);
-    visibility: hidden;
-    opacity: 1;
-    pointer-events: auto;
-    transition: transform 0.2s var(--ease-out), visibility 0s linear 0.2s;
-  }
-  .right-panel.is-sheet.is-open { transform: none; visibility: visible; transition: transform 0.2s var(--ease-out); }
-  .right-panel.is-sheet .control-section {
-    max-height: calc(80 * var(--dvh));
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    border-bottom: none;
-    padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
-    box-shadow: 0 -12px 32px -12px rgb(0 0 0 / 0.5);
-    animation: none;
-  }
-  .sheet-head { padding-top: var(--space-2); }
-  .sheet-grip {
-    position: absolute;
-    top: -4px;
-    left: 50%;
-    width: 36px;
-    height: 4px;
-    margin-left: -18px;
-    border-radius: 2px;
-    background: var(--border-strong);
-  }
-  .sheet-backdrop { inset: 0; }
-}
-
-@media (max-width: 639.98px) {
-  .header { padding: 0 var(--space-2) 0 var(--space-3); gap: var(--space-2); }
-  /* The tabs need the width more than the title does */
-  .header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-}
-
-/* Wide but not huge: sessions column a little slimmer */
-@media (min-width: 900px) and (max-width: 1100px) {
-  .content { padding: var(--space-3); gap: var(--space-3); }
-  .sessions-drawer:not(.is-drawer) > .session-sidebar:not(.collapsed) { flex-basis: 220px; width: 220px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .launch-view *,
-  .launch-view *::before,
-  .launch-view *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    transition-delay: 0s !important;
-  }
-}
-
-/* ---------- Light theme: legibility (low-alpha ink text is too faint on white) ---------- */
-:root[data-theme="light"] .user-name,
-:root[data-theme="light"] .message-timestamp,
-:root[data-theme="light"] .chat-notification .message-timestamp,
-:root[data-theme="light"] .attachment-meta,
-:root[data-theme="light"] .no-active-nodes,
-:root[data-theme="light"] .artifact-status {
-  color: var(--text-muted-1);
-}
-:root[data-theme="light"] .notification-text,
-:root[data-theme="light"] .artifact-filename {
-  color: var(--text-soft-3);
-}
-:root[data-theme="light"] .chat-notification-warning .notification-content {
-  background: #fffbeb;
-  border-color: #fcd34d;
-}
-:root[data-theme="light"] .chat-notification-warning .notification-text {
-  color: #92400e;
-}
-:root[data-theme="light"] .chat-notification-error .notification-content {
-  background: #fef2f2;
-  border-color: #fca5a5;
-}
-:root[data-theme="light"] .chat-notification-error .notification-text {
-  color: #991b1b;
-}
-:root[data-theme="light"] .user-name,
-:root[data-theme="light"] .message-bubble {
-  color: var(--text-1);
-}
-:root[data-theme="light"] .dialogue-right .message-bubble {
-  background: rgb(var(--ink) / 0.05);
-  border-color: rgb(var(--ink) / 0.06);
-}
-:root[data-theme="light"] .activity-summary,
-:root[data-theme="light"] .activity-step {
-  color: var(--text-muted-1);
-}
-:root[data-theme="light"] .attachment-button,
-:root[data-theme="light"] .artifact-download-button {
-  background: #fff;
-  border-color: rgb(var(--ink) / 0.2);
-  color: var(--text-soft-3);
-}
-:root[data-theme="light"] .attachment-button:hover:not(:disabled),
-:root[data-theme="light"] .artifact-download-button:hover:not(:disabled) {
-  background: var(--surface-4);
-  border-color: rgb(var(--ink) / 0.35);
-  color: var(--text-1);
-}
-:root[data-theme="light"] .attachment-count {
-  background: var(--accent-sky-2);
-  color: #fff;
-}
-:root[data-theme="light"] .remove-attachment,
-:root[data-theme="light"] .drag-overlay-content {
-  color: var(--accent-sky-2);
-}
-:root[data-theme="light"] .drag-overlay {
-  background: rgb(255 255 255 / 0.85);
-}
-:root[data-theme="light"] .attachment-modal {
-  border-color: rgb(var(--ink) / 0.14);
-  box-shadow: 0 12px 32px -8px rgb(15 23 42 / 0.18);
-}
-:root[data-theme="light"] .attachment-item {
-  background: var(--surface-4);
-}
-:root[data-theme="light"] .active-node-item {
-  background: #fff;
-  border: 1px solid rgb(var(--ink) / 0.08);
-  color: var(--text-2);
-}
-:root[data-theme="light"] .node-dot {
-  box-shadow: none;
-}
-:root[data-theme="light"] .chat-panel:not(.chat-panel-fullscreen) .chat-panel-content,
-:root[data-theme="light"] .right-panel-overlay .control-section,
-:root[data-theme="light"] .chat-rail {
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 12px 30px -12px rgb(15 23 42 / 0.22);
-}
-:root[data-theme="light"] .image-modal {
-  background: rgb(15 23 42 / 0.55);
-}
-:root[data-theme="light"] .image-modal-content {
-  background: rgb(255 255 255 / 0.96);
-  border-color: rgb(var(--ink) / 0.12);
-}
-
-</style>
+<style scoped src="./launch/styles/rails-header.css"></style>
+<style scoped src="./launch/styles/messages.css"></style>
+<style scoped src="./launch/styles/activity.css"></style>
+<style scoped src="./launch/styles/composer.css"></style>
+<style scoped src="./launch/styles/views.css"></style>
+<style scoped src="./launch/styles/shell.css"></style>
+<style scoped src="./launch/styles/narrow.css"></style>
+<style scoped src="./launch/styles/light-theme.css"></style>

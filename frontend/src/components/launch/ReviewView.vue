@@ -283,7 +283,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownIt from 'markdown-it'
 import { fetchSessionDigest, saveSessionReview } from '@/api/client.js'
@@ -386,33 +386,62 @@ const queue = computed(() => {
     .filter((s) => !q || `${s.title} ${s.yaml_file} ${s.projects?.[0]?.name || ''}`.toLowerCase().includes(q))
 })
 
-// Learn which unreviewed runs did work, newest first, one digest at a time (only while the
-// view is open, and only for the latest runs: older ones stay in the queue until opened)
+// Learn which unreviewed runs did work, newest first (only while the view is open, and only for
+// the latest runs: older ones stay in the queue until opened). A few digests load at a time;
+// a poll of the session list only starts a scan when a run that still needs one appeared.
 const WORK_SCAN_LIMIT = 30
+const WORK_SCAN_PARALLEL = 3
+const WORK_SCAN_DEBOUNCE_MS = 300
 let scanning = false
+let rescan = false
+let scanTimer = null
+const scanCandidates = () =>
+  props.sessions
+    .filter((s) => s.status === 'completed' && verdictOf(s) === 'pending' && typeof s.has_work !== 'boolean')
+    .slice(0, WORK_SCAN_LIMIT)
+    .filter((item) => workOf(item) === null)
 const scanWork = async () => {
-  if (scanning || !props.visible) return
+  if (!props.visible) return
+  if (scanning) {
+    rescan = true // new runs arrived meanwhile: one more pass when this one ends
+    return
+  }
+  const queue = scanCandidates()
+  if (!queue.length) return
   scanning = true
   try {
-    const candidates = props.sessions
-      .filter((s) => s.status === 'completed' && verdictOf(s) === 'pending' && typeof s.has_work !== 'boolean')
-      .slice(0, WORK_SCAN_LIMIT)
-    for (const item of candidates) {
-      if (!props.visible) break
-      if (workOf(item) !== null) continue
-      try {
-        const data = await fetchSessionDigest(item.session_id)
-        workCache.set(item.session_id, { at: item.updated_at, work: didWork(data?.digest) })
-      } catch {
-        // unknown stays in the queue
-        workCache.set(item.session_id, { at: item.updated_at, work: true })
+    const worker = async () => {
+      while (queue.length && props.visible) {
+        const item = queue.shift()
+        if (workOf(item) !== null) continue
+        try {
+          const data = await fetchSessionDigest(item.session_id)
+          workCache.set(item.session_id, { at: item.updated_at, work: didWork(data?.digest) })
+        } catch {
+          // unknown stays in the queue
+          workCache.set(item.session_id, { at: item.updated_at, work: true })
+        }
       }
     }
+    await Promise.all(Array.from({ length: Math.min(WORK_SCAN_PARALLEL, queue.length) }, worker))
   } finally {
     scanning = false
   }
+  if (rescan) {
+    rescan = false
+    scheduleScan()
+  }
 }
-watch(() => [props.visible, props.sessions], () => { scanWork() }, { immediate: true })
+const scheduleScan = () => {
+  clearTimeout(scanTimer)
+  scanTimer = setTimeout(scanWork, WORK_SCAN_DEBOUNCE_MS)
+}
+// Only the runs that still need a scan matter: a poll that changed other sessions does nothing
+const scanKey = computed(() =>
+  props.visible ? scanCandidates().map((item) => `${item.session_id}@${item.updated_at}`).join('|') : ''
+)
+watch(scanKey, (key) => { if (key) scheduleScan() }, { immediate: true })
+onBeforeUnmount(() => clearTimeout(scanTimer))
 // The Launch view's badge shows the same count as the "pending" tab
 watch(() => tabs.value[0].count, (count) => emit('pending-count', count), { immediate: true })
 

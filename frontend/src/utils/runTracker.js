@@ -122,6 +122,9 @@ export function createRunTracker() {
     const time = toMs(at)
     const node = nodeOf(id)
     let run = openRun(node)
+    // A late end of a step the run's own end already closed (e.g. a member stopping after the
+    // stop was confirmed): it keeps the status the run gave it, no new "done" run appears
+    if (!run && state.outcome && node.runs.length) return
     if (!run) {
       // The start was not seen (e.g. a partial replay): record a zero-length run
       nodeStart(id, time)

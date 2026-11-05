@@ -28,7 +28,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { labCleanupSuggestion, labCleanupWorkflow } from '@/api/client'
-import { formatBytes } from '@/utils/labOutputs.js'
+import { formatBytes, labErrorText } from '@/utils/labOutputs.js'
 import { toast } from '@/utils/toast.js'
 
 // Shown once an evaluation has finished, only when this workflow's older products have piled up
@@ -97,7 +97,7 @@ async function clean() {
     dismissed.value = true
     emit('cleaned')
   } catch (error) {
-    toast.error(error?.message || tr('lab.cleanup.failed', 'Không dọn được kết quả cũ'))
+    toast.error(tr('lab.cleanup.failed', 'Không dọn được kết quả cũ'), { detail: labErrorText(error, { t, te }) })
   } finally {
     busy.value = false
   }

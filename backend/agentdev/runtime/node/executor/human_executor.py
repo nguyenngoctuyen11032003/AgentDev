@@ -45,7 +45,7 @@ class HumanNodeExecutor(NodeExecutor):
             node.id,
             human_task_description or "",
             inputs=input_data,
-            metadata={"node_type": "human"},
+            metadata={"node_type": "human", "paid": bool(getattr(human_config, "paid", False))},
         )
 
         return [self._build_message(

@@ -351,6 +351,7 @@ graph:
       type: human
       description: Bạn quyết định có tạo video thật bằng Google Veo (có phí) hay không
       config:
+        paid: true
         description: 'Tạo video thật từ gói sản xuất bằng Google Veo? Việc này tính phí trên tài khoản Google của bạn theo số giây video (mỗi cảnh 4-8 giây) và cần đăng nhập Google Gemini có bật trả phí Gemini API. Trả lời TẠO VIDEO để tạo. Trả lời khác để bỏ qua: gói sản xuất (kịch bản, câu lệnh tạo hình/video, lời thoại, phụ đề) vẫn giữ nguyên để bạn dán vào công cụ video.'
     - id: Video Renderer
       type: agent
@@ -414,11 +415,15 @@ graph:
     # The renderer reads the episode number from the request (EPISODE ... tập N / RENDER ... tập N).
     - {from: Intake, to: Video Renderer, trigger: false, keep_message: true}
     - {from: Writer, to: Script Reviewer}
+    # Each rewrite replaces the previous script downstream: clear_context drops queued notes, and
+    # clear_kept_context drops the earlier kept script (the only kept input of these four steps), so a
+    # revision round does not stack every full script version on them. Archivist keeps the Intake request
+    # (kept), so its Writer edge only clears non-kept notes.
     - {from: Writer, to: Script Approval, trigger: false, clear_context: true}
-    - {from: Writer, to: Visual Director, trigger: false, clear_context: true, keep_message: true}
-    - {from: Writer, to: Voice & Subtitles, trigger: false, clear_context: true, keep_message: true}
-    - {from: Writer, to: Thumbnail Title, trigger: false, clear_context: true, keep_message: true}
-    - {from: Writer, to: Production QA, trigger: false, clear_context: true, keep_message: true}
+    - {from: Writer, to: Visual Director, trigger: false, clear_context: true, clear_kept_context: true, keep_message: true}
+    - {from: Writer, to: Voice & Subtitles, trigger: false, clear_context: true, clear_kept_context: true, keep_message: true}
+    - {from: Writer, to: Thumbnail Title, trigger: false, clear_context: true, clear_kept_context: true, keep_message: true}
+    - {from: Writer, to: Production QA, trigger: false, clear_context: true, clear_kept_context: true, keep_message: true}
     - {from: Writer, to: Archivist, trigger: false, clear_context: true}
     - {from: Script Reviewer, to: Writer, condition: {type: keyword, config: {regex: ['^(?!\W*APPROVED\b)'], case_sensitive: true}}}
     - {from: Script Reviewer, to: Script Guard, condition: {type: keyword, config: {regex: ['^(?!\W*APPROVED\b)'], case_sensitive: true}}}

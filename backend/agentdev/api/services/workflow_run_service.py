@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -45,6 +46,9 @@ from agentdev.utils.run_mode import DEFAULT_RUN_MODE
 
 RUN_IN_PROGRESS_CODE = "run_in_progress"
 RUN_IN_PROGRESS_MESSAGE = "A run is already in progress in this session"
+# A launch claim whose task never started a run within this time is stale (the task died
+# without releasing it); the session is free again.
+LAUNCH_CLAIM_TTL_SECONDS = 60.0
 
 
 def run_in_progress(session) -> bool:
@@ -72,11 +76,44 @@ class WorkflowRunService:
         self.session_controller = session_controller
         self.attachment_service = attachment_service
         self.logger = logging.getLogger(__name__)
+        # Sessions whose launch was accepted by the HTTP route but whose task has not
+        # reached ``start_workflow`` yet (the route answers before the task runs):
+        # {session_id: {"token", "at" (monotonic time of the claim), "cancel" (Stop reason or None)}}.
+        self._launching: Dict[str, Dict[str, Any]] = {}
+
+    def reserve_launch(self, session_id: str) -> Optional[str]:
+        """Claim the right to start a run in ``session_id``; a token, or None if one is starting or running.
+
+        Synchronous (no await between check and claim), so two requests racing on the
+        same session cannot both win. Released by ``start_workflow``, by the launch task's
+        done-callback (also when it was cancelled before it ran) or, as a last resort, after
+        ``LAUNCH_CLAIM_TTL_SECONDS``.
+        """
+        if run_in_progress(self.session_store.get_session(session_id)):
+            return None
+        claim = self._launching.get(session_id)
+        if claim is not None and time.monotonic() - claim["at"] < LAUNCH_CLAIM_TTL_SECONDS:
+            return None
+        token = uuid.uuid4().hex
+        self._launching[session_id] = {"token": token, "at": time.monotonic(), "cancel": None}
+        return token
+
+    def release_launch(self, session_id: str, token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Drop the claim and return it; with ``token``, only that claim (a late callback must not free a newer one)."""
+        claim = self._launching.get(session_id)
+        if claim is not None and (token is None or claim["token"] == token):
+            return self._launching.pop(session_id)
+        return None
 
     def request_cancel(self, session_id: str, *, reason: Optional[str] = None) -> bool:
+        claim = self._launching.get(session_id)
+        if claim is not None:
+            # Stop between an accepted launch and the start of its task: the run is not live yet
+            # (``run_in_progress`` is False), so the task must learn it from the claim.
+            claim["cancel"] = reason or "Cancellation requested"
         session = self.session_store.get_session(session_id)
         if not session:
-            return False
+            return claim is not None
 
         cancel_message = reason or "Cancellation requested"
         session.cancel_reason = cancel_message
@@ -107,8 +144,17 @@ class WorkflowRunService:
         attachments: Optional[List[str]] = None,
         log_level: Optional[LogLevel] = None,
         mode: str = DEFAULT_RUN_MODE,
+        launch_token: Optional[str] = None,
     ) -> None:
         normalized_yaml_name = (yaml_file or "").strip()
+        # The route's claim (if any) ends here; from now on ``session.starting`` guards the run.
+        claim = self.release_launch(session_id, launch_token)
+        if claim is not None and claim.get("cancel"):
+            # Stopped before it started: nothing ran, the page is told the run ended.
+            await websocket_manager.send_message(
+                session_id, {"type": "workflow_cancelled", "data": {"message": claim["cancel"]}}
+            )
+            return
         existing = self.session_store.get_session(session_id)
         if run_in_progress(existing):
             # A follow-up must wait for the current run; never run two graphs in one session.

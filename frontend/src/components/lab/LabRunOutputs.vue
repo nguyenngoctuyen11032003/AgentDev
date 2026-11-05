@@ -217,14 +217,15 @@ import LabRunPreview from './LabRunPreview.vue'
 import { toast } from '@/utils/toast.js'
 import { confirmDialog } from '@/utils/confirm.js'
 import {
-  KIND_ICONS, MAX_TEXT_BYTES, TEXT_KINDS, ancestorsOf, buildTree, countKinds, flattenTree, formatBytes, pickDefaultFile
+  KIND_ICONS, MAX_TEXT_BYTES, TEXT_KINDS, ancestorsOf, buildTree, countKinds, flattenTree, formatBytes, labErrorText, pickDefaultFile
 } from '@/utils/labOutputs.js'
 import { labOutputSource } from '@/utils/outputSources.js'
 
 const props = defineProps({
-  // A Lab run (jobId + run) or any product folder through an adapter (`source`, see utils/outputSources.js)
+  // A Lab run (jobId + run: its run_id, or position for jobs stored before run ids existed) or any
+  // product folder through an adapter (`source`, see utils/outputSources.js)
   jobId: { type: String, default: '' },
-  run: { type: Number, default: -1 },
+  run: { type: [String, Number], default: -1 },
   source: { type: Object, default: null },
   // The evaluation is still running: its folders cannot be deleted yet.
   jobRunning: { type: Boolean, default: false }
@@ -235,6 +236,7 @@ const { t, te, locale } = useI18n()
 const tr = (key, fallback, params) =>
   te(key) ? t(key, params) : String(fallback).replace(/\{(\w+)\}/g, (_, k) => params?.[k] ?? '')
 const bytes = (n) => formatBytes(n, locale.value)
+const errText = (err) => labErrorText(err, { t, te })
 const src = computed(() => props.source || labOutputSource(props.jobId, props.run))
 // Wording that depends on where the files come from (a Lab run, a chat session): the source may override it
 const trc = (name, key, fallback, params) => {
@@ -301,7 +303,7 @@ async function load() {
     if (first && !fileMap.value.has(selected.value)) select(first.path)
     if (result.available && result.project?.can_preview) checkRunningPreview()
   } catch (err) {
-    if (alive) loadError.value = err?.message || String(err)
+    if (alive) loadError.value = errText(err)
   } finally {
     loading.value = false
   }
@@ -412,7 +414,7 @@ watch(current, async (file) => {
     if (ctrl.signal.aborted || !alive) return
     if (err?.status === 413) textState.value = 'large'
     else {
-      textError.value = err?.message || String(err)
+      textError.value = errText(err)
       textState.value = 'error'
     }
   }
@@ -482,7 +484,7 @@ async function openOnMachine(path, reveal) {
   try {
     await src.value.open(path, reveal)
   } catch (err) {
-    toast.error(tr('lab.outputs.open_error', 'Không mở được trên máy'), { detail: err?.detail || err?.message || String(err) })
+    toast.error(tr('lab.outputs.open_error', 'Không mở được trên máy'), { detail: errText(err) })
   } finally {
     opening.value = false
   }
@@ -507,7 +509,7 @@ async function deleteOutputs() {
     emit('deleted', result)
     await load()
   } catch (err) {
-    toast.error(tr('lab.outputs.delete_failed', 'Không xoá được kết quả'), { detail: err?.detail || err?.message || String(err) })
+    toast.error(tr('lab.outputs.delete_failed', 'Không xoá được kết quả'), { detail: errText(err) })
   } finally {
     deleting.value = false
   }

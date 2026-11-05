@@ -19,7 +19,7 @@
             <span class="pr-type">{{ typeLabel(c.type) }}</span>
             <strong class="pr-name" :title="c.name">{{ c.name }}</strong>
           </div>
-          <span :class="['pr-pill', c.status]">{{ te(`lab.run_status.${c.status}`) ? t(`lab.run_status.${c.status}`) : c.status }}</span>
+          <span :class="['pr-pill', c.status]">{{ statusLabel(c.status) }}</span>
         </div>
 
         <p class="pr-meta">{{ c.meta }}</p>
@@ -93,7 +93,7 @@
 import { computed, onBeforeUnmount, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { labPreviewStart, labPreviewStatus, labPreviewStop, labRunSiteUrl } from '@/api/client'
-import { formatBytes } from '@/utils/labOutputs.js'
+import { formatBytes, labErrorText } from '@/utils/labOutputs.js'
 import { TYPE_ORDER, displayUrl, productType, stackOf } from '@/utils/labProducts.js'
 
 // The "what did this evaluation make" overview: one card per run that left files, with the shortest way to
@@ -123,12 +123,17 @@ const ICONS = {
 const TYPE_FALLBACK = { webapp: 'Web app', site: 'Trang web', media: 'Video/ảnh', docs: 'Tài liệu', code: 'Mã nguồn', files: 'Tệp' }
 const typeLabel = (type) => tr(`lab.products.type.${type}`, TYPE_FALLBACK[type])
 
+const statusLabel = (status) =>
+  status === 'unjudged' ? tr('lab.run_status_unjudged', 'Chưa chấm được') : te(`lab.run_status.${status}`) ? t(`lab.run_status.${status}`) : status
+const keyOf = (entry) => entry.key ?? (entry.run_id || entry.run)
 const cards = computed(() =>
   props.runs
     .map((entry) => ({ entry, kind: productType(entry) }))
     .filter(({ kind }) => kind)
     .map(({ entry, kind }) => ({
-      run: entry.run,
+      // run_id when the job has one, else the position (old jobs): the key every run API accepts
+      run: keyOf(entry),
+      index: entry.run,
       type: kind.type,
       status: entry.status,
       inferred: !!entry.inferred,
@@ -142,7 +147,7 @@ const cards = computed(() =>
         formatBytes(entry.total_bytes, locale.value)
       ].filter(Boolean).join(' · ')
     }))
-    .sort((a, b) => TYPE_ORDER[a.type] - TYPE_ORDER[b.type] || a.run - b.run)
+    .sort((a, b) => TYPE_ORDER[a.type] - TYPE_ORDER[b.type] || a.index - b.index)
 )
 // Finished runs that left nothing to look at (a run still in progress may yet write files).
 const emptyCount = computed(() => props.runs.filter((r) => !productType(r) && r.status !== 'running').length)
@@ -160,12 +165,14 @@ const stateOf = (run) => previews[run]?.status || 'idle'
 const isBusy = (run) => ['installing', 'starting'].includes(stateOf(run))
 
 function setState(run, data) {
-  previews[run] = { status: data?.status || 'idle', url: data?.url || null, error: data?.error || null }
+  // A failed preview may carry error_code/error_params: shown in the UI language
+  const error = data?.error_code ? labErrorText(data, { t, te }) : data?.error || null
+  previews[run] = { status: data?.status || 'idle', url: data?.url || null, error }
   clearTimeout(timers.get(run))
   timers.delete(run)
   if (alive && isBusy(run)) timers.set(run, setTimeout(() => poll(run), POLL_MS))
 }
-const message = (err) => err?.detail || err?.message || String(err)
+const message = (err) => labErrorText(err, { t, te })
 
 async function poll(run) {
   const id = props.jobId
@@ -215,7 +222,7 @@ watch(
   () => props.runs,
   (runs) => {
     for (const entry of runs) {
-      const run = entry.run
+      const run = keyOf(entry)
       if (acting.has(run) || timers.has(run)) continue // a start or a poll of ours is under way
       if (entry.preview) setState(run, entry.preview)
       else if (['running', 'installing', 'starting'].includes(stateOf(run))) setState(run, { status: 'stopped' })

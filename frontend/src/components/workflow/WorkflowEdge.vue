@@ -56,11 +56,12 @@ import { BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, MarkerTy
 import { useVueFlow } from '@vue-flow/core'
 import RichTooltip from '@/components/common/RichTooltip.vue'
 import { getEdgeHelp } from '@/utils/helpContent.js'
+import { isAlwaysTrueCondition, approvalBranch, shortenLabel, parallelEdgeInfo, offsetBezierPath, PARALLEL_EDGE_STEP } from './edgeUtils.js'
 import { configStore } from '@/stores/configStore.js'
 import { useI18n } from 'vue-i18n'
 
-const { findNode } = useVueFlow()
-const { t } = useI18n()
+const { findNode, findEdge, emits, edges: flowEdges } = useVueFlow()
+const { t, te } = useI18n()
 
 onMounted(ensureSharedEdgeDefs)
 
@@ -386,6 +387,14 @@ function getArcMidpoint({
   return { x: midX, y: midY }
 }
 
+// Several edges may join the same two steps: each one gets its own curve so all stay clickable
+const parallel = computed(() => parallelEdgeInfo(flowEdges.value, props.id))
+
+// Bezier between two points, pushed sideways when this edge has a parallel sibling
+const bezier = (params) => (parallel.value.offset
+  ? offsetBezierPath(params, parallel.value.offset)
+  : getBezierPath(params))
+
 // Get the path for the edge
 const path = computed(() => {
   // First obtain source and target node dimensions
@@ -439,7 +448,7 @@ const path = computed(() => {
 
     // For self-loop edges, create a circular path using SVG arc
     const radiusX = Math.abs(startX - endX) * 0.2
-    const radiusY = 20
+    const radiusY = 20 + parallel.value.sameDirIndex * (PARALLEL_EDGE_STEP / 2)
     
     // Calculate the arc path
     const arcPath = `M ${startX - 5} ${startY} A ${radiusX} ${radiusY} 0 1 0 ${endX + 5} ${endY}`
@@ -465,7 +474,7 @@ const path = computed(() => {
       adjustedTargetY = props.targetY + targetHeight / 2 + 1
     }
 
-    return getBezierPath({
+    return bezier({
       sourceX: adjustedSourceX,
       sourceY: adjustedSourceY,
       targetX: adjustedTargetX,
@@ -486,7 +495,7 @@ const path = computed(() => {
         adjustedSourceY = props.sourceY - sourceHeight / 2
       }
 
-      return getBezierPath({
+      return bezier({
         sourceX: adjustedSourceX,
         sourceY: adjustedSourceY,
         targetX: props.targetX,
@@ -507,7 +516,7 @@ const path = computed(() => {
         adjustedTargetY = props.targetY + targetHeight / 2
       }
 
-      return getBezierPath({
+      return bezier({
         sourceX: props.sourceX,
         sourceY: props.sourceY,
         targetX: adjustedTargetX,
@@ -542,6 +551,7 @@ const path = computed(() => {
     const radiusMultiplier = (isLeftwardEdge && !isClockwise) ? 1.1 : 1.1
     const radiusX = Math.abs(adjustedSourceX - adjustedTargetX) * 0.55 * radiusMultiplier
     const radiusY = Math.abs(adjustedSourceY - adjustedTargetY) * 0.70 * radiusMultiplier + 110
+      + parallel.value.sameDirIndex * PARALLEL_EDGE_STEP
     
     const sweepFlag = isClockwise ? 1 : 0
     
@@ -570,7 +580,7 @@ const path = computed(() => {
   }
   
   // Default to bezier path for non-loopback and non-leftward edges
-  return getBezierPath({
+  return bezier({
     sourceX: props.sourceX,
     sourceY: props.sourceY,
     targetX: props.targetX,
@@ -585,26 +595,25 @@ const edgePath = computed(() => path.value[0])
 const labelX = computed(() => path.value[1])
 const labelY = computed(() => path.value[2])
 
-// Get edge label text depending on function/keyword
-const edgeLabel = computed(() => {
+// Full condition text (shown on hover) depending on function/keyword
+const edgeLabelFull = computed(() => {
   const condition = props.data?.condition
-  if (condition === undefined || condition === null) {
+  // No label for the default "always" condition, whatever spelling it uses
+  if (isAlwaysTrueCondition(condition)) {
     return ''
+  }
+  if (typeof condition === 'string') {
+    return condition
   }
 
   if (typeof condition === 'object' && condition !== null && condition.type) {
     if (condition.type === 'function') {
-      // Don't show label for default condition
-      const name = condition.config?.name || ''
-      if (name === 'true') {
-        return ''
-      }
-      return name
+      return condition.config?.name || ''
     } else if (condition.type === 'keyword') {
       // Format keyword condition: "Includes:", "Excludes:", "Regex:"
       const parts = []
       const config = condition.config || {}
-      
+
       if (config.any && Array.isArray(config.any) && config.any.length > 0) {
         parts.push(t('components.workflow_edge.includes', { values: config.any.join(', ') }))
       }
@@ -614,13 +623,37 @@ const edgeLabel = computed(() => {
       if (config.regex && Array.isArray(config.regex) && config.regex.length > 0) {
         parts.push(t('components.workflow_edge.regex', { values: config.regex.join(', ') }))
       }
-      
+
       return parts.join('\n')
     }
   }
-  
+
   return ''
 })
+
+const BRANCH_LABEL_KEYS = {
+  approve: ['components.workflow_edge.when_approved', 'Khi duyệt'],
+  reject: ['components.workflow_edge.when_rejected', 'Khi từ chối']
+}
+
+// Short label on the canvas: "When approved" / "When rejected" for a recognizable approval decision,
+// otherwise the first characters of the condition (a long regex used to draw a 200px-tall block).
+const edgeLabel = computed(() => {
+  const full = edgeLabelFull.value
+  if (!full) return ''
+  const branch = approvalBranch(props.data?.condition)
+  if (branch) {
+    const [key, fallback] = BRANCH_LABEL_KEYS[branch]
+    return te(key) ? t(key) : fallback
+  }
+  return shortenLabel(full)
+})
+
+// Clicking the label opens the edge editor like clicking the line does
+const onLabelClick = (event) => {
+  const edge = findEdge(props.id)
+  if (edge) emits.edgeClick({ event, edge })
+}
 
 const edgeLabelKey = computed(() => `${props.id}-${edgeLabel.value}`)
 
@@ -629,16 +662,17 @@ const labelStyle = computed(() => {
   const s = {
     position: 'absolute',
     transform: `translate(-50%, -50%) translate(${labelX.value}px, ${labelY.value}px)`,
-    pointerEvents: 'none',
+    // Hoverable so the full condition shows as a native title; a click opens the edge editor
+    pointerEvents: 'all',
+    cursor: 'pointer',
     backgroundColor: 'rgb(var(--panel-10) / 0.9)',
     color: 'var(--text-1)',
     padding: '4px 6px',
     borderRadius: '3px',
     border: '1px solid var(--text-1)',
     fontSize: '12px',
-    whiteSpace: 'pre-line',
+    whiteSpace: 'nowrap',
     maxWidth: '200px',
-    overflowWrap: 'anywhere',
     zIndex: 5,
     textAlign: 'center',
     lineHeight: '1.4',
@@ -670,9 +704,8 @@ const tooltipX = computed(() => {
   const isSelfLoop = props.source === props.target
   const isLeftwardEdge = props.targetX < props.sourceX
   
-  // For self-loops and leftward edges with arc paths, use arc midpoint calculation
-  if (isSelfLoop || isLeftwardEdge) {
-    // Return labelX for arcs (already computed as arc midpoint)
+  // Arcs and fanned-out parallel edges: the label already sits on the curve's own midpoint
+  if (isSelfLoop || isLeftwardEdge || parallel.value.offset) {
     return labelX.value
   }
   
@@ -684,9 +717,8 @@ const tooltipY = computed(() => {
   const isSelfLoop = props.source === props.target
   const isLeftwardEdge = props.targetX < props.sourceX
   
-  // For self-loops and leftward edges with arc paths, use arc midpoint calculation
-  if (isSelfLoop || isLeftwardEdge) {
-    // Return labelY for arcs (already computed as arc midpoint)
+  // Arcs and fanned-out parallel edges: the label already sits on the curve's own midpoint
+  if (isSelfLoop || isLeftwardEdge || parallel.value.offset) {
     return labelY.value
   }
   
@@ -757,6 +789,8 @@ const teamLinkTitle = computed(() =>
       :key="edgeLabelKey"
       :style="labelStyle"
       :class="{ 'animated-label': labelAnimationDuration > 0, 'nodrag': true, 'nopan': true }"
+      :title="edgeLabelFull"
+      @click="onLabelClick"
     >
       {{ edgeLabel }}
     </div>

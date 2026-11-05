@@ -104,9 +104,9 @@ def test_runner_falls_back_to_basic_when_judge_fails():
                             run_once=lambda *a: {"answer": "ok", "questions": []}, judge=judge)
     data = _wait(job)
     result = data["results"][0]
-    assert result["status"] == "passed" and result["judge"]["judged_by"] == "basic"
+    assert result["status"] == "unjudged" and result["judge"]["judged_by"] == "basic"
     assert "No signed-in account" in result["judge"]["reason"]
-    assert data["basic_graded"] == 1
+    assert data["basic_graded"] == 1 and data["unjudged"] == 1 and data["passed"] == 0
 
 
 # ---------------------------------------------------------------------------- 3. config check in verdict

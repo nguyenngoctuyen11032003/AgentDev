@@ -113,7 +113,7 @@ graph:
                 - name: apply_text_edits
         params:
           effort: medium
-          max_tokens: 32000
+          max_tokens: 8000  # coordinator: briefs, progress notes and replies, no large code
           tool_loop_limit: 40
 
     # ------------------------------------------------------------------ staff (no edges: called by the CTO)
@@ -215,7 +215,7 @@ graph:
         tooling: *doc_tools
         params:
           effort: medium
-          max_tokens: 24000
+          max_tokens: 8000  # one short architecture note per call
           tool_loop_limit: 30
 
     - id: Data Engineer
@@ -245,13 +245,14 @@ graph:
                 - name: apply_text_edits
                 - name: move_path
                 - name: delete_path
+                - name: run_shell_command
         native_mode:
           enabled: true
-          allow_commands: false
+          allow_commands: true
           max_turns: 40
         params:
           effort: medium
-          max_tokens: 24000
+          max_tokens: 16000  # code edits go through tools in small steps
           tool_loop_limit: 40
 
     - id: Backend Lead
@@ -290,7 +291,7 @@ graph:
                 - name: run_shell_command
         params:
           effort: medium
-          max_tokens: 32000
+          max_tokens: 16000  # code edits go through tools in small steps
           tool_loop_limit: 50
 
     - id: Backend Developer
@@ -315,7 +316,7 @@ graph:
           max_turns: 60
         params:
           effort: medium
-          max_tokens: 32000
+          max_tokens: 16000  # code edits go through tools in small steps
 
     - id: Frontend Developer
       type: agent
@@ -342,7 +343,7 @@ graph:
           max_turns: 60
         params:
           effort: medium
-          max_tokens: 32000
+          max_tokens: 16000  # code edits go through tools in small steps
 
     - id: UI UX Designer
       type: agent
@@ -415,7 +416,7 @@ graph:
           max_turns: 40
         params:
           effort: medium
-          max_tokens: 32000
+          max_tokens: 16000  # code edits go through tools in small steps
 
     # Haiku: QA runs scripted checks and reports evidence; the Acceptance Reviewer (Sonnet) is the gate on
     # big deliveries, and on small fixes a false PASS is cheap to catch.

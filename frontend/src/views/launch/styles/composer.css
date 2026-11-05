@@ -1,0 +1,366 @@
+/* Input Area */
+.input-area {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+/* Back to the latest: a small round arrow while merely scrolled up; a labelled accent pill
+   when something new arrived. Sits right of center so it never covers the line being read. */
+.jump-latest {
+  position: absolute;
+  right: 14px;
+  bottom: calc(100% + 12px);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.08), 0 6px 18px -6px rgb(15 23 42 / 0.35);
+  transition: transform 0.15s var(--ease-out), border-color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+}
+.jump-latest.has-new {
+  padding: 0 12px 0 14px;
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.jump-latest:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.jump-latest.has-new:hover { border-color: transparent; filter: brightness(1.06); }
+.jump-latest:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.jump-latest-enter-active,
+.jump-latest-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.jump-latest-enter-from,
+.jump-latest-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .jump-latest, .jump-latest-enter-active, .jump-latest-leave-active { transition: none; }
+  .jump-latest:hover { transform: none; }
+}
+
+/* Live line + next-step chips: one tray, no stacked boxes */
+.turn-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 0 0 8px;
+  padding-top: 8px;
+}
+.turn-footer :deep(.live-progress),
+.turn-footer :deep(.quick-replies) { margin: 0; }
+.turn-footer :deep(.live-progress) { flex: 1 1 100%; }
+/* Settled: chips first, the totals pushed right on the same row (they wrap under on narrow widths) */
+.turn-footer.is-settled :deep(.quick-replies) { order: 1; flex: 0 1 auto; }
+.turn-footer.is-settled :deep(.live-progress) { order: 2; flex: 0 1 auto; margin-left: auto; min-width: 0; }
+
+/* A send that failed: inline above the composer, with Retry (like ChatGPT / Claude) */
+.send-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.send-error-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.send-error-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.send-error-btn:hover:not(:disabled) {
+  background: rgb(var(--ink) / 0.08);
+}
+.send-error-btn:focus-visible {
+  outline: 2px solid var(--accent-blue-1);
+  outline-offset: 2px;
+}
+.send-error-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.send-error-retry {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  font-weight: 600;
+}
+.notification-retry {
+  margin-top: 6px;
+}
+
+/* The lead's open question, pinned right above the composer */
+.question-card {
+  margin-bottom: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: calc(40 * var(--vh));
+  overflow-y: auto;
+}
+.question-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--warn);
+  margin-bottom: 4px;
+}
+.question-card-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: question-pulse 1.6s ease-in-out infinite;
+}
+@keyframes question-pulse {
+  50% { opacity: 0.35; }
+}
+.question-card-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.question-card-text.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.question-card-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-blue-1);
+  font-size: 12px;
+  cursor: pointer;
+}
+.question-card-toggle:hover {
+  text-decoration: underline;
+}
+@media (prefers-reduced-motion: reduce) {
+  .question-card-dot { animation: none; }
+  .jump-latest-enter-active,
+  .jump-latest-leave-active { transition-duration: 0.01ms; }
+}
+
+.input-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+  /* Near-opaque instead of backdrop-filter: this panel can float over the animated
+     office map / graph, where a blur would be recomputed every frame. Over the flat
+     page background it looks the same as the former translucent fill. */
+  background-color: rgb(32 32 34 / 0.94);
+  border: 1px solid rgb(var(--ink) / 0.1);
+  border-radius: 12px;
+  transition: border-color 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+}
+
+.input-shell:focus-within {
+  border-color: rgb(var(--ink) / 0.3);
+  background-color: rgb(var(--ink) / 0.05);
+}
+
+/* "Your turn" is carried by the send button; the box itself only lights up on focus */
+.composer-send.glow:not(:disabled) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+
+.input-shell.drag-active {
+  border-color: rgb(var(--accent-sky-rgb) / 0.9);
+  background-color: rgb(var(--accent-sky-rgb) / 0.08);
+  box-shadow: 0 0 20px rgb(var(--accent-sky-rgb) / 0.35);
+}
+
+/* Composer (message box): attachment chips on top, textarea, then a toolbar */
+.input-shell.composer {
+  flex-direction: column;
+  height: auto;
+  border-radius: 16px;
+  padding: 0;
+}
+
+.composer .task-input {
+  flex: none;
+  min-height: 44px;
+  max-height: 200px;
+  padding: 14px 16px 6px;
+  overflow-y: auto;
+}
+
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 12px 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 5px 6px 5px 8px;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--ink) / 0.14);
+  background: rgb(var(--ink) / 0.06);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chip-thumb {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 5px;
+  object-fit: cover;
+  background: rgb(var(--ink) / 0.1);
+}
+
+.chip-icon { flex: none; font-size: 14px; line-height: 1; }
+
+.chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-meta { flex: none; font-weight: 400; color: rgb(var(--ink) / 0.5); }
+
+.chip-remove {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: rgb(var(--ink) / 0.55);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chip-remove:hover { background: rgb(var(--ink) / 0.14); color: var(--text-1); }
+
+.chip-uploading { color: rgb(var(--ink) / 0.7); font-weight: 500; }
+
+.chip-spinner {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--ink) / 0.2);
+  border-top-color: var(--accent-sky);
+  animation: chip-spin 0.8s linear infinite;
+}
+
+@keyframes chip-spin { to { transform: rotate(360deg); } }
+
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 10px;
+}
+
+.attach-menu-wrap { position: relative; }
+.composer-actions { display: flex; align-items: center; gap: 8px; }
+
+.composer-icon-btn,
+.composer-send {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+.composer-icon-btn {
+  border: 1px solid rgb(var(--ink) / 0.18);
+  background: transparent;
+  color: rgb(var(--ink) / 0.75);
+}
+
+.composer-icon-btn:hover:not(:disabled),
+.composer-icon-btn.active { background: rgb(var(--ink) / 0.1); color: var(--text-1); }
+
+.composer-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.attach-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  min-width: 170px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid rgb(var(--ink) / 0.12);
+  background: var(--surface-3);
+  box-shadow: 0 10px 30px rgb(var(--shade) / 0.5);
+  z-index: var(--z-dropdown);
+}
+
+.attach-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attach-menu-item:hover { background: rgb(var(--ink) / 0.08); color: var(--text-1); }

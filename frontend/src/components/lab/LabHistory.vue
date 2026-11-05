@@ -42,7 +42,8 @@ const props = defineProps({
   currentId: { type: String, default: '' },
   refreshKey: { type: Number, default: 0 }
 })
-const emit = defineEmits(['open'])
+// loaded: the list, so the page can reuse past costs (e.g. the estimate before Run)
+const emit = defineEmits(['open', 'loaded'])
 
 const { t, te, locale } = useI18n()
 const tr = (key, fallback, params) =>
@@ -57,13 +58,16 @@ async function load() {
   const mine = ++requestNo
   if (!name) {
     jobs.value = []
+    emit('loaded', [])
     return
   }
   try {
     const data = await labJobs(name)
     if (mine === requestNo) jobs.value = Array.isArray(data?.jobs) ? data.jobs : []
+    if (mine === requestNo) emit('loaded', jobs.value)
   } catch {
     if (mine === requestNo) jobs.value = []
+    if (mine === requestNo) emit('loaded', [])
   }
 }
 

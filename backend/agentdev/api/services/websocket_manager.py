@@ -128,7 +128,7 @@ class WebSocketManager:
 
         # --- Reconnect to existing session (live, or saved on disk before a restart) ---
         if session_id and self.session_store.restore_session(session_id):
-            # If an old WebSocket is still tied to this session, close it first
+            # An old WebSocket still tied to this session is replaced (and closed) below
             old_ws = self.active_connections.get(session_id)
             old_client, old_seq = self._connection_meta.get(session_id, (None, 0))
             same_page = bool(client_id) and client_id == old_client
@@ -141,36 +141,15 @@ class WebSocketManager:
                     pass
                 logging.info("Older socket of the same page dropped: %s", session_id)
                 return session_id
-            if old_ws is not None:
-                try:
-                    if same_page:
-                        raise RuntimeError("same page: swap silently")
-                    # Say it in a message too: proxies (e.g. the Vite dev proxy) can drop the close
-                    # reason, and a tab that sees a plain drop would reconnect and take it back.
-                    await old_ws.send_text(json.dumps({"type": "session_replaced", "data": {"session_id": session_id}}))
-                except Exception:
-                    pass
-                try:
-                    reason = "Superseded by this page" if same_page else "Replaced by new connection"
-                    await old_ws.close(code=1000, reason=reason)
-                except Exception:
-                    pass
-
-            # The swap above awaited: another socket may have registered meanwhile. The newer socket
-            # of the same page still wins, and a registered one we did not close is closed now.
-            current = self.active_connections.get(session_id)
-            if current is not None and current is not websocket and current is not old_ws:
-                cur_client, cur_seq = self._connection_meta.get(session_id, (None, 0))
-                if bool(client_id) and client_id == cur_client and seq < cur_seq:
-                    try:
-                        await websocket.close(code=1000, reason="Superseded by newer socket of this page")
-                    except Exception:
-                        pass
-                    return session_id
-                try:
-                    await current.close(code=1000, reason="Superseded by this page")
-                except Exception:
-                    pass
+            # Register this socket *before* any await. Closing the old socket can take seconds (the
+            # close handshake of a page that is gone, e.g. the previous load of a reloaded tab behind
+            # the dev proxy); while it was awaited first, the session had no usable socket, and a
+            # connect that arrived meanwhile from another page was then closed by this older one
+            # ("Superseded"), so that page reconnected and took the session back with
+            # ``session_replaced``: the reloaded tab showed "opened in another tab".
+            # Registered first, the newest arrival always wins and later connects see this socket.
+            if old_ws is not None and old_ws is not websocket:
+                self._retire_socket(old_ws, session_id, same_page)
 
             # Register the socket, start queueing live messages and snapshot the buffer in
             # one synchronous step: every message is then either replayed or queued, once.
@@ -248,6 +227,27 @@ class WebSocketManager:
             },
         )
         return session_id
+
+    def _retire_socket(self, old_ws: WebSocket, session_id: str, same_page: bool) -> None:
+        """Tell a replaced socket why (another page took the session) and close it, in the background."""
+
+        async def retire() -> None:
+            try:
+                if not same_page:
+                    # Say it in a message too: proxies (e.g. the Vite dev proxy) can drop the close
+                    # reason, and a tab that sees a plain drop would reconnect and take it back.
+                    await old_ws.send_text(json.dumps({"type": "session_replaced", "data": {"session_id": session_id}}))
+            except Exception:
+                pass
+            try:
+                reason = "Superseded by this page" if same_page else "Replaced by new connection"
+                await old_ws.close(code=1000, reason=reason)
+            except Exception:
+                pass
+
+        task = asyncio.create_task(retire())
+        self._sync_tasks.add(task)
+        task.add_done_callback(self._sync_tasks.discard)
 
     def disconnect(self, session_id: str, websocket: Optional[WebSocket] = None) -> None:
         """Forget the socket of ``session_id``.

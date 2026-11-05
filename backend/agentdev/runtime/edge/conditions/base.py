@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, TypeVar
 
+from agentdev.entity.enums import EventType
 from agentdev.entity.messages import Message, MessageRole
 from agentdev.runtime.node.executor import ExecutionContext
 from agentdev.utils.log_manager import LogManager
@@ -108,11 +109,20 @@ class EdgeConditionManager(Generic[TConfig], ABC):
         serialized_source = self._payload_to_text(source_result)
         try:
             condition_met = bool(evaluator(serialized_source))
-        except Exception as exc:  # pragma: no cover
-            error_msg = f"Error calling condition '{label}': {exc}"
-            log_manager.error(
+        except Exception as exc:
+            # Fail closed: a broken condition must not fire the edge (it may start a paid step).
+            error_msg = (
+                f"Error calling condition '{label}' on edge {from_node.id} -> {target_node.id}: {exc}; "
+                "edge not fired"
+            )
+            log_manager.get_logger().warning(
                 error_msg,
+                node_id=from_node.id,
+                event_type=EventType.EDGE_CONDITION_ERROR,
                 details={
+                    "from": from_node.id,
+                    "to": target_node.id,
+                    "error": str(exc) or type(exc).__name__,
                     "condition_type": edge_link.condition_type,
                     "condition_metadata": metadata,
                 },
@@ -124,7 +134,7 @@ class EdgeConditionManager(Generic[TConfig], ABC):
                 condition_type=edge_link.condition_type,
                 condition_metadata=metadata,
             )
-            condition_met = True
+            condition_met = False
 
         if not condition_met:
             log_manager.debug(
@@ -175,7 +185,12 @@ class EdgeConditionManager(Generic[TConfig], ABC):
 
         if edge_link.trigger:
             edge_link.triggered = True
-            log_manager.debug(f"Edge {from_node.id} -> {target_node.id} triggered")
+            log_manager.get_logger().info(
+                f"Handoff {from_node.id} -> {target_node.id}",
+                node_id=from_node.id,
+                event_type=EventType.HANDOFF,
+                details={"from": from_node.id, "to": target_node.id},
+            )
 
     def _payload_to_text(self, payload: Any) -> str:
         if isinstance(payload, Message):

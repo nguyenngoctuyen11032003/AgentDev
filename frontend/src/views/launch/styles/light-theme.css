@@ -1,0 +1,89 @@
+/* ---------- Light theme: legibility (low-alpha ink text is too faint on white) ---------- */
+:root[data-theme="light"] .user-name,
+:root[data-theme="light"] .message-timestamp,
+:root[data-theme="light"] .chat-notification .message-timestamp,
+:root[data-theme="light"] .attachment-meta,
+:root[data-theme="light"] .no-active-nodes,
+:root[data-theme="light"] .artifact-status {
+  color: var(--text-muted-1);
+}
+:root[data-theme="light"] .notification-text,
+:root[data-theme="light"] .artifact-filename {
+  color: var(--text-soft-3);
+}
+:root[data-theme="light"] .chat-notification-warning .notification-content {
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+:root[data-theme="light"] .chat-notification-warning .notification-text {
+  color: #92400e;
+}
+:root[data-theme="light"] .chat-notification-error .notification-content {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+:root[data-theme="light"] .chat-notification-error .notification-text {
+  color: #991b1b;
+}
+:root[data-theme="light"] .user-name,
+:root[data-theme="light"] .message-bubble {
+  color: var(--text-1);
+}
+:root[data-theme="light"] .dialogue-right .message-bubble {
+  background: rgb(var(--ink) / 0.05);
+  border-color: rgb(var(--ink) / 0.06);
+}
+:root[data-theme="light"] .activity-summary,
+:root[data-theme="light"] .activity-step {
+  color: var(--text-muted-1);
+}
+:root[data-theme="light"] .attachment-button,
+:root[data-theme="light"] .artifact-download-button {
+  background: #fff;
+  border-color: rgb(var(--ink) / 0.2);
+  color: var(--text-soft-3);
+}
+:root[data-theme="light"] .attachment-button:hover:not(:disabled),
+:root[data-theme="light"] .artifact-download-button:hover:not(:disabled) {
+  background: var(--surface-4);
+  border-color: rgb(var(--ink) / 0.35);
+  color: var(--text-1);
+}
+:root[data-theme="light"] .attachment-count {
+  background: var(--accent-sky-2);
+  color: #fff;
+}
+:root[data-theme="light"] .remove-attachment,
+:root[data-theme="light"] .drag-overlay-content {
+  color: var(--accent-sky-2);
+}
+:root[data-theme="light"] .drag-overlay {
+  background: rgb(255 255 255 / 0.85);
+}
+:root[data-theme="light"] .attachment-modal {
+  border-color: rgb(var(--ink) / 0.14);
+  box-shadow: 0 12px 32px -8px rgb(15 23 42 / 0.18);
+}
+:root[data-theme="light"] .attachment-item {
+  background: var(--surface-4);
+}
+:root[data-theme="light"] .active-node-item {
+  background: #fff;
+  border: 1px solid rgb(var(--ink) / 0.08);
+  color: var(--text-2);
+}
+:root[data-theme="light"] .node-dot {
+  box-shadow: none;
+}
+:root[data-theme="light"] .chat-panel:not(.chat-panel-fullscreen) .chat-panel-content,
+:root[data-theme="light"] .right-panel-overlay .control-section,
+:root[data-theme="light"] .chat-rail {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 12px 30px -12px rgb(15 23 42 / 0.22);
+}
+:root[data-theme="light"] .image-modal {
+  background: rgb(15 23 42 / 0.55);
+}
+:root[data-theme="light"] .image-modal-content {
+  background: rgb(255 255 255 / 0.96);
+  border-color: rgb(var(--ink) / 0.12);
+}

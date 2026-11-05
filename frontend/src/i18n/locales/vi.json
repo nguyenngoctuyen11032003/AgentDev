@@ -4,7 +4,9 @@
       "includes": "Bao gồm: {values}",
       "excludes": "Loại trừ: {values}",
       "regex": "Biểu thức chính quy: {values}",
-      "team_link": "{member} là thành viên nhóm của {lead} (chỉ để minh họa, không phải liên kết chạy)"
+      "team_link": "{member} là thành viên nhóm của {lead} (chỉ để minh họa, không phải liên kết chạy)",
+      "when_approved": "Khi duyệt",
+      "when_rejected": "Khi từ chối"
     },
     "start_node": {
       "title": "Nút bắt đầu"
@@ -229,7 +231,10 @@
     "try_in_lab": "Thử trong Lab",
     "try_in_lab_hint": "Mở Lab với quy trình này để chạy thử các kịch bản và chấm điểm",
     "more_actions": "Thêm thao tác",
-    "delete_workflow": "Xoá quy trình"
+    "delete_workflow": "Xoá quy trình",
+    "unsaved_form_title": "Bỏ thay đổi chưa lưu?",
+    "unsaved_form_detail": "Biểu mẫu nút/cạnh đang mở có thay đổi chưa lưu.",
+    "unsaved_form_leave": "Rời đi"
   },
   "batch_run": {
     "title": "Chạy hàng loạt",
@@ -460,7 +465,8 @@
       "project_copy_failed": "Không thể mang dự án {name} vào phiên mới",
       "project_missing": "Không còn bản dự án {name} trên server. Phiên mới được mở không kèm dự án; hãy thêm lại thư mục nếu cần.",
       "project_workflow_hint": "Quy trình riêng của dự án {name}; các dự án khác giữ quy trình của chúng.",
-      "workflow_locked_hint": "Phiên này đã chạy với quy trình trên. Chọn quy trình khác sẽ mở phiên mới (cùng dự án)."
+      "workflow_locked_hint": "Phiên này đã chạy với quy trình trên. Chọn quy trình khác sẽ mở phiên mới (cùng dự án).",
+      "load_error": "Không tải được danh sách phiên."
     },
     "title": "Chạy",
     "collapse_chat": "Thu gọn khung trò chuyện",
@@ -1146,7 +1152,8 @@
         "label": "Bỏ qua xác nhận",
         "desc": "Tự trả lời mọi câu hỏi và bước duyệt. Bước tốn tiền (như tạo video Veo) vẫn không tự chạy."
       }
-    }
+    },
+    "close_image": "Đóng ảnh"
   },
   "form_generator": {
     "advanced_settings": "Cài đặt nâng cao",
@@ -2971,7 +2978,48 @@
       "nothing": "Không có thư mục nào phù hợp để xoá",
       "failed": "Không dọn được kết quả",
       "oldest": "cũ nhất từ {date}"
-    }
+    },
+    "run_status_unjudged": "Chưa chấm được",
+    "unjudged_note": "{n} lượt chưa chấm được, không tính vào tỷ lệ đạt",
+    "unjudged_run_note": "Lượt này chạy xong nhưng chưa chấm được, nên không tính là đạt hay không đạt.",
+    "skipped_gate": "Cổng {node} bị bỏ qua (tốn phí), không phải đã duyệt",
+    "question_skipped": "bỏ qua, không phải đã đồng ý",
+    "reconnecting": "Mất kết nối, đang thử lại…",
+    "started_other_workflow": "Đã bắt đầu kiểm định quy trình {name}. Mở lại quy trình đó để xem tiến độ.",
+    "cost_estimate_counts": "{scenarios} kịch bản × {repeats} lần = {n} lượt chạy + {n} lượt chấm.",
+    "cost_estimate_money": "Ước tính ~{total} (trung bình {avg}/lượt ở lần kiểm định trước).",
+    "errors": {
+      "lab_job_not_found": "Không tìm thấy lượt kiểm định {job_id}.",
+      "lab_run_not_found": "Không tìm thấy lượt chạy {run} trong kiểm định {job_id}.",
+      "lab_run_invalid": "Mã lượt chạy không hợp lệ.",
+      "lab_path_invalid": "Đường dẫn tệp không hợp lệ.",
+      "lab_path_not_relative": "Đường dẫn phải là đường dẫn tương đối.",
+      "lab_path_outside": "Đường dẫn nằm ngoài thư mục kết quả.",
+      "lab_path_is_folder": "Đây là thư mục, không phải tệp.",
+      "lab_file_not_found": "Không tìm thấy tệp.",
+      "lab_run_files_missing": "Kết quả của lượt này đã bị xóa hoặc chưa được tạo.",
+      "lab_file_too_large": "Tệp quá lớn để xem (tối đa {max_bytes} byte).",
+      "lab_site_no_index": "Không có trang index.html để mở.",
+      "lab_job_running": "Lượt kiểm định đang chạy, hãy chờ xong.",
+      "lab_open_failed": "Không mở được: {reason}",
+      "preview_no_free_port": "Không còn cổng trống ({first}–{last}) để chạy thử.",
+      "preview_server_closing": "Máy chủ đang tắt, không chạy thử được.",
+      "preview_nothing_to_run": "Sản phẩm này không có gì để chạy thử.",
+      "preview_limit_reached": "Đã đạt giới hạn {max} bản chạy thử cùng lúc. Hãy dừng bớt một bản.",
+      "preview_install_timeout": "Cài thư viện quá {seconds} giây nên đã dừng.",
+      "preview_install_failed": "Cài thư viện thất bại (mã {exit_code}).",
+      "preview_process_exited": "Tiến trình {process} đã thoát (mã {exit_code}).",
+      "preview_ready_timeout": "Ứng dụng không phản hồi ở cổng {port} sau {seconds} giây.",
+      "preview_port_taken": "Cổng {port} đang bị chương trình khác dùng.",
+      "preview_dir_missing": "Thư mục sản phẩm không còn tồn tại.",
+      "preview_dir_outside": "Thư mục nằm ngoài vùng cho phép.",
+      "preview_run_missing": "Không tìm thấy lượt chạy để chạy thử.",
+      "preview_no_product": "Lượt này không tạo ra sản phẩm để chạy thử.",
+      "preview_run_invalid": "Mã lượt chạy không hợp lệ.",
+      "preview_job_invalid": "Mã kiểm định không hợp lệ.",
+      "preview_internal_error": "Lỗi nội bộ khi chạy thử."
+    },
+    "workflows_load_failed": "Không tải được danh sách quy trình"
   },
   "workflow_assistant": {
     "title": "Trợ lý quy trình",

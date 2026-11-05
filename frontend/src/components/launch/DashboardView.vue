@@ -272,6 +272,7 @@ import { combineTurns, formatCost, formatSpan, sessionTurns, stepDuration, stepS
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
 import { buildOrgChart, computeTeamLinks } from '@/utils/teamLinks.js'
 import StatusPill from './StatusPill.vue'
+import { RUN_STATUS, isLiveStatus } from './runStatus.js'
 
 const props = defineProps({
   graph: { type: Object, default: () => ({}) },
@@ -362,9 +363,9 @@ const pipeSub = (step) => {
 const barLabel = (step, run) =>
   `${step.id} · ${multiTurn.value ? `${t('launch.board.turn', { n: run.turn })} · ` : ''}${t('launch.board.run', { n: run.index })} · ${formatSpan((run.endedAt || now.value) - run.startedAt)}`
 
-const isLive = computed(() => props.status === 'Running...' || props.status === 'Waiting for input...')
+const isLive = computed(() => isLiveStatus(props.status))
 const runTone = computed(() => {
-  if (props.status === 'Waiting for input...') return 'waiting'
+  if (props.status === RUN_STATUS.WAITING_INPUT) return 'waiting'
   if (isLive.value) return 'working'
   return session.value.outcome || 'idle'
 })
@@ -391,7 +392,7 @@ const totalTokens = computed(() => usage.value.tokens)
 
 const kpis = computed(() => {
   const working = steps.value.filter((s) => statusOf(s.id) === 'working')
-  const waiting = steps.value.some((s) => statusOf(s.id) === 'waiting') || props.status === 'Waiting for input...'
+  const waiting = steps.value.some((s) => statusOf(s.id) === 'waiting') || props.status === RUN_STATUS.WAITING_INPUT
   const progressKpi = teamMode.value
     ? {
         key: 'progress',

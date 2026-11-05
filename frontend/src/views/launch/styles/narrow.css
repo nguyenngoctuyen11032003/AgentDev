@@ -1,0 +1,113 @@
+/* ===========================================================================
+ * Narrow (< 900px): status panel = bottom sheet, sessions = left drawer,
+ * composer pinned to the bottom of the dynamic viewport.
+ * ========================================================================= */
+@media (max-width: 899.98px) {
+  .content { padding: var(--space-2); gap: 0; flex-direction: column; }
+  .left-panel { flex: 1 1 auto; min-height: 0; }
+  .chat-panel-content { border-radius: var(--radius-md); }
+  .chat-panel-fullscreen .chat-panel-content { border-left: none; border-right: none; border-radius: 0; }
+  .chat-panel:not(.chat-panel-fullscreen) { width: calc(100% - 48px); max-width: calc(100% - 48px); }
+  .input-area { padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--surface); }
+  .chat-messages { padding: var(--space-4) var(--space-3) 52px; }
+  .view-tab { height: 40px; padding: 0 var(--space-2); }
+  .view-tab::after { left: var(--space-2); right: var(--space-2); }
+  .chat-header-btn { width: 40px; height: 40px; }
+  .composer-icon-btn,
+  .composer-send { width: 40px; height: 40px; }
+  .attach-menu-item { min-height: 44px; }
+
+  .sessions-drawer.is-drawer {
+    position: fixed;
+    top: var(--header-h);
+    bottom: 0;
+    left: 0;
+    width: min(340px, 88vw);
+    z-index: var(--z-modal);
+    display: flex;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.2s var(--ease-out), visibility 0s linear 0.2s;
+  }
+  .sessions-drawer.is-drawer.is-open { transform: none; visibility: visible; transition: transform 0.2s var(--ease-out); }
+  .sessions-drawer.is-drawer > .session-sidebar,
+  .sessions-drawer.is-drawer > .session-sidebar:not(.collapsed) {
+    flex: 1 1 auto;
+    width: 100%;
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    background: var(--surface);
+    border-left: none;
+  }
+
+  .right-panel.is-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--composer-h);
+    top: auto;
+    width: auto;
+    max-width: none;
+    flex: none;
+    z-index: var(--z-modal);
+    transform: translateY(100%);
+    visibility: hidden;
+    opacity: 1;
+    pointer-events: auto;
+    transition: transform 0.2s var(--ease-out), visibility 0s linear 0.2s;
+  }
+  .right-panel.is-sheet.is-open { transform: none; visibility: visible; transition: transform 0.2s var(--ease-out); }
+  .right-panel.is-sheet .control-section {
+    /* Never taller than 70% of the screen, and always clear of the header and the composer */
+    max-height: min(calc(70 * var(--dvh)), calc(100 * var(--dvh) - var(--header-h) - var(--composer-h) - var(--space-4)));
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-bottom: none;
+    padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -12px 32px -12px rgb(0 0 0 / 0.5);
+    animation: none;
+  }
+  .sheet-backdrop { inset: 0; }
+  /* The status sheet's backdrop stops at the composer: the message box stays visible and usable */
+  .sheet-backdrop-above-composer { inset: var(--header-h) 0 var(--composer-h) 0; }
+}
+
+@media (max-width: 479.98px) {
+  /* Compact tab bar: icons for every view, the label only on the active one (aria-label/title name the rest) */
+  .view-tabs { gap: 2px; }
+  .view-tab { padding: 0 7px; gap: 6px; }
+  .view-tab::after { left: 7px; right: 7px; }
+  .view-tab.active { color: var(--accent); }
+  .view-tab-icon { display: block; }
+  .view-tab:not(.active) .view-tab-label { display: none; }
+  .view-tab:not(.active) .toggle-badge { position: absolute; top: 2px; right: 0; }
+}
+/* Phone width: seven icons only just fit, so the active tab is marked by its colour and underline */
+@media (max-width: 399.98px) {
+  .view-tabs { gap: 0; }
+  .view-tab { padding: 0 5px; }
+  .view-tab::after { left: 5px; right: 5px; }
+  .view-tab.active .view-tab-label { display: none; }
+  .view-tab.active .toggle-badge { position: absolute; top: 2px; right: 0; }
+}
+
+@media (max-width: 639.98px) {
+  .header { padding: 0 var(--space-2) 0 var(--space-3); gap: var(--space-2); }
+  /* The tabs need the width more than the title does */
+  .header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+/* Wide but not huge: sessions column a little slimmer */
+@media (min-width: 900px) and (max-width: 1100px) {
+  .content { padding: var(--space-3); gap: var(--space-3); }
+  .sessions-drawer:not(.is-drawer) > .session-sidebar:not(.collapsed) { flex-basis: 220px; width: 220px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launch-view *,
+  .launch-view *::before,
+  .launch-view *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
+}

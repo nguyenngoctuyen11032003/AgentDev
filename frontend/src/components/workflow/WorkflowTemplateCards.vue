@@ -14,14 +14,10 @@
 
 <script setup>
 import { computed } from 'vue'
+import { WORKFLOW_TEMPLATES as TEMPLATES } from './workflowTemplates.js'
 
 // Same department templates the "create" picker offers (DepartmentTemplatePicker); here a card
 // simply opens the template workflow so the team can be inspected before copying it.
-const TEMPLATES = [
-  { file: 'software_company.yaml', labelKey: 'workflow_list.dept_software', descKey: 'workflow_list.dept_software_desc', always: true },
-  { file: 'marketing_agency.yaml', labelKey: 'workflow_list.dept_marketing', descKey: 'workflow_list.dept_marketing_desc' },
-  { file: 'content_studio.yaml', labelKey: 'workflow_list.dept_content', descKey: 'workflow_list.dept_content_desc' }
-]
 
 const props = defineProps({
   // Workflow file names that exist; templates missing from the list are hidden

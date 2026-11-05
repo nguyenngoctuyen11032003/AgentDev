@@ -387,6 +387,93 @@ def test_files_digest_rendered_and_capped():
     assert "src/" not in compose_follow_up_prompt([make_turn("hi", "hello")], "more")
 
 
+# ---------------------------------------------------------------- history budget (token savings)
+
+
+def _history_part(text):
+    return text[: text.index(NEW_MESSAGE_HEADER)]
+
+
+def _big_turns(n):
+    team = [{"member": "Dev", "task": "t" * 600, "report": "r" * 2500} for _ in range(4)]
+    return [
+        make_turn(f"step {i} " + "u" * 200, f"ANSWER-{i} " + "a" * 4500, team=team,
+                  exchanges=[{"question": "q" * 2000, "answer": f"decision {i}"}])
+        for i in range(n)
+    ]
+
+
+FILES = {f"src/module_{i}/file_{j}.py": 2000 + i * j for i in range(10) for j in range(6)}
+
+
+def test_short_approval_turn_history_fits_3k():
+    from agentdev.api.services.conversation_turns import SHORT_TURN_HISTORY_CHARS
+
+    for message in ("ok", "duyệt", "tiếp tục", "đồng ý, làm đi"):
+        text = compose_follow_up_prompt(_big_turns(25), message, changed_files=FILES)
+        assert len(_history_part(text)) <= SHORT_TURN_HISTORY_CHARS + 50, (message, len(_history_part(text)))
+        assert "ANSWER-24" in text  # what an "ok" approves is still there
+        assert text.rstrip().endswith(message)
+
+
+def test_normal_turn_history_fits_9k():
+    from agentdev.api.services.conversation_turns import NORMAL_TURN_HISTORY_CHARS
+
+    text = compose_follow_up_prompt(_big_turns(12), "Giờ deploy lên Docker giúp mình, có docker-compose.", changed_files=FILES)
+    assert len(_history_part(text)) <= NORMAL_TURN_HISTORY_CHARS + 50
+    assert "ANSWER-11" in text and "src/module_9/file_5.py" in text
+
+
+def test_brief_dropped_when_the_transcript_already_shows_it():
+    turns = [make_turn("BUILD SHOP", "plan coming"), {**make_turn("go", "PLAN-Y"), "kind": "plan"}]
+    text = compose_follow_up_prompt(turns, "Thêm giỏ hàng nhé")
+    assert "PROJECT BRIEF" not in text
+    assert text.count("BUILD SHOP") == 1 and text.count("PLAN-Y") == 1
+
+
+def test_changed_files_skipped_on_chat_only_turns():
+    turns = [make_turn("hi", "hello")]
+    assert "src/" not in compose_follow_up_prompt(turns, "cảm ơn nhé", changed_files=FILES)
+    assert "src/" not in compose_follow_up_prompt(turns, "Tại sao dùng Redis ở đây?", changed_files=FILES)
+    assert "src/" in compose_follow_up_prompt(turns, "ok", changed_files=FILES)
+
+
+def test_stable_parts_come_first():
+    turns = [make_turn("BUILD SHOP SCOPE-X", "ok")] + [make_turn(f"msg {i}", f"ans {i}") for i in range(8)]
+    text = compose_follow_up_prompt(turns, "next feature please", changed_files={"a.py": 1})
+    assert text.index("PROJECT BRIEF") < text.index("Files changed") < text.index("Earlier in this conversation")
+
+
+def test_continue_with_a_request_is_a_normal_turn():
+    from agentdev.api.services.conversation_turns import is_short_turn
+
+    assert is_short_turn("tiếp tục") and is_short_turn("ok") and is_short_turn("duyệt")
+    assert not is_short_turn("Ok, làm tiếp phần xuất PDF cho báo cáo.")
+
+
+def test_approval_after_clarifying_turn_keeps_the_whole_plan():
+    """ "duyệt" after a clarifying turn: the plan it approves must reach the lead in full (neither the brief
+    nor the transcript may clip it), up to a sane cap."""
+    from agentdev.api.services.conversation_turns import MAX_SHORT_PLAN_CHARS
+
+    plan = "PLAN-START " + "step " * 900 + " PLAN-END"  # ~4.5k chars
+    turns = [make_turn("BUILD SHOP", "ok"), {**make_turn("go", plan), "kind": "plan"},
+             make_turn("Dùng Postgres hay MySQL?", "Postgres.")]
+    text = compose_follow_up_prompt(turns, "duyệt")
+    assert "PLAN-START" in text and "PLAN-END" in text and text.count("PLAN-START") == 1
+    huge = {**make_turn("go", "P" * 20_000), "kind": "plan"}
+    capped = compose_follow_up_prompt([huge, make_turn("q?", "a")], "ok")
+    assert len(_history_part(capped)) <= MAX_SHORT_PLAN_CHARS + 3_500
+
+
+def test_questions_asking_for_file_work_still_get_the_files_list():
+    turns = [make_turn("hi", "hello")]
+    for message in ("Can you fix the crash in login.py?", "sửa lỗi ở trang đăng nhập được không?",
+                    "Could you update src/app/main.ts?"):
+        assert "src/" in compose_follow_up_prompt(turns, message, changed_files=FILES), message
+    assert "src/" not in compose_follow_up_prompt(turns, "What does Redis do here?", changed_files=FILES)
+
+
 def test_notes_taken_mid_run_reach_the_next_turn():
     turn = make_turn("Build a shop", "Shop built.", notes=["use Postgres, not SQLite", "  "])
     assert turn["notes"] == ["use Postgres, not SQLite"]

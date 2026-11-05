@@ -44,7 +44,8 @@ async def get_vuegraph_content(filename: str):
         raise HTTPException(status_code=500, detail="Unable to read graph content")
 
     if content is None:
-        raise HTTPException(status_code=404, detail="Graph content not found")
+        # A workflow that was never laid out has no saved graph yet: the editor lays it out itself.
+        return {"filename": filename, "content": None}
 
     logger.info(
         "Vue graph content fetched",

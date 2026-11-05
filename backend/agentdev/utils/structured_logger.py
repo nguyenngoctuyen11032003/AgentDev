@@ -1,7 +1,9 @@
 """Structured logging utilities for the AgentDev workflow system."""
 
+import copy
 import json
 import logging
+import threading
 from logging.handlers import RotatingFileHandler
 import sys
 import traceback
@@ -178,10 +180,21 @@ class StructuredLogger:
         """Set the correlation ID for this logger instance."""
         self.correlation_id = correlation_id
 
+    def bind(self, name: str) -> "StructuredLogger":
+        """Return a view that writes through the same handler under ``name``.
+
+        No new handler is attached, so per-run views never leak file handles.
+        """
+        view = copy.copy(self)
+        view.name = name
+        view.correlation_id = None
+        return view
+
 
 # Global logger instances
 _server_logger = None
 _workflow_logger = None
+_init_lock = threading.Lock()
 
 
 def get_server_logger() -> StructuredLogger:
@@ -196,11 +209,18 @@ def get_server_logger() -> StructuredLogger:
 
 
 def get_workflow_logger(name: str = 'workflow') -> StructuredLogger:
-    """Get a workflow logger instance."""
+    """Get a workflow logger labelled ``name``.
+
+    The handler/file is shared process-wide (one ``workflow`` logger), but each
+    caller gets its own named view. Caching the first instance and returning it
+    as-is made every later run log under the first run's name.
+    """
     global _workflow_logger
     if _workflow_logger is None:
-        log_file = os.getenv('WORKFLOW_LOG_FILE', str(LOGS_DIR / f'{name}.log'))
-        log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
-        log_level = LogLevel[log_level_str]
-        _workflow_logger = StructuredLogger(name, log_level, log_file)
-    return _workflow_logger
+        with _init_lock:
+            if _workflow_logger is None:
+                log_file = os.getenv('WORKFLOW_LOG_FILE', str(LOGS_DIR / 'workflow.log'))
+                log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
+                log_level = LogLevel[log_level_str]
+                _workflow_logger = StructuredLogger('workflow', log_level, log_file)
+    return _workflow_logger.bind(name)

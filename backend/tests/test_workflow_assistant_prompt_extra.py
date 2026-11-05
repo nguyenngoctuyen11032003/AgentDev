@@ -1,6 +1,8 @@
 """Workflow assistant prompt: chat vendor hint."""
 
-from agentdev.api.services.workflow_assistant_prompt import build_system_prompt
+from agentdev.api.services.workflow_assistant_prompt import WORKFLOW_HEADER, build_system_prompt
+
+CONTEXT_HEADER_TEXT = "## Existing workflow files"
 
 
 def _prompt(**overrides):
@@ -49,15 +51,13 @@ def _big_workflow(n=30):
     return f"version: 0.4.0\ngraph:\n  id: big\n  start: [Step 0]\n  end: [Step {n - 1}]\n  nodes:\n{nodes}  edges: []\n"
 
 
-def test_pending_edit_sends_saved_file_as_a_diff_not_twice():
+def test_pending_edit_sends_saved_file_in_its_block_and_pending_whole():
+    # The saved file sits in the open-workflow block (cached across turns); the proposal is sent whole.
     saved = _big_workflow()
     pending = saved.replace("Do part 7 of", "Do part SEVEN of")
     prompt = _prompt(current_yaml=saved, current_name="big.yaml", pending_yaml=pending)
-    assert pending in prompt                       # the proposal is sent whole
-    assert prompt.count("Does step 12") == 1       # the unchanged rest only once
-    assert "-        role: Do part 7 of" in prompt and "+        role: Do part SEVEN of" in prompt
-    assert "diff reversed" in prompt
-    assert len(prompt) < len(_prompt(current_yaml=saved, current_name="big.yaml")) + len(pending) * 0.3
+    assert pending.rstrip(chr(10)) in prompt
+    assert prompt.index(WORKFLOW_HEADER) < prompt.index(saved.rstrip(chr(10))) < prompt.index(CONTEXT_HEADER_TEXT)
 
 
 def test_pending_identical_to_saved_is_said_once():
@@ -72,4 +72,3 @@ def test_unrelated_pending_keeps_saved_file_in_full():
     pending = "version: 0.4.0\ngraph:\n  id: other\n  nodes: []\n  edges: []\n"
     prompt = _prompt(current_yaml=saved, current_name="big.yaml", pending_yaml=pending)
     assert saved.rstrip("\n") in prompt and pending.rstrip("\n") in prompt
-    assert "diff reversed" not in prompt

@@ -117,8 +117,10 @@ def test_runner_aggregates_and_verdict():
 
 
 def test_basic_verdict_fallback():
-    assert workflow_lab._basic_verdict("answer") == {"pass": True, "score": 10, "reason": "", "judged_by": "basic"}
-    assert workflow_lab._basic_verdict("Error calling model x")["pass"] is False
+    # Without a judge a non-empty answer is unjudged (never a pass); an empty one or a model error is a fail.
+    assert workflow_lab._basic_verdict("answer") == {"pass": False, "score": None, "verdict": "unjudged",
+                                                     "reason": "", "judged_by": "basic"}
+    assert workflow_lab._basic_verdict("Error calling model x")["verdict"] == "fail"
 
 
 class LeadProvider:
@@ -231,8 +233,10 @@ def test_judge_account_resolved_once_and_skips_api_key_default(judge_env):
 
 def test_judge_prefers_signed_in_default(judge_env):
     judge_env.store.default_connection = lambda: judge_env.conns[2]
-    workflow_lab._judge("p", "criteria", "answer", [], account=workflow_lab.JudgeAccount())
-    assert judge_env.calls == [("codex", "codex-model")]
+    # The fake judge replies "" (no JSON verdict): asked once more on the same account, then left unjudged.
+    with pytest.raises(workflow_lab.JudgeUnparsable):
+        workflow_lab._judge("p", "criteria", "answer", [], account=workflow_lab.JudgeAccount())
+    assert judge_env.calls == [("codex", "codex-model")] * 2
 
 
 def test_judge_switches_account_on_quota_error(judge_env):

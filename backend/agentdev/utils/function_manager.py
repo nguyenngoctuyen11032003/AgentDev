@@ -17,6 +17,12 @@ _DEFAULT_EDGE_FUNCTION_DIR = _DEFAULT_FUNCTIONS_ROOT / "edge"
 _DEFAULT_EDGE_PROCESSOR_DIR = _DEFAULT_FUNCTIONS_ROOT / "edge_processor"
 
 
+def is_true_function_name(name: Any) -> bool:
+    """Whether an edge-condition function name means "always true" (any case, surrounding whitespace ignored).
+    Shared by the runtime and the workflow lint so both read ``"True"``/``" true"`` the same way."""
+    return isinstance(name, str) and name.strip().lower() == "true"
+
+
 def _resolve_dir(default: Path, env_var: str | None = None) -> Path:
     """Resolve a directory path with optional environment override."""
     override = os.environ.get(env_var) if env_var else None
@@ -39,12 +45,13 @@ class FunctionManager:
         self.functions_dir = Path(functions_dir)
         self.functions: Dict[str, Callable] = {}
         self._loaded = False
+        self._fingerprint: tuple = ()
 
     def load_functions(self) -> None:
         """Load all Python functions from functions directory."""
         if self._loaded:
             return
-            
+
         if not self.functions_dir.exists():
             raise ValueError(f"Functions directory does not exist: {self.functions_dir}")
 
@@ -78,8 +85,20 @@ class FunctionManager:
                     self.functions[name] = obj
             except Exception as e:
                 print(f"Error loading module {module_name}: {e}")
-        
+
+        self._fingerprint = self._dir_fingerprint()
         self._loaded = True
+
+    def _dir_fingerprint(self) -> tuple:
+        """Names and mtimes of the function files: changes when a file is added, removed or edited."""
+        try:
+            return tuple(sorted(
+                (f.as_posix(), f.stat().st_mtime_ns)
+                for f in self.functions_dir.rglob("*.py")
+                if "__pycache__" not in f.parts
+            ))
+        except OSError:
+            return ()
 
     def _build_module_name(self, filepath: Path) -> str:
         """Create a unique module name for a function file."""
@@ -92,7 +111,12 @@ class FunctionManager:
         """Get a function by name."""
         if not self._loaded:
             self.load_functions()
-        return self.functions.get(name)
+        func = self.functions.get(name)
+        if func is None and self._dir_fingerprint() != self._fingerprint:
+            # A function file was added or edited since the last scan: pick it up without a restart.
+            self.reload_functions()
+            func = self.functions.get(name)
+        return func
 
     def has_function(self, name: str) -> bool:
         """Check if a function exists."""

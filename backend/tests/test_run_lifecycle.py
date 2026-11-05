@@ -346,3 +346,20 @@ def test_whitespace_answer_is_rejected():
     asyncio.run(handler._handle_human_input("g5", {"data": {"input": "   "}}, sockets))
     assert sockets.sent and sockets.sent[0]["data"].get("code") == "empty_input"
     assert store.get_session("g5").waiting_for_input is True
+
+
+def test_long_run_replay_keeps_turn_results_and_last_agent_reply():
+    session = WorkflowSession(session_id="s11", yaml_file="", task_prompt="", MAX_BUFFER_SIZE=6)
+    session.append_message({"type": "user_message", "data": {"text": "turn 1"}})
+    session.append_message({"type": "log", "data": {"event_type": "NODE_END", "node_id": "CTO", "output": "old reply"}})
+    session.append_message({"type": "workflow_completed", "data": {"summary": "turn 1 result"}})
+    session.append_message({"type": "user_message", "data": {"text": "turn 2"}})
+    session.append_message({"type": "log", "data": {"event_type": "NODE_END", "node_id": "Dev", "output": "last reply"}})
+    for i in range(50):
+        session.append_message({"type": "log", "data": {"event_type": "TOOL_CALL", "i": i}})
+    kinds = [m["type"] for m in session.message_buffer]
+    assert len(session.message_buffer) == 6
+    assert any(m["type"] == "workflow_completed" for m in session.message_buffer)
+    replies = [m["data"]["output"] for m in session.message_buffer if m["data"].get("event_type") == "NODE_END"]
+    assert replies == ["last reply"], kinds
+    assert [m["data"]["text"] for m in session.message_buffer if m["type"] == "user_message"] == ["turn 1", "turn 2"]

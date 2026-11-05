@@ -293,12 +293,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { combineTurns, formatSpan, sessionTurns, stepStatus, turnSpan, usageTotals } from '@/utils/runTracker.js'
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
 import { computeTeamLinks } from '@/utils/teamLinks.js'
 import StatusPill from './StatusPill.vue'
+import { RUN_STATUS, isLiveStatus } from './runStatus.js'
 
 const props = defineProps({
   graph: { type: Object, default: () => ({}) },
@@ -360,7 +361,8 @@ const clearViewState = () => {
   opened.clear()
   expandedColumns.clear()
 }
-watch(() => props.tracker?.turns, clearViewState)
+// toRaw: the board gets the plain tracker while hidden and the reactive one when shown (same list)
+watch(() => toRaw(props.tracker?.turns), clearViewState)
 watch(
   () => props.tracker?.turn || 0,
   (turn, previous) => {
@@ -402,11 +404,11 @@ const progress = computed(() => {
 // A team turn where the lead only replied: no bar (a full bar would claim work that never happened)
 const chatOnly = computed(() => teamMode.value && !delegatedRuns.value.length)
 
-const isLive = computed(() => props.status === 'Running...' || props.status === 'Waiting for input...')
+const isLive = computed(() => isLiveStatus(props.status))
 // Working time of the shown turns (the pauses between turns do not count)
 const elapsed = computed(() => shownTurns.value.reduce((sum, turn) => sum + turnSpan(turn, now.value), 0))
 const runTone = computed(() => {
-  if (props.status === 'Waiting for input...') return 'waiting'
+  if (props.status === RUN_STATUS.WAITING_INPUT) return 'waiting'
   if (isLive.value) return 'working'
   return view.value.outcome || 'idle'
 })

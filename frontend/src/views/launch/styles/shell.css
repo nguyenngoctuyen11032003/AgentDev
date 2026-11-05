@@ -1,0 +1,555 @@
+/* ===========================================================================
+ * Shell: header with the persistent view tabs, then sessions | chat+views | status
+ * Semantic tokens only, so dark and light themes both resolve from main.css.
+ * ========================================================================= */
+.launch-view {
+  --header-h: 48px;
+  /* In-page layering, all below the app-wide dropdown/backdrop/modal tokens (main.css) */
+  --z-launch-rail: 9;
+  --z-launch-panel: 10;
+  --z-launch-resizer: 12;
+  /* Height of the pinned composer on narrow screens (set from script while the status sheet is open) */
+  --composer-h: 0px;
+  width: 100%;
+  height: calc(100 * var(--vh));
+  height: calc(100 * var(--dvh));
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg);
+  color: var(--fg);
+  position: relative;
+  overflow: hidden;
+  /* Browser-drawn parts follow the theme too */
+  caret-color: var(--accent);
+  scrollbar-color: color-mix(in srgb, var(--fg-muted) 45%, transparent) transparent;
+  scrollbar-width: thin;
+}
+.launch-view ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; }
+.launch-view :deep(::selection) { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--header-h);
+  padding: 0 var(--space-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+}
+
+.header h1 {
+  margin: 0;
+  padding-right: var(--space-2);
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.brand-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-left: calc(var(--space-2) * -1);
+  border-radius: var(--radius-md);
+  transition: background-color 0.15s var(--ease-out);
+}
+.brand-link:hover { background: var(--surface-raised); }
+.brand-link img { display: block; width: 24px; height: 24px; }
+
+.header-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+  margin-left: var(--space-1);
+  border-left: 1px solid var(--border);
+}
+.header-btn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+.header-btn svg { flex: none; }
+.header-btn:hover { background: var(--surface-raised); color: var(--fg); }
+.header-btn.active { background: var(--surface-raised); color: var(--fg); }
+.header-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* No workflow yet: the panel holding the picker asks for attention */
+.header-btn.needs-workflow { color: var(--fg); box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+.view-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.view-tabs.is-overflowing {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent);
+}
+.view-tabs::-webkit-scrollbar { display: none; }
+
+.view-tab {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+.view-tab::after {
+  content: '';
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform 0.18s var(--ease-out);
+}
+.view-tab:hover { background: var(--surface-raised); color: var(--fg); }
+.view-tab-icon { display: none; flex: none; }
+.view-tab.active { color: var(--fg); font-weight: 600; }
+.view-tab.active::after { transform: scaleX(1); }
+.view-tab:focus-visible,
+.chat-header-btn:focus-visible,
+.composer-send:focus-visible,
+.composer-icon-btn:focus-visible,
+.chat-empty-chip:focus-visible,
+.composer-hint-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Labels give way to icons as the header narrows (aria-label/title always name them) */
+@media (max-width: 1279.98px) {
+  .header-link .header-btn-label { display: none; }
+}
+@media (max-width: 1099.98px) {
+  .header-btn-label:not(.settings-label) { display: none; }
+}
+@media (max-width: 899.98px) {
+  .settings-label { display: none; }
+  .header-btn { width: 40px; height: 40px; padding: 0; justify-content: center; }
+}
+@media (max-width: 639.98px) {
+  .header-link { display: none; }
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: var(--space-4);
+  gap: var(--space-4);
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+}
+
+/* The session list is its own wrapper only so it can become a drawer on narrow screens */
+.sessions-drawer:not(.is-drawer) { display: contents; }
+
+.left-panel {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  position: relative;
+}
+
+/* ---- Chat panel: full width in the chat, a solid card over the canvas elsewhere ---- */
+.chat-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--chat-w, 380px);
+  z-index: var(--z-launch-panel);
+  display: flex;
+  flex-direction: row;
+  pointer-events: none;
+  /* Slides on the compositor only: no layout or text re-wrapping while it moves */
+  transition: transform 0.2s var(--ease-out);
+}
+.chat-panel-fullscreen {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  flex: 1;
+  flex-direction: column;
+  pointer-events: auto;
+  z-index: auto;
+  min-height: 0;
+}
+.chat-panel-collapsed { transform: translateX(calc(-100% - 24px)); }
+.chat-panel-collapsed .chat-panel-content {
+  visibility: hidden;
+  transition: visibility 0s linear 0.2s;
+}
+.chat-panel-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: auto;
+  /* Opaque: scene labels and graph nodes never ghost through the messages */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  padding: 0;
+}
+.chat-panel:not(.chat-panel-fullscreen) .chat-panel-content {
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.45);
+  animation: panel-in-left 0.2s var(--ease-out);
+}
+.chat-panel-fullscreen .chat-panel-content { animation: view-in 0.18s var(--ease-out); }
+
+/* ---- Views fade in as they are shown ---- */
+.graph-panel { animation: view-in 0.18s var(--ease-out); }
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes panel-in-left {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes panel-in-right {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes nudge {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 35%, transparent); }
+}
+
+.chat-message-item { animation: msg-in 0.18s var(--ease-out) both; }
+
+/* Chat header: helper text stays >= 12px */
+.chat-header { min-height: 60px; padding: 8px 8px 8px 16px; }
+.chat-header-actions { gap: 2px; }
+.chat-header-btn { position: relative; color: var(--fg-muted); }
+.chat-header-btn:hover,
+.chat-header-btn.active { background: var(--surface-raised); color: var(--fg); }
+
+/* Reading measure: prose of a turn fills the width of the chat (so a wide chat is not a narrow column
+   with empty sides) and only stops growing on very wide screens, where lines would get too long */
+.chat-messages :deep(.dialogue:not(.dialogue-right) .markdown-body) > :not(.md-code):not(.md-table):not(pre):not(table) {
+  max-width: min(100%, 112ch);
+}
+.activity,
+.plan-card { max-width: min(100%, 112ch); }
+
+/* ---- "Open in another tab": the single notice for it, inside the chat, under the header ---- */
+.replaced-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  flex: none;
+  margin: var(--space-2) var(--space-3) 0;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.45;
+  animation: msg-in 0.18s var(--ease-out);
+}
+.replaced-banner-text { flex: 1; min-width: 160px; }
+.replaced-banner-button {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.replaced-banner-button:hover { filter: brightness(1.08); }
+
+/* ---- Empty new session: greeting, starter prompts, plan note ---- */
+.chat-empty {
+  margin: auto;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-2);
+  text-align: center;
+}
+.chat-empty-avatar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-2);
+  border-radius: 50%;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.chat-empty-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--fg);
+  text-wrap: balance;
+}
+.chat-empty-hint {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+.chat-empty-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.chat-empty-chip {
+  max-width: 100%;
+  min-height: 36px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+}
+.chat-empty-chip:hover:not(:disabled) { background: var(--surface-raised); border-color: var(--accent); }
+.chat-empty-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+.chat-empty-note {
+  margin: var(--space-3) 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+.chat-empty-pick { margin-top: var(--space-3); }
+
+.chat-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* Attachment line of a user message: one chip per file or folder */
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.dialogue-right .msg-attachments { justify-content: flex-end; }
+.msg-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.msg-attachment svg { flex: none; color: var(--fg-muted); }
+.msg-attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+
+/* ---- Composer ---- */
+.composer-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+.composer-hint svg { flex: none; }
+.composer-hint-action {
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.input-shell { background-color: var(--surface); border-color: var(--border-strong); }
+.input-shell:focus-within {
+  border-color: var(--accent);
+  background-color: var(--surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.composer-icon-btn { border-color: var(--border-strong); color: var(--fg-muted); }
+.composer-icon-btn:hover:not(:disabled),
+.composer-icon-btn.active { background: var(--surface-raised); color: var(--fg); }
+.composer-send {
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.composer-send:hover:not(:disabled) { filter: brightness(1.08); }
+.composer-send:active:not(:disabled) { transform: scale(0.96); }
+/* While a run is active the same button is Stop: neutral, never alarm-red */
+.composer-send.is-stop {
+  border-radius: 10px;
+  background: var(--fg);
+  color: var(--bg);
+  animation: composer-stop-pulse 1.6s var(--ease-out) infinite;
+}
+/* A run quiet for 3 minutes: Stop gets a steadier, larger ring */
+.composer-send.is-stop.is-stalled {
+  animation: none;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 55%, transparent);
+}
+@keyframes composer-stop-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent); }
+}
+.composer-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.task-input::placeholder { color: var(--fg-muted); }
+.jump-latest { background: var(--surface-raised); border-color: var(--border-strong); color: var(--fg); font-size: 13px; }
+
+/* ---- Status panel (wide: a column; outside the chat: a floating card) ---- */
+.right-panel {
+  flex: 0 0 clamp(260px, 22vw, 320px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.right-panel-hidden { display: none; }
+/* Outside the chat view: a drawer on the right, opened from the header */
+.right-panel-overlay {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  bottom: var(--space-4);
+  width: clamp(240px, 32vw, 320px);
+  max-width: calc(100% - 32px);
+  z-index: var(--z-launch-panel);
+  flex: none;
+  pointer-events: none;
+  transition: transform 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
+}
+.right-panel-overlay .control-section {
+  flex: 1 1 auto;
+  pointer-events: auto;
+  animation: panel-in-right 0.2s var(--ease-out);
+  box-shadow: 0 16px 40px -12px rgb(0 0 0 / 0.5);
+}
+.right-panel-collapsed { transform: translateX(16px); opacity: 0; }
+.right-panel-collapsed .control-section { visibility: hidden; }
+
+.control-section {
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+/* Sections: spacing and a hairline, never cards inside the card */
+
+/* Team of this run */
+.team-avatar img { width: 22px; height: 22px; object-fit: contain; object-position: 50% 100%; image-rendering: pixelated; }
+
+/* Recent activity: newest first, time aligned on the right */
+.status-fact dt { flex: none; font-size: 12px; color: var(--fg-muted); }
+.status-fact dd { margin: 0; min-width: 0; font-size: 13px; color: var(--fg); text-align: right; overflow-wrap: anywhere; }
+.sheet-backdrop {
+  position: fixed;
+  inset: var(--header-h) 0 0 0;
+  z-index: var(--z-backdrop);
+  background: rgb(0 0 0 / 0.5);
+  animation: fade-in 0.15s var(--ease-out);
+}
+
+/* Canvases keep a solid surface; nothing ghosts behind them */
+.graph-panel { background-color: var(--surface); border-color: var(--border); }
+.image-modal { background: rgb(0 0 0 / 0.7); }

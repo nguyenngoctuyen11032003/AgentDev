@@ -6,17 +6,17 @@
 //   fileText(path, {signal})
 //   siteUrl(path)           the folder served as a static site (HTML pages with relative assets)
 //   open(path, reveal)      open on this machine
-//   preview: {start, status, stop}   "Chạy thử"
+//   preview: {start, status, stop, heartbeat?}   "Chạy thử" (heartbeat: optional "still watched" ping)
 //   deleteOutputs()         optional: absent = the browser offers no delete
 //   copy                    optional: {name: [i18nKey, fallback]} for wording that depends on the context
 import {
-  labPreviewStart, labPreviewStatus, labPreviewStop, labRunDeleteOutputs, labRunFileText, labRunFileUrl,
+  labPreviewHeartbeat, labPreviewStart, labPreviewStatus, labPreviewStop, labRunDeleteOutputs, labRunFileText, labRunFileUrl,
   labRunFiles, labRunOpen, labRunSiteUrl,
   sessionOutputsFileText, sessionOutputsFileUrl, sessionOutputsFiles, sessionOutputsOpen, sessionOutputsSiteUrl,
   sessionPreviewStart, sessionPreviewStatus, sessionPreviewStop
 } from '@/api/client'
 
-/** One run of a Lab job (storage/warehouse/lab_*). */
+/** One run of a Lab job (storage/warehouse/lab_*); `run` is its run_id (position for older jobs). */
 export function labOutputSource(jobId, run) {
   return {
     key: `lab:${jobId}:${run}`,
@@ -28,7 +28,8 @@ export function labOutputSource(jobId, run) {
     preview: {
       start: () => labPreviewStart(jobId, run),
       status: () => labPreviewStatus(jobId, run),
-      stop: () => labPreviewStop(jobId, run)
+      stop: () => labPreviewStop(jobId, run),
+      heartbeat: () => labPreviewHeartbeat(jobId, run)
     },
     deleteOutputs: () => labRunDeleteOutputs(jobId, run)
   }

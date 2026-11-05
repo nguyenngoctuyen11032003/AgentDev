@@ -9,6 +9,7 @@ Two levels:
 
 from __future__ import annotations
 
+import contextvars
 import copy
 import functools
 import hashlib
@@ -46,7 +47,7 @@ from agentdev.api.services.workflow_patterns.graph_analysis import (  # noqa: F4
     model_tier,
 )
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV
-from agentdev.utils.human_prompt import AUTO_ANSWER, AutoAnswerChannel
+from agentdev.utils.human_prompt import AUTO_ANSWER, AUTO_SKIP_PAID, AutoAnswerChannel
 
 PASS, WARN, FAIL = "pass", "warn", "fail"
 UNSAFE_TOOLS = {"execute_code", "run_shell_command", "uv_run", "install_python_packages", "init_python_env"}
@@ -221,6 +222,37 @@ LIGHT_ROLE_WORDS = ("review", "qa", "summar", "archiv", "save", "guard", "check"
 BASELINE_EXEMPT_CHECKS = ("loops", "human_auto")
 
 
+def _paid_gates(g: Graph) -> set:
+    """Human gates marked ``paid: true``: the Lab refuses them (``AUTO_SKIP_PAID``) instead of approving."""
+    return {nid for nid, node in g.nodes.items() if node.get("type") == "human"
+            and isinstance(node.get("config"), dict) and node["config"].get("paid") is True}
+
+
+def _humans_blocking_lab_answer(g: Graph) -> List[Any]:
+    """Gates the Lab's automatic answer cannot move on: approval for ordinary gates, refusal for paid ones."""
+    paid = _paid_gates(g)
+    bad = [n for n in g.humans_blocking_auto_answer(AUTO_ANSWER) if n not in paid]
+    if paid:
+        bad += [n for n in g.humans_blocking_auto_answer(AUTO_SKIP_PAID) if n in paid]
+        # The skip answer must also stay out of the paid step: an edge that fires whatever the answer is
+        # (missing/"true" condition, empty keyword list) would carry the refusal straight into it.
+        bad += [n for n in sorted(paid, key=str) if n not in bad and any(
+            e.get("from") == n and _fires_on_any_answer(e.get("condition")) for e in g.edges)]
+    return bad
+
+
+def _fires_on_any_answer(condition: Any) -> bool:
+    """Whether an edge condition passes whatever text reaches it (cannot tell approval from refusal)."""
+    from agentdev.validation.check_workflow import is_always_true_condition
+
+    if is_always_true_condition(condition):
+        return True
+    if isinstance(condition, dict) and condition.get("type") == "keyword":
+        cfg = condition.get("config") if isinstance(condition.get("config"), dict) else {}
+        return not (cfg.get("any") or cfg.get("none") or cfg.get("regex"))
+    return False
+
+
 def _graph_checks(checks, graph, nodes, edges, start) -> None:
     g = Graph(graph)
     ids = list(g.nodes)
@@ -231,7 +263,7 @@ def _graph_checks(checks, graph, nodes, edges, start) -> None:
            "; ".join(" -> ".join(c) for c in unguarded), loops=unguarded)
 
     # (2) human approvals must accept the Lab's automatic answer (a guarded feedback loop is fine)
-    bad_humans = [str(n) for n in g.humans_blocking_auto_answer(AUTO_ANSWER)]
+    bad_humans = [str(n) for n in _humans_blocking_lab_answer(g)]
     _check(checks, "human_auto", FAIL if bad_humans else PASS, ", ".join(bad_humans), nodes=bad_humans)
 
     # (3) nodes that can never reach an end node
@@ -280,7 +312,7 @@ def new_failures(report: Dict[str, Any], baseline: Any) -> List[Dict[str, Any]]:
         return fails
     g = Graph.from_workflow(baseline)
     old_loops = [{str(n) for n in c} for c in g.unguarded_cycles()]
-    old_humans = {str(n) for n in g.humans_blocking_auto_answer(AUTO_ANSWER)}
+    old_humans = {str(n) for n in _humans_blocking_lab_answer(g)}
     out: List[Dict[str, Any]] = []
     for c in fails:
         if c["id"] == "loops":
@@ -338,6 +370,9 @@ class LabJob:
     _baseline: Optional[Dict[str, Any]] = field(default=None, repr=False, compare=False)
     _baseline_loaded: bool = field(default=False, repr=False, compare=False)
     _baseline_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    # Bumped on every change of ``results``: ``to_dict`` recomputes the summary only when it moved.
+    _version: int = field(default=0, repr=False, compare=False)
+    _cache: Optional[Tuple[Any, Dict[str, Any]]] = field(default=None, repr=False, compare=False)
 
     @property
     def total(self) -> int:
@@ -345,7 +380,9 @@ class LabJob:
 
     def add_result(self, entry: Dict[str, Any]) -> None:
         with self.lock:
+            entry.setdefault("run_id", _new_run_id(self.id))
             self.results.append(entry)
+            self._version += 1
 
     def _find_baseline(self) -> Optional[Dict[str, Any]]:
         """The latest earlier completed job of this workflow that was ready (cached: found once)."""
@@ -363,12 +400,34 @@ class LabJob:
     def update_result(self, entry: Dict[str, Any], **changes: Any) -> None:
         with self.lock:
             entry.update(changes)
+            self._version += 1
 
     def to_dict(self) -> Dict[str, Any]:
+        """The job summary. The expensive part (diagnosis, fix brief, budgets) is cached per version of the
+        results and job state; only the running duration is refreshed on each poll."""
+        with self.lock:
+            key = (self._version, self.status, self.finished_at, self.error, self.config_status, len(self.results))
+            cached = self._cache
+        if cached is None or cached[0] != key:
+            cached = (key, self._build_dict())
+            with self.lock:
+                self._cache = cached
+        data = copy.deepcopy(cached[1])  # callers may change their copy
+        # Outside the cache: it reads the disk (an output folder deleted later does not bump the version).
+        data["resumable"] = (data["status"] in ("cancelled", "error") and data["judged"] < self.total) or (
+            data["status"] == "completed" and bool(_rejudgeable(data["results"])))
+        data["duration_seconds"] = round((self.finished_at or time.time()) - self.started_at, 1)
+        return data
+
+    def _build_dict(self) -> Dict[str, Any]:
         with self.lock:
             results = sorted(copy.deepcopy(self.results), key=lambda r: (r.get("repeat", 0), r.get("scenario", 0)))
             status = self.status
-        done = [r for r in results if r.get("status") in ("passed", "failed", "error")]
+        for run in results:
+            run.setdefault("run_id", _legacy_run_id(self.id, run))
+        # "unjudged": the run finished but no judge could grade it; it counts as done (progress) but is in
+        # neither the numerator nor the denominator of the pass rate.
+        done = [r for r in results if r.get("status") in ("passed", "failed", "error", "unjudged")]
         for run in done:
             scenario = self.scenarios[run["scenario"]] if 0 <= run.get("scenario", -1) < len(self.scenarios) else None
             budget = run_budget(scenario.prompt if scenario else "", getattr(scenario, "max_seconds", None),
@@ -376,15 +435,21 @@ class LabJob:
             run["budget_seconds"], run["budget_tokens"] = budget["seconds"], budget["tokens"]
             run["over_budget"] = over_budget(run, budget)
         judged = [r for r in done if r.get("status") in ("passed", "failed")]
+        judge_tokens = sum(int((r.get("judge") or {}).get("tokens") or 0) for r in results)
+        judge_cost = sum(float((r.get("judge") or {}).get("cost_usd") or 0.0) for r in results)
+        run_cost = sum(float(r.get("cost_usd", 0.0) or 0.0) for r in results)
         passed = [r for r in done if r.get("status") == "passed"]
         errors = [r for r in done if r.get("status") == "error"]
-        pass_rate = (len(passed) / len(done)) if done else 0.0
+        unjudged = [r for r in done if r.get("status") == "unjudged"]
+        graded = [r for r in done if r.get("status") != "unjudged"]
+        pass_rate = (len(passed) / len(graded)) if graded else 0.0
         per_scenario: List[Dict[str, Any]] = []
         for index, scenario in enumerate(self.scenarios):
-            runs = [r for r in done if r["scenario"] == index]
+            finished = [r for r in done if r["scenario"] == index]
+            runs = [r for r in finished if r["status"] != "unjudged"]
             ok = [r for r in runs if r["status"] == "passed"]
             members: List[str] = []
-            for run in runs:
+            for run in finished:
                 for name in list(run.get("members") or []) + list((run.get("agents") or {}).keys()):
                     if name not in members:
                         members.append(name)
@@ -406,6 +471,7 @@ class LabJob:
                 "members": members,
                 "needed": math.ceil(len(runs) * SCENARIO_PASS_SHARE - 1e-9) if runs else 0,
                 "over_budget": len([r for r in runs if r.get("over_budget")]),
+                "unjudged": len(finished) - len(runs),
             })
         config_failed = self.config_status == FAIL
         findings = diagnose_job(done, {i: sc.prompt for i, sc in enumerate(self.scenarios)})
@@ -421,7 +487,7 @@ class LabJob:
                 reasons.append("Chưa có lượt chạy nào hoàn tất.")
             if config_failed:
                 reasons.append("Bước 1 (kiểm tra cấu hình) còn lỗi FAIL.")
-            if done and pass_rate < PASS_THRESHOLD:
+            if graded and pass_rate < PASS_THRESHOLD:
                 reasons.append(f"Tỷ lệ đạt {pass_rate * 100:.0f}% thấp hơn ngưỡng {PASS_THRESHOLD * 100:.0f}%.")
             if errors:
                 reasons.append(f"{len(errors)} lượt chạy lỗi hoặc hết thời gian chờ.")
@@ -429,6 +495,9 @@ class LabJob:
                 if item["runs"] and item["passed"] < item["needed"]:
                     reasons.append(f"Kịch bản \"{item['name']}\" chỉ đạt {item['passed']}/{item['runs']} lượt "
                                    f"(cần ít nhất {item['needed']}).")
+            if unjudged:
+                reasons.append(f"{len(unjudged)} lượt chưa chấm được (không gọi được giám khảo AI hoặc giám khảo trả lời "
+                               "không đúng định dạng): không tính vào tỷ lệ đạt.")
             if passed and unverified == len(passed):
                 reasons.append("Mọi lượt đạt chỉ được chấm bằng kiểm tra cơ bản (không có giám khảo AI) nên chưa được xác minh.")
             if over and _strict_budget():
@@ -437,12 +506,13 @@ class LabJob:
             baseline = self._find_baseline()
             if baseline:
                 current = {
-                    "pass_rate": round(pass_rate, 3),
+                    # Nothing graded (all unjudged): no pass rate to compare, not a drop to 0%.
+                    "pass_rate": round(pass_rate, 3) if graded else None,
                     "avg_seconds": round(sum(r.get("seconds", 0) or 0 for r in done) / len(done), 1) if done else None,
-                    "cost_usd": round(sum(r.get("cost_usd", 0.0) or 0.0 for r in results), 4),
+                    "cost_usd": round(run_cost, 4),  # runs only, like the baseline below
                     "done": len(done),
                 }
-                regression = compare_baseline(current, baseline)
+                regression = compare_baseline(current, dict(baseline, cost_usd=_run_cost_of(baseline)))
                 extra = regression_finding(regression)
                 if extra:
                     findings.append(extra)
@@ -463,26 +533,64 @@ class LabJob:
             "config_failed": config_failed,
             "verdict_reasons": reasons,
             "unverified": unverified,
+            "unjudged": len(unjudged),
+            "skipped_gates": sorted({str(g) for r in done for g in r.get("skipped_gates") or []}),
             "over_budget_runs": over,
             "workflow_hash": self.workflow_hash,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "baseline": baseline,
             "regression": regression,
-            "basic_graded": len([r for r in judged if (r.get("judge") or {}).get("judged_by") == "basic"]),
+            "basic_graded": len([r for r in done if (r.get("judge") or {}).get("judged_by") == "basic"]),
             "scenarios": per_scenario,
             "findings": findings,
             "slow_runs": slow_runs,
             "slow_seconds": SLOW_SECONDS,
             "avg_seconds": round(sum(r.get("seconds", 0) or 0 for r in done) / len(done), 1) if done else None,
-            "fix_brief": build_fix_brief(self.workflow, done, self.scenarios, findings, pass_rate, PASS_THRESHOLD) if status == "completed" else "",
+            "fix_brief": build_fix_brief(self.workflow, graded, self.scenarios, findings, pass_rate, PASS_THRESHOLD) if status == "completed" else "",
             "results": results,
-            # Stopped before every run was graded: the rest can still run under this job (LabRunner.resume).
-            "resumable": status in ("cancelled", "error") and len(judged) < self.total,
+            # "resumable" is set by to_dict (not cached): stopped before every run was graded, the rest can still
+            # run under this job (LabRunner.resume); unjudged runs with an answer are only graded again on resume.
             "duration_seconds": round((self.finished_at or time.time()) - self.started_at, 1),
-            "total_tokens": sum(r.get("tokens", 0) for r in results),
-            "cost_usd": round(sum(r.get("cost_usd", 0.0) for r in results), 4),
+            # Totals include grading: the judge (and its second look) runs on the user's account too.
+            "total_tokens": sum(r.get("tokens", 0) or 0 for r in results) + judge_tokens,
+            "cost_usd": round(run_cost + judge_cost, 4),
+            "run_cost_usd": round(run_cost, 4),
+            "judge_tokens": judge_tokens,
+            "judge_cost_usd": round(judge_cost, 4),
         }
+
+
+def _run_cost_of(job: Dict[str, Any]) -> Optional[float]:
+    """Cost of a stored job's runs without grading (older jobs have no ``judge_cost_usd``: all run cost)."""
+    if job.get("run_cost_usd") is not None:
+        return float(job["run_cost_usd"])
+    if job.get("cost_usd") is None:
+        return None
+    return float(job["cost_usd"]) - float(job.get("judge_cost_usd") or 0.0)
+
+
+def _unjudged_with_answer(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Unjudged runs that have an answer: never run through the workflow again on resume."""
+    return [r for r in results if r.get("status") == "unjudged" and str(r.get("answer") or "").strip()]
+
+
+def _rejudgeable(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Unjudged runs resume can grade again from what they stored. A run whose recorded output folder is gone
+    (retention) stays unjudged: the judge would see "no files" and fail a build that did produce them."""
+    return [r for r in _unjudged_with_answer(results)
+            if not r.get("output_dir") or Path(str(r["output_dir"])).is_dir()]
+
+
+def _new_run_id(job_id: str) -> str:
+    """Id of one run of a job (``run_id``): made once when the run starts, kept in the stored job and across
+    resume, so its outputs and previews can be keyed by it."""
+    return f"{job_id}-{uuid.uuid4().hex[:8]}"
+
+
+def _legacy_run_id(job_id: str, run: Dict[str, Any]) -> str:
+    """Deterministic id for a run stored before ``run_id`` existed (same value on every read)."""
+    return f"{job_id}-s{run.get('scenario', 0)}r{run.get('repeat', 0)}"
 
 
 JUDGE_SYSTEM = (
@@ -577,18 +685,47 @@ def _judge_call(conn: Any, model: str, user: str, system: str = "") -> str:
     from agentdev.entity.messages import Message, MessageRole
     from agentdev.runtime.node.agent import ProviderRegistry
 
+    from agentdev.utils.token_tracker import TokenTracker
+
     creds = resolve_connection(conn.id)
     provider_name = creds.provider or creds.vendor
     provider_class = ProviderRegistry.get_provider(provider_name)
+    tracker = TokenTracker("lab_judge")  # what the account's call path reports (tokens; cost when it knows it)
     config = SimpleConfig(name=model, provider=provider_name, auth_token=creds.token,
-                          base_url=creds.base_url or "", params={"timeout": 180, "effort": "low"})
+                          base_url=creds.base_url or "", params={"timeout": 180, "effort": "low"},
+                          token_tracker=tracker)
     provider = provider_class(config)
-    response = provider.call_model(
-        provider.create_client(),
-        [Message(role=MessageRole.SYSTEM, content=system or JUDGE_SYSTEM), Message(role=MessageRole.USER, content=user)],
-        [],
-    )
+    try:
+        response = provider.call_model(
+            provider.create_client(),
+            [Message(role=MessageRole.SYSTEM, content=system or JUDGE_SYSTEM),
+             Message(role=MessageRole.USER, content=user)],
+            [],
+        )
+    finally:
+        try:
+            usage = tracker.get_token_usage()
+            costs = [(c.get("metadata") or {}).get("total_cost_usd") for c in usage.get("call_history") or []]
+            _record_judge_usage(tokens=int((usage.get("total_usage") or {}).get("total_tokens") or 0),
+                                cost_usd=sum(float(c) for c in costs if c is not None) if any(
+                                    c is not None for c in costs) else None)
+        except Exception:  # noqa: BLE001 - accounting never breaks grading
+            pass
     return response.message.text_content()
+
+
+# Usage of the judge calls made for the verdict being computed in this thread (see ``_judge``).
+_JUDGE_USAGE: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar("lab_judge_usage", default=None)
+
+
+def _record_judge_usage(tokens: int = 0, cost_usd: Optional[float] = None) -> None:
+    """Add one judge call's reported usage to the current verdict. A call that reports no cost adds 0:
+    prices are never guessed."""
+    box = _JUDGE_USAGE.get()
+    if box is None:
+        return
+    box["tokens"] += int(tokens or 0)
+    box["cost_usd"] += float(cost_usd or 0.0)
 
 
 DEFAULT_CRITERIA = (
@@ -598,9 +735,13 @@ DEFAULT_CRITERIA = (
 
 
 def _basic_verdict(answer: str, reason: str = "") -> Dict[str, Any]:
-    """Fallback grade when the AI judge cannot be reached: a non-empty, error-free answer passes."""
-    ok = bool(answer.strip()) and not answer.lstrip().lower().startswith("error calling model")
-    return {"pass": ok, "score": 10 if ok else 0, "reason": reason, "judged_by": "basic"}
+    """Fallback when no AI judge could grade the run. An empty answer or a model-call error is a real fail;
+    anything else is ``unjudged`` (not a pass: a placeholder, a bare plan or a refusal would pass a
+    "non-empty" check) and stays out of the pass rate."""
+    unusable = not answer.strip() or answer.lstrip().lower().startswith("error calling model")
+    if unusable:
+        return {"pass": False, "score": 0, "verdict": "fail", "reason": reason, "judged_by": "basic"}
+    return {"pass": False, "score": None, "verdict": "unjudged", "reason": reason, "judged_by": "basic"}
 
 
 MANIFEST_MAX_FILES = 40
@@ -657,28 +798,137 @@ def _score_value(score: Any) -> Optional[float]:
         return float(match.group(1)) if match else None
 
 
+def _score10(score: Any) -> Optional[float]:
+    """A judge score on the 0-10 scale: "7/10" -> 7, "70/100" -> 7, a bare 75 (a 0-100 answer) -> 7.5."""
+    if isinstance(score, str):
+        match = re.match(r"\s*(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)", score)
+        if match and float(match.group(2)) > 0:
+            return float(match.group(1)) * 10 / float(match.group(2))
+    value = _score_value(score)
+    if value is not None and 10 < value <= 100:
+        value /= 10
+    return value
+
+
 def _rubric_pass(data: Dict[str, Any]) -> bool:
-    """pass must be true AND the score a number of at least 7: a verdict without a usable score cannot pass,
+    """pass must be true AND the score (0-10 scale) at least 7: a verdict without a usable score cannot pass,
     otherwise a lenient judge could wave through an empty or fabricated result."""
     if data.get("pass") is not True:
         return False
-    value = _score_value(data.get("score"))
+    value = _score10(data.get("score"))
     return value is not None and value >= 7
 
 
+def _first_json(text: str, opener: str, accept: Callable[[Any], bool] = lambda value: True) -> Any:
+    """The first complete JSON value starting with ``opener`` ("{" or "[") in ``text`` that ``accept`` takes,
+    else None. Decodes exactly one balanced value (``raw_decode``), unlike a greedy regex that also swallows
+    any later braces."""
+    decoder = json.JSONDecoder()
+    text = text or ""
+    start = text.find(opener)
+    while start != -1:
+        try:
+            value, _ = decoder.raw_decode(text, start)
+        except ValueError:
+            value = None
+        if value is not None and accept(value):
+            return value
+        start = text.find(opener, start + 1)
+    return None
+
+
 def _parse_verdict(text: str) -> Dict[str, Any]:
-    match = re.search(r"\{.*\}", text, re.S)
-    try:
-        data = json.loads(match.group(0)) if match else {}
-    except ValueError:
-        data = {}
-    return data if isinstance(data, dict) else {}
+    """The judge's verdict object, or {} when the reply holds no usable one (no JSON object with ``pass``)."""
+    return _first_json(text, "{", lambda value: isinstance(value, dict) and "pass" in value) or {}
+
+
+class JudgeUnparsable(RuntimeError):
+    """The judge answered twice without a usable JSON verdict: the run stays unjudged."""
+
+
+JSON_REMINDER = ("\n\nNHẮC LẠI: chỉ trả về đúng MỘT đối tượng JSON, không thêm chữ nào khác: "
+                 '{"pass": true|false, "score": 0-10, "reason": "..."}')
 
 
 def _borderline(data: Dict[str, Any]) -> bool:
-    """Score 6-8 (the pass line is 7): too close to call for a cheap judge."""
-    value = _score_value(data.get("score"))
-    return value is not None and 6 <= value <= 8
+    """Score 6-7 (the pass line is 7): too close to call for a cheap judge. An 8 is a clear pass; looking at
+    it again doubled the judge cost of most good runs."""
+    value = _score10(data.get("score"))
+    return value is not None and 6 <= value < 8
+
+
+# Answer text sent to the judge: head + tail + passages about the criteria, at most this many characters.
+JUDGE_ANSWER_CHARS = 8000
+_CLIP_HEAD = 3000
+_CLIP_TAIL = 2000
+_CLIP_STOPWORDS = {"the", "and", "with", "that", "this", "for", "from", "must", "should", "have", "của", "các",
+                   "những", "được", "trong", "phải", "không", "cho", "với", "một", "và", "là"}
+
+
+def _clip_marker(count: int) -> str:
+    return f"\n[… đã lược bớt {count} ký tự …]\n"
+
+
+def _clip_answer(answer: str, criteria: str, limit: int = JUDGE_ANSWER_CHARS) -> str:
+    """The answer for the judge: whole when short, else its head and tail plus the middle passages that mention
+    the most criteria keywords (in their original order), each gap marked with how much was left out."""
+    if len(answer) <= limit:
+        return answer
+    head, tail = answer[:_CLIP_HEAD], answer[-_CLIP_TAIL:]
+    middle_start, middle_end = _CLIP_HEAD, len(answer) - _CLIP_TAIL
+    words = {w for w in re.findall(r"[\w.]{3,}", criteria.lower()) if w not in _CLIP_STOPWORDS}
+    marker = len(_clip_marker(len(answer)))  # the longest a gap marker can be
+    # Every picked passage costs its text plus the marker in front of it; the closing marker is reserved here.
+    budget = limit - _CLIP_HEAD - _CLIP_TAIL - marker
+    picks: List[Tuple[int, int]] = []
+    if words and budget > marker:
+        scored = []
+        for start, end in _clip_windows(answer, middle_start, middle_end):
+            text = answer[start:end].lower()
+            hits = sum(1 for w in words if w in text)
+            if hits:
+                scored.append((-hits, start, end))
+        for _, start, end in sorted(scored):
+            cost = (end - start) + marker
+            if cost > budget:
+                continue
+            picks.append((start, end))
+            budget -= cost
+    parts = [head]
+    cursor = middle_start
+    for start, end in sorted(picks):
+        parts.append(_clip_marker(start - cursor) if start > cursor else "\n")
+        parts.append(answer[start:end])
+        cursor = end
+    parts.append(_clip_marker(middle_end - cursor))
+    parts.append(tail)
+    out = "".join(parts)
+    if len(out) > limit:  # safety net: never send more than the limit
+        out = out[:limit - len(tail) - marker] + _clip_marker(len(out) - limit) + tail
+        out = out[-limit:] if len(out) > limit else out
+    return out
+
+
+_CLIP_WINDOW = 400
+
+
+def _clip_windows(answer: str, start: int, end: int) -> List[Tuple[int, int]]:
+    """The middle of an answer as passages of at most ``_CLIP_WINDOW`` chars: its lines, long lines (or a text
+    without newlines) cut into fixed windows, so a keyword deep inside one long line can still be picked."""
+    out: List[Tuple[int, int]] = []
+    for match in re.finditer(r"[^\n]+", answer[start:end]):
+        a, b = match.start() + start, match.end() + start
+        while a < b:
+            out.append((a, min(b, a + _CLIP_WINDOW)))
+            a += _CLIP_WINDOW
+    return out
+
+
+def _judge_prefix(prompt: str, criteria: str) -> str:
+    """The part of the judge message that is the same for every run of a scenario (request + criteria). It comes
+    first, after the fixed system prompt, so the account's prompt cache can reuse it across repeats; what
+    varies per run (questions, answer, files) follows."""
+    return f"## Request\n{prompt}\n\n## Acceptance criteria\n{criteria}\n\n"
 
 
 def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, str]],
@@ -688,47 +938,82 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
     Raises when no account can grade; ``LabRunner`` then falls back to ``_basic_verdict``.
     """
     criteria = criteria.strip() or DEFAULT_CRITERIA
-    from agentdev.runtime.node.agent import account_fallback
-
-    def out_of_quota(exc: BaseException) -> bool:
-        exhaustion = getattr(account_fallback, "is_exhaustion_error", None)
-        return account_fallback.is_quota_error(exc) or bool(exhaustion and exhaustion(exc))
-
     account = account or JudgeAccount()
-    asked = "\n".join(f"- {q['node']}: {q['question']}" for q in questions) or "(none)"
-    user = (
-        f"## Request\n{prompt}\n\n## Acceptance criteria\n{criteria}\n\n"
-        f"## Questions the workflow asked the user (auto-answered: approved)\n{asked}\n\n## Answer\n{answer[:20000]}"
+    usage = {"tokens": 0, "cost_usd": 0.0, "calls": 0}
+    token = _JUDGE_USAGE.set(usage)
+    try:
+        verdict = _judge_inner(prompt, criteria, answer, questions, account, output_dir, usage)
+    except Exception as exc:
+        exc.judge_usage = dict(usage)  # type: ignore[attr-defined] - the calls made were still paid for
+        raise
+    finally:
+        _JUDGE_USAGE.reset(token)
+    if usage["calls"]:
+        verdict.update(tokens=usage["tokens"], cost_usd=round(usage["cost_usd"], 6), calls=usage["calls"])
+    return verdict
+
+
+def _judge_inner(prompt: str, criteria: str, answer: str, questions: List[Dict[str, str]],
+                 account: Any, output_dir: Any, usage: Dict[str, Any]) -> Dict[str, Any]:
+    skipped = list(dict.fromkeys(str(q.get("node")) for q in questions if q.get("answer") == "skipped"))
+    asked = "\n".join(
+        f"- {q['node']}: {q['question']} -> " + ("SKIPPED (refused automatically: paid or irreversible step)"
+                                               if q.get("answer") == "skipped" else "approved automatically")
+        for q in questions) or "(none)"
+    user = _judge_prefix(prompt, criteria) + (
+        f"## Questions the workflow asked the user (answered automatically)\n{asked}\n\n"
     )
+    if skipped:
+        user += ("## Skipped approval gates\n"
+                 + "\n".join(f"- cổng {n} bị bỏ qua, không phải đã duyệt (bước tốn tiền hoặc không hoàn tác được; "
+                             "không ai duyệt nên bước sau nó không chạy)" for n in skipped)
+                 + "\nDo not fail the run only because the deliverable of a skipped paid step is missing.\n\n")
+    user += f"## Answer\n{_clip_answer(answer, criteria)}"
     manifest = build_output_manifest(output_dir)
     if not answer.strip() and not manifest:
-        # Nothing to grade: do not spend a judge call (or risk a lenient pass) on an empty result.
-        return {"pass": False, "score": 0, "reason": "The run produced no answer and no files.",
-                "judged_by": "ai", "judge_model": ""}
+        # Nothing to grade: no judge call is made, so this is a rule-based (basic) fail, not an AI verdict.
+        return {"pass": False, "score": 0, "verdict": "fail", "reason": "The run produced no answer and no files.",
+                "judged_by": "basic", "judge_model": ""}
     user += f"\n\n## Files produced by the run\n{manifest or '(no files were produced)'}"
     conn, model = account.current()
-    try:
-        text = _judge_call(conn, model, user)
-    except Exception as exc:  # noqa: BLE001 - retried once on another account when out of quota
-        if not out_of_quota(exc) or not account.switch(conn.id):
-            raise
-        conn, model = account.current()
-        text = _judge_call(conn, model, user)
+
+    def call(text_in: str) -> str:
+        nonlocal conn, model
+        usage["calls"] += 1
+        try:
+            return _judge_call(conn, model, text_in)
+        except Exception as exc:  # noqa: BLE001 - retried once on another account when out of quota
+            if not _out_of_quota(exc) or not account.switch(conn.id):
+                raise
+            conn, model = account.current()
+            usage["calls"] += 1
+            return _judge_call(conn, model, text_in)
+
+    text = call(user)
     data = _parse_verdict(text)
+    if not data:
+        # A reply without a usable JSON verdict is a judge problem, not a failed run: ask once more.
+        text = call(user + JSON_REMINDER)
+        data = _parse_verdict(text)
+        if not data:
+            raise JudgeUnparsable(f"The judge did not return a JSON verdict: {text[:200]}")
     # A score next to the pass line is where a cheaper judge is least reliable: grade it again with the
     # account's own default (stronger) model and keep that verdict. Clear passes and fails stay cheap.
+    # A pass is never counted without proper grading: when that second look fails (error, no JSON, no score),
+    # the run is left unjudged rather than kept on the cheap model's borderline verdict.
     if _borderline(data):
-        try:
-            from agentdev.runtime.node.agent.account_fallback import default_model_for
+        from agentdev.runtime.node.agent.account_fallback import default_model_for
 
-            strong = default_model_for(conn) or ""
-            if strong and strong != model:
+        strong = default_model_for(conn) or ""
+        if strong and strong != model:
+            usage["calls"] += 1
+            try:
                 second = _parse_verdict(_judge_call(conn, strong, user))
-                # An unparsable or score-less second look must not replace a complete first verdict.
-                if "pass" in second and _score_value(second.get("score")) is not None:
-                    data, model = second, strong
-        except Exception:  # noqa: BLE001 - keep the first verdict when the second look fails
-            pass
+            except Exception as exc:  # noqa: BLE001
+                raise JudgeUnparsable(f"The second look at a borderline score failed: {exc}"[:300]) from exc
+            if "pass" not in second or _score10(second.get("score")) is None:
+                raise JudgeUnparsable("The second look at a borderline score gave no usable verdict.")
+            data, model = second, strong
     return {
         "pass": _rubric_pass(data),
         "score": data.get("score"),
@@ -736,6 +1021,14 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
         "judged_by": "ai",
         "judge_model": f"{conn.label} ({model})",
     }
+
+
+def _out_of_quota(exc: BaseException) -> bool:
+    """A genuine quota / rate-limit / usage-limit error (another account may still work)."""
+    from agentdev.runtime.node.agent import account_fallback
+
+    exhaustion = getattr(account_fallback, "is_exhaustion_error", None)
+    return account_fallback.is_quota_error(exc) or bool(exhaustion and exhaustion(exc))
 
 
 @dataclass
@@ -782,6 +1075,7 @@ def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threadin
     from agentdev.runtime.sdk import OUTPUT_ROOT, ensure_schema_registry_populated
     from agentdev.utils.human_prompt import HumanPromptService
     from agentdev.validation.check import load_config
+    from agentdev.utils.exceptions import WorkflowExecutionError
     from agentdev.workflow.graph import GraphExecutor
     from agentdev.workflow.graph_context import GraphContext
 
@@ -795,7 +1089,15 @@ def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threadin
     channel = AutoAnswerChannel()
     executor._human_prompt_service = HumanPromptService(log_manager=executor.log_manager, channel=channel)
     turn_started = datetime.now()
-    executor._execute(prompt)
+    stopped_at_gate = ""
+    try:
+        executor._execute(prompt)
+    except WorkflowExecutionError:
+        # A paid gate refused automatically may leave no branch to take (its only way on is the paid step):
+        # that is the intended stop, not a broken workflow.
+        if not channel.skipped_gates:
+            raise
+        stopped_at_gate = ", ".join(channel.skipped_gates)
     final = executor.get_final_output_message()
     usage = executor.token_tracker.get_token_usage() if executor.token_tracker else {}
     cost = sum(
@@ -803,13 +1105,15 @@ def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threadin
     )
     state = _global_state(executor, context)
     return {
-        "answer": final.text_content() if final is not None else "",
+        "answer": (f"[Stopped at skipped paid gate: {stopped_at_gate}] The run did not continue into the paid step."
+                   if stopped_at_gate else (final.text_content() if final is not None else "")),
         "tokens": (usage.get("total_usage") or {}).get("total_tokens", 0),
         "cost_usd": cost,
         "agents": dict(usage.get("node_execution_counts") or {}),
         "timeline": node_timeline(usage.get("call_history"), turn_started),
         "node_runs": list(usage.get("node_runs") or []),
         "questions": list(channel.questions),
+        "skipped_gates": list(channel.skipped_gates),
         "team": team_digest_from_state(state),
         "exchanges": user_exchanges(state),
         "plan": _pending_plan(state),
@@ -949,6 +1253,7 @@ def _collect_turns(yaml_path, scenario, cancel_event, run_turn, session, started
         "timeline": [t for item in turns for t in item.get("timeline") or []],
         "node_runs": [r for item in turns for r in item.get("node_runs") or []],
         "questions": [q for item in turns for q in item.get("questions") or []],
+        "skipped_gates": list(dict.fromkeys(g for item in turns for g in item.get("skipped_gates") or [])),
         "turns": len(turns),
         "output_dir": turns[-1].get("output_dir", ""),
     }
@@ -1000,8 +1305,9 @@ def _resumable_tasks(data: Dict[str, Any]) -> List[Tuple[int, int]]:
     if not specs:
         return []
     repeats = max(1, int(data.get("total") or 0) // len(specs))
-    graded = {(int(r.get("scenario", -1)), int(r.get("repeat", 0)) - 1) for r in data.get("results") or []
-              if r.get("status") in ("passed", "failed")}
+    results = data.get("results") or []
+    graded = {(int(r.get("scenario", -1)), int(r.get("repeat", 0)) - 1)
+              for r in [r for r in results if r.get("status") in ("passed", "failed")] + _unjudged_with_answer(results)}
     return [(index, repeat) for repeat in range(repeats) for index in range(len(specs))
             if (index, repeat) not in graded]
 
@@ -1013,6 +1319,7 @@ class LabRunner:
     def __init__(self, store_dir: Optional[Path] = None) -> None:
         self._jobs: Dict[str, LabJob] = {}
         self._lock = threading.Lock()
+        self._resume_lock = threading.Lock()
         self._store_dir = store_dir
 
     def _dir(self) -> Path:
@@ -1056,8 +1363,9 @@ class LabRunner:
                 if result.get("status") == "running":
                     result["status"] = "error"
                     result["error"] = "interrupted"
-        if data.get("status") in ("error", "cancelled"):
-            data["resumable"] = bool(_resumable_tasks(data)) and all(
+        if data.get("status") in ("error", "cancelled", "completed"):
+            can_run = data.get("status") != "completed" and bool(_resumable_tasks(data))
+            data["resumable"] = (can_run or bool(_rejudgeable(data.get("results") or []))) and all(
                 (s.get("prompt") or "").strip() for s in data.get("scenarios") or [{}])
         return StoredJob(data)
 
@@ -1065,7 +1373,14 @@ class LabRunner:
                run_once: Callable[..., Dict[str, Any]] = _run_once,
                judge: Callable[..., Dict[str, Any]] = _judge) -> LabJob:
         """Continue a job that a server restart (or a cancel) stopped: graded runs are kept and only the
-        unfinished ones run again, under the same job id. Raises ValueError when it cannot be resumed."""
+        unfinished ones run again, under the same job id. Raises ValueError when it cannot be resumed.
+
+        The "already running" check and the registration of the resumed job happen under one lock, so two
+        quick resumes of the same job cannot start two workers."""
+        with self._resume_lock:
+            return self._resume(job_id, yaml_path, run_once, judge)
+
+    def _resume(self, job_id: str, yaml_path: Path, run_once, judge) -> LabJob:
         with self._lock:
             if job_id in self._jobs and self._jobs[job_id].status in ("queued", "running"):
                 raise ValueError("Lượt kiểm định này vẫn đang chạy.")
@@ -1073,7 +1388,8 @@ class LabRunner:
         if stored is None:
             raise LookupError("Lab run not found")
         data = stored.data
-        if data.get("status") not in ("error", "cancelled"):
+        rejudge_ids = {str(r.get("run_id") or _legacy_run_id(data["id"], r)) for r in _rejudgeable(data.get("results") or [])}
+        if data.get("status") not in ("error", "cancelled") and not (data.get("status") == "completed" and rejudge_ids):
             raise ValueError("Chỉ chạy tiếp được lượt kiểm định bị gián đoạn hoặc đã dừng.")
         specs = data.get("scenarios") or []
         if not specs or not all((s.get("prompt") or "").strip() for s in specs):
@@ -1082,15 +1398,18 @@ class LabRunner:
             current_hash = hashlib.sha256(Path(yaml_path).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
         except OSError:
             current_hash = ""
-        if data.get("workflow_hash") and current_hash and data["workflow_hash"] != current_hash:
+        tasks = _resumable_tasks(data) if data.get("status") != "completed" else []
+        # Re-judging a stored answer does not run the workflow, so only new runs need the same workflow file.
+        if tasks and data.get("workflow_hash") and current_hash and data["workflow_hash"] != current_hash:
             raise ValueError("Quy trình đã được sửa sau lượt này: kết quả cũ không còn so được, hãy chạy lại từ đầu.")
-        tasks = _resumable_tasks(data)
-        if not tasks:
+        if not tasks and not rejudge_ids:
             raise ValueError("Không còn lượt nào cần chạy tiếp.")
         scenarios = [Scenario(prompt=s.get("prompt", ""), criteria=s.get("criteria", ""), name=s.get("name", ""),
                               max_seconds=s.get("max_seconds"), max_tokens=s.get("max_tokens")) for s in specs]
-        keep = [dict(r, scenario=int(r["scenario"]), repeat=int(r["repeat"])) for r in data.get("results") or []
-                if r.get("status") in ("passed", "failed")]
+        keep = [dict(r, scenario=int(r["scenario"]), repeat=int(r["repeat"]),
+                     run_id=r.get("run_id") or _legacy_run_id(data["id"], r))
+                for r in data.get("results") or [] if r.get("status") in ("passed", "failed")
+                or r in _unjudged_with_answer(data.get("results") or [])]
         # Count only the time the job actually ran, not the gap while the server was down.
         elapsed = float(data.get("duration_seconds") or 0)
         job = LabJob(id=data["id"], workflow=data.get("workflow", ""), scenarios=scenarios,
@@ -1102,7 +1421,8 @@ class LabRunner:
         with self._lock:
             self._jobs[job.id] = job
         self._save(job)
-        thread = threading.Thread(target=self._run, args=(job, yaml_path, run_once, judge, tasks), daemon=True)
+        rejudge = [r for r in job.results if r["run_id"] in rejudge_ids]
+        thread = threading.Thread(target=self._run, args=(job, yaml_path, run_once, judge, tasks, rejudge), daemon=True)
         thread.start()
         return job
 
@@ -1143,7 +1463,8 @@ class LabRunner:
         scenario = job.scenarios[index]
         if job.cancel_event.is_set():
             return
-        entry: Dict[str, Any] = {"scenario": index, "repeat": repeat + 1, "status": "running"}
+        entry: Dict[str, Any] = {"scenario": index, "repeat": repeat + 1, "status": "running",
+                                 "run_id": _new_run_id(job.id)}
         job.add_result(entry)
         self._save(job)
         try:
@@ -1159,20 +1480,33 @@ class LabRunner:
             self._save(job)
             return
         job.update_result(entry, **outcome)
+        self._judge_entry(job, judge, entry)
+
+    def _judge_entry(self, job: LabJob, judge, entry: Dict[str, Any]) -> None:
+        """Grade one finished run from what it stored (answer, questions, files); also used to re-judge."""
+        index = int(entry.get("scenario", 0))
+        scenario = job.scenarios[index] if 0 <= index < len(job.scenarios) else Scenario(prompt="")
+        if job.cancel_event.is_set() and entry.get("status") == "unjudged":
+            return
         kwargs: Dict[str, Any] = {}
-        if outcome.get("output_dir") and _accepts(judge, "output_dir"):
-            kwargs["output_dir"] = outcome["output_dir"]
+        if entry.get("output_dir") and _accepts(judge, "output_dir"):
+            kwargs["output_dir"] = entry["output_dir"]
+        answer = str(entry.get("answer") or "")
         try:
-            verdict = judge(scenario.prompt, scenario.criteria, outcome.get("answer", ""),
-                            outcome.get("questions", []), **kwargs)
+            verdict = judge(scenario.prompt, scenario.criteria, answer, entry.get("questions") or [], **kwargs)
             job.update_result(entry, status="passed" if verdict.get("pass") else "failed", judge=verdict)
-        except Exception as exc:  # noqa: BLE001 - no account could grade: basic check instead
-            verdict = _basic_verdict(outcome.get("answer", ""), f"AI judge unavailable: {exc}"[:500])
-            job.update_result(entry, status="passed" if verdict["pass"] else "failed", judge=verdict)
+        except Exception as exc:  # noqa: BLE001 - no account could grade: the run stays unjudged
+            verdict = _basic_verdict(answer, f"AI judge unavailable: {exc}"[:500])
+            spent = getattr(exc, "judge_usage", None) or {}
+            if spent.get("calls"):
+                verdict.update(tokens=spent["tokens"], cost_usd=round(spent["cost_usd"], 6), calls=spent["calls"])
+            job.update_result(entry, status="unjudged" if verdict["verdict"] == "unjudged" else "failed",
+                              judge=verdict)
         self._save(job)
 
     def _run(self, job: LabJob, yaml_path: Path, run_once, judge,
-             tasks: Optional[List[Tuple[int, int]]] = None) -> None:
+             tasks: Optional[List[Tuple[int, int]]] = None,
+             rejudge: Optional[List[Dict[str, Any]]] = None) -> None:
         from concurrent.futures import ThreadPoolExecutor
 
         job.status = "running"
@@ -1180,7 +1514,8 @@ class LabRunner:
             if tasks is None:
                 tasks = [(index, repeat) for repeat in range(job.repeats) for index in range(len(job.scenarios))]
             with ThreadPoolExecutor(max_workers=_lab_workers(), thread_name_prefix="lab") as pool:
-                futures = [pool.submit(self._run_task, job, yaml_path, run_once, judge, i, r) for i, r in tasks]
+                futures = [pool.submit(self._judge_entry, job, judge, entry) for entry in rejudge or []]
+                futures += [pool.submit(self._run_task, job, yaml_path, run_once, judge, i, r) for i, r in tasks]
                 for future in futures:
                     future.result()
             job.finished_at = time.time()  # before the status flips, so a "completed" job always has its end time
@@ -1235,6 +1570,7 @@ def list_stored_jobs(folder: Path, workflow: str, limit: int = 20,
             "id": data.get("id"), "status": status, "verdict": data.get("verdict"),
             "pass_rate": data.get("pass_rate"), "avg_seconds": data.get("avg_seconds"),
             "tokens": data.get("total_tokens"), "cost_usd": data.get("cost_usd"), "done": data.get("done"),
+            "judge_cost_usd": data.get("judge_cost_usd"), "run_cost_usd": data.get("run_cost_usd"),
             "workflow_hash": data.get("workflow_hash", ""), "started_at": data.get("started_at") or 0,
             "finished_at": data.get("finished_at"),
         })
@@ -1286,8 +1622,8 @@ def generate_scenarios(yaml_path: Path, count: int = 4, language: str = "Vietnam
     conn, model = account.current()
     try:
         text = _judge_call(conn, model, user, GENERATE_SYSTEM)
-    except Exception:  # noqa: BLE001 - one retry on another account when this one is out of quota
-        if not account.switch(conn.id):
+    except Exception as exc:  # noqa: BLE001 - one retry on another account when this one is out of quota
+        if not _out_of_quota(exc) or not account.switch(conn.id):
             raise
         conn, model = account.current()
         text = _judge_call(conn, model, user, GENERATE_SYSTEM)

@@ -556,6 +556,25 @@ export async function postBatchWorkflow({ file, sessionId, yamlFile, maxParallel
   }
 }
 
+// Start a run (or a follow-up turn) in a connected session. Resolves to {ok, status, data}:
+// the caller tells a busy session (409, code run_in_progress) from a real failure.
+// A network failure rejects, like fetch.
+export async function postWorkflowExecute({ yamlFile, taskPrompt, sessionId, attachments = [], mode }) {
+  const response = await fetch(apiUrl('/api/workflow/execute'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      yaml_file: yamlFile,
+      task_prompt: taskPrompt,
+      session_id: sessionId,
+      attachments,
+      mode
+    })
+  })
+  const data = await response.json().catch(() => ({}))
+  return { ok: response.ok, status: response.status, data }
+}
+
 // Upload a binary file
 export async function postFile(sessionId, file) {
   try {
@@ -981,6 +1000,20 @@ export const importSkills = ({ names, source = null, overwrite = false }) =>
 // Workflow Lab (readiness check + scenario evaluation)
 // ---------------------------------------------------------------------------
 
+// Lab errors carry `detail = {message, code, params}`: keep code/params on the Error so the UI can
+// translate them (lab.errors.<code>); `message` stays the localized summary + server text.
+async function labResponseError(response) {
+  const body = await response.clone().json().catch(() => null)
+  const error = await responseError('errors.api.lab_failed', response)
+  const detail = body?.detail
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    if (detail.code) error.code = detail.code
+    error.params = detail.params && typeof detail.params === 'object' ? detail.params : {}
+    if (detail.message) error.serverMessage = String(detail.message)
+  }
+  return error
+}
+
 async function labRequest(path, options = {}) {
   const response = await fetch(apiUrl(`/api/lab${path}`), {
     headers: { 'Content-Type': 'application/json' },
@@ -988,7 +1021,7 @@ async function labRequest(path, options = {}) {
     ...options
   })
   if (!response.ok) {
-    throw await responseError('errors.api.lab_failed', response)
+    throw await labResponseError(response)
   }
   return response.json()
 }
@@ -1036,7 +1069,7 @@ export const labRunSiteUrl = (jobId, run, path = '') =>
 /** Text content of a product file; a file over the server's limit fails with status 413. */
 export async function labRunFileText(jobId, run, path, { signal } = {}) {
   const response = await fetch(labRunFileUrl(jobId, run, path), { ...FRESH, signal })
-  if (!response.ok) throw await responseError('errors.api.lab_failed', response)
+  if (!response.ok) throw await labResponseError(response)
   return response.text()
 }
 
@@ -1053,6 +1086,9 @@ export const labPreviewStart = (jobId, run) =>
   labRequest(`${labRunPath(jobId, run)}/preview`, { method: 'POST', body: '{}' })
 export const labPreviewStatus = (jobId, run) => labRequest(`${labRunPath(jobId, run)}/preview`)
 export const labPreviewStop = (jobId, run) => labRequest(`${labRunPath(jobId, run)}/preview`, { method: 'DELETE' })
+/** Tell the server the preview is still being watched (it stops idle ones). -> {status, alive, idle_seconds} */
+export const labPreviewHeartbeat = (jobId, run) =>
+  labRequest(`${labRunPath(jobId, run)}/preview/heartbeat`, { method: 'POST', body: '{}' })
 
 /** -> {total_bytes, run_dirs, oldest, orphan_dirs} for all lab_* result folders. */
 export const labStorage = () => labRequest('/storage')

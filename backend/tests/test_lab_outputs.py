@@ -346,6 +346,50 @@ def test_failed_run_keeps_its_output_folder(env, monkeypatch):
     assert folder.parent == env.warehouse and folder.name.startswith("lab_wf_") and folder.is_dir()
 
 
+def _job_with_ids(env, entries):
+    """entries: (run_id, scenario, repeat, status, output_dir) in the order the job file stores them."""
+    results = [{"run_id": rid, "scenario": sc, "repeat": rep, "status": st, "output_dir": str(d) if d else ""}
+               for rid, sc, rep, st, d in entries]
+    data = {"id": JOB, "workflow": "wf.yaml", "status": "completed", "results": results, "started_at": time.time()}
+    (env.store / f"{JOB}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_runs_are_addressed_by_run_id_so_resume_does_not_shift_them(env):
+    run_a, prod_a = _run_dir(env, "lab_wf_20261105100000_aaaaaa_20261105100000")
+    run_b, prod_b = _run_dir(env, "lab_wf_20261105100000_bbbbbb_20261105100000")
+    run_c, prod_c = _run_dir(env, "lab_wf_20261105100000_cccccc_20261105100000")
+    (prod_b / "b.txt").write_text("b", encoding="utf-8")
+    (prod_c / "c.txt").write_text("c", encoding="utf-8")
+    # Before resume: scenario 0 errored (run a), scenario 1 passed (run b) -> b is position 1.
+    _job_with_ids(env, [("ra", 0, 1, "error", run_a), ("rb", 1, 1, "passed", run_b)])
+    files = lambda run: [f["path"] for f in env.client.get(f"/api/lab/jobs/{JOB}/runs/{run}/files").json()["files"]]
+    assert files("rb") == files(1) == ["b.txt"]
+    assert lab_outputs.canonical_run_key(JOB, 1) == "rb"  # a position maps onto the stable key
+    # Resume drops the errored run before re-running it: b slides to position 0, its id does not move.
+    _job_with_ids(env, [("rb", 1, 1, "passed", run_b)])
+    assert files("rb") == files(0) == ["b.txt"]
+    assert env.client.get(f"/api/lab/jobs/{JOB}/runs/1/files").status_code == 404  # the old position is gone
+    # The re-run of scenario 0 (run c) sorts first again.
+    _job_with_ids(env, [("rb", 1, 1, "passed", run_b), ("rc", 0, 1, "passed", run_c)])
+    assert files("rb") == ["b.txt"] and files("rc") == files(0) == ["c.txt"]
+    assert lab_outputs.canonical_run_key(JOB, "rb") == "rb"
+    gone = env.client.get(f"/api/lab/jobs/{JOB}/runs/ra/files")
+    assert gone.status_code == 404 and gone.json()["detail"]["code"] == "lab_run_not_found"
+    assert gone.json()["detail"]["message"] == "Run not found in this Lab job"
+
+
+def test_jobs_without_run_id_keep_position_keys(env, monkeypatch):
+    run, product = _run_dir(env)
+    (product / "x.txt").write_text("x", encoding="utf-8")
+    old = {"status": "completed", "results": [{"scenario": 0, "repeat": 1, "status": "passed", "output_dir": str(run)}]}
+    # A job object that reports no run_id at all (the runner may synthesize one; this covers when it does not).
+    monkeypatch.setattr(env.runner, "get", lambda job_id: type("Old", (), {"to_dict": lambda self: old})())
+    assert lab_outputs.canonical_run_key(JOB, 0) == "0" == lab_outputs.canonical_run_key(JOB, "0")
+    assert env.client.get(f"/api/lab/jobs/{JOB}/runs/0/files").json()["available"] is True
+    bad = env.client.get(f"/api/lab/jobs/{JOB}/runs/a.b/files")
+    assert bad.status_code == 400 and bad.json()["detail"]["code"] == "lab_run_invalid"
+
+
 def _stored_job_with_window(env, job_id, results, started, finished, workflow="wf.yaml"):
     data = {"id": job_id, "workflow": workflow, "status": "completed", "results": results,
             "started_at": started, "finished_at": finished}

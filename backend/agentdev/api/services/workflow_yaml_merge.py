@@ -143,6 +143,28 @@ def _count_references(node: Any, counts: dict[int, int]) -> None:
             _count_references(child, counts)
 
 
+def _keep_edited_item_in_place(
+    new: list, chosen: list[int | None], matched: set[int], old_len: int
+) -> tuple[list, list[int | None]]:
+    """The visual editor saves an edited list item (an edge) by dropping it and appending the new version.
+    When that is the only change — same length, every other item unchanged and in file order, the last one
+    edited — put the edited item back at its old position, so one save keeps the file's order."""
+    last = len(new) - 1
+    if last < 1 or len(new) != old_len or last in matched or chosen[last] is None:
+        return new, chosen
+    if len(matched) != last:
+        return new, chosen
+    target = chosen[last]
+    others = chosen[:last]
+    if target == old_len - 1 or others != [p for p in range(old_len) if p != target]:
+        return new, chosen
+    reordered_new = list(new[:last])
+    reordered_new.insert(target, new[last])
+    reordered_chosen = list(others)
+    reordered_chosen.insert(target, target)
+    return reordered_new, reordered_chosen
+
+
 class _Reconciler:
     def __init__(self, root: Any):
         self.references: dict[int, int] = {}
@@ -216,6 +238,7 @@ class _Reconciler:
                     chosen[index] = position
                     used.add(position)
                     break
+        matched_before_pairing = {index for index, position in enumerate(chosen) if position is not None}
         # 3. remaining items paired in order (e.g. an edited edge, a renamed node)
         leftovers = iter(position for position in range(len(old)) if position not in used)
         for index, item in enumerate(new):
@@ -230,6 +253,7 @@ class _Reconciler:
                     chosen[index] = position
                     used.add(position)
 
+        new, chosen = _keep_edited_item_in_place(new, chosen, matched_before_pairing, len(old))
         items = [
             self.value(old[position], item) if position is not None else _fresh(_strip_nulls(item))
             for position, item in zip(chosen, new)

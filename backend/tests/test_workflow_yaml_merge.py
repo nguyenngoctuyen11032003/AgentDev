@@ -224,3 +224,69 @@ def test_new_regex_in_flow_edge_stays_parseable():
     }]}}
     text = merge_workflow_document(original, desired)
     assert yaml.safe_load(text) == desired
+
+
+DUP_PAIR_SOURCE = """\
+version: 0.4.0
+graph:
+  id: dup
+  start: [A]
+  nodes:
+    - id: A
+      type: literal
+      config: {content: a}
+    - id: B
+      type: literal
+      config: {content: b}
+  edges:
+    # carries the draft, does not start B
+    - from: A
+      to: B
+      trigger: false
+    # starts B only on approval
+    - from: A
+      to: B
+      condition:
+        type: keyword
+        config:
+          regex: ["^OK"]
+"""
+
+
+def test_editing_second_of_two_same_pair_edges_keeps_the_first():
+    # The editor identifies an edge by its index in graph.edges, so two edges between the same pair
+    # are edited separately and the save keeps the untouched one byte for byte.
+    desired = yaml.safe_load(DUP_PAIR_SOURCE)
+    desired["graph"]["edges"][1]["condition"]["config"]["regex"] = ["^APPROVED"]
+    merged = merge_workflow_document(DUP_PAIR_SOURCE, desired)
+    edges = yaml.safe_load(merged)["graph"]["edges"]
+    assert edges[0] == {"from": "A", "to": "B", "trigger": False}
+    assert edges[1]["condition"]["config"]["regex"] == ["^APPROVED"]
+    assert "# carries the draft, does not start B" in merged
+    assert "# starts B only on approval" in merged
+    changed = [line for line in difflib.ndiff(DUP_PAIR_SOURCE.splitlines(), merged.splitlines())
+               if line.startswith(("- ", "+ "))]
+    assert all("OK" in line or "APPROVED" in line for line in changed)
+
+
+def test_edited_edge_appended_by_the_editor_keeps_its_place():
+    # The edge form saves the list without the edited edge plus the edited edge at the end: one save
+    # must put it back where it was, without touching the other edges.
+    original = yaml.safe_load(DUP_PAIR_SOURCE)
+    first, second = original["graph"]["edges"]
+    edited_first = {**first, "trigger": True}
+    desired = copy.deepcopy(original)
+    desired["graph"]["edges"] = [second, edited_first]
+    merged = merge_workflow_document(DUP_PAIR_SOURCE, desired)
+    edges = yaml.safe_load(merged)["graph"]["edges"]
+    assert edges[0] == {"from": "A", "to": "B", "trigger": True}
+    assert edges[1]["condition"]["config"]["regex"] == ["^OK"]
+    assert merged.index("# carries the draft") < merged.index("trigger: true") < merged.index("# starts B only")
+
+
+def test_real_reorder_without_edit_is_kept():
+    original = yaml.safe_load(DUP_PAIR_SOURCE)
+    desired = copy.deepcopy(original)
+    desired["graph"]["edges"].reverse()
+    edges = yaml.safe_load(merge_workflow_document(DUP_PAIR_SOURCE, desired))["graph"]["edges"]
+    assert edges == desired["graph"]["edges"]

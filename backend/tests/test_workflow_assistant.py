@@ -175,10 +175,11 @@ def test_prompt_sections_in_order():
         "# AgentDev workflow YAML reference",
         "## Catalogs",
         "### Tools",
-        # volatile, after every stable section
+        # the open workflow's saved YAML: its own block right after the system prompt
+        "graph: {id: x}",
+        # volatile, in front of the latest user message
         "## Existing workflow files",
         "The user is chatting with",
-        "graph: {id: x}",
         "graph: {id: pending}",
     ]
     positions = [prompt.index(m) for m in markers]
@@ -455,9 +456,26 @@ def test_edit_proposal_diff_and_warnings(turn_env):
     assert proposal["base_hash"] == wa.content_hash(file_text)
     assert proposal["diff_summary"]["nodes_added"] == ["QA"]
     assert {"id": "Bug Fixer", "fields": ["config.role"]} in proposal["diff_summary"]["nodes_changed"]
-    # The saved workflow is in the app context in front of the latest user message, not in the system prompt.
+    # The saved workflow is a block of its own right after the system prompt (cached from turn to turn),
+    # not in the system prompt and not repeated in the latest user message.
+    sent = call.calls[0][1]
     assert "id: tong_dai" not in call.calls[0][0]
-    assert "id: tong_dai" in call.calls[0][1][-1]["content"]
+    assert sent[0]["content"].startswith(prompt_mod.WORKFLOW_HEADER) and "id: tong_dai" in sent[0]["content"]
+    assert sent[1] == {"role": "assistant", "content": prompt_mod.WORKFLOW_ACK}
+    assert sent[2] == {"role": "user", "content": "giải thích quy trình"}
+    assert "id: tong_dai" not in sent[-1]["content"]
+
+
+def test_open_workflow_block_is_identical_across_turns(turn_env):
+    (turn_env / "tong_dai.yaml").write_text(VALID_YAML, encoding="utf-8")
+    a, b = FakeCall(_reply()), FakeCall(_reply())
+    _turn(a, workflow="tong_dai.yaml", messages=[{"role": "user", "content": "giải thích"}])
+    _turn(b, workflow="tong_dai.yaml", request_id="r2", messages=[
+        {"role": "user", "content": "giải thích"}, {"role": "assistant", "content": "..."},
+        {"role": "user", "content": "thêm QA"}])
+    # Same bytes up to and including the first user message: the cached prefix grows turn by turn.
+    assert a.calls[0][0] == b.calls[0][0]
+    assert a.calls[0][1][:2] == b.calls[0][1][:2]
 
 
 def test_edit_kind_forced_for_workflow_context(turn_env):
@@ -1001,8 +1019,9 @@ def test_system_prompt_identical_across_turns_and_chats(turn_env):
         assert volatile not in a.calls[0][0]
     last = b.calls[0][1][-1]["content"]
     assert last.startswith(prompt_mod.CONTEXT_HEADER)
-    for part in ("tong_dai.yaml", "pending_marker", "vendor openai", "## Current workflow"):
+    for part in ("tong_dai.yaml", "pending_marker", "vendor openai", "## Open workflow"):
         assert part in last
+    assert "## Current workflow" in b.calls[0][1][0]["content"]
     assert last.endswith(prompt_mod.USER_HEADER + "\ngiải thích")
     # Only the latest user message carries the context; earlier ones are sent as written.
     assert c.calls[0][1][0] == {"role": "user", "content": "x"}
