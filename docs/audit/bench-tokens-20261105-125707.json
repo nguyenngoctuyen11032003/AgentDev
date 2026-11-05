@@ -1,0 +1,412 @@
+{
+  "mode": "fake",
+  "model": "fake-model",
+  "generated_at": "2026-11-05T12:57:07",
+  "token_estimate": "chars/4 (engine-reported tokens are shown separately when the provider reports them)",
+  "limits": {
+    "max_runs": 3,
+    "max_usd": 0.5,
+    "planned_runs": 5
+  },
+  "scenarios": [
+    {
+      "name": "chat",
+      "title": "Simple chat turn (1 agent)",
+      "runs": [
+        {
+          "label": "run",
+          "request_chars": 157,
+          "composed_prompt_chars": 157,
+          "history_chars_added": 0,
+          "nodes": [
+            {
+              "node": "Chat",
+              "model": "fake-model",
+              "calls": 1,
+              "input_chars": 1529,
+              "output_chars": 900,
+              "est_input_tokens": 383,
+              "est_output_tokens": 225,
+              "engine_input_tokens": 383,
+              "engine_output_tokens": 225,
+              "cache_read_tokens": 0,
+              "cache_creation_tokens": 0,
+              "cost_usd": 0.0,
+              "duration_s": 0.0,
+              "prompt": {
+                "system_chars": 1350,
+                "tool_catalog_chars": 0,
+                "tool_count": 0,
+                "skills_chars": 0,
+                "history_chars": 0,
+                "user_chars": 157,
+                "static_chars": 1372,
+                "transcript_chars": 157,
+                "system_order": [
+                  "profile(role/description)",
+                  "user_response_rules"
+                ]
+              },
+              "volatile_in_static_head": [],
+              "volatile_in_history": [],
+              "cache_breaking_order": false
+            }
+          ],
+          "totals": {
+            "calls": 1,
+            "input_chars": 1529,
+            "output_chars": 900,
+            "est_input_tokens": 383,
+            "est_output_tokens": 225,
+            "engine_input_tokens": 383,
+            "engine_output_tokens": 225,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cost_usd": 0.0
+          },
+          "error": null
+        }
+      ],
+      "stopped": null,
+      "cost_usd": 0.0
+    },
+    {
+      "name": "followup",
+      "title": "3-turn chat: request, 'ok', request (growing history)",
+      "runs": [
+        {
+          "label": "turn 1",
+          "request_chars": 157,
+          "composed_prompt_chars": 157,
+          "history_chars_added": 0,
+          "nodes": [
+            {
+              "node": "Chat",
+              "model": "fake-model",
+              "calls": 1,
+              "input_chars": 1529,
+              "output_chars": 900,
+              "est_input_tokens": 383,
+              "est_output_tokens": 225,
+              "engine_input_tokens": 383,
+              "engine_output_tokens": 225,
+              "cache_read_tokens": 0,
+              "cache_creation_tokens": 0,
+              "cost_usd": 0.0,
+              "duration_s": 0.0,
+              "prompt": {
+                "system_chars": 1350,
+                "tool_catalog_chars": 0,
+                "tool_count": 0,
+                "skills_chars": 0,
+                "history_chars": 0,
+                "user_chars": 157,
+                "static_chars": 1372,
+                "transcript_chars": 157,
+                "system_order": [
+                  "profile(role/description)",
+                  "user_response_rules"
+                ]
+              },
+              "volatile_in_static_head": [],
+              "volatile_in_history": [],
+              "cache_breaking_order": false
+            }
+          ],
+          "totals": {
+            "calls": 1,
+            "input_chars": 1529,
+            "output_chars": 900,
+            "est_input_tokens": 383,
+            "est_output_tokens": 225,
+            "engine_input_tokens": 383,
+            "engine_output_tokens": 225,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cost_usd": 0.0
+          },
+          "error": null
+        },
+        {
+          "label": "turn 2",
+          "request_chars": 2,
+          "composed_prompt_chars": 1399,
+          "history_chars_added": 1397,
+          "nodes": [
+            {
+              "node": "Chat",
+              "model": "fake-model",
+              "calls": 1,
+              "input_chars": 2771,
+              "output_chars": 900,
+              "est_input_tokens": 693,
+              "est_output_tokens": 225,
+              "engine_input_tokens": 693,
+              "engine_output_tokens": 225,
+              "cache_read_tokens": 0,
+              "cache_creation_tokens": 0,
+              "cost_usd": 0.0,
+              "duration_s": 0.001,
+              "prompt": {
+                "system_chars": 1350,
+                "tool_catalog_chars": 0,
+                "tool_count": 0,
+                "skills_chars": 0,
+                "history_chars": 1245,
+                "user_chars": 1399,
+                "static_chars": 1372,
+                "transcript_chars": 1399,
+                "system_order": [
+                  "profile(role/description)",
+                  "user_response_rules"
+                ]
+              },
+              "volatile_in_static_head": [],
+              "volatile_in_history": [],
+              "cache_breaking_order": false
+            }
+          ],
+          "totals": {
+            "calls": 1,
+            "input_chars": 2771,
+            "output_chars": 900,
+            "est_input_tokens": 693,
+            "est_output_tokens": 225,
+            "engine_input_tokens": 693,
+            "engine_output_tokens": 225,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cost_usd": 0.0
+          },
+          "error": null,
+          "prefix_shared_with_previous_chars": 1374,
+          "prefix_shared_with_previous_pct": 49.5,
+          "static_head_identical_to_previous": true,
+          "prefix_judged": false
+        },
+        {
+          "label": "turn 3",
+          "request_chars": 156,
+          "composed_prompt_chars": 2493,
+          "history_chars_added": 2337,
+          "nodes": [
+            {
+              "node": "Chat",
+              "model": "fake-model",
+              "calls": 1,
+              "input_chars": 3865,
+              "output_chars": 900,
+              "est_input_tokens": 967,
+              "est_output_tokens": 225,
+              "engine_input_tokens": 967,
+              "engine_output_tokens": 225,
+              "cache_read_tokens": 0,
+              "cache_creation_tokens": 0,
+              "cost_usd": 0.0,
+              "duration_s": 0.001,
+              "prompt": {
+                "system_chars": 1350,
+                "tool_catalog_chars": 0,
+                "tool_count": 0,
+                "skills_chars": 0,
+                "history_chars": 2185,
+                "user_chars": 2493,
+                "static_chars": 1372,
+                "transcript_chars": 2493,
+                "system_order": [
+                  "profile(role/description)",
+                  "user_response_rules"
+                ]
+              },
+              "volatile_in_static_head": [],
+              "volatile_in_history": [],
+              "cache_breaking_order": false
+            }
+          ],
+          "totals": {
+            "calls": 1,
+            "input_chars": 3865,
+            "output_chars": 900,
+            "est_input_tokens": 967,
+            "est_output_tokens": 225,
+            "engine_input_tokens": 967,
+            "engine_output_tokens": 225,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cost_usd": 0.0
+          },
+          "error": null,
+          "prefix_shared_with_previous_chars": 2619,
+          "prefix_shared_with_previous_pct": 67.7,
+          "static_head_identical_to_previous": true,
+          "prefix_judged": true
+        }
+      ],
+      "stopped": null,
+      "cost_usd": 0.0
+    },
+    {
+      "name": "team",
+      "title": "Team: Plan -> 2 workers -> Merge, skills preloaded",
+      "runs": [
+        {
+          "label": "run",
+          "request_chars": 76,
+          "composed_prompt_chars": 76,
+          "history_chars_added": 0,
+          "nodes": [
+            {
+              "node": "Plan",
+              "model": "fake-model",
+              "calls": 1,
+              "input_chars": 11068,
+              "output_chars": 500,
+              "est_input_tokens": 2767,
+              "est_output_tokens": 125,
+              "engine_input_tokens": 2767,
+              "engine_output_tokens": 125,
+              "cache_read_tokens": 0,
+              "cache_creation_tokens": 0,
+              "cost_usd": 0.0,
+              "duration_s": 0.001,
+              "prompt": {
+                "system_chars": 8759,
+                "tool_catalog_chars": 2209,
+                "tool_count": 2,
+                "skills_chars": 5841,
+                "history_chars": 0,
+                "user_chars": 76,
+                "static_chars": 10992,
+                "transcript_chars": 76,
+                "system_order": [
+                  "profile(role/description)",
+                  "loaded_skills",
+                  "user_response_rules"
+                ]
+              },
+              "volatile_in_static_head": [],
+              "volatile_in_history": [],
+              "cache_breaking_order": false
+            },
+            {
+              "node": "Worker1",
+              "model": "fake-model",
+              "calls": 1,
+              "input_chars": 11479,
+              "output_chars": 700,
+              "est_input_tokens": 2870,
+              "est_output_tokens": 175,
+              "engine_input_tokens": 2870,
+              "engine_output_tokens": 175,
+              "cache_read_tokens": 0,
+              "cache_creation_tokens": 0,
+              "cost_usd": 0.0,
+              "duration_s": 0.001,
+              "prompt": {
+                "system_chars": 8746,
+                "tool_catalog_chars": 2209,
+                "tool_count": 2,
+                "skills_chars": 5841,
+                "history_chars": 0,
+                "user_chars": 500,
+                "static_chars": 10979,
+                "transcript_chars": 500,
+                "system_order": [
+                  "profile(role/description)",
+                  "loaded_skills",
+                  "user_response_rules"
+                ]
+              },
+              "volatile_in_static_head": [],
+              "volatile_in_history": [],
+              "cache_breaking_order": false
+            },
+            {
+              "node": "Worker2",
+              "model": "fake-model",
+              "calls": 1,
+              "input_chars": 11479,
+              "output_chars": 700,
+              "est_input_tokens": 2870,
+              "est_output_tokens": 175,
+              "engine_input_tokens": 2870,
+              "engine_output_tokens": 175,
+              "cache_read_tokens": 0,
+              "cache_creation_tokens": 0,
+              "cost_usd": 0.0,
+              "duration_s": 0.001,
+              "prompt": {
+                "system_chars": 8746,
+                "tool_catalog_chars": 2209,
+                "tool_count": 2,
+                "skills_chars": 5841,
+                "history_chars": 0,
+                "user_chars": 500,
+                "static_chars": 10979,
+                "transcript_chars": 500,
+                "system_order": [
+                  "profile(role/description)",
+                  "loaded_skills",
+                  "user_response_rules"
+                ]
+              },
+              "volatile_in_static_head": [],
+              "volatile_in_history": [],
+              "cache_breaking_order": false
+            },
+            {
+              "node": "Merge",
+              "model": "fake-model",
+              "calls": 1,
+              "input_chars": 12605,
+              "output_chars": 800,
+              "est_input_tokens": 3152,
+              "est_output_tokens": 200,
+              "engine_input_tokens": 3152,
+              "engine_output_tokens": 200,
+              "cache_read_tokens": 0,
+              "cache_creation_tokens": 0,
+              "cost_usd": 0.0,
+              "duration_s": 0.001,
+              "prompt": {
+                "system_chars": 8754,
+                "tool_catalog_chars": 2209,
+                "tool_count": 2,
+                "skills_chars": 5841,
+                "history_chars": 0,
+                "user_chars": 1402,
+                "static_chars": 10987,
+                "transcript_chars": 1618,
+                "system_order": [
+                  "profile(role/description)",
+                  "loaded_skills",
+                  "user_response_rules"
+                ]
+              },
+              "volatile_in_static_head": [],
+              "volatile_in_history": [],
+              "cache_breaking_order": false
+            }
+          ],
+          "totals": {
+            "calls": 4,
+            "input_chars": 46631,
+            "output_chars": 2700,
+            "est_input_tokens": 11659,
+            "est_output_tokens": 675,
+            "engine_input_tokens": 11659,
+            "engine_output_tokens": 675,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cost_usd": 0.0
+          },
+          "error": null
+        }
+      ],
+      "stopped": null,
+      "cost_usd": 0.0
+    }
+  ],
+  "total_cost_usd": 0.0,
+  "structure_issues": []
+}

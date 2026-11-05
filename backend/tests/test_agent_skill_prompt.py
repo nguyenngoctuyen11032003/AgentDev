@@ -227,3 +227,18 @@ def test_skill_rules_are_short_when_every_skill_is_preloaded(monkeypatch, tmp_pa
         _fe_node(), _skills(monkeypatch, tmp_path, ["fe-rules", "huge"])
     )
     assert SKILL_USAGE_RULES in with_catalog and PRELOADED_SKILL_RULES not in with_catalog
+
+
+def test_only_read_skill_file_is_offered_when_every_skill_is_preloaded(monkeypatch, tmp_path):
+    _skill(tmp_path, "fe-rules", FE_RULE)
+    (tmp_path / "fe-rules" / "ref.md").write_text("ref", encoding="utf-8")
+    mgr = _skills(monkeypatch, tmp_path, ["fe-rules"])
+    mgr.preload()
+    assert mgr.needs_skill_tool_specs()  # it has a file to read
+    assert [s.name for s in mgr.build_tool_specs()] == ["read_skill_file"]
+
+    _skill(tmp_path, "big", "B" * 5000)
+    mixed = _skills(monkeypatch, tmp_path, ["fe-rules", "big"])
+    mixed.preload(budget=600)
+    assert not mixed.is_preloaded("big")  # over the budget: it must stay activatable
+    assert [s.name for s in mixed.build_tool_specs()] == ["activate_skill", "read_skill_file"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -21,6 +22,7 @@ from agentdev.utils.reserved_ports import with_reserved_ports
 from agentdev.connections.security import MODEL_NAME_RE
 from agentdev.entity.messages import Message, MessageRole, ToolCallPayload
 from agentdev.entity.tool_spec import ToolSpec
+from agentdev.utils.token_tracker import BudgetExceededError
 from agentdev.runtime.node.agent.providers.cli_cancel import (  # noqa: F401
     CliCancelled,
     current_cancel_event,
@@ -399,6 +401,21 @@ def record_token_usage(provider: Any, raw_response: Any, provider_name: str) -> 
     usage.workflow_id = tracker.workflow_id
     usage.provider = provider_name
     tracker.record_usage(node_id, provider.model_name, usage, provider=provider_name)
+
+
+logger = logging.getLogger(__name__)
+
+
+def record_failed_usage(provider: Any, raw_response: Any, provider_name: str) -> None:
+    """Same as ``record_token_usage`` for a call that is about to raise: the tokens were spent, so they count
+    toward the run's budget. A budget breach is kept in the tracker (the next ``check_budget`` raises it) and
+    never replaces the CLI error being reported."""
+    try:
+        record_token_usage(provider, raw_response, provider_name)
+    except BudgetExceededError:
+        pass
+    except Exception:  # noqa: BLE001 - accounting must never hide the real failure
+        logger.debug("could not record usage of a failed call", exc_info=True)
 
 
 def make_tempdir() -> Any:

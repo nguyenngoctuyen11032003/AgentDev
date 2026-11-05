@@ -65,6 +65,8 @@ FILES_SHARE = 0.15
 SHORT_TURN_MAX_TURNS = 2
 MAX_CHAT_QUESTION_CHARS = 300
 MAX_SHORT_RESUME_WORDS = 3
+# The oldest turn shown moves in steps of this many turns (see _render_transcript ``window_step``).
+WINDOW_STEP = 2
 BRIEF_HEADER = (
     "[PROJECT BRIEF (pinned, always applies even if the turns below are omitted): the original request, the "
     "latest plan and the user's answers. Keep to this scope; do not redo what is done.]"
@@ -260,11 +262,14 @@ def _render_transcript(
     max_chars: int = MAX_TRANSCRIPT_CHARS,
     short: bool = False,
     pinned_plan: Optional[int] = None,
+    window_step: int = 1,
 ) -> Tuple[str, int]:
     """(transcript, index in ``turns`` of the oldest turn it shows; ``len(turns)`` when empty).
 
     ``short``: compact rendering for a short reply (approval, "continue"): the latest turn's answer
     and team digest get fixed shares of ``max_chars`` so the answer survives, older turns are clipped.
+    ``window_step``: the oldest shown turn moves in steps of this many turns, so the start of the transcript
+    (and the brief that depends on it) stays byte-identical between consecutive turns (prompt cache).
     """
     usable = [(i, t) for i, t in enumerate(turns or []) if isinstance(t, dict) and (t.get("user") or t.get("answer"))]
     if not usable:
@@ -273,6 +278,8 @@ def _render_transcript(
         usable = [(i, {**t, "answer": PLAN_PINNED_NOTE} if i == pinned_plan else t) for i, t in usable]
     last = len(usable) - 1
     first_index = max(len(usable) - max_turns, 0)
+    if window_step > 1 and first_index:
+        first_index = min(-(-first_index // window_step) * window_step, len(usable) - 1)
 
     def team_budget(n: int) -> int:
         if short:
@@ -300,8 +307,9 @@ def _render_transcript(
     ][first_index:]
     omitted = first_index
     while len(rendered) > 1 and sum(len(r) + 2 for r in rendered) > max_chars:
-        rendered.pop(0)
-        omitted += 1
+        for _ in range(min(max(window_step, 1), len(rendered) - 1)):  # in steps: the start stays put between turns
+            rendered.pop(0)
+            omitted += 1
     if len(rendered) == 1 and len(rendered[0]) > max_chars:
         # Only the latest turn is left and it is too long: render it compactly (questions clipped
         # hard, the answer and the team digest by share) so its answer is not cut out of the middle
@@ -430,9 +438,10 @@ def compose_follow_up_prompt(
 ) -> str:
     """Prefix ``prompt`` with the session history; unchanged when there is no history.
 
-    The history (brief, changed files, transcript) fits SHORT_TURN_HISTORY_CHARS for a short reply
-    and NORMAL_TURN_HISTORY_CHARS otherwise. The parts that change least come first (brief, files,
-    then the transcript), so consecutive turns share a longer prompt prefix (provider prompt cache).
+    The history (brief, transcript, changed files) fits SHORT_TURN_HISTORY_CHARS for a short reply
+    and NORMAL_TURN_HISTORY_CHARS otherwise. Order: brief, transcript, then the changed-files list (it changes
+    most often). The oldest turn shown moves in steps of WINDOW_STEP turns and the files list is budgeted by its
+    cap, so consecutive turns share a long prompt prefix (provider prompt cache).
 
     ``resume_note``: what an interrupted run had done (see run_checkpoint.build_resume_note); it
     goes between the history and the new message, and is used even when there is no transcript.
@@ -449,10 +458,14 @@ def compose_follow_up_prompt(
     pinned = plan[0] if plan else None
     brief = build_project_brief(turns, max_chars=brief_cap, include_plan=not plan)  # upper bound: no turn shown yet
     transcript = ""
+    # The files list changes most often: reserve its cap (not its length) so the transcript is cut the same way
+    # from one turn to the next.
+    files_room = int(budget * FILES_SHARE) if files else 0
     for _ in range(2):  # the brief shrinks once the transcript shows turns: give that room back
-        room = budget - len(brief) - len(files) - 4 - len(HEADER) - 40
+        room = budget - len(brief) - files_room - 4 - len(HEADER) - 40
         transcript, visible_from = _render_transcript(
-            turns, max_turns=max_turns, max_chars=max(room, 600), short=short, pinned_plan=pinned
+            turns, max_turns=max_turns, max_chars=max(room, 600), short=short, pinned_plan=pinned,
+            window_step=1 if short else WINDOW_STEP,
         )
         new_brief = build_project_brief(turns, visible_from=visible_from, max_chars=brief_cap, include_plan=not plan)
         if new_brief == brief:
@@ -462,7 +475,7 @@ def compose_follow_up_prompt(
         if resume_note:
             return f"{resume_note}\n\n{NEW_MESSAGE_HEADER}\n{prompt or ''}".rstrip()
         return prompt
-    history = "\n\n".join(x for x in (brief, plan_block, files, transcript) if x)
+    history = "\n\n".join(x for x in (brief, plan_block, transcript, files) if x)
     note = f"{resume_note}\n\n" if resume_note else ""
     if turns and is_plan_turn(turns[-1]):
         # Before the new-message header: the header still marks where the user's own text starts.

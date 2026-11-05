@@ -828,6 +828,7 @@
       "view": "概览",
       "title": "工作概览",
       "progress_aria": "已完成 {p}%",
+      "completed_with_errors": "已完成，{n} 个步骤出错",
       "done_of": "{done}/{total} 步",
       "no_task": "本会话尚未分配任务。",
       "now_at": "当前第 {n} 步：{name}",

@@ -10,7 +10,7 @@ import re
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from agentdev.paths import SKILLS_DIR
 from agentdev.connections.cli_auth import find_cli
@@ -35,6 +35,7 @@ from agentdev.runtime.node.agent.providers._cli_common import (
     flatten_conversation,
     parse_tool_reply,
     make_tempdir,
+    record_failed_usage,
     record_token_usage,
     run_cli,
     trim,
@@ -47,6 +48,7 @@ from agentdev.runtime.node.agent.providers._native import (
     ClaudeStreamReader,
     LiveEvents,
     NativeRunContext,
+    _event,
     absolutize_attachments,
     changed_files_note,
     native_preamble,
@@ -301,9 +303,23 @@ class ClaudeCliProvider(ModelProvider):
         effort = effort_level(self.params)
         if effort:
             cmd += ["--effort", effort]
+        reader = ClaudeStreamReader(None)
+
+        def _watch(line: str) -> None:
+            # on_line turns on the idle watchdog; assistant events also tell what a killed call already spent.
+            if '"assistant"' in line:
+                event = _event(line)
+                if event is not None:
+                    reader.feed(event)
+
         try:
-            # on_line turns on the idle watchdog; each streamed delta counts as output.
-            proc = run_cli(cmd, prompt, timeout, "claude", cwd, on_line=_ignore_line)
+            proc = run_cli(cmd, prompt, timeout, "claude", cwd, on_line=_watch)
+        except BaseException:
+            # Timeout, idle kill or cancel: no final result, but the tokens seen so far were spent.
+            partial = reader.partial_usage()
+            if any(partial.values()):
+                record_failed_usage(self, {"usage": partial}, "claude_cli")
+            raise
         finally:
             try:
                 os.remove(system_file)
@@ -318,9 +334,14 @@ class ClaudeCliProvider(ModelProvider):
                 data = json.loads(out)
             except (ValueError, TypeError):
                 pass
+        if isinstance(data, dict) and session is not None:
+            self._apply_session_cost(data, session, resuming)
         if isinstance(data, dict) and data.get("is_error"):
+            record_failed_usage(self, data, "claude_cli")  # the call was billed even though it failed
             _raise_claude_error(str(data.get("result") or err))
         if proc.returncode != 0:
+            if isinstance(data, dict):
+                record_failed_usage(self, data, "claude_cli")
             if looks_like_quota(err):
                 raise QuotaExceededError(f"Claude account limit reached: {trim(err)}")
             raise CliProviderError(f"`claude` CLI exited with code {proc.returncode}: {trim(err or out)}")
@@ -331,15 +352,8 @@ class ClaudeCliProvider(ModelProvider):
                 raise CliProviderError("`claude` CLI returned no JSON result on resume")
             text = out.strip()
             data = {"result": text}
-        if session is not None:
-            data["agentdev_session"] = "resumed" if resuming else "started"
-            # A resumed session reports its running total cost; keep this call's share (usage is per call).
-            total = data.get("total_cost_usd")
-            if isinstance(total, (int, float)):
-                before = float(session.options.get("cost_usd") or 0.0) if resuming else 0.0
-                session.options["cost_usd"] = float(total)
-                data["session_cost_usd"] = float(total)
-                data["total_cost_usd"] = max(0.0, float(total) - before)
+        if session is not None and not isinstance(data.get("agentdev_session"), str):
+            self._apply_session_cost(data, session, resuming)  # the plain-text case (no JSON result)
         record_token_usage(self, data, "claude_cli")
         if tool_specs:
             text, tool_calls = parse_tool_reply(data.get("structured_output"), text, tool_specs)
@@ -351,6 +365,17 @@ class ClaudeCliProvider(ModelProvider):
             message=Message(role=MessageRole.ASSISTANT, content=text),
             raw_response=data,
         )
+
+    @staticmethod
+    def _apply_session_cost(data: Dict[str, Any], session: CliSession, resuming: bool) -> None:
+        """Mark the session and turn a resumed session's running total cost into this call's share."""
+        data["agentdev_session"] = "resumed" if resuming else "started"
+        total = data.get("total_cost_usd")
+        if isinstance(total, (int, float)):
+            before = float(session.options.get("cost_usd") or 0.0) if resuming else 0.0
+            session.options["cost_usd"] = float(total)
+            data["session_cost_usd"] = float(total)
+            data["total_cost_usd"] = max(0.0, float(total) - before)
 
     def _call_native(self, client, conversation: List[Message], native: NativeRunContext) -> ModelResponse:
         """Full Claude Code agent with cwd = project workspace and only the file tools (+ Bash on opt-in).

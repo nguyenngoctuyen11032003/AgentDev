@@ -8,7 +8,7 @@
           {{ tracker.task?.text || $t('launch.dashboard.no_task') }}
         </p>
         <div class="hero-tags">
-          <StatusPill :tone="runTone" :label="stateLabel(runTone)" />
+          <StatusPill :tone="runTone" :label="runLabel" />
           <span v-if="currentStep" class="tag">
             {{ $t('launch.dashboard.now_at', { n: currentStep.index, name: currentStep.id }) }}
           </span>
@@ -24,7 +24,7 @@
       </p>
       <div v-else class="hero-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progress" :aria-label="$t('launch.dashboard.progress_aria', { p: progress })">
         <div class="hp-line">
-          <span class="hp-count">{{ teamMode ? $t('launch.dashboard.tasks_of', { done: teamTasksDone, total: delegatedRuns.length }) : $t('launch.dashboard.done_of', { done: doneCount, total: steps.length }) }}</span>
+          <span class="hp-count">{{ teamMode ? $t('launch.dashboard.tasks_of', { done: teamTasksDone, total: delegatedRuns.length }) : $t('launch.dashboard.done_of', { done: doneCount, total: countedSteps }) }}</span>
           <span class="hp-pct">{{ progress }}%</span>
         </div>
         <div class="hp-track"><div class="hp-fill" :style="{ transform: `scaleX(${progress / 100})` }"></div></div>
@@ -269,6 +269,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { combineTurns, formatCost, formatSpan, sessionTurns, stepDuration, stepStatus, turnSpan, usageTotals } from '@/utils/runTracker.js'
+import { stepProgress } from '@/utils/runProgress.js'
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
 import { buildOrgChart, computeTeamLinks } from '@/utils/teamLinks.js'
 import StatusPill from './StatusPill.vue'
@@ -326,7 +327,11 @@ const runsOf = (id) => nodeOf(id)?.runs || []
 const statusOf = (id) => stepStatus(nodeOf(id))
 const durationOf = (id) => stepDuration(nodeOf(id), now.value)
 
-const doneCount = computed(() => steps.value.filter((s) => statusOf(s.id) === 'done').length)
+const stepCounts = computed(() => stepProgress(steps.value.map((s) => statusOf(s.id)), session.value.outcome))
+const doneCount = computed(() => stepCounts.value.done)
+const countedSteps = computed(() => stepCounts.value.total)
+// Steps that failed but were skipped (continue_on_error) while the run still finished
+const errorCount = computed(() => steps.value.filter((s) => statusOf(s.id) === 'error').length)
 
 // Team workflow: the lead decides who works, so progress is counted in delegated tasks and
 // the step lists show the people who took part (not twelve empty rows)
@@ -344,12 +349,11 @@ const noTasks = computed(() => teamMode.value && delegatedRuns.value.length === 
 
 const progress = computed(() => {
   if (noTasks.value) return 0
-  if (session.value.outcome === 'completed') return 100
   if (teamMode.value) {
     const total = delegatedRuns.value.length
     return total ? Math.round((teamTasksDone.value / total) * 100) : 0
   }
-  return steps.value.length ? Math.round((doneCount.value / steps.value.length) * 100) : 0
+  return stepCounts.value.percent
 })
 
 // Under the step name: its department while it waits, else its state and how long it took
@@ -369,6 +373,12 @@ const runTone = computed(() => {
   if (isLive.value) return 'working'
   return session.value.outcome || 'idle'
 })
+
+const runLabel = computed(() =>
+  runTone.value === 'completed' && errorCount.value
+    ? t('launch.dashboard.completed_with_errors', { n: errorCount.value })
+    : stateLabel(runTone.value)
+)
 
 const currentStep = computed(() => {
   const live = steps.value.filter((s) => ['working', 'waiting'].includes(statusOf(s.id)))
@@ -403,7 +413,7 @@ const kpis = computed(() => {
     : {
         key: 'progress',
         label: t('launch.dashboard.kpi_progress'),
-        value: `${doneCount.value}/${steps.value.length}`,
+        value: `${doneCount.value}/${countedSteps.value}`,
         sub: t('launch.dashboard.kpi_progress_sub', { p: progress.value })
       }
   return [

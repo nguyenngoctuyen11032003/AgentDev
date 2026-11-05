@@ -113,8 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--host",
         type=str,
-        default="0.0.0.0",
-        help="Server host (default: 0.0.0.0)"
+        default=os.environ.get("BACKEND_BIND") or "127.0.0.1",
+        help="Server host (default: $BACKEND_BIND or 127.0.0.1; use 0.0.0.0 only on a trusted network)"
     )
     parser.add_argument(
         "--port",

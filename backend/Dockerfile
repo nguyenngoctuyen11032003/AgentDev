@@ -55,7 +55,7 @@ COPY workspace/ /app/workspace/
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    BACKEND_BIND=${BACKEND_BIND}
+    BACKEND_BIND=0.0.0.0
 
 # Drop privileges
 RUN useradd -m appuser && chown -R appuser:appuser /app
@@ -68,4 +68,4 @@ WORKDIR /app/backend
 EXPOSE 6400
 
 # Command to run the backend server, parameterized by env
-CMD ["sh", "-c", "python main.py --port 6400 --host ${BACKEND_BIND:-0.0.0.0}"]
+CMD ["sh", "-c", "python main.py --port 6400 --host ${BACKEND_BIND:-127.0.0.1}"]

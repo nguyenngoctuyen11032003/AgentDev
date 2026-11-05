@@ -6,6 +6,7 @@
   approval steps (Human nodes) still wait for the user.
 - ``bypass``: every question and approval step is answered automatically.
 
+A Human gate marked ``paid: true`` always waits for the person, even in bypass (silence is not approval).
 Money safety does not depend on the mode: the automatic answer starts with ``[Automatic answer``, which
 approval gates in front of paid or irreversible steps route to their skip branch (the workflow lint
 requires it), and paid tools such as the Veo render still need an explicit ``confirmed=true``.
@@ -45,6 +46,10 @@ def plan_approval_for(mode: Any, configured: bool) -> bool:
 def answers_automatically(mode: Any, metadata: Optional[Mapping[str, Any]] = None) -> bool:
     """Whether a question to the user is answered without waiting, in this mode."""
     mode = normalize_run_mode(mode)
+    meta = metadata or {}
+    if meta.get("node_type") == "human" and meta.get("paid"):
+        # A gate in front of a paid or irreversible step is never approved on the user's behalf, in any mode
+        return False
     if mode == "bypass":
         return True
     if mode == "auto":

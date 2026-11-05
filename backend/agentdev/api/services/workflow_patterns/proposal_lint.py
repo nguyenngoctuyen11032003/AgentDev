@@ -153,6 +153,55 @@ def gates_missing_auto_answer(data: Any) -> List[str]:
     return Graph.from_workflow(data).humans_blocking_auto_answer(AUTO_ANSWER)
 
 
+def _conditional(edge: dict) -> bool:
+    cond = edge.get("condition")
+    if not cond or cond is True:
+        return False
+    if isinstance(cond, dict) and cond.get("type") == "function":
+        return str((cond.get("config") or {}).get("name") or "") not in ("true", "")
+    return True
+
+
+def end_nodes_running_together(data: Any) -> List[Tuple[Any, Any]]:
+    """Pairs of end nodes that one run can both reach: no node splits them with conditional edges."""
+    g = Graph.from_workflow(data)
+    graph = (data or {}).get("graph") if isinstance(data, dict) else None
+    graph = graph if isinstance(graph, dict) else {}
+    ends = [e for e in graph.get("end") or [] if e in g.nodes]
+    starts = [s for s in graph.get("start") or [] if s in g.nodes]
+    if len(ends) < 2:
+        return []
+
+    def reach(seeds: List[Any], skip: Any = None) -> set:
+        seen, todo = set(), [s for s in seeds if s != skip]
+        while todo:
+            n = todo.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            todo.extend(t for t in g.adj.get(n, []) if t != skip)
+        return seen
+
+    out: List[Tuple[Any, Any]] = []
+    for i, x in enumerate(ends):
+        for y in ends[i + 1:]:
+            exclusive = False
+            for n in g.nodes:
+                cond_edges = [e for e in g.edges if e.get("from") == n and e.get("to") in g.nodes and _conditional(e)]
+                if len(cond_edges) < 2:
+                    continue
+                if x in reach(starts, skip=n) or y in reach(starts, skip=n):
+                    continue  # one of them is also reachable around this node
+                for a in cond_edges:
+                    for b in cond_edges:
+                        ra, rb = reach([a["to"]]), reach([b["to"]])
+                        if x in ra and x not in rb and y in rb and y not in ra:
+                            exclusive = True
+            if not exclusive:
+                out.append((x, y))
+    return out
+
+
 def triage_missing(data: Any) -> bool:
     """True when the graph has >= 4 agents but its first node is not a triage/lead-like agent."""
     agents = _agents(data)
@@ -200,6 +249,9 @@ def lint(data: Any) -> Tuple[List[str], List[dict]]:
                      "approve regex on the answer itself (e.g. ^\s*OK\W*$ or [Automatic answer), never on '['.")
     for node_id in gates_missing_auto_answer(data):
         notes.append(f"{node_id}: no branch accepts `[Automatic answer`, so the Lab test harness cannot pass this gate.")
+    for x, y in end_nodes_running_together(data):
+        notes.append(f"MULTIPLE_END_NODES: end steps '{x}' and '{y}' can both run in one turn; the one that finishes "
+                     "last gives the answer. Make them exclusive with edge conditions, or keep a single end step.")
     if triage_missing(data):
         notes.append("The first node is not a triage: small asks will run the whole team.")
     return notes, []
