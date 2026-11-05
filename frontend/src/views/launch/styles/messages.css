@@ -203,7 +203,8 @@
   gap: 2px;
   margin: 4px 0 8px;
 }
-.chat-older-btn {
+.chat-older-btn,
+.chat-newer-btn {
   border: 1px solid var(--border);
   background: var(--surface-raised);
   color: var(--fg);
@@ -213,8 +214,10 @@
   border-radius: 999px;
   cursor: pointer;
 }
-.chat-older-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
-.chat-older-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.chat-older-btn:hover,
+.chat-newer-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.chat-older-btn:focus-visible,
+.chat-newer-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .chat-older-note { font-size: 11px; color: rgb(var(--ink) / 0.4); }
 
 /* Failed tool calls of one agent's step, grouped; quiet once the agent moved on */

@@ -367,7 +367,9 @@
     },
     "history": {
       "show_older": "Show {n} older messages",
-      "hidden": "{n} older messages are hidden to keep the page fast"
+      "hidden": "{n} older messages are hidden to keep the page fast",
+      "show_newer": "Show {n} newer messages",
+      "hidden_newer": "{n} newer messages are hidden; show them or jump to the latest"
     },
     "shortcuts": {
       "hint": "Enter: send · Shift+Enter: new line · ↑: edit your last message · /: type a message · Alt+1–9: pick a suggestion · Ctrl+Enter: approve the plan"

@@ -263,7 +263,7 @@
                 <!-- A long session renders only its latest messages; older ones on demand -->
                 <div v-if="hiddenMessageCount" class="chat-older">
                   <button type="button" class="chat-older-btn" @click="showOlderMessages">
-                    {{ $t('launch.history.show_older', { n: Math.min(hiddenMessageCount, RENDER_STEP) }) }}
+                    {{ $t('launch.history.show_older', { n: Math.min(hiddenMessageCount, WINDOW.step) }) }}
                   </button>
                   <span class="chat-older-note">{{ $t('launch.history.hidden', { n: hiddenMessageCount }) }}</span>
                 </div>
@@ -271,6 +271,7 @@
                 <div
                   v-for="message in visibleMessages"
                   :key="messageKey(message)"
+                  :data-msg-key="messageKey(message)"
                   class="chat-message-item"
                   v-memo="[
                     message.rev,
@@ -579,6 +580,12 @@
                 </div>
               </div>
             </div>
+                <div v-if="hiddenNewerCount" class="chat-older chat-newer">
+                  <button type="button" class="chat-newer-btn" @click="showNewerMessages">
+                    {{ $t('launch.history.show_newer', { n: Math.min(hiddenNewerCount, WINDOW.step) }) }}
+                  </button>
+                  <span class="chat-older-note">{{ $t('launch.history.hidden_newer', { n: hiddenNewerCount }) }}</span>
+                </div>
           </div>
             </div>
             <div ref="inputAreaRef" class="input-area">
@@ -1059,6 +1066,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick, toRaw
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, postWorkflowExecute, sessionOutputsSummary } from '@/api/client.js'
+import { WINDOW, openAtLatest, showOlder, showNewer, onLengthChange, revealIndex, sliceWindow, hiddenOlder, hiddenNewer } from '@/utils/messageWindow.js'
 import { collectDroppedItems } from '@/utils/projectFiles.js'
 import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
 import OutputLocation from '@/components/launch/OutputLocation.vue'
@@ -1341,9 +1349,7 @@ const chatMessagesRef = ref(null) // Extra ref
 // A long session (hundreds of turns, steps and notices) renders only its latest messages: the
 // list stays light while events stream in, and older ones come back with one click. The
 // window only slides while you are at the bottom, so what you read further up never moves.
-const RENDER_LIMIT = 160
-const RENDER_STEP = 120
-const renderStart = ref(0)
+const renderWin = ref({ start: 0, end: null })
 // A reopened session is rebuilt from its replayed events (often thousands). While that runs the
 // list is not rendered at all: no "old chat replaying" on screen, and no re-render per event.
 // It appears once, complete, when session_resumed arrives. A backstop timer never leaves it hidden.
@@ -1354,36 +1360,46 @@ const setReplaying = (on) => {
   replayBackstop = on ? setTimeout(() => { isReplaying.value = false }, 20000) : null
   if (isReplaying.value === on) return
   isReplaying.value = on
-  if (!on) {
-    // Open at the latest messages, like a session that was followed live
-    const length = chatMessages.value.length
-    renderStart.value = length > RENDER_LIMIT ? length - RENDER_LIMIT : 0
-  }
+  // Open at the latest messages, like a session that was followed live
+  if (!on) renderWin.value = openAtLatest(chatMessages.value.length)
 }
-const visibleMessages = computed(() => {
-  if (isReplaying.value) return []
-  const list = chatMessages.value
-  const start = Math.min(renderStart.value, list.length)
-  return start ? list.slice(start) : list
-})
-const hiddenMessageCount = computed(() => (isReplaying.value ? 0 : Math.min(renderStart.value, chatMessages.value.length)))
+const visibleMessages = computed(() => (isReplaying.value ? [] : sliceWindow(chatMessages.value, renderWin.value)))
+const hiddenMessageCount = computed(() => (isReplaying.value ? 0 : hiddenOlder(renderWin.value)))
+const hiddenNewerCount = computed(() => (isReplaying.value ? 0 : hiddenNewer(renderWin.value, chatMessages.value.length)))
 // A new list (other session, reconnect, new workflow) starts from its top
-watch(chatMessages, () => { renderStart.value = 0 })
+watch(chatMessages, () => { renderWin.value = { start: 0, end: null } })
 watch(
   () => chatMessages.value.length,
   (length) => {
-    if (renderStart.value > length) renderStart.value = length
-    if (isNearBottom && length - renderStart.value > RENDER_LIMIT + RENDER_STEP) renderStart.value = length - RENDER_LIMIT
+    const next = onLengthChange(renderWin.value, length, isNearBottom)
+    if (next.start !== renderWin.value.start || next.end !== renderWin.value.end) renderWin.value = next
   }
 )
-const showOlderMessages = () => {
+// Change the window while the message at the top of the viewport stays where it is
+// (items are added above it and/or unmounted below it)
+const withScrollAnchor = (change) => {
   const el = chatMessagesRef.value
-  const before = el ? el.scrollHeight - el.scrollTop : 0
-  renderStart.value = Math.max(0, renderStart.value - RENDER_STEP)
-  // Keep the message you were looking at in place while the older ones appear above it
+  let key = null
+  let offset = 0
+  if (el) {
+    const top = el.getBoundingClientRect().top
+    for (const item of el.querySelectorAll('.chat-message-item')) {
+      const rect = item.getBoundingClientRect()
+      if (rect.bottom > top) { key = item.dataset.msgKey; offset = rect.top - top; break }
+    }
+  }
+  change()
   nextTick(() => {
-    if (el) el.scrollTop = el.scrollHeight - before
+    if (!el || key === null) return
+    const item = el.querySelector(`.chat-message-item[data-msg-key="${key}"]`)
+    if (item) el.scrollTop += item.getBoundingClientRect().top - el.getBoundingClientRect().top - offset
   })
+}
+const showOlderMessages = () => {
+  withScrollAnchor(() => { renderWin.value = showOlder(renderWin.value, chatMessages.value.length) })
+}
+const showNewerMessages = () => {
+  withScrollAnchor(() => { renderWin.value = showNewer(renderWin.value, chatMessages.value.length) })
 }
 
 // Map in-progress model/tool call messages by node ID
@@ -3331,7 +3347,7 @@ const revealToolIssues = () => {
   const group = [...toolIssueGroups.values()].find((item) => !item.recovered)
   if (!group) return
   const index = chatMessages.value.indexOf(group)
-  if (index > -1 && index < renderStart.value) renderStart.value = index
+  if (index > -1) renderWin.value = revealIndex(renderWin.value, chatMessages.value.length, index)
   if (!group.open) toggleToolIssues(group)
   nextTick(() => {
     const el = chatMessagesRef.value?.querySelector(`[data-tool-issues="${CSS.escape(group.nodeId)}"]:not(.is-recovered)`)
@@ -6081,6 +6097,7 @@ const handleChatScroll = () => {
 
 // "New messages" button: back to the latest message, following the chat again from there
 const jumpToLatest = () => {
+  if (renderWin.value.end !== null) renderWin.value = openAtLatest(chatMessages.value.length)
   scheduleScrollToBottom(true)
   taskInputRef.value?.focus({ preventScroll: true })
 }

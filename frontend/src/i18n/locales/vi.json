@@ -367,7 +367,9 @@
     },
     "history": {
       "show_older": "Hiện {n} tin cũ hơn",
-      "hidden": "{n} tin cũ đang được ẩn để trang chạy nhanh"
+      "hidden": "{n} tin cũ đang được ẩn để trang chạy nhanh",
+      "show_newer": "Hiện {n} tin mới hơn",
+      "hidden_newer": "{n} tin mới hơn đang được ẩn, bấm để xem hoặc nhảy tới tin mới nhất"
     },
     "shortcuts": {
       "hint": "Enter: gửi · Shift+Enter: xuống dòng · ↑: sửa lại tin vừa gửi · /: gõ tin nhắn · Alt+1–9: chọn gợi ý · Ctrl+Enter: duyệt kế hoạch"

@@ -325,7 +325,9 @@
     },
     "history": {
       "show_older": "显示更早的 {n} 条消息",
-      "hidden": "已隐藏 {n} 条较早的消息以保持页面流畅"
+      "hidden": "已隐藏 {n} 条较早的消息以保持页面流畅",
+      "show_newer": "显示更新的 {n} 条消息",
+      "hidden_newer": "已隐藏 {n} 条较新的消息，可展开或跳到最新"
     },
     "shortcuts": {
       "hint": "Enter：发送 · Shift+Enter：换行 · ↑：编辑上一条消息 · /：输入消息 · Alt+1–9：选择建议 · Ctrl+Enter：批准计划"

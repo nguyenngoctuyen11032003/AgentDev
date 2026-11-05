@@ -102,6 +102,8 @@ test('c. DOM nodes when opening a session with 1000 messages (mocked socket)', a
   const expanded = await count()
   result.messages = { sentMessages: 1000, firstBubbleMs, initial, expanded, showOlderClicks: clicks }
   expect(initial.dom).toBeLessThan(BUDGET.domNodes1000MessagesInitial)
+  expect(expanded.dom).toBeLessThan(5000) // windowed: older items unmount at the far end
+  expect(await page.locator('.chat-newer-btn').count()).toBe(1)
 })
 
 test('d. canvas drag FPS with a 200-node workflow', async ({ page }) => {
