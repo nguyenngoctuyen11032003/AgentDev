@@ -925,10 +925,56 @@ export const labJob = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}`
 
 export const labJobs = (workflow) => labRequest(`/jobs?workflow=${encodeURIComponent(workflow)}`)
 
-export const labCancel = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
+export const labCancel = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST', body: '{}' })
 
 /** Re-run only the unfinished runs of a job that a server restart or a cancel stopped. */
-export const labResume = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST' })
+export const labResume = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST', body: '{}' })
+
+// --- What a run produced (files under storage/warehouse/lab_*), its app preview, and storage cleanup ---
+const labRunPath = (jobId, run) => `/jobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(run)}`
+const encodeRelPath = (path) => String(path || '').split('/').map(encodeURIComponent).join('/')
+
+/** -> {available, root, total_bytes, file_count, truncated, files: [{path, size, kind}], project} */
+export const labRunFiles = (jobId, run) => labRequest(`${labRunPath(jobId, run)}/files`)
+
+/** Raw URL of one product file (img/video src, download link, text fetch). */
+export const labRunFileUrl = (jobId, run, path) =>
+  apiUrl(`/api/lab${labRunPath(jobId, run)}/file?path=${encodeURIComponent(path)}`)
+
+/** Static-site URL of a product file: relative assets of an HTML page resolve from here. */
+export const labRunSiteUrl = (jobId, run, path = '') =>
+  apiUrl(`/api/lab${labRunPath(jobId, run)}/site/${encodeRelPath(path)}`)
+
+/** Text content of a product file; a file over the server's limit fails with status 413. */
+export async function labRunFileText(jobId, run, path, { signal } = {}) {
+  const response = await fetch(labRunFileUrl(jobId, run, path), { ...FRESH, signal })
+  if (!response.ok) throw await responseError('errors.api.lab_failed', response)
+  return response.text()
+}
+
+/** Open the product folder (path '') or one file on this machine; reveal selects it in the file manager. */
+export const labRunOpen = (jobId, run, { path = '', reveal = false } = {}) =>
+  labRequest(`${labRunPath(jobId, run)}/open`, { method: 'POST', body: JSON.stringify({ path, reveal }) })
+
+/** Delete what one run produced (409 while its job is still running). -> {deleted, freed_bytes} */
+export const labRunDeleteOutputs = (jobId, run) => labRequest(`${labRunPath(jobId, run)}/outputs`, { method: 'DELETE' })
+
+/** App preview ("Chạy thử"): start (or get the existing one), read its status, stop it. */
+// Every POST under /api/lab must carry a JSON body (the server answers 400 otherwise).
+export const labPreviewStart = (jobId, run) =>
+  labRequest(`${labRunPath(jobId, run)}/preview`, { method: 'POST', body: '{}' })
+export const labPreviewStatus = (jobId, run) => labRequest(`${labRunPath(jobId, run)}/preview`)
+export const labPreviewStop = (jobId, run) => labRequest(`${labRunPath(jobId, run)}/preview`, { method: 'DELETE' })
+
+/** -> {total_bytes, run_dirs, oldest, orphan_dirs} for all lab_* result folders. */
+export const labStorage = () => labRequest('/storage')
+
+/** Delete result folders older than N days and/or not referenced by any job. -> {deleted, freed_bytes} */
+export const labStorageCleanup = ({ olderThanDays = 0, orphansOnly = false } = {}) =>
+  labRequest('/storage/cleanup', {
+    method: 'POST',
+    body: JSON.stringify({ older_than_days: olderThanDays, orphans_only: orphansOnly })
+  })
 
 /** Open a file of the session's opened project on this machine (nothing is downloaded or copied). */
 export async function openLocalProjectFile(sessionId, relativePath, { reveal = false } = {}) {

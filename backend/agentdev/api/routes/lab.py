@@ -1,10 +1,14 @@
-"""Workflow Lab API: static readiness check and scenario evaluation runs."""
+"""Workflow Lab API: static readiness check, scenario evaluation runs, and the files those runs produced."""
 
+import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from agentdev.api.services import lab_outputs
+from agentdev.api.services.local_projects import open_on_machine
 from agentdev.api.services.workflow_lab import (
     MAX_REPEATS,
     MAX_SCENARIOS,
@@ -139,3 +143,69 @@ def generate(payload: GenerateRequest):
         return {"scenarios": generate_scenarios(path, payload.count, payload.language)}
     except Exception as exc:  # noqa: BLE001 - shown to the user as a retryable message
         raise HTTPException(status_code=502, detail=str(exc) or exc.__class__.__name__) from exc
+
+
+# ----------------------------------------------------------------------------- files a run produced
+
+
+class OpenRequest(BaseModel):
+    path: str = Field("", max_length=4096)
+    reveal: bool = False
+
+
+class CleanupRequest(BaseModel):
+    older_than_days: int = Field(..., ge=0, le=36500)
+    orphans_only: bool = False
+
+
+def _outputs_call(func, *args):
+    """Run a lab_outputs function, turning its errors into HTTP errors."""
+    try:
+        return func(*args)
+    except lab_outputs.LabOutputsError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+def _send_file(target) -> FileResponse:
+    return FileResponse(target, media_type=lab_outputs.content_type(target), headers=lab_outputs.response_headers(target))
+
+
+@router.get("/jobs/{job_id}/runs/{run}/files")
+def run_files(job_id: str, run: int):
+    return _outputs_call(lab_outputs.list_files, job_id, run)
+
+
+@router.get("/jobs/{job_id}/runs/{run}/file")
+def run_file(job_id: str, run: int, path: str):
+    return _send_file(_outputs_call(lab_outputs.run_file, job_id, run, path))
+
+
+@router.get("/jobs/{job_id}/runs/{run}/site/{path:path}")
+def run_site(job_id: str, run: int, path: str = ""):
+    """The product served as a static site (iframe src of a "static" project), so relative assets load."""
+    return _send_file(_outputs_call(lab_outputs.site_file, job_id, run, path))
+
+
+@router.post("/jobs/{job_id}/runs/{run}/open")
+async def run_open(job_id: str, run: int, payload: OpenRequest):
+    target = _outputs_call(lab_outputs.open_target, job_id, run, payload.path)
+    try:
+        action = await asyncio.to_thread(open_on_machine, target, reveal=payload.reveal)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not open the file: {exc}") from exc
+    return {"status": action, "path": str(target)}
+
+
+@router.delete("/jobs/{job_id}/runs/{run}/outputs")
+def delete_run_outputs(job_id: str, run: int):
+    return _outputs_call(lab_outputs.delete_run_outputs, job_id, run)
+
+
+@router.get("/storage")
+def lab_storage():
+    return lab_outputs.storage_stats()
+
+
+@router.post("/storage/cleanup")
+def lab_storage_cleanup(payload: CleanupRequest):
+    return lab_outputs.cleanup_storage(payload.older_than_days, payload.orphans_only)

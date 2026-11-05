@@ -316,6 +316,8 @@
           </footer>
         </section>
 
+        <LabHistory :workflow="workflow" :current-id="job?.id || ''" :refresh-key="storageRefresh + historyRefresh" @open="openPastJob" />
+
         <!-- Results -->
         <!-- Always in the DOM so assistive tech announces the changes (a live region created with its text is often skipped). -->
         <p class="sr-only" role="status" aria-live="polite">{{ srStatus }}</p>
@@ -460,6 +462,14 @@
                 <button v-if="['failed', 'error'].includes(r.status)" type="button" class="btn secondary sm fix-btn" @click="fixWithAssistant(r)">
                   {{ tr('lab.fix_this_run', 'Chỉnh sửa theo lượt này') }}
                 </button>
+                <!-- What the run produced (scripts, documents, a web app…): loaded only once the run is opened -->
+                <LabRunOutputs
+                  v-if="openRuns.has(i) && r.status !== 'running'"
+                  :job-id="job.id"
+                  :run="i"
+                  :job-running="!!isRunning"
+                  @deleted="storageRefresh++"
+                />
                 <p v-if="r.members?.length" class="meta-line">
                   <strong>{{ tr('lab.members_used', 'Thành viên đã làm') }}:</strong> {{ r.members.join(', ') }}
                 </p>
@@ -486,6 +496,8 @@
         </section>
       </div>
     </div>
+
+    <LabStorage :refresh-key="storageRefresh" />
   </div>
 </template>
 
@@ -495,6 +507,10 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
+import LabRunOutputs from '@/components/lab/LabRunOutputs.vue'
+import LabStorage from '@/components/lab/LabStorage.vue'
+import LabHistory from '@/components/lab/LabHistory.vue'
+import { toast } from '@/utils/toast.js'
 import { MAX_SCENARIOS, PACK_IDS, buildPackScenarios, dedupeSamples, detectPack } from '@/utils/labSamples.js'
 import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
 import { fetchWorkflowNames, labCancel, labCheck, labEvaluate, labGenerate, labJob, labResume } from '@/api/client'
@@ -519,6 +535,8 @@ const render = (text) => {
   return html
 }
 const openRuns = ref(new Set())
+// Bumped when results are added or deleted so the storage line re-reads its totals.
+const storageRefresh = ref(0)
 const onRunToggle = (index, event) => {
   const next = new Set(openRuns.value)
   if (event.target.open) next.add(index)
@@ -541,6 +559,9 @@ const newScenario = (data = {}) => reactive({ key: keySeq++, name: '', prompt: '
 const scenarios = ref([newScenario()])
 const repeats = ref(1)
 const job = ref(null)
+// A new evaluation appears in the history list as soon as it starts
+const historyRefresh = ref(0)
+watch(() => job.value?.id, (id, before) => { if (id && id !== before) historyRefresh.value += 1 })
 const evalError = ref('')
 const starting = ref(false)
 const stopping = ref(false)
@@ -616,6 +637,8 @@ function fixWithAssistant(run) {
 }
 
 const isRunning = computed(() => job.value && ['queued', 'running'].includes(job.value.status))
+// A finished job wrote new result folders: refresh the storage totals.
+watch(isRunning, (now, before) => { if (before && !now) storageRefresh.value += 1 })
 const plannedRuns = computed(() => scenarios.value.filter((s) => s.prompt.trim()).length * repeats.value)
 const scenarioLabel = (index) => submitted.value[index]?.name?.trim() || t('lab.scenario_name', { n: index + 1 })
 
@@ -714,6 +737,28 @@ function rememberJob(name, id, list) {
     sessionStorage.setItem(jobKey(name), JSON.stringify({ id, submitted: list }))
   } catch {
     // storage unavailable: results are simply not restored after a reload
+  }
+}
+// Open a past evaluation from the history list: its scores, runs and the products each run made.
+async function openPastJob(id) {
+  if (!id || id === job.value?.id) return
+  const name = workflow.value
+  try {
+    const data = await labJob(id)
+    if (unmounted || workflow.value !== name) return
+    stopPolling()
+    openRuns.value = new Set()
+    submitted.value = (data.scenarios || []).map((s) => ({ name: s.name || '', prompt: s.prompt || '', criteria: s.criteria || '' }))
+    lastJobSnapshot = JSON.stringify(data)
+    pollErrors = 0
+    job.value = data
+    rememberJob(name, data.id, submitted.value)
+    if (isRunning.value) schedulePoll(1500)
+    await nextTick()
+    resultsEl.value?.focus?.()
+    resultsEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  } catch (error) {
+    toast.error(error?.message || tr('lab.history.open_failed', 'Không mở được lần kiểm định này'))
   }
 }
 async function restoreJob(name) {
