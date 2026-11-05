@@ -1108,9 +1108,13 @@ export async function openLocalProjectFile(sessionId, relativePath, { reveal = f
     body: JSON.stringify({ relative_path: relativePath, reveal })
   })
   if (!response.ok) {
-    let detail = ''
-    try { detail = (await response.json())?.detail || '' } catch { /* not JSON */ }
-    throw new Error(detail || `HTTP ${response.status}`)
+    // The caller wraps this in its own "could not open file: {error}" text, so no extra summary here.
+    const body = await response.json().catch(() => null)
+    const detail = extractErrorDetail(body) || httpStatusDetail(response)
+    const error = new Error(localizeBackendError(detail) || detail || `HTTP ${response.status}`)
+    error.status = response.status
+    error.detail = detail
+    throw error
   }
   return response.json()
 }

@@ -870,6 +870,7 @@
       "view": "Tổng quan",
       "title": "Tổng quan công việc",
       "progress_aria": "Đã hoàn thành {p}%",
+      "completed_with_errors": "Hoàn thành, {n} bước lỗi",
       "done_of": "{done}/{total} bước",
       "no_task": "Chưa có nhiệm vụ nào được giao trong phiên này.",
       "now_at": "Đang ở bước {n}: {name}",

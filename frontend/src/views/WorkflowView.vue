@@ -81,7 +81,7 @@
           />
         </template>
         <Background pattern-color="var(--canvas-dot)"/>
-        <Controls position="bottom-right"/>
+        <Controls ref="controlsRef" position="bottom-right"/>
         </VueFlow>
 
         <!-- Right-click context menu inside VueFlow container -->
@@ -467,7 +467,28 @@ const withErrorDetail = (message, result) => {
   const detail = extractErrorDetail(result)
   return detail ? t('workflow_view.error_with_detail', { message, detail }) : message
 }
-const { toObject, fromObject, fitView, getViewport, findNode, getNodes, onNodesInitialized } = useVueFlow()
+const { toObject, fromObject, fitView, getViewport, findNode, getNodes, onNodesInitialized, nodesDraggable, nodesConnectable, elementsSelectable } = useVueFlow()
+
+// The stock canvas controls are unlabeled icon buttons: name them (order: zoom in, zoom out, fit, lock)
+const controlsRef = ref(null)
+const graphLocked = computed(() => !(nodesDraggable.value || nodesConnectable.value || elementsSelectable.value))
+const labelCanvasControls = () => {
+  const buttons = controlsRef.value?.$el?.querySelectorAll?.('.vue-flow__controls-button') ?? []
+  const labels = [
+    t('launch.shell.zoom_in'),
+    t('launch.shell.zoom_out'),
+    t('launch.shell.zoom_fit'),
+    graphLocked.value ? t('launch.shell.graph_unlock') : t('launch.shell.graph_lock')
+  ]
+  buttons.forEach((button, index) => {
+    if (!labels[index]) return
+    button.setAttribute('aria-label', labels[index])
+    button.setAttribute('title', labels[index])
+  })
+}
+// controlsRef changes whenever the graph tab is shown again (the canvas sits under v-if)
+watch([controlsRef, () => t('launch.shell.zoom_in'), graphLocked], () => nextTick(labelCanvasControls), { flush: 'post' })
+onMounted(() => nextTick(labelCanvasControls))
 // Default minimum is 0.5, too close for a 12-agent team to fit on screen.
 const MIN_ZOOM = 0.15
 
@@ -2396,6 +2417,20 @@ const handleCopySubmit = async () => {
 </script>
 
 <style scoped>
+/* Canvas controls: comfortable hit area (the stock 26px buttons are below the 44px touch guideline) */
+:deep(.vue-flow__controls-button) {
+  width: 24px;
+  height: 24px;
+  padding: 10px;
+}
+:deep(.vue-flow__controls-button svg) {
+  max-width: 16px;
+  max-height: 16px;
+}
+:deep(.vue-flow__controls-button:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 /* Only listens for edits in the node/edge form; adds no box of its own */
 .form-generator-host {
   display: contents;
