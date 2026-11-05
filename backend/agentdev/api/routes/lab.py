@@ -12,6 +12,7 @@ from agentdev.api.services.local_projects import open_on_machine
 from agentdev.api.services.workflow_lab import (
     MAX_REPEATS,
     MAX_SCENARIOS,
+    LabError,
     Scenario,
     get_lab_runner,
     static_check,
@@ -26,6 +27,14 @@ def _local_pages_only(request: Request) -> None:
 
 
 router = APIRouter(prefix="/api/lab", tags=["lab"], dependencies=[Depends(_local_pages_only)])
+
+
+def _lab_http(status: int, code: str, message: str, params: dict | None = None) -> HTTPException:
+    return HTTPException(status_code=status, detail={"message": message, "code": code, "params": params or {}})
+
+
+def _from_lab_error(exc: LabError) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.http_detail())
 
 
 class CheckRequest(BaseModel):
@@ -49,16 +58,16 @@ class EvaluateRequest(BaseModel):
 def _workflow_path(yaml_file: str):
     name = (yaml_file or "").strip()
     if not name:
-        raise HTTPException(status_code=400, detail="yaml_file is required")
+        raise _lab_http(400, "lab_yaml_required", "yaml_file is required")
     if not name.endswith((".yaml", ".yml")):
         name += ".yaml"
     try:
         validate_path_component(name, field="yaml_file")
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _lab_http(400, "lab_yaml_required", str(exc)) from exc
     path = _resolve_yaml_path(name)
     if not path.is_file():
-        raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found")
+        raise _lab_http(404, "lab_workflow_not_found", f"Workflow '{name}' not found")
     return name, path
 
 
@@ -75,15 +84,18 @@ def evaluate(payload: EvaluateRequest):
                           max_seconds=s.max_seconds, max_tokens=s.max_tokens)
                  for s in payload.scenarios if s.prompt.strip()]
     if not scenarios:
-        raise HTTPException(status_code=400, detail="Add at least one test scenario")
+        raise _lab_http(400, "lab_no_scenarios", "Add at least one test scenario")
     if len(scenarios) > MAX_SCENARIOS:
-        raise HTTPException(status_code=400, detail=f"At most {MAX_SCENARIOS} scenarios per run")
+        raise _lab_http(400, "lab_too_many_scenarios", f"At most {MAX_SCENARIOS} scenarios per run")
     repeats = max(1, min(int(payload.repeats or 1), MAX_REPEATS))
     try:
         config_status = static_check(path).get("status", "")
     except Exception:  # noqa: BLE001 - the check is advisory here; the run reports its own errors
         config_status = ""
-    job = get_lab_runner().start(path, name, scenarios, repeats, config_status=config_status)
+    try:
+        job = get_lab_runner().start(path, name, scenarios, repeats, config_status=config_status)
+    except LabError as exc:
+        raise _from_lab_error(exc) from exc
     return job.to_dict()
 
 
@@ -101,6 +113,30 @@ def job_status(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Lab run not found")
     return job.to_dict()
+
+
+@router.delete("/jobs/{job_id}")
+def delete_job(job_id: str):
+    """Delete one stored job record and, best effort, the folders its runs produced (refused while it runs)."""
+    runner = get_lab_runner()
+    stored = runner.get(job_id)
+    if stored is None:
+        raise _lab_http(404, "lab_job_not_found", "Lab run not found", {"job_id": job_id})
+    if lab_outputs.is_running(stored):
+        raise _lab_http(409, "lab_job_running", "This Lab run is still running; stop it first.")
+    results = (stored.to_dict() or {}).get("results") or []
+    for index, result in enumerate(results):
+        if result.get("output_dir"):
+            try:
+                lab_outputs.delete_run_outputs(job_id, result.get("run_id") or index)
+            except Exception:  # noqa: BLE001 - leftovers are swept by the storage cleanup
+                pass
+    try:
+        if not runner.delete(job_id):
+            raise _lab_http(404, "lab_job_not_found", "Lab run not found", {"job_id": job_id})
+    except LabError as exc:
+        raise _from_lab_error(exc) from exc
+    return {"deleted": True}
 
 
 @router.post("/jobs/{job_id}/cancel")
@@ -123,8 +159,10 @@ def resume(job_id: str):
         job = runner.resume(job_id, path)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LabError as exc:
+        raise _from_lab_error(exc) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise _lab_http(409, "lab_not_resumable", str(exc)) from exc
     return job.to_dict()
 
 
@@ -142,7 +180,7 @@ def generate(payload: GenerateRequest):
     try:
         return {"scenarios": generate_scenarios(path, payload.count, payload.language)}
     except Exception as exc:  # noqa: BLE001 - shown to the user as a retryable message
-        raise HTTPException(status_code=502, detail=str(exc) or exc.__class__.__name__) from exc
+        raise _lab_http(502, "lab_generate_failed", str(exc) or exc.__class__.__name__) from exc
 
 
 # ----------------------------------------------------------------------------- files a run produced

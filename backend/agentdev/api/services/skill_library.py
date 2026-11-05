@@ -142,7 +142,9 @@ def _entry_for(skill_dir: Path) -> SkillEntry:
 def _iter_skill_dirs(root: Path) -> Iterable[Path]:
     if not root.is_dir():
         return []
-    return [d for d in sorted(root.iterdir()) if d.is_dir() and (d / "SKILL.md").is_file()]
+    return [
+        d for d in sorted(root.iterdir()) if not d.name.startswith(".") and d.is_dir() and (d / "SKILL.md").is_file()
+    ]
 
 
 def list_skills() -> List[dict]:
@@ -175,6 +177,8 @@ def save_skill(
     root = _root()
     target = root / final_name
 
+    write_dir = target
+    renaming = False
     if rename_from and validate_name(rename_from) != final_name:
         source = root / validate_name(rename_from)
         _refuse_link(source)
@@ -182,7 +186,7 @@ def save_skill(
             raise FileNotFoundError(rename_from)
         if target.exists() or is_link(target):
             raise FileExistsError(final_name)
-        source.rename(target)
+        write_dir, renaming = source, True
     elif rename_from:
         # Editing in place: the skill must already exist (an edit never creates one).
         _refuse_link(target)
@@ -193,9 +197,23 @@ def save_skill(
             raise FileExistsError(final_name)
         _refuse_link(target)
 
-    target.mkdir(parents=True, exist_ok=True)
-    (target / "SKILL.md").write_text(markdown, encoding="utf-8")
+    write_dir.mkdir(parents=True, exist_ok=True)
+    _atomic_write(write_dir / "SKILL.md", markdown)
+    if renaming:
+        # Rename only after the new text is safely on disk.
+        write_dir.rename(target)
     return get_skill(final_name)
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a temp file next to ``path`` and ``os.replace`` it: a crash never leaves a cut-off file."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def delete_skill(name: str) -> None:
@@ -238,17 +256,33 @@ def _import_one(src: Path, dest: Path, overwrite: bool) -> str:
         raise ValidationError(entry.error if entry else "SKILL.md not found")
     if _dir_size(src) > MAX_IMPORT_DIR_BYTES:
         raise ValidationError(f"Folder is larger than {MAX_IMPORT_DIR_BYTES // (1024 * 1024)} MB")
-    if dest.exists() or is_link(dest):
+    replacing = dest.exists() or is_link(dest)
+    if replacing:
         if not overwrite:
             return "skipped"
         _refuse_link(dest)
-        shutil.rmtree(dest)
+    # Copy next to the destination first; the old skill is only moved aside once the copy is complete.
+    tmp = dest.with_name(f".{dest.name}.importing")
+    backup = dest.with_name(f".{dest.name}.backup")
+    for leftover in (tmp, backup):
+        if leftover.exists() and not is_link(leftover):
+            shutil.rmtree(leftover, ignore_errors=True)
     try:
-        shutil.copytree(src, dest, symlinks=True, ignore=_ignore_links_and_junk)
+        shutil.copytree(src, tmp, symlinks=True, ignore=_ignore_links_and_junk)
+        if replacing:
+            os.replace(dest, backup)
+            try:
+                os.replace(tmp, dest)
+            except BaseException:
+                os.replace(backup, dest)  # restore the previous skill
+                raise
+            shutil.rmtree(backup, ignore_errors=True)
     except BaseException:
-        if dest.is_dir() and not is_link(dest):
-            shutil.rmtree(dest, ignore_errors=True)  # no half-copied skill left behind
+        if tmp.is_dir() and not is_link(tmp):
+            shutil.rmtree(tmp, ignore_errors=True)  # no half-copied skill left behind
         raise
+    if not replacing:
+        os.replace(tmp, dest)
     return "imported"
 
 

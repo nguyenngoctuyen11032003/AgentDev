@@ -13,6 +13,8 @@ WORKSPACE_WRITE_TOOLS = frozenset(
     {
         "save_file",
         "apply_text_edits",
+        "edit_file",
+        "multi_edit",
         "create_folder",
         "delete_path",
         "rename_path",

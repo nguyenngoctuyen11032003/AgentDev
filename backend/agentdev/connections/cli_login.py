@@ -117,6 +117,13 @@ class CliLoginManager:
                 self._kill(session)
                 self._sessions.pop(sid, None)
 
+    def shutdown(self) -> None:
+        """Kill every pending sign-in process (server shutdown)."""
+        with self._lock:
+            for session in list(self._sessions.values()):
+                self._kill(session)
+            self._sessions.clear()
+
     @staticmethod
     def _kill(session: _Session) -> None:
         if session.proc.poll() is None:

@@ -82,7 +82,7 @@ def test_api_rejects_cli_for_gemini_and_accepts_for_claude(isolated_store, monke
     assert ok.status_code == 201 and ok.json()["secretHint"] == ""
 
 
-def test_signing_out_last_cli_connection_signs_the_cli_out(isolated_store, monkeypatch):
+def test_opt_in_sign_out_cli_signs_the_cli_out(isolated_store, monkeypatch):
     calls = []
     monkeypatch.setattr(connections_route, "logout_cli", lambda vendor: calls.append(vendor) or True)
     app = FastAPI()
@@ -92,10 +92,22 @@ def test_signing_out_last_cli_connection_signs_the_cli_out(isolated_store, monke
     second = isolated_store.create(vendor="anthropic", label="b", secret="", auth_type="cli")
 
     # Another CLI connection still shares the login, so it is kept.
-    assert client.delete(f"/api/connections/{first.id}").json()["cliLoggedOut"] is False
+    assert client.delete(f"/api/connections/{first.id}?sign_out_cli=true").json()["cliLoggedOut"] is False
     assert calls == []
-    assert client.delete(f"/api/connections/{second.id}").json()["cliLoggedOut"] is True
+    assert client.delete(f"/api/connections/{second.id}?sign_out_cli=true").json()["cliLoggedOut"] is True
     assert calls == ["anthropic"]
+
+
+def test_deleting_last_cli_connection_keeps_cli_signed_in_by_default(isolated_store, monkeypatch):
+    """A4-2: removing the AgentDev record must not sign the CLI out machine-wide unless asked."""
+    calls = []
+    monkeypatch.setattr(connections_route, "logout_cli", lambda vendor: calls.append(vendor) or True)
+    app = FastAPI()
+    app.include_router(connections_route.router)
+    client = TestClient(app)
+    only = isolated_store.create(vendor="anthropic", label="a", secret="", auth_type="cli")
+    body = client.delete(f"/api/connections/{only.id}").json()
+    assert body["cliLoggedOut"] is False and calls == []
 
 
 def test_oauth_connection_resolves_to_bearer_and_persists_refresh(isolated_store, monkeypatch):

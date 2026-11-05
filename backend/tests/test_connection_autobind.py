@@ -31,16 +31,26 @@ def _cfg(doc):
 def test_legacy_node_binds_to_same_vendor_account_and_drops_keys(store):
     codex = store.create(vendor="openai", label="Codex", auth_type="cli")
     claude = store.create(vendor="anthropic", label="Claude", auth_type="cli")
-    store.set_default(codex.id)  # an explicit default still wins
-    doc = _doc()
+    store.set_default(codex.id)
+    doc = _doc()  # provider anthropic: the same-vendor account beats the default
     bind_default_connections(doc, {"ANTHROPIC_API_KEY": "set-in-env"})
-    assert _cfg(doc)["connection"] == codex.id
+    assert _cfg(doc)["connection"] == claude.id
     assert "api_key" not in _cfg(doc) and "base_url" not in _cfg(doc)
 
     store.set_default(claude.id)
-    doc = _doc(provider="openai", name="gpt-6.1-sol")
+    doc = _doc(provider="openai", name="gpt-6.1-sol")  # A4-1: provider openai -> Codex, not the default
     bind_default_connections(doc, {})
-    assert _cfg(doc)["connection"] == claude.id
+    assert _cfg(doc)["connection"] == codex.id
+    assert _cfg(doc)["name"] == "gpt-6.1-sol"
+
+
+def test_node_without_provider_uses_default_and_keeps_model(store):
+    """A4-3: no provider means no vendor mismatch, so the chosen model name is never overwritten."""
+    store.create(vendor="anthropic", label="Claude", auth_type="cli")
+    cfg = {"name": "claude-haiku-4-5"}
+    doc = {"graph": {"nodes": [{"id": "a", "type": "agent", "config": cfg}]}}
+    bind_default_connections(doc, {})
+    assert cfg["name"] == "claude-haiku-4-5" and cfg["connection"]
 
 
 def test_env_key_no_longer_keeps_a_node_on_api_key(store):

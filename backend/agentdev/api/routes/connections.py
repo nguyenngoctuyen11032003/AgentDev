@@ -134,17 +134,17 @@ def create_connection(body: ConnectionCreate):
 
 
 @router.delete("/{connection_id}")
-def delete_connection(connection_id: str):
+def delete_connection(connection_id: str, sign_out_cli: bool = False):
     store = get_store()
     conn = store.get(connection_id)
     if conn is None or not store.delete(connection_id):
         raise HTTPException(status_code=404, detail="Connection not found")
     cli_logged_out = False
     if conn.auth_type == "cli":
-        # Signing out also signs the CLI out, so reconnecting asks for the account again.
-        # Other CLI connections of the same vendor share that login, so keep it while any remain.
+        # The CLI login is machine-wide (terminal, other apps, running sessions), so it is only
+        # signed out on explicit request, and never while another connection of the vendor shares it.
         still_used = any(c.auth_type == "cli" and c.vendor == conn.vendor for c in store.list())
-        if not still_used:
+        if sign_out_cli and not still_used:
             cli_logged_out = logout_cli(conn.vendor)
     return {"deleted": connection_id, "cliLoggedOut": cli_logged_out}
 

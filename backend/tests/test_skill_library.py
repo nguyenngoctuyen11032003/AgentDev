@@ -253,3 +253,59 @@ def test_frontmatter_name_used_when_form_name_omitted(client, library):
     res = client.put("/api/skills/cto-management", json={"content": renamed, "name": None, "description": None})
     assert res.status_code == 200 and res.json()["name"] == "cto-lead"
     assert not (library / "cto-management").exists()
+
+
+def test_import_overwrite_keeps_old_on_copy_failure(client, library, tmp_path, monkeypatch):
+    """A5-01: a failed overwrite copy must leave the previous skill intact."""
+    src = _source(tmp_path)
+    client.post("/api/skills/import", json={"names": ["systematic-debugging"], "source": str(src)})
+    old = (library / "systematic-debugging" / "SKILL.md").read_text(encoding="utf-8")
+    (src / "systematic-debugging" / "SKILL.md").write_text(
+        "---\nname: systematic-debugging\ndescription: New.\n---\n\nNew body\n", encoding="utf-8"
+    )
+
+    def boom(*args, **kwargs):
+        raise PermissionError("file in use")
+
+    monkeypatch.setattr(skill_library.shutil, "copytree", boom)
+    res = client.post(
+        "/api/skills/import",
+        json={"names": ["systematic-debugging"], "source": str(src), "overwrite": True},
+    ).json()
+    assert res["failed"]
+    assert (library / "systematic-debugging" / "SKILL.md").read_text(encoding="utf-8") == old
+    assert [p.name for p in library.iterdir()] == ["systematic-debugging"]  # no tmp/backup leftovers
+
+
+def test_rename_with_failed_write_keeps_old_name(client, library, monkeypatch):
+    """A5-10: the folder is only renamed after the new SKILL.md is written."""
+    client.post("/api/skills", json={"content": SKILL_MD})
+    real_replace = skill_library.os.replace
+
+    def failing_replace(src, dst):
+        if str(dst).endswith("SKILL.md"):
+            raise OSError("disk full")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(skill_library.os, "replace", failing_replace)
+    res = client.put("/api/skills/cto-management", json={"content": SKILL_MD, "name": "renamed-skill"})
+    assert res.status_code >= 400
+    assert (library / "cto-management" / "SKILL.md").is_file()
+    assert not (library / "renamed-skill").exists()
+    assert [p.name for p in library.iterdir()] == ["cto-management"]
+
+
+def test_save_is_atomic_write(client, library, monkeypatch):
+    """A5-10: SKILL.md is replaced via a temp file, never truncated in place."""
+    client.post("/api/skills", json={"content": SKILL_MD})
+    before = (library / "cto-management" / "SKILL.md").read_text(encoding="utf-8")
+    real_replace = skill_library.os.replace
+
+    def failing_replace(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(skill_library.os, "replace", failing_replace)
+    res = client.put("/api/skills/cto-management", json={"content": SKILL_MD.replace("Break", "Split")})
+    assert res.status_code >= 400
+    assert (library / "cto-management" / "SKILL.md").read_text(encoding="utf-8") == before
+    assert [p.name for p in (library / "cto-management").iterdir()] == ["SKILL.md"]

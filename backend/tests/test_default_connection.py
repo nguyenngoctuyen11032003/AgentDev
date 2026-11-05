@@ -41,9 +41,9 @@ def test_claude_is_the_default_until_another_is_chosen(store):
     assert store.default_connection().id == claude.id
 
 
-def test_every_node_runs_on_the_default_connection(store):
+def test_node_runs_on_the_default_connection_when_its_vendor_has_no_account(store):
+    # A4-1 (deliberate change): a named vendor with a signed-in account wins over the default.
     claude = store.create(vendor="anthropic", label="Claude", secret="", auth_type="cli")
-    store.create(vendor="openai", label="Codex", secret="", auth_type="cli")
     doc = _doc("openai", "gpt-4o")
     bind_default_connections(doc, {})
     assert _cfg(doc)["connection"] == claude.id

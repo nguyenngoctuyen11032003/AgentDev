@@ -725,9 +725,31 @@ class JudgeAccount:
 
         store = get_store()
         default = store.default_connection()
-        if default is not None and self._signed_in(default) and default.id not in self.exhausted:
-            return default
-        return next((c for c in store.list() if self._signed_in(c) and c.id not in self.exhausted), None)
+        usable = [c for c in store.list()
+                  if self._signed_in(c) and c.id not in self.exhausted and self._cli_ready(c)]
+        # A judge from another vendor than the default account (which usually ran the workflow) is less
+        # likely to favour its own answers; fall back to the default, then any signed-in account.
+        if default is not None:
+            other = next((c for c in usable if c.vendor != default.vendor), None)
+            if other is not None:
+                return other
+            if any(c.id == default.id for c in usable):
+                return default
+        return usable[0] if usable else None
+
+    @staticmethod
+    def _cli_ready(conn: Any) -> bool:
+        """False for a CLI account whose CLI reports it is signed out; unknown status counts as ready."""
+        from agentdev.connections.catalog import AUTH_CLI
+
+        if getattr(conn, "auth_type", None) != AUTH_CLI:
+            return True
+        try:
+            from agentdev.connections.cli_auth import detect_cli_recent
+
+            return detect_cli_recent(conn.vendor).get("logged_in") is not False
+        except Exception:  # noqa: BLE001 - detection is best effort
+            return True
 
     def current(self) -> tuple:
         """(connection, model name); raises when no signed-in account is available."""
@@ -1692,6 +1714,20 @@ def _replace_with_retry(src: Path, dst: Path, attempts: int = 10, delay: float =
 INTERRUPTED_ERROR = "interrupted: the server restarted while this run was in progress"
 
 
+class LabError(ValueError):
+    """A refused Lab request: ``code`` is the stable id the UI translates (``lab.errors.<code>``)."""
+
+    def __init__(self, code: str, message: str, status_code: int = 409,
+                 params: Optional[Dict[str, Any]] = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+        self.params = dict(params or {})
+
+    def http_detail(self) -> Dict[str, Any]:
+        return {"message": str(self), "code": self.code, "params": self.params}
+
+
 def _resumable_tasks(data: Dict[str, Any]) -> List[Tuple[int, int]]:
     """(scenario index, repeat index) of every run of a stored job that has no grade yet."""
     specs = data.get("scenarios") or []
@@ -1776,17 +1812,17 @@ class LabRunner:
     def _resume(self, job_id: str, yaml_path: Path, run_once, judge) -> LabJob:
         with self._lock:
             if job_id in self._jobs and self._jobs[job_id].status in ("queued", "running"):
-                raise ValueError("Lượt kiểm định này vẫn đang chạy.")
+                raise LabError("lab_job_running", "This Lab run is still running.")
         stored = self._load(job_id)
         if stored is None:
             raise LookupError("Lab run not found")
         data = stored.data
         rejudge_ids = {str(r.get("run_id") or _legacy_run_id(data["id"], r)) for r in _rejudgeable(data.get("results") or [])}
         if data.get("status") not in ("error", "cancelled") and not (data.get("status") == "completed" and rejudge_ids):
-            raise ValueError("Chỉ chạy tiếp được lượt kiểm định bị gián đoạn hoặc đã dừng.")
+            raise LabError("lab_not_resumable", "Only an interrupted or stopped Lab run can be resumed.")
         specs = data.get("scenarios") or []
         if not specs or not all((s.get("prompt") or "").strip() for s in specs):
-            raise ValueError("Lượt kiểm định này được tạo bởi phiên bản cũ, không lưu nội dung kịch bản: hãy chạy lại từ đầu.")
+            raise LabError("lab_legacy_job", "This Lab run came from an older version and has no stored scenarios: run it again.")
         try:
             current_hash = hashlib.sha256(Path(yaml_path).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
         except OSError:
@@ -1794,9 +1830,9 @@ class LabRunner:
         tasks = _resumable_tasks(data) if data.get("status") != "completed" else []
         # Re-judging a stored answer does not run the workflow, so only new runs need the same workflow file.
         if tasks and data.get("workflow_hash") and current_hash and data["workflow_hash"] != current_hash:
-            raise ValueError("Quy trình đã được sửa sau lượt này: kết quả cũ không còn so được, hãy chạy lại từ đầu.")
+            raise LabError("lab_workflow_changed", "The workflow was edited after this run: old results are not comparable, run again.")
         if not tasks and not rejudge_ids:
-            raise ValueError("Không còn lượt nào cần chạy tiếp.")
+            raise LabError("lab_nothing_to_resume", "No run is left to resume.")
         scenarios = [Scenario(prompt=s.get("prompt", ""), criteria=s.get("criteria", ""), name=s.get("name", ""),
                               max_seconds=s.get("max_seconds"), max_tokens=s.get("max_tokens")) for s in specs]
         keep = [dict(r, scenario=int(r["scenario"]), repeat=int(r["repeat"]),
@@ -1831,6 +1867,9 @@ class LabRunner:
         if judge is _judge:
             judge = functools.partial(_judge, account=JudgeAccount())  # one judge account per job
         with self._lock:
+            # Check and register under one lock: two quick POSTs cannot both start a job of one workflow.
+            if any(j.workflow == workflow and j.status in ("queued", "running") for j in self._jobs.values()):
+                raise LabError("lab_job_running", "A Lab run of this workflow is still running.")
             self._jobs[job.id] = job
         self._save(job)
         thread = threading.Thread(target=self._run, args=(job, yaml_path, run_once, judge), daemon=True)
@@ -1839,6 +1878,24 @@ class LabRunner:
 
     def get(self, job_id: str):
         return self._jobs.get(job_id) or self._load(job_id)
+
+    def delete(self, job_id: str) -> bool:
+        """Remove a stored job record. Raises LabError while it runs; False when there is no such job."""
+        if not re.fullmatch(r"[0-9a-f]{12}", job_id or ""):
+            return False
+        with self._lock:
+            live = self._jobs.get(job_id)
+            if live is not None and live.status in ("queued", "running"):
+                raise LabError("lab_job_running", "This Lab run is still running; stop it first.")
+            self._jobs.pop(job_id, None)
+        path = self._dir() / f"{job_id}.json"
+        if not path.is_file():
+            return False
+        try:
+            path.unlink()
+        except OSError:
+            return False
+        return True
 
     def cancel(self, job_id: str):
         job = self._jobs.get(job_id)
@@ -1975,6 +2032,16 @@ def _accepts(func: Callable[..., Any], name: str) -> bool:
     return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
+def _avg_graded_run_cost(results: List[Dict[str, Any]]) -> Optional[float]:
+    """Average price (run + grading) of the runs that were graded and priced; None when there is none.
+    Failed, cancelled and unpriced runs are left out: an early error costs ~0 and would skew the estimate."""
+    costs = [float(r.get("cost_usd") or 0.0) + float((r.get("judge") or {}).get("cost_usd") or 0.0)
+             for r in results
+             if r.get("status") in ("passed", "failed") and r.get("cost_known") is not False
+             and not r.get("cost_partial")]
+    return round(sum(costs) / len(costs), 6) if costs else None
+
+
 def list_stored_jobs(folder: Path, workflow: str, limit: int = 20,
                      live_ids: frozenset = frozenset()) -> List[Dict[str, Any]]:
     """Summaries of stored jobs of ``workflow`` (newest first). A job still held in memory by this server
@@ -2001,6 +2068,7 @@ def list_stored_jobs(folder: Path, workflow: str, limit: int = 20,
             "judge_cost_usd": data.get("judge_cost_usd"), "run_cost_usd": data.get("run_cost_usd"),
             "workflow_hash": data.get("workflow_hash", ""), "started_at": data.get("started_at") or 0,
             "finished_at": data.get("finished_at"),
+            "avg_run_cost_usd": _avg_graded_run_cost(data.get("results") or []),
         })
     rows.sort(key=lambda r: r["started_at"] or 0, reverse=True)
     return rows[:limit]

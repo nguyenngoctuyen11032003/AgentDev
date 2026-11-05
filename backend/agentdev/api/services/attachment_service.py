@@ -13,6 +13,7 @@ from fastapi import UploadFile
 from agentdev.paths import WAREHOUSE_DIR
 from agentdev.entity.messages import MessageBlock, MessageBlockType
 from agentdev.utils.attachments import AttachmentStore, AttachmentRecord
+from agentdev.api.services.repo_map import render_overview_tree
 from agentdev.utils.exceptions import SecurityError, ValidationError
 from agentdev.utils.workspace_paths import (
     is_link,
@@ -540,12 +541,13 @@ class AttachmentService:
         if file_count == 0:
             raise ValidationError("Project upload contains no files", field="project_id")
 
-        tree_lines = render_project_tree(
-            [
-                path.relative_to(project_root).as_posix()
-                for path in iter_tree_without_links(project_root)
-                if not is_link(path) and path.is_file()
-            ]
+        project_entries = [
+            (path, path.relative_to(project_root).as_posix())
+            for path in iter_tree_without_links(project_root)
+            if not is_link(path) and path.is_file()
+        ]
+        tree_heading, tree_lines = render_overview_tree(
+            project_entries, render_project_tree([rel for _path, rel in project_entries])
         )
 
         size_mb = total_size / (1024 * 1024)
@@ -563,7 +565,7 @@ class AttachmentService:
                 f"e.g. `{workspace_path}/README.md`.",
                 "- Dependency/build folders (node_modules, .git, dist, build, .venv, ...) were not uploaded.",
                 "",
-                "## Folder tree",
+                f"## {tree_heading}",
                 "",
                 "```",
                 f"{project_id}/",
@@ -636,7 +638,9 @@ class AttachmentService:
             except OSError:
                 pass
 
-        tree_lines = render_project_tree([rel for _path, rel in scan.files])
+        tree_heading, tree_lines = render_overview_tree(
+            list(scan.files), render_project_tree([rel for _path, rel in scan.files])
+        )
 
         name = root.name or str(root)
         size_mb = total_size / (1024 * 1024)
@@ -656,7 +660,7 @@ class AttachmentService:
                 "- Dependency/build folders (node_modules, .git, dist, build, .venv, ...) and",
                 "  .gitignore'd files are left out of this overview.",
                 "",
-                "## Folder tree",
+                f"## {tree_heading}",
                 "",
                 "```",
                 f"./  (project root, the folder named {name})",

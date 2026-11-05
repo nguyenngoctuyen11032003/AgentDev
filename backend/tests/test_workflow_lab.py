@@ -206,6 +206,9 @@ def judge_env(monkeypatch):
     fake_store = SimpleNamespace(list=lambda: list(conns), default_connection=lambda: conns[0])
     monkeypatch.setattr(store_module, "get_store", lambda: fake_store)
     monkeypatch.setattr(account_fallback, "get_store", lambda: fake_store)
+    from agentdev.connections import cli_auth
+
+    monkeypatch.setattr(cli_auth, "detect_cli_recent", lambda vendor, *a, **k: {"installed": True, "logged_in": True})
     model_calls = []
 
     def default_model_for(conn):
@@ -226,23 +229,23 @@ def test_judge_account_resolved_once_and_skips_api_key_default(judge_env):
     for _ in range(3):
         verdict = workflow_lab._judge("p", "criteria", "answer", [], account=account)
         assert verdict["pass"] is True and verdict["judged_by"] == "ai"
-        assert verdict["judge_model"] == "claude (claude-model)"
-    assert judge_env.calls == [("claude", "claude-model")] * 3
-    assert judge_env.model_calls == ["claude"]  # model detection runs once per job
+        assert verdict["judge_model"] == "codex (codex-model)"  # another vendor than the default (anthropic)
+    assert judge_env.calls == [("codex", "codex-model")] * 3
+    assert judge_env.model_calls == ["codex"]  # model detection runs once per job
 
 
-def test_judge_prefers_signed_in_default(judge_env):
-    judge_env.store.default_connection = lambda: judge_env.conns[2]
+def test_judge_prefers_other_vendor_than_default(judge_env):
+    judge_env.store.default_connection = lambda: judge_env.conns[2]  # codex is the default: claude grades
     # The fake judge replies "" (no JSON verdict): asked once more on the same account, then left unjudged.
     with pytest.raises(workflow_lab.JudgeUnparsable):
         workflow_lab._judge("p", "criteria", "answer", [], account=workflow_lab.JudgeAccount())
-    assert judge_env.calls == [("codex", "codex-model")] * 2
+    assert judge_env.calls == [("claude", "claude-model")] * 2
 
 
 def test_judge_switches_account_on_quota_error(judge_env):
     def judge_call(conn, model, user):
         judge_env.calls.append(conn.id)
-        if conn.id == "claude":
+        if conn.id == "codex":
             raise account_fallback.QuotaExceededError("You've hit your usage limit")
         return '{"pass": false, "reason": "missing"}'
 
@@ -250,11 +253,11 @@ def test_judge_switches_account_on_quota_error(judge_env):
     account = workflow_lab.JudgeAccount()
     first = workflow_lab._judge("p", "criteria", "answer", [], account=account)
     second = workflow_lab._judge("p", "criteria", "answer", [], account=account)
-    assert first["pass"] is False and first["judge_model"] == "codex (codex-model)"
-    assert second["judge_model"] == "codex (codex-model)"
-    assert judge_env.calls == ["claude", "codex", "codex"]
-    assert account.exhausted == {"claude"}
-    assert judge_env.model_calls == ["claude", "codex"]
+    assert first["pass"] is False and first["judge_model"] == "claude (claude-model)"
+    assert second["judge_model"] == "claude (claude-model)"
+    assert judge_env.calls == ["codex", "claude", "claude"]
+    assert account.exhausted == {"codex"}
+    assert judge_env.model_calls == ["codex", "claude"]
 
 
 def test_judge_raises_when_no_fallback_left(judge_env):
@@ -355,8 +358,9 @@ def test_resume_refused_when_workflow_changed_or_scenarios_missing(_lab_store, t
     base = {"id": "abcdef123456", "workflow": "wf.yaml", "status": "running", "total": 1, "results": [],
             "workflow_hash": "different", "scenarios": [{"name": "A", "prompt": "a", "criteria": ""}]}
     (_lab_store / "abcdef123456.json").write_text(json.dumps(base), encoding="utf-8")
-    with pytest.raises(ValueError, match="sửa"):
+    with pytest.raises(workflow_lab.LabError) as changed:
         LabRunner().resume("abcdef123456", yaml_path)
+    assert changed.value.code == "lab_workflow_changed"
     old = dict(base, workflow_hash="", scenarios=[{"name": "A"}])  # written before prompts were stored
     (_lab_store / "abcdef123456.json").write_text(json.dumps(old), encoding="utf-8")
     assert LabRunner().get("abcdef123456").to_dict()["resumable"] is False
@@ -384,7 +388,7 @@ def test_borderline_score_is_graded_again_with_the_stronger_model(judge_env):
 
     judge_env.monkeypatch.setattr(workflow_lab, "_judge_call", call)
     verdict = workflow_lab._judge("p", "c", "a", [], account=workflow_lab.JudgeAccount())
-    assert seen == ["cheap-model", "claude-model"] and verdict["pass"] is False and "claude-model" in verdict["judge_model"]
+    assert seen == ["cheap-model", "codex-model"] and verdict["pass"] is False and "codex-model" in verdict["judge_model"]
 
 
 def test_clear_score_is_not_graded_twice(judge_env):

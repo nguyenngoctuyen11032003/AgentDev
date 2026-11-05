@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from agentdev.connections.cli_auth import kill_process_tree
 from agentdev.utils.code_execution import require_unsafe_code_execution
+from agentdev.utils.process_registry import enabled, get_registry
 from agentdev.utils.git_guard import with_git_ceiling
 from agentdev.utils.reserved_ports import with_reserved_ports
 
@@ -264,7 +265,7 @@ def _reader(stream, sink: List[bytes]) -> None:
         pass
 
 
-def _run(command: str, workdir: Path, env: Dict[str, str], limit: int) -> tuple:
+def _run(command: str, workdir: Path, env: Dict[str, str], limit: int, run_id: str = "", root: Any = None) -> tuple:
     """Run with a hard timeout that also kills grandchildren and never blocks on inherited pipes.
 
     Returns (returncode or None if timed out, stdout bytes, stderr bytes, note).
@@ -284,6 +285,8 @@ def _run(command: str, workdir: Path, env: Dict[str, str], limit: int) -> tuple:
         env=env,
         **kwargs,
     )
+    registry = get_registry()
+    registry.register(run_id or "shell", proc, root or workdir)  # whole tree dies on timeout/run end/shutdown
     out: List[bytes] = []
     err: List[bytes] = []
     threads = [
@@ -299,6 +302,8 @@ def _run(command: str, workdir: Path, env: Dict[str, str], limit: int) -> tuple:
         returncode: Optional[int] = proc.returncode
         grace = min(_EXIT_GRACE, max(0.0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
+        if enabled():
+            registry.kill_process(run_id or "shell", proc)  # Job Object / process group: also orphaned grandchildren
         kill_process_tree(proc)
         returncode = None
         grace = _KILL_GRACE
@@ -371,7 +376,7 @@ def run_shell_command(
     env.update({"CI": "1", "NO_COLOR": "1", "FORCE_COLOR": "0", "PYTHONIOENCODING": "utf-8"})
     with_git_ceiling(env, str(workdir))  # git must not reach AgentDev's own repository
     with_reserved_ports(env)  # ports AgentDev itself listens on (5173/5174/6400)
-    returncode, out, err, note = _run(command, workdir, env, limit)
+    returncode, out, err, note = _run(command, workdir, env, limit, str((_context or {}).get("session_id") or ""), root)
     output = (_decode(out) + _decode(err)).strip()
     if note:
         output = f"{output}\n{note}".strip()

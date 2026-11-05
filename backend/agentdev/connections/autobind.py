@@ -3,7 +3,8 @@
 Older workflows describe each agent with ``provider: anthropic`` (plus an ``api_key`` that is
 no longer used). At run time every such node is bound to a saved account connection: the same
 vendor when one is signed in (anthropic -> Claude, openai -> Codex, gemini -> Google), otherwise
-any account that can run the node, with the model switched to that account's default.
+the default connection (or any account that can run the node) with the model switched to that
+account's default. A node that names no provider uses the default connection and keeps its model.
 Leftover ``api_key`` / ``base_url`` keys are dropped so no credential is ever read from YAML.
 """
 
@@ -116,7 +117,11 @@ def bind_default_connections(
         provider = node.get("provider") or ""
         vendor_id = _VENDOR_OF.get(provider, provider)
         needs_tools = bool(node.get("tooling"))
-        if default is not None and _serves(default, needs_tools):
+        same_vendor = [c for c in connections if c.vendor == vendor_id and _serves(c, needs_tools)] if vendor_id else []
+        if same_vendor:
+            # The named vendor wins over the default; the default connection is preferred among its accounts.
+            chosen = default if default in same_vendor else same_vendor[0]
+        elif default is not None and _serves(default, needs_tools):
             chosen = default
         else:
             chosen = _pick(connections, vendor_id, needs_tools)
@@ -132,13 +137,13 @@ def bind_default_connections(
                 path,
             )
         node["connection"] = chosen.id
-        if chosen.vendor != vendor_id:
+        if vendor_id and chosen.vendor != vendor_id:
             # The model name belongs to another vendor: use this account's default model instead.
             vendor = get_vendor(chosen.vendor)
             if vendor and vendor.models:
                 logger.warning(
-                    "%s: no %s account signed in; running on %s with model %s",
-                    path, vendor_id, chosen.id, vendor.models[0],
+                    "%s: no %s account signed in; running on %s (%s) with model %s",
+                    path, vendor_id, chosen.id, chosen.vendor, _default_model(chosen) or vendor.models[0],
                 )
                 node["name"] = _default_model(chosen) or vendor.models[0]
         fill_unset_model(node, path)

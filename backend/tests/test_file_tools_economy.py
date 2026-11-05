@@ -155,7 +155,13 @@ def test_save_file_with_folder_prefix_does_not_nest_a_copy(ctx, project):
     assert result["path"] == "src/new.ts" and "note" in result
 
 
-def test_search_skips_dependencies_and_binaries(ctx):
+@pytest.fixture()
+def python_search(monkeypatch):
+    """These tests pin the Python walker's counters (skipped files, no-glob-match note); rg has its own tests."""
+    monkeypatch.setenv("AGENTDEV_SEARCH_RG", "0")
+
+
+def test_search_skips_dependencies_and_binaries(ctx, python_search):
     result = search_in_files("heroTitle", _context=ctx)
     files = {match["file"] for match in result["matches"]}
     assert files == {"src/app/page.tsx", "src/lib/util.ts"}
@@ -163,7 +169,7 @@ def test_search_skips_dependencies_and_binaries(ctx):
     assert result["skipped_binary_or_large_files"] == 60
 
 
-def test_search_globs(ctx):
+def test_search_globs(ctx, python_search):
     nested = search_in_files("heroTitle", globs=["*.ts"], _context=ctx)  # any depth, like ripgrep
     assert {m["file"] for m in nested["matches"]} == {"src/lib/util.ts"}
     as_string = search_in_files("heroTitle", globs="src/**/*.{ts,tsx}", _context=ctx)

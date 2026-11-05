@@ -112,3 +112,19 @@ def test_http_routes(manager):
     assert ok.status_code == 200 and ok.json()["status"] == "succeeded"
     assert client.get(f"/api/connections/cli-login/{sid}").status_code == 404
     assert client.post("/api/connections/cli-login/start", json={"vendor": "gemini"}).status_code == 422
+
+
+def test_manager_shutdown_kills_every_session():
+    """A4-4: server shutdown must not leave sign-in CLI processes behind."""
+    import subprocess
+    import sys
+
+    from agentdev.connections import cli_login
+
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdout=subprocess.PIPE)
+    manager = cli_login.CliLoginManager()
+    session = cli_login._Session(id="s1", vendor="anthropic", mode="paste", proc=proc)
+    manager._sessions["s1"] = session
+    manager.shutdown()
+    assert proc.wait(timeout=10) is not None
+    assert manager._sessions == {}

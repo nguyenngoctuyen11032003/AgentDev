@@ -515,14 +515,19 @@ def detect_launch_plan(root: Path) -> LaunchPlan:
 # Processes
 # ---------------------------------------------------------------------------
 
+# Hosts a dev server reads from the environment (Vite/CRA/webpack: HOST, Next/Nuxt: HOSTNAME, others: BIND*).
+_LOOPBACK_ENV = {k: "127.0.0.1" for k in ("HOST", "HOSTNAME", "BIND", "BIND_ADDR", "SERVER_HOST")}
+
+
 def preview_env(extra: Dict[str, str]) -> Dict[str, str]:
     """Server environment minus secrets / AgentDev settings, plus the preview's own vars."""
     env = {k: v for k, v in os.environ.items()
            if k.upper() not in _DROP_ENV_EXACT and not _DROP_ENV_PATTERN.search(k)
            and not k.upper().startswith("AGENTDEV_")}
-    env.update({"HOST": "127.0.0.1", "BROWSER": "none", "NO_UPDATE_NOTIFIER": "1", "FORCE_COLOR": "0",
+    env.update({**_LOOPBACK_ENV, "BROWSER": "none", "NO_UPDATE_NOTIFIER": "1", "FORCE_COLOR": "0",
                 "npm_config_update_notifier": "false", "npm_config_fund": "false", "npm_config_audit": "false"})
     env.update(extra)
+    env.update(_LOOPBACK_ENV)  # a template or the server's own env can never widen the bind to all interfaces
     return with_reserved_ports(env)
 
 

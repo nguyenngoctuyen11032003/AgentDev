@@ -7,6 +7,7 @@ import mimetypes
 import os
 import re
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
@@ -772,9 +773,13 @@ def apply_text_edits(
         Optional[bool],
         ParamMeta(description="Force presence/absence of trailing newline; default preserves original"),
     ] = None,
+    expected_old: Annotated[
+        Optional[str],
+        ParamMeta(description="Optional safety check: current text of the selected lines; the edit fails if it differs"),
+    ] = None,
     _context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    """Apply ordered line edits with newline and encoding preservation."""
+    """Apply ordered line edits with newline and encoding preservation. Prefer edit_file for content-anchored edits."""
 
     ctx = FileToolContext(_context)
     target, note = _resolve_existing(ctx, path)
@@ -792,6 +797,15 @@ def apply_text_edits(
     lines, had_trailing_newline = _split_lines(original_text)
     newline_style = _resolve_newline_choice(newline, _detect_newline(original_text))
 
+    if expected_old is not None:
+        first = normalized[0]
+        current = "\n".join(lines[first.start_line - 1 : max(first.end_line, first.start_line - 1)])
+        wanted = expected_old.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+        if current != wanted:
+            raise ValueError(
+                f"expected_old does not match lines {first.start_line}-{first.end_line}; the file changed or the "
+                "line numbers are wrong. Re-read the file (read_file_segment) or use edit_file."
+            )
     _apply_edits_in_place(lines, normalized)
 
     if ensure_trailing_newline is None:
@@ -817,6 +831,170 @@ def apply_text_edits(
         "applied_edits": len(normalized),
         "trailing_newline": final_trailing,
         "file_size": stat.st_size,
+        **({"note": note} if note else {}),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Content-anchored edits (ADR 0001): exact old_string -> new_string, atomic, EOL/BOM preserving.
+# ---------------------------------------------------------------------------
+
+
+def _edit_tools_enabled() -> bool:
+    return os.environ.get("AGENTDEV_EDIT_TOOLS", "1").strip().lower() not in {"0", "false", "off", "no"}
+
+
+def _unix_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _load_for_edit(ctx: "FileToolContext", path: str) -> tuple[Path, str, bool, str, Optional[str]]:
+    """Return (target, text, has_bom, newline, note) of a UTF-8 workspace file."""
+
+    if not _edit_tools_enabled():
+        raise ValueError("edit_file/multi_edit are disabled (AGENTDEV_EDIT_TOOLS=0); use apply_text_edits")
+    target, note = _resolve_existing(ctx, path)
+    if not target.is_file():
+        raise _not_found(ctx, path, want_dir=False)
+    _check_attachments_not_modified(ctx.to_workspace_relative(target) or path)
+    raw = target.read_bytes()
+    has_bom = raw.startswith(codecs.BOM_UTF8)
+    try:
+        text = raw[len(codecs.BOM_UTF8):].decode("utf-8") if has_bom else raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"'{path}' is not valid UTF-8; edit_file supports UTF-8 only. Use apply_text_edits with an encoding."
+        ) from exc
+    newline = "\r\n" if "\r\n" in text else ("\r" if "\r" in text and "\n" not in text else "\n")
+    return target, text, has_bom, newline, note
+
+
+def _line_of(text: str, index: int) -> int:
+    return text.count("\n", 0, index) + 1
+
+
+def _replace_once_or_all(
+    text: str, old: Any, new: Any, replace_all: bool, newline: str, label: str
+) -> tuple[str, int]:
+    if not isinstance(old, str) or not isinstance(new, str):
+        raise ValueError(f"{label}old_string and new_string must be strings")
+    if old == "":
+        raise ValueError(f"{label}old_string must not be empty")
+    old = _unix_newlines(old)
+    new = _unix_newlines(new)
+    if old == new:
+        raise ValueError(f"{label}old_string and new_string are identical; nothing to change")
+    if newline != "\n":
+        old = old.replace("\n", newline)
+        new = new.replace("\n", newline)
+    count = text.count(old)
+    if count == 0:
+        first = next((ln.strip() for ln in old.splitlines() if ln.strip()), "")
+        hint = ""
+        if first and first in text:
+            hint = (
+                f" The first line was found at line {_line_of(text, text.index(first))}; "
+                "re-read it and copy the text exactly (whitespace matters)."
+            )
+        raise ValueError(f"{label}old_string not found in the file.{hint}")
+    if count > 1 and not replace_all:
+        lines: List[str] = []
+        start = 0
+        while len(lines) < 5:
+            idx = text.find(old, start)
+            if idx < 0:
+                break
+            lines.append(str(_line_of(text, idx)))
+            start = idx + len(old)
+        more = "..." if count > len(lines) else ""
+        raise ValueError(
+            f"{label}old_string matches {count} times (lines {', '.join(lines)}{more}); "
+            "add surrounding context to make it unique or set replace_all=true."
+        )
+    return text.replace(old, new), count
+
+
+def _atomic_write_text(target: Path, text: str, has_bom: bool) -> int:
+    import tempfile
+
+    data = text.encode("utf-8")
+    if has_bom:
+        data = codecs.BOM_UTF8 + data
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        try:
+            shutil.copymode(target, tmp_name)
+        except OSError:
+            pass
+        os.replace(tmp_name, target)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    return len(data)
+
+
+def edit_file(
+    path: Annotated[str, ParamMeta(description="Workspace-relative file to edit")],
+    old_string: Annotated[str, ParamMeta(description="Exact text to replace; must be unique unless replace_all")],
+    new_string: Annotated[str, ParamMeta(description="Replacement text")],
+    replace_all: Annotated[bool, ParamMeta(description="Replace every occurrence instead of requiring a unique one")] = False,
+    _context: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Replace exact text in a UTF-8 file (unique match unless replace_all). Keeps CRLF/LF and BOM; atomic."""
+
+    ctx = FileToolContext(_context)
+    target, text, has_bom, newline, note = _load_for_edit(ctx, path)
+    updated, count = _replace_once_or_all(text, old_string, new_string, replace_all, newline, "")
+    size = _atomic_write_text(target, updated, has_bom)
+    return {
+        "path": ctx.to_workspace_relative(target),
+        "replacements": count,
+        "newline": newline,
+        "file_size": size,
+        **({"note": note} if note else {}),
+    }
+
+
+def multi_edit(
+    path: Annotated[str, ParamMeta(description="Workspace-relative file to edit")],
+    edits: Annotated[
+        List[Dict[str, Any]],
+        ParamMeta(description="Ordered list of {old_string, new_string, replace_all?}; all apply or none do"),
+    ],
+    _context: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Apply several edit_file style edits to one file in order; if any fails nothing is written."""
+
+    if not edits or not isinstance(edits, (list, tuple)):
+        raise ValueError("edits must be a non-empty list of {old_string, new_string, replace_all?}")
+    ctx = FileToolContext(_context)
+    target, text, has_bom, newline, note = _load_for_edit(ctx, path)
+    total = 0
+    for index, item in enumerate(edits, start=1):
+        label = f"edit {index}: "
+        if not isinstance(item, Mapping):
+            raise ValueError(f"{label}must be an object with old_string and new_string")
+        text, count = _replace_once_or_all(
+            text,
+            item.get("old_string"),
+            item.get("new_string"),
+            bool(item.get("replace_all", False)),
+            newline,
+            label,
+        )
+        total += count
+    size = _atomic_write_text(target, text, has_bom)
+    return {
+        "path": ctx.to_workspace_relative(target),
+        "applied_edits": len(edits),
+        "replacements": total,
+        "newline": newline,
+        "file_size": size,
         **({"note": note} if note else {}),
     }
 
@@ -969,15 +1147,26 @@ def search_in_files(
         compiled_regex = re.compile(pattern, flags)
 
     skipped: Dict[str, int] = {}
-    for candidate in _iter_candidate_files(
-        ctx.workspace_root,
-        include_patterns,
-        exclude_patterns,
-        include_hidden,
-        skipped,
-    ):
+    searched_files = 0
+    rg_hits = _rg_candidate_files(
+        ctx.workspace_root, pattern, use_regex, case_sensitive, include_patterns, exclude_patterns, include_hidden
+    )
+    engine = "python"
+    rg_searched: Optional[int] = None
+    if rg_hits is not None:
+        engine = "ripgrep"
+        candidates: Iterable[Path] = rg_hits[0]
+        rg_searched = rg_hits[1]
+    else:
+        candidates = _iter_candidate_files(
+            ctx.workspace_root, include_patterns, exclude_patterns, include_hidden, skipped
+        )
+    for candidate in candidates:
         searched_files += 1
-        lines = _read_file_lines_for_search(candidate)
+        try:
+            lines = _read_file_lines_for_search(candidate)
+        except OSError:
+            continue
         if not lines:
             continue
         for match in _iter_line_matches(
@@ -1001,9 +1190,82 @@ def search_in_files(
                 }
             )
             if len(matches) >= max_results:
-                return _search_result(matches, True, searched_files, skipped)
+                return _search_result(matches, True, rg_searched or searched_files, skipped, engine)
 
-    return _search_result(matches, False, searched_files, skipped)
+    return _search_result(matches, False, rg_searched or searched_files, skipped, engine)
+
+
+def _rg_enabled() -> bool:
+    return os.environ.get("AGENTDEV_SEARCH_RG", "1").strip().lower() not in {"0", "false", "off", "no"}
+
+
+def _rg_candidate_files(
+    root: Path,
+    pattern: str,
+    use_regex: bool,
+    case_sensitive: bool,
+    include_patterns: Sequence[str],
+    exclude_patterns: Sequence[str],
+    include_hidden: bool,
+) -> Optional[tuple[List[Path], Optional[int]]]:
+    """(files, files_searched) of files that contain a hit, found by ripgrep (honours .gitignore, no size cap).
+
+    The caller still extracts the matches with the Python line matcher so the result format and limits are
+    identical on both paths. Returns None (use the Python walker) when rg is missing, disabled or fails.
+    """
+
+    if not pattern or not _rg_enabled():
+        return None
+    rg = shutil.which("rg")
+    if not rg:
+        return None
+    named = {part for pat in include_patterns for part in _clean_glob(pat).split("/")}
+    skip_dirs = frozenset(name for name in _SKIP_DIRS if name not in named)
+    cmd = [rg, "--files-with-matches", "--null", "--stats", "--no-messages", "--no-require-git", "--color", "never"]
+    if include_hidden:
+        cmd.append("--hidden")
+    if not case_sensitive:
+        cmd.append("--ignore-case")
+    else:
+        cmd.append("--case-sensitive")
+    if not use_regex:
+        cmd.append("--fixed-strings")
+    for name in sorted(skip_dirs):
+        cmd += ["--glob", f"!{name}/"]
+    cmd += ["-e", pattern, "--", "."]
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(root), capture_output=True, timeout=60, stdin=subprocess.DEVNULL, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode not in (0, 1):
+        return None
+    compiled = [_compile_glob(pat) for pat in include_patterns]
+    found: List[Path] = []
+    out = proc.stdout
+    cut = out.rfind(b"\x00")
+    stats = out[cut + 1 :].decode("utf-8", errors="replace")
+    searched_match = re.search(r"(\d+) files searched", stats)
+    searched = int(searched_match.group(1)) if searched_match else None
+    names = out[:cut].split(b"\x00") if cut >= 0 else []
+    for raw in names:
+        if not raw:
+            continue
+        rel = raw.decode("utf-8", errors="replace").replace("\\", "/")
+        while rel.startswith("./"):
+            rel = rel[2:]
+        parts = rel.split("/")
+        if any(part in skip_dirs for part in parts[:-1]):
+            continue
+        if not any(regex.match(rel) for regex in compiled) or _is_excluded(rel, exclude_patterns):
+            continue
+        path = root / rel
+        if path.suffix.lower() in _BINARY_EXTS or not path.is_file():
+            continue
+        found.append(path)
+    found.sort(key=lambda item: item.relative_to(root).as_posix())
+    return found, searched
 
 
 # A match in minified code would otherwise send a whole 500 KB line to the model.
@@ -1017,12 +1279,12 @@ def _clip_line(line: str) -> str:
 
 
 def _search_result(
-    matches: List[Dict[str, Any]], limited: bool, searched_files: int, skipped: Dict[str, int]
+    matches: List[Dict[str, Any]], limited: bool, searched_files: int, skipped: Dict[str, int], engine: str = "python"
 ) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "matches": matches,
         "limited": limited,
-        "engine": "python",
+        "engine": engine,
         "searched_files": searched_files,
     }
     if skipped.get("binary_or_large"):
@@ -1210,6 +1472,11 @@ def _apply_edits_in_place(lines: MutableSequence[str], edits: Sequence[TextEdit]
         if start_idx > current_line_count:
             raise ValueError("start_line is beyond the end of the file")
         removal_count = max(edit.end_line - edit.start_line + 1, 0)
+        if removal_count > 0 and edit.start_line <= current_line_count and edit.end_line > current_line_count:
+            raise ValueError(
+                f"end_line {edit.end_line} is beyond the end of the file ({current_line_count} lines); "
+                "nothing was written. Re-read the file for the real line numbers."
+            )
         if removal_count > 0:
             end_line = min(edit.end_line, len(lines))
             removal_count = max(end_line - edit.start_line + 1, 0)

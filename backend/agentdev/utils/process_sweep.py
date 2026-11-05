@@ -149,9 +149,16 @@ def _preview_pids() -> list[int]:
 
 def sweep(folders: Iterable[Path], since: float) -> list[ProcInfo]:
     """Kill what an agent left running inside ``folders`` since ``since``; returns what was killed."""
+    folders = list(folders)
+    try:
+        from agentdev.utils.process_registry import get_registry
+
+        get_registry().kill_for_folders(folders)  # run end / cancel: registered trees die first
+    except Exception:  # noqa: BLE001
+        logger.debug("Registry cleanup failed", exc_info=True)
     if "pytest" in sys.modules and not os.environ.get("AGENTDEV_SWEEP_IN_TESTS"):
         return []  # unit tests run workflows on fake folders: never touch the machine's processes
-    leftovers = find_leftovers(list(folders), since, _preview_pids())
+    leftovers = find_leftovers(folders, since, _preview_pids())
     for proc in leftovers:
         logger.warning("Stopping process left running by an agent (pid %s): %s", proc.pid, proc.cmd[:300])
         _kill_tree(proc.pid)
