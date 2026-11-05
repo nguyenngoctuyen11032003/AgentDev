@@ -766,8 +766,11 @@ class TeamDelegation:
         max_parallel: int = 1,
         delegated: bool = False,
         cancel_event: Any = None,
+        verify_command: str = "",
     ) -> None:
         self.lead_id = lead_id
+        # Optional command of the verify gate (agentdev.runtime.node.agent.verify_gate); empty = auto-detect.
+        self.verify_command = verify_command
         # The run's cancel event (e.g. ``context.cancel_event``); also stored on the shared state so
         # sub-leads created without it still see it.
         self.cancel_event = cancel_event

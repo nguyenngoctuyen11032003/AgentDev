@@ -54,6 +54,7 @@ from agentdev.runtime.node.agent.account_fallback import (
     pick_fallback,
 )
 from agentdev.runtime.node.agent.providers._native import NativeRunContext
+from agentdev.runtime.node.agent import verify_gate
 from agentdev.runtime.node.agent.team import (
     DELEGATE_PARALLEL_TOOL,
     DELEGATE_TOOL,
@@ -70,6 +71,7 @@ from agentdev.runtime.node.agent.team import (
     newest_user_message,
     resolve_members,
     team_digest,
+    is_simple_question,
 )
 from agentdev.runtime.node.agent.interject import (
     INBOX_KEY,
@@ -383,7 +385,7 @@ class AgentNodeExecutor(NodeExecutor):
                 native=native,
             )
 
-            if response_obj.has_tool_calls() or self._interjection_pending(node):
+            if response_obj.has_tool_calls() or self._interjection_pending(node) or self._verify_gate_applies(node, team):
                 response_message = self._handle_tool_calls(
                     node,
                     provider,
@@ -1040,6 +1042,7 @@ class AgentNodeExecutor(NodeExecutor):
         last_signature: str | None = None
         repeats = 0
         tool_loop_start = len(conversation)
+        verify_rounds = 0
 
         while True:
             self._ensure_not_cancelled()
@@ -1054,6 +1057,15 @@ class AgentNodeExecutor(NodeExecutor):
                         provider, client, conversation, timeline, call_options, tool_specs, node
                     ).message
                     continue
+                if verify_rounds < verify_gate.MAX_ROUNDS:
+                    feedback = self._verify_gate_feedback(node, verify_rounds + 1)
+                    if feedback:
+                        verify_rounds += 1
+                        self._append_user_message(conversation, feedback, node_id=node.id)
+                        assistant_message = self._invoke_provider(
+                            provider, client, conversation, timeline, call_options, tool_specs, node
+                        ).message
+                        continue
                 return self._finalize_tool_trace(assistant_message, trace_messages, True, node.id)
 
             if iteration >= loop_limit:
@@ -1112,6 +1124,41 @@ class AgentNodeExecutor(NodeExecutor):
                 node,
             )
             assistant_message = follow_up_response.message
+
+    def _verify_gate_applies(self, node: Node, team: TeamDelegation | None) -> bool:
+        """The verify gate (flag on) watches the top lead of a team, never a member or a plain agent."""
+        return (
+            verify_gate.enabled()
+            and team is not None
+            and not is_delegated_call()
+            and not team.plan_submitted
+            and not team.small_talk
+            and not is_simple_question(team.state.user_message)
+        )
+
+    def _verify_gate_feedback(self, node: Node, round_no: int) -> str | None:
+        """Run the verification when the lead tries to finish; the text to send back when it is not green."""
+        team = self._active_teams().get(node.id)
+        if not self._verify_gate_applies(node, team) or not isinstance(self.context.global_state, dict):
+            return None
+        state = self.context.global_state
+        try:
+            root = self._native_workspace_root()
+        except SecurityError:
+            return None  # no project workspace (or the AgentDev install itself): nothing to verify
+        command = verify_gate.detect_command(root, getattr(team, "verify_command", ""))
+        if not command:
+            return None
+        run_id = str(getattr(self.context, "session_id", None) or node.id)
+        result = verify_gate.run_verification(root, command, run_id)
+        state["verify_gate"] = {**result.as_dict(), "rounds": round_no}
+        self.log_manager.info(
+            f"[Node: {node.id}] Verify gate round {round_no}: {result.status} ({result.duration_s:.1f}s)",
+            node_id=node.id,
+        )
+        if not verify_gate.blocks_finish(result):
+            return None
+        return verify_gate.feedback_text(result, round_no)
 
     @staticmethod
     def _compact_old_tool_results(conversation: List[Message], start: int, end: int | None = None) -> None:
@@ -1817,6 +1864,7 @@ class AgentNodeExecutor(NodeExecutor):
             plan_approval=plan_approval_for(self.context.global_state.get(RUN_MODE_KEY), team_config.plan_approval),
             max_parallel=team_config.max_parallel,
             cancel_event=cancel_event,
+            verify_command=team_config.verify_command,
         )
 
     def _refuse_team_tool(self, node: Node, tool_call: ToolCallPayload, tool_name: str, events: List[Any]) -> Message:

@@ -1,0 +1,159 @@
+{
+  "mode": "real",
+  "workflow": "bugfix_team",
+  "model": "claude-haiku-5-5",
+  "generated_at": "2026-11-05T16:54:54",
+  "limits": {
+    "max_runs": 3,
+    "max_usd": 0.5,
+    "planned_runs": 3
+  },
+  "runs": [
+    {
+      "task": "a",
+      "label": "a_ok",
+      "failure_mode": null,
+      "success": false,
+      "clean": true,
+      "acceptance": {
+        "passed": false,
+        "checks": {
+          "hidden_clamp_test": false,
+          "no_test_removed": true
+        }
+      },
+      "wall_s": 78.61,
+      "model_calls": 10,
+      "agent_turns": 5,
+      "nodes_run": [
+        "Repro Analyst",
+        "Code Scout",
+        "Bug Fixer",
+        "Bug Fixer",
+        "Tech Lead"
+      ],
+      "tokens_in": 156069,
+      "tokens_out": 11100,
+      "cache_read": 134478,
+      "total_tokens": 167169,
+      "cost_usd": 0.012565,
+      "cost_known": true,
+      "files_changed": [],
+      "files_outside_scope": [],
+      "corrupted_files": [],
+      "tests_before": "red",
+      "tests_after": "red",
+      "tests_after_counts": {
+        "passed": 1204,
+        "failed": 1,
+        "errors": 0
+      },
+      "repo_files": 1631,
+      "engine_error": null
+    },
+    {
+      "task": "b",
+      "label": "b_ok",
+      "failure_mode": null,
+      "success": true,
+      "clean": true,
+      "acceptance": {
+        "passed": true,
+        "checks": {
+          "hidden_feature_test": true,
+          "no_test_removed": true
+        }
+      },
+      "wall_s": 74.77,
+      "model_calls": 11,
+      "agent_turns": 2,
+      "nodes_run": [
+        "Bug Fixer",
+        "Tech Lead"
+      ],
+      "tokens_in": 150184,
+      "tokens_out": 8190,
+      "cache_read": 136054,
+      "total_tokens": 158374,
+      "cost_usd": 0.008793,
+      "cost_known": true,
+      "files_changed": [
+        "pkg/core/text.py",
+        "tests/test_core_text.py"
+      ],
+      "files_outside_scope": [],
+      "corrupted_files": [],
+      "tests_before": "green",
+      "tests_after": "green",
+      "tests_after_counts": {
+        "passed": 1206,
+        "failed": 0,
+        "errors": 0
+      },
+      "repo_files": 1631,
+      "engine_error": null
+    },
+    {
+      "task": "c",
+      "label": "c_ok",
+      "failure_mode": null,
+      "success": true,
+      "clean": true,
+      "acceptance": {
+        "passed": true,
+        "checks": {
+          "old_name_gone": true,
+          "new_name_in_all_user_files": true,
+          "behaviour_unchanged": true,
+          "no_test_removed": true
+        }
+      },
+      "wall_s": 217.33,
+      "model_calls": 21,
+      "agent_turns": 3,
+      "nodes_run": [
+        "Bug Fixer",
+        "QA Verifier",
+        "Tech Lead"
+      ],
+      "tokens_in": 392859,
+      "tokens_out": 27666,
+      "cache_read": 343372,
+      "total_tokens": 420525,
+      "cost_usd": 0.027982,
+      "cost_known": true,
+      "files_changed": [
+        "pkg/core/norm.py",
+        "pkg/sub00/m15.py",
+        "pkg/sub00/m32.py",
+        "pkg/sub00/m35.py",
+        "pkg/sub01/m23.py",
+        "pkg/sub01/m31.py",
+        "pkg/sub04/m11.py",
+        "pkg/sub04/m25.py",
+        "pkg/sub05/m01.py",
+        "pkg/sub05/m39.py",
+        "pkg/sub12/m04.py",
+        "pkg/sub17/m28.py",
+        "pkg/sub18/m06.py",
+        "pkg/sub22/m22.py",
+        "pkg/sub29/m32.py",
+        "tests/test_core_norm.py"
+      ],
+      "files_outside_scope": [],
+      "corrupted_files": [],
+      "tests_before": "green",
+      "tests_after": "green",
+      "tests_after_counts": {
+        "passed": 1205,
+        "failed": 0,
+        "errors": 0
+      },
+      "repo_files": 1631,
+      "engine_error": null
+    }
+  ],
+  "stopped": null,
+  "total_cost_usd": 0.0493,
+  "cost_note": null
+}

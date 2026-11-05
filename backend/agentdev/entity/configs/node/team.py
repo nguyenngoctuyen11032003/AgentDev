@@ -32,6 +32,7 @@ class AgentTeamConfig(BaseConfig):
     max_delegations: int = DEFAULT_MAX_DELEGATIONS
     max_review_rounds: int = DEFAULT_MAX_REVIEW_ROUNDS
     max_parallel: int = DEFAULT_MAX_PARALLEL
+    verify_command: str = ""
 
     FIELD_SPECS = {
         "enabled": ConfigFieldSpec(
@@ -86,6 +87,16 @@ class AgentTeamConfig(BaseConfig):
             "(delegate_parallel), e.g. backend + frontend + data. 1 = members always work one after another.",
             advance=True,
         ),
+        "verify_command": ConfigFieldSpec(
+            name="verify_command",
+            display_name="Verification command",
+            type_hint="str",
+            required=False,
+            default="",
+            description="Shell command run in the project workspace before the lead may finish (exit 0 = pass). "
+            "Empty = auto-detect (npm test, pytest, make test). Only used when AGENTDEV_VERIFY_GATE is on.",
+            advance=True,
+        ),
     }
 
     @classmethod
@@ -113,6 +124,10 @@ class AgentTeamConfig(BaseConfig):
                 raise ConfigError(f"{key} must be a positive integer", extend_path(path, key))
             return value
 
+        raw_verify = mapping.get("verify_command")
+        if raw_verify is not None and not isinstance(raw_verify, str):
+            raise ConfigError("verify_command must be a string", extend_path(path, "verify_command"))
+
         return cls(
             enabled=bool(enabled),
             members=members,
@@ -120,6 +135,7 @@ class AgentTeamConfig(BaseConfig):
             max_delegations=_positive_int("max_delegations", DEFAULT_MAX_DELEGATIONS),
             max_review_rounds=_positive_int("max_review_rounds", DEFAULT_MAX_REVIEW_ROUNDS),
             max_parallel=_positive_int("max_parallel", DEFAULT_MAX_PARALLEL),
+            verify_command=(raw_verify or "").strip(),
             path=path,
         )
 

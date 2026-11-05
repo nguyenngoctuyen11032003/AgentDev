@@ -62,3 +62,25 @@ Resume phiên native, bỏ cold-start provider, checkpoint git/hoàn tác, node 
 3. Trang Chạy vẫn tạo ~18k node DOM khi mở hết lịch sử.
 4. Đổi hành vi kết nối (ưu tiên cùng vendor, xóa tài khoản không đăng xuất CLI) khác hành vi cũ có test khóa; test đã sửa có chủ đích.
 5. `storage/` chứa dữ liệu Lab cũ rất lớn, chưa dọn.
+
+## 7. Cổng kiểm chứng (verify gate, B7): A/B thật
+
+Cơ chế: khi Tech Lead (lead cao nhất) định kết thúc lượt, engine chạy lệnh kiểm chứng trong workspace dự án (`team.verify_command` trong YAML, hoặc tự dò `npm test`, pytest, `make test`; timeout 180 s, cây tiến trình đăng ký và bị kill khi quá hạn, output cắt 3000 ký tự). Nếu đỏ hoặc quá hạn, kết quả thật được trả về cho lead và lead được gọi lại, tối đa 2 vòng. Hết timeout không bao giờ coi là đạt. Cờ `AGENTDEV_VERIFY_GATE`, mặc định TẮT. Chi tiết: `docs/adr/0004-verify-gate.md`.
+
+Thiết lập: `bugfix_team`, Haiku, 3 nhiệm vụ a,b,c x 3 lần mỗi nhánh, xen kẽ OFF/ON, tổng 18 lượt (trần 18), không cổng trả phí. File thô: `bench-projects-20261105-162612` đến `-170039` (`.json` và `.md`).
+
+| Chỉ số (trung bình mỗi lượt, n = 9) | OFF | ON |
+|---|---|---|
+| Thành công | 7/9 | 5/9 |
+| a (bug, test đỏ) | 2/3 | 2/3 |
+| b (tính năng, test xanh) | 2/3 | 2/3 |
+| c (đổi tên) | 3/3 | 1/3 |
+| Lượt lead chạy một mình (`nodes_run = ['Tech Lead']`) | 1 (b) | 2 (a, b) |
+| Thời gian | 122 s | 112 s |
+| Lời gọi model | 15,2 | 11,6 |
+| Token vào / ra | 264k / 16,4k | 174k / 12,3k |
+| Chi phí (tổng) | 0,166 USD | 0,118 USD |
+
+Chi tiêu thật của A/B: 0,284 USD, 18 lượt, toàn bộ cost đã biết.
+
+Kết luận trung thực: ON không tốt hơn (5/9 so với 7/9). Với n = 9 mỗi nhánh, chênh lệch nằm trong nhiễu (c 1/3 so với 3/3 là các lỗi đổi tên còn sót, không liên quan tới cổng vì repo xanh nên cổng không chạy lệnh nào khác). Điểm đáng nói: ở ON lượt a đầu tiên, cổng chạy 2 vòng (3 lời gọi) nhưng Tech Lead vẫn không giao việc và kết thúc với test đỏ; nhiệm vụ b (repo xanh) cổng không có tác dụng theo thiết kế. Ở nhánh OFF lần này, kiểu lỗi "lead chạy một mình" ở nhiệm vụ a không xuất hiện (0/3), nên không có mẫu đủ để chứng minh cổng sửa được nó. Quyết định: **giữ cờ TẮT mặc định**, không chỉnh để thắng. Giả thuyết cần kiểm tra tiếp: lead dừng ở bước kế hoạch/xin duyệt (plan gate) chứ không phải do quên giao việc, khi đó cổng kiểm chứng không phải thuốc đúng; cần ghi lại câu trả lời cuối của lead trong bench để phân biệt.
