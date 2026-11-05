@@ -441,7 +441,8 @@ graph:
           Never start a server for an API whose tests already call its endpoints (e.g. FastAPI TestClient,
           supertest): the passing suite is the evidence. Start a server only for a criterion that no test or
           CLI command covers. Scope S/M: at most ~6 commands in total (test suite, file checks, cleanup).
-          Web UI feature with real flows: start the app and test it with playwright-cli in your own session
+          Web UI feature with real flows: start the app on a free port (never 5173, 5174 or 6400: AgentDev
+          uses them; e.g. `PORT=3100`), stop it when done, and test it with playwright-cli in your own session
           (`playwright-cli -s=qa ...`, close only with `-s=qa close`; never `close-all` / `kill-all`, the
           default browser may be the user's). Check main flows, forms, errors, 1440px and 390px widths and
           console errors; prefer `snapshot` over screenshots. Save a screenshot only as useful evidence, under

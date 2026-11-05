@@ -20,8 +20,10 @@
           :tabindex="viewMode === option.mode ? 0 : -1"
           @click="selectView(option.mode)"
         >
-          {{ $t(option.label) }}
+          {{ option.fallback && !$te(option.label) ? option.fallback : $t(option.label) }}
           <span v-if="option.mode === 'review' && reviewPendingCount" class="toggle-badge">{{ reviewPendingCount }}</span>
+          <!-- How many files the team wrote for this session (a dot while its app runs) -->
+          <span v-if="option.mode === 'products' && productsSummary?.file_count" class="toggle-badge products-badge" :class="{ 'is-live': productsLive }">{{ productsSummary.file_count > 999 ? '999+' : productsSummary.file_count }}</span>
         </button>
       </div>
       <div class="header-actions">
@@ -919,6 +921,16 @@
           />
         </div>
 
+        <!-- What the team made for this session: browse the files, open them, run the web app -->
+        <div v-if="visitedViews.products" v-show="viewMode === 'products'" class="graph-panel insight-panel" :style="insetStyle">
+          <ProductsView
+            :session-id="activeSessionId || ''"
+            :refresh-key="productsRefreshKey"
+            :autostart-key="productsAutostart"
+            :visible="viewMode === 'products'"
+          />
+        </div>
+
         <div v-if="visitedViews.dashboard" v-show="viewMode === 'dashboard'" class="graph-panel insight-panel" :style="insetStyle">
           <DashboardView
             :graph="officeGraph"
@@ -1000,6 +1012,27 @@
                 </dd>
               </div>
             </dl>
+          </section>
+
+          <!-- What the team made for this session, one glance; the "Sản phẩm" view has the files and the app -->
+          <section v-if="activeSessionId" class="panel-block">
+            <div class="panel-heading-row">
+              <h3 class="panel-heading">{{ trl('launch.products.title', 'Sản phẩm') }}</h3>
+              <button v-if="productsSummary?.file_count" type="button" class="panel-link" @click="openProducts(false)">{{ trl('launch.products.view_files', 'Xem file') }}</button>
+            </div>
+            <template v-if="productsSummary?.file_count">
+              <p class="products-line">
+                <span v-if="productsLive" class="products-live">{{ trl('launch.products.running', 'Đang chạy thử') }}</span>
+                {{ productsLine }}
+              </p>
+              <div v-if="productsSummary.project?.can_preview" class="products-actions">
+                <button type="button" class="btn primary sm" @click="openProducts(!productsLive)">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                  {{ productsLive ? trl('launch.products.open_preview', 'Xem bản chạy thử') : trl('launch.products.run', 'Chạy thử') }}
+                </button>
+              </div>
+            </template>
+            <p v-else class="panel-note">{{ trl('launch.products.panel_empty', 'Chưa có file nào. Khi nhóm làm ra mã nguồn, trang web hay tài liệu, chúng hiện ở đây.') }}</p>
           </section>
 
           <section v-if="selectedFile" class="panel-block">
@@ -1086,9 +1119,11 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, fetchSessions, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile } from '@/api/client.js'
+import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, fetchSessions, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, sessionOutputsSummary } from '@/api/client.js'
 import { collectDroppedItems } from '@/utils/projectFiles.js'
 import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
+import ProductsView from '@/components/launch/ProductsView.vue'
+import { formatBytes } from '@/utils/labOutputs.js'
 import KanbanView from '@/components/launch/KanbanView.vue'
 import DashboardView from '@/components/launch/DashboardView.vue'
 import ReviewView from '@/components/launch/ReviewView.vue'
@@ -2114,7 +2149,7 @@ const isRightPanelOpen = ref(true)
 const runTracker = createRunTracker()
 const workflowTitle = computed(() => (selectedFile.value ? selectedFile.value.replace(/\.ya?ml$/i, '') : ''))
 // Mounted on first use only, then kept so switching views is instant
-const visitedViews = reactive({ board: false, dashboard: false, review: false })
+const visitedViews = reactive({ board: false, dashboard: false, review: false, products: false })
 watch(viewMode, (mode) => {
   if (mode in visitedViews) visitedViews[mode] = true
 }, { immediate: true })
@@ -2126,6 +2161,7 @@ watch(viewMode, (mode) => {
 // Most used first: talk to the lead, then watch the team, then the work around it
 const viewOptions = [
   { mode: 'chat', label: 'launch.chat' },
+  { mode: 'products', label: 'launch.products.view', fallback: 'Sản phẩm' },
   { mode: 'office', label: 'launch.office.view' },
   { mode: 'board', label: 'launch.board.view' },
   { mode: 'review', label: 'launch.review.view' },
@@ -2809,6 +2845,55 @@ const flushPendingNotes = () => {
 // A finished run (completed, cancelled or failed) whose composer holds a new message continues
 // the same session as a follow-up turn; with an empty composer the button relaunches instead.
 const isRunFinished = computed(() => ['Completed', 'Cancelled', 'Error', 'Failed'].includes(status.value))
+
+// ---------------------------------------------------------------- products ("Sản phẩm")
+// What the team wrote for this session (its opened project, else its own folder): a one-line
+// summary in the control panel and on the view tab, refreshed when a turn ends or the folder changes.
+const trl = (key, fallback, params) =>
+  te(key) ? t(key, params) : String(fallback).replace(/\{(\w+)\}/g, (_, k) => params?.[k] ?? '')
+const productsSummary = ref(null)
+const productsRefreshKey = ref(0)
+const productsAutostart = ref(0)
+const PREVIEW_LIVE = ['installing', 'starting', 'running']
+const productsLive = computed(() => PREVIEW_LIVE.includes(productsSummary.value?.preview?.status))
+const productsLine = computed(() => {
+  const data = productsSummary.value
+  if (!data?.file_count) return ''
+  const parts = []
+  if (data.project?.type && data.project.type !== 'none') parts.push(data.project.summary)
+  parts.push(trl('launch.products.files', '{n} file', { n: data.file_count.toLocaleString(i18nLocale.value) }) + (data.scan_capped ? '+' : ''))
+  parts.push(formatBytes(data.total_bytes, i18nLocale.value))
+  return parts.join(' · ')
+})
+let productsToken = 0
+const loadProductsSummary = async () => {
+  const id = ++productsToken
+  const sessionId = activeSessionId.value
+  if (!sessionId) {
+    productsSummary.value = null
+    return
+  }
+  try {
+    const data = await sessionOutputsSummary(sessionId)
+    if (id === productsToken) productsSummary.value = data
+  } catch {
+    if (id === productsToken) productsSummary.value = null
+  }
+}
+const refreshProducts = () => {
+  productsRefreshKey.value += 1
+  loadProductsSummary()
+}
+watch(activeSessionId, loadProductsSummary, { immediate: true })
+// A turn ended (its files are final) or another folder was opened for the session
+watch(isRunFinished, (done) => { if (done) refreshProducts() })
+watch(currentProjectName, () => refreshProducts())
+// The tab and the panel show whether the app still runs: re-read when the view is left
+watch(viewMode, (mode, previous) => { if (previous === 'products') loadProductsSummary() })
+const openProducts = (run = false) => {
+  if (run) productsAutostart.value += 1
+  selectView('products')
+}
 
 // ---------------------------------------------------------------- plan approval
 // The lead ended its turn with a plan: the run is "done" for the server, but for you it
@@ -7960,6 +8045,15 @@ watch(
   background: var(--warn);
   vertical-align: 1px;
 }
+/* A count, not a warning: quiet until the app runs */
+.toggle-badge.products-badge { color: var(--fg-muted); background: rgb(var(--ink) / 0.1); font-variant-numeric: tabular-nums; }
+.toggle-badge.products-badge.is-live { color: var(--on-accent); background: var(--success); }
+
+/* Control panel: the session's products in one line */
+.products-line { margin: 0; font-size: 13px; line-height: 1.5; color: var(--fg-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.products-live { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; font-weight: 650; color: var(--success); }
+.products-live::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.products-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 
 /* Active Nodes */
 .active-nodes-display {

@@ -34,6 +34,7 @@ from agentdev.entity.messages import (
 )
 from agentdev.entity.tool_spec import ToolSpec
 from agentdev.runtime.node.executor.base import NodeExecutor
+from agentdev.runtime.node.executor.workspace_standards import WORKSPACE_STANDARDS, writes_workspace
 from agentdev.runtime.node.agent.memory.memory_base import (
     MemoryContentSnapshot,
     MemoryRetrievalResult,
@@ -275,14 +276,19 @@ class AgentNodeExecutor(NodeExecutor):
             if native is not None:
                 # The native CLI agent cannot call activate_skill: list the ticked skills' files instead.
                 external_tool_specs, native_skills, skill_manager = [], skill_manager, None
+            workspace_writer = writes_workspace(native is not None, (spec.name for spec in external_tool_specs))
 
             provider = provider_class(agent_config)
             client = provider.create_client()
 
             if input_mode is AgentInputMode.PROMPT:
-                conversation = self._prepare_prompt_messages(node, input_data, skill_manager, native_skills)
+                conversation = self._prepare_prompt_messages(
+                    node, input_data, skill_manager, native_skills, workspace_writer=workspace_writer
+                )
             else:
-                conversation = self._prepare_message_conversation(node, inputs, skill_manager, native_skills)
+                conversation = self._prepare_message_conversation(
+                    node, inputs, skill_manager, native_skills, workspace_writer=workspace_writer
+                )
             call_options = self._prepare_call_options(node)
             tool_specs = self._merge_skill_tool_specs(external_tool_specs, skill_manager)
             if team is not None:
@@ -439,11 +445,13 @@ class AgentNodeExecutor(NodeExecutor):
         input_data: str,
         skill_manager: AgentSkillManager | None,
         native_skills: AgentSkillManager | None = None,
+        *,
+        workspace_writer: bool = False,
     ) -> List[Message]:
         """Prepare the prompt-style message sequence."""
         messages: List[Message] = []
 
-        system_prompt = self._build_system_prompt(node, skill_manager, native_skills)
+        system_prompt = self._build_system_prompt(node, skill_manager, native_skills, workspace_writer=workspace_writer)
         if system_prompt:
             messages.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
 
@@ -465,10 +473,12 @@ class AgentNodeExecutor(NodeExecutor):
         inputs: List[Message],
         skill_manager: AgentSkillManager | None,
         native_skills: AgentSkillManager | None = None,
+        *,
+        workspace_writer: bool = False,
     ) -> List[Message]:
         messages: List[Message] = []
 
-        system_prompt = self._build_system_prompt(node, skill_manager, native_skills)
+        system_prompt = self._build_system_prompt(node, skill_manager, native_skills, workspace_writer=workspace_writer)
         if system_prompt:
             messages.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
 
@@ -517,7 +527,10 @@ class AgentNodeExecutor(NodeExecutor):
         node: Node,
         skill_manager: AgentSkillManager | None,
         native_skills: AgentSkillManager | None = None,
+        *,
+        workspace_writer: bool = False,
     ) -> str | None:
+        """System prompt; ``workspace_writer`` adds the project standards (agents that write to the workspace)."""
         parts: List[str] = []
         profile = self._agent_profile_section(node)
         if profile:
@@ -530,6 +543,9 @@ class AgentNodeExecutor(NodeExecutor):
         if team is not None:
             team_static, team_per_turn = team.system_prompt_parts()
             parts.append(team_static)
+
+        if workspace_writer:
+            parts.append(WORKSPACE_STANDARDS)
 
         if skill_manager is not None:
             skill_manager.preload()

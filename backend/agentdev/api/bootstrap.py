@@ -1,5 +1,7 @@
 """Application bootstrap helpers for the FastAPI server."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -30,3 +32,22 @@ def init_app(app: FastAPI) -> None:
         app.include_router(router)
 
     app.include_router(config_schema_router)
+
+    _stop_previews_on_shutdown(app)
+
+
+def _stop_previews_on_shutdown(app: FastAPI) -> None:
+    """Wrap the app lifespan so Lab app previews (whole process trees) die with the server."""
+    inner = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan(asgi_app):
+        try:
+            async with inner(asgi_app) as maybe_state:
+                yield maybe_state
+        finally:
+            from agentdev.api.services.app_preview import shutdown_previews
+
+            shutdown_previews()
+
+    app.router.lifespan_context = lifespan

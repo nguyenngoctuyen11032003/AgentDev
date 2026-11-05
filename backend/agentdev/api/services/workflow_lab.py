@@ -848,9 +848,38 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
         # A failed or timed-out run still took this long: keep it so averages and time regressions are not
         # computed as if the run took 0 seconds.
         exc.lab_seconds = round(time.time() - started, 1)  # type: ignore[attr-defined]
+        # What a failed or timed-out run produced is still worth looking at (often most of the work):
+        # keep its folder so the Lab can show it instead of leaving it orphaned in the warehouse.
+        exc.lab_output_dir = _session_output_dir(session)  # type: ignore[attr-defined]
         raise
     finally:
         cancel_event.set()  # stops the watchdog
+        _stop_leftover_processes(session, started)
+
+
+def _stop_leftover_processes(session: str, started: float) -> None:
+    """Kill dev servers and watchers the agents started in this run's folders and left running: they hold
+    ports (a Lab app once kept AgentDev's own 5173) and keep files locked for the cleanup."""
+    try:
+        from agentdev.runtime.sdk import OUTPUT_ROOT
+        from agentdev.utils.process_sweep import sweep
+
+        folders = [p for p in Path(OUTPUT_ROOT).glob(f"{session}_*") if p.is_dir()]
+        if folders:
+            sweep(folders, started)
+    except Exception:  # noqa: BLE001 - housekeeping must not change the run's outcome
+        pass
+
+
+def _session_output_dir(session: str) -> str:
+    """The newest folder a run of ``session`` wrote (``<warehouse>/<session>_<timestamp>``), or ""."""
+    try:
+        from agentdev.runtime.sdk import OUTPUT_ROOT
+
+        folders = [p for p in Path(OUTPUT_ROOT).glob(f"{session}_*") if p.is_dir()]
+        return str(max(folders, key=lambda p: p.name)) if folders else ""
+    except Exception:  # noqa: BLE001 - best effort; the error itself is what gets reported
+        return ""
 
 
 def _run_once_inner(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event, run_turn: Callable[..., Dict[str, Any]],
@@ -1124,6 +1153,8 @@ class LabRunner:
                 job.update_result(entry, status="cancelled")
                 return
             extra = {"seconds": exc.lab_seconds} if getattr(exc, "lab_seconds", None) is not None else {}
+            if getattr(exc, "lab_output_dir", ""):
+                extra["output_dir"] = exc.lab_output_dir
             job.update_result(entry, status="error", error=str(exc)[:2000], **extra)
             self._save(job)
             return
@@ -1161,6 +1192,14 @@ class LabRunner:
         finally:
             job.finished_at = job.finished_at or time.time()
             self._save(job)
+            try:  # housekeeping after the result is safely on disk: old product folders / job records
+                if self._store_dir is not None:
+                    return  # custom store (tests): the global warehouse is not ours to prune
+                from agentdev.api.services import lab_outputs
+
+                lab_outputs.auto_prune()
+            except Exception:  # noqa: BLE001 - never let cleanup affect a finished job
+                pass
 
 
 def _accepts(func: Callable[..., Any], name: str) -> bool:

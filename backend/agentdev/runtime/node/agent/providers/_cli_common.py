@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agentdev.connections import cli_auth
 from agentdev.utils.git_guard import with_git_ceiling
+from agentdev.utils.reserved_ports import with_reserved_ports
 from agentdev.connections.security import MODEL_NAME_RE
 from agentdev.entity.messages import Message, MessageRole, ToolCallPayload
 from agentdev.entity.tool_spec import ToolSpec
@@ -316,8 +317,8 @@ class _BusyTracker:
 
 def cli_run_env(cwd: Optional[str]) -> Dict[str, str]:
     """Environment of a vendor CLI run in ``cwd``: the account login env plus the git ceiling
-    (see ``agentdev.utils.git_guard``)."""
-    return with_git_ceiling(cli_auth.cli_env(), cwd)
+    (see ``agentdev.utils.git_guard``) and the ports AgentDev itself uses (``AGENTDEV_RESERVED_PORTS``)."""
+    return with_reserved_ports(with_git_ceiling(cli_auth.cli_env(), cwd))
 
 
 def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str,
