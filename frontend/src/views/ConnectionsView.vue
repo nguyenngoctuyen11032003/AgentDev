@@ -46,6 +46,13 @@
         <div v-for="n in 3" :key="n" class="skeleton"></div>
       </div>
 
+      <div v-else-if="loadError" class="empty-state load-error" role="alert">
+        <p class="empty-title">{{ $t('connections.load_failed_title') }}</p>
+        <p class="empty-desc">{{ $t('connections.load_failed_hint') }}</p>
+        <p v-if="loadError.detail" class="empty-desc load-error-detail">{{ loadError.detail }}</p>
+        <button type="button" class="btn sm" @click="load">{{ $t('connections.retry') }}</button>
+      </div>
+
       <div v-else-if="!connections.length" class="empty-state">
         <span class="empty-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1" /></svg>
@@ -132,13 +139,13 @@
             v-for="(vendorId, index) in fallbackOrder"
             :key="vendorId"
             class="fallback-step"
-            :class="{ 'is-linked': countFor(vendorId) > 0 }"
+            :class="{ 'is-linked': readyFor(vendorId) > 0 }"
           >
             <span v-if="index" class="fallback-arrow" aria-hidden="true">→</span>
             <ProviderLogo :vendor="vendorId" :label="vendorLabel(vendorId)" :size="20" bare />
             <span>{{ fallbackName(vendorId) }}</span>
             <span class="fallback-state">
-              {{ countFor(vendorId) ? $t('connections.fallback_ready') : $t('connections.fallback_missing') }}
+              {{ readyFor(vendorId) ? $t('connections.fallback_ready') :$t('connections.fallback_missing') }}
             </span>
           </li>
         </ol>
@@ -153,7 +160,7 @@
       :open="dialogOpen"
       :vendor="activeVendor"
       @close="dialogOpen = false"
-      @created="refresh"
+      @created="refreshQuietly"
     />
 
     <ConnectionDetail
@@ -189,6 +196,7 @@ import {
   setDefaultConnection,
   testConnection
 } from '@/api/client'
+import { needsLiveModels, logoutToast, readyCount } from '@/utils/connectionsLogic'
 import { accountName, isPremiumModel, normalizeModels } from '@/utils/accountFormat'
 import { invalidateConnectionModels, modelsForConnection } from '@/utils/connectionModels'
 import { confirmDialog } from '@/utils/confirm'
@@ -202,6 +210,7 @@ const vendors = ref([])
 const connections = ref([])
 const defaultId = ref(null) // connection every agent node without its own one runs on
 const loading = ref(true)
+const loadError = ref(null) // {detail} when the list could not be loaded
 const busyId = ref('')
 const results = reactive({})
 const accounts = reactive({})
@@ -215,6 +224,8 @@ const detailConn = computed(() => connections.value.find((conn) => conn.id === d
 const vendorLabel = (id) => vendors.value.find((vendor) => vendor.id === id)?.label || id
 const authLabel = (id) => (id === 'cli' || id === 'oauth' ? t(`connections.auth_${id}`) : t('connections.auth_legacy'))
 const countFor = (vendorId) => connections.value.filter((conn) => conn.vendor === vendorId).length
+const readyFor = (vendorId) => readyCount(connections.value, accounts, vendorId)
+const backendError = (message) => localizeBackendError(message) || message
 
 // A test result wins; otherwise the account lookup tells whether the sign-in is live.
 const statusOf = (id) => {
@@ -228,7 +239,7 @@ const statusOf = (id) => {
 }
 
 const errorOf = (id) => {
-  if (results[id] && !results[id].ok) return results[id].error
+  if (results[id] && !results[id].ok) return backendError(results[id].error)
   if (!results[id] && accounts[id]?.loggedIn === false) return localizeBackendError(accounts[id].detail) || accounts[id].detail
   return ''
 }
@@ -238,7 +249,7 @@ const errorOf = (id) => {
 const liveModels = reactive({})
 
 async function loadLiveModels(conn) {
-  if (conn.auth_type === 'cli' || liveModels[conn.id]) return
+  if (!needsLiveModels(conn) || liveModels[conn.id]) return
   try {
     const data = await modelsForConnection(conn.id)
     if (data.ok && data.models.length) liveModels[conn.id] = data.models
@@ -261,7 +272,7 @@ const primaryModels = (conn) => modelsOf(conn).filter((model) => model.primary)
 const fallbackOrder = ['anthropic', 'openai', 'gemini']
 const fallbackName = (id) => ({ anthropic: 'Claude', openai: 'Codex', gemini: 'Gemini' })[id] || vendorLabel(id)
 // A backup exists when accounts from at least two providers are signed in.
-const hasBackup = computed(() => new Set(connections.value.map((conn) => conn.vendor)).size >= 2)
+const hasBackup = computed(() => fallbackOrder.filter((vendorId) => readyFor(vendorId) > 0).length >= 2)
 
 function openDialog(vendor) {
   activeVendor.value = vendor
@@ -283,11 +294,21 @@ async function loadAccount(id) {
   }
 }
 
+// Refresh after a change that already succeeded: a failure here must not look like the change failed.
+async function refreshQuietly() {
+  try {
+    await refresh()
+  } catch (error) {
+    toast.warning(t('connections.refresh_failed'), { detail: backendError(error.message) })
+  }
+}
+
 async function refresh() {
   const data = await fetchConnections()
   connections.value = data.connections
   defaultId.value = data.defaultConnection || null
   invalidateConnectionModels()
+  for (const id of Object.keys(liveModels)) delete liveModels[id] // listings may have changed
   for (const conn of data.connections) {
     loadLiveModels(conn)
     if (!accounts[conn.id] && !accountLoading[conn.id]) loadAccount(conn.id)
@@ -303,34 +324,42 @@ async function runTest(conn) {
     if (result.ok) {
       toast.success(t('connections.test_ok', { count: result.models.length }))
     } else {
-      toast.error(t('connections.test_failed'), { detail: result.error })
+      toast.error(t('connections.test_failed'), { detail: backendError(result.error) })
     }
   } catch (error) {
-    toast.error(error.message)
+    toast.error(backendError(error.message))
   } finally {
     busyId.value = ''
   }
 }
 
-// Removes the connection; for the last CLI connection of a vendor the server also signs the CLI out.
+// Removes the AgentDev record. Signing the CLI out (machine-wide) is an explicit opt-in checkbox.
 async function logout(conn) {
-  const ok = await confirmDialog({
+  const isCli = conn.authType === 'cli'
+  const answer = await confirmDialog({
     title: t('connections.logout_title', { name: conn.label }),
     message: t('connections.confirm_logout_detail'),
     confirmText: t('connections.logout'),
-    tone: 'danger'
+    tone: 'danger',
+    checkbox: isCli ? { label: t('connections.sign_out_cli_label') } : undefined
   })
-  if (!ok) return
+  const confirmed = isCli ? answer.confirmed : answer
+  if (!confirmed) return
+  const signOutCli = isCli && answer.checked
+  let result
   try {
-    await deleteConnection(conn.id)
-    delete results[conn.id]
-    delete accounts[conn.id]
-    if (detailId.value === conn.id) detailId.value = ''
-    await refresh()
-    toast.success(t('connections.logged_out'))
+    result = await deleteConnection(conn.id, { signOutCli })
   } catch (error) {
-    toast.error(error.message)
+    toast.error(backendError(error.message))
+    return
   }
+  delete results[conn.id]
+  delete accounts[conn.id]
+  if (detailId.value === conn.id) detailId.value = ''
+  const kind = logoutToast(result, signOutCli)
+  if (kind === 'logout_cli_failed') toast.warning(t('connections.logout_cli_failed'))
+  else toast.success(t(`connections.${kind}`))
+  await refreshQuietly()
 }
 
 async function makeDefault(conn) {
@@ -338,7 +367,7 @@ async function makeDefault(conn) {
     defaultId.value = (await setDefaultConnection(conn.id)).defaultConnection
     toast.success(t('connections.default_set', { name: conn.label }))
   } catch (error) {
-    toast.error(error.message)
+    toast.error(backendError(error.message))
   }
 }
 
@@ -351,19 +380,24 @@ async function copyId(id) {
   }
 }
 
-onMounted(async () => {
+async function load() {
+  loading.value = true
+  loadError.value = null
   try {
     vendors.value = (await fetchConnectionVendors()).vendors
     await refresh()
     // Deep link, e.g. /connections?connect=anthropic opens that provider's dialog.
     const wanted = vendors.value.find((vendor) => vendor.id === route.query.connect)
-    if (wanted) openDialog(wanted)
+    if (wanted && !activeVendor.value) openDialog(wanted)
   } catch (error) {
-    toast.error(error.message)
+    loadError.value = { detail: backendError(error.message) }
+    toast.error(backendError(error.message))
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(load)
 </script>
 
 <style scoped>

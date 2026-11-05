@@ -7,7 +7,6 @@ export const THEMES = ['dark', 'light', 'system']
 
 const defaultSettings = {
     AUTO_SHOW_ADVANCED: false,
-    AUTO_EXPAND_MESSAGES: false,
     ENABLE_HELP_TOOLTIPS: true,
     LANGUAGE: 'vi',
     THEME: 'dark'
@@ -21,6 +20,8 @@ try {
 } catch {
     // Corrupt or inaccessible storage: fall back to defaults
 }
+// Drop the retired AUTO_EXPAND_MESSAGES flag a previous version may have saved
+delete initialState.AUTO_EXPAND_MESSAGES
 if (!SUPPORTED_LOCALES.includes(initialState.LANGUAGE)) {
     initialState.LANGUAGE = DEFAULT_LOCALE
 }

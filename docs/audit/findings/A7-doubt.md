@@ -1,0 +1,5 @@
+
+# A7 doubt review (adversarial, read-only, code-level; no servers started)
+- A7-1 (P1) CONFIRMED-CODE, de-rate to P2: WorkflowView.vue:38-52 has no `only-render-visible-elements`; 200 nodes is far above typical workflows. Fix: `:only-render-visible-elements="nodes.length > 60"`. Test: Vitest mount asserting prop; perf.spec.js re-measure.
+- A7-2 (P1) CONFIRMED-CODE: saveVueFlowGraph (1182-1198) only console.error + return false; onNodeDragStop (2142) ignores result. `toast` already imported (line 433). Fix: toast.error(layout_save_failed) in saveLayout wrapper used by drag-stop (debounced), keys vi/en/zh. Test: mock postVuegraphs reject, trigger drag-stop, expect toast.error called once.
+- A7-3 (P1) CONFIRMED-CODE: route `/workflows/:name?` reuses the component (no key), watch on props.workflowName calls initializeWorkflow with no sequence guard; loadYamlFile writes yamlContent/yamlTextString after await regardless of name. Fix: loadSeq counter, drop results after each await if stale (also compare requestedName to currentWorkflowName.value before writing). Test: two fetchYaml promises resolved out of order, expect final yamlContent of the later name.

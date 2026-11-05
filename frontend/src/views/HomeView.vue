@@ -1,13 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
 import ProviderLogo from '@/components/connections/ProviderLogo.vue'
-
-const router = useRouter()
-
-const goToTutorial = () => {
-  router.push('/tutorial')
-}
 
 // Pause the decorative background animations while the tab is hidden
 const isPageHidden = ref(typeof document !== 'undefined' && document.hidden)
@@ -81,10 +74,10 @@ const orbitDots = [
       <p class="introduction">{{ $t('home.introduction') }}</p>
 
       <div class="actions">
-        <button type="button" class="btn primary get-started-btn" @click="goToTutorial">
+        <router-link to="/tutorial" class="btn primary get-started-btn">
           {{ $t('home.get_started') }}
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-        </button>
+        </router-link>
         <router-link to="/workflows" class="btn secondary secondary-btn">{{ $t('home.secondary') }}</router-link>
       </div>
 

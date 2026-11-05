@@ -1,5 +1,5 @@
 <template>
-  <section class="preview" :aria-label="tr('lab.outputs.preview_title', 'Chạy thử')">
+  <section class="preview" :aria-label="t('lab.outputs.preview_title')">
     <header class="pv-bar">
       <span :class="['pv-status', tone]" role="status">
         <span v-if="busy" class="pv-pulse" aria-hidden="true"></span>
@@ -12,19 +12,19 @@
         :href="frameUrl"
         target="_blank"
         rel="noopener noreferrer"
-        :title="tr('lab.outputs.new_tab', 'Mở trong tab mới')"
+        :title="t('lab.outputs.new_tab')"
       >{{ displayUrl }}</a>
       <span class="pv-spacer"></span>
 
-      <div v-if="state.status === 'running'" class="pv-devices" role="group" :aria-label="tr('lab.outputs.device_label', 'Kích thước khung')">
+      <div v-if="state.status === 'running'" class="pv-devices" role="group" :aria-label="t('lab.outputs.device_label')">
         <button
           v-for="d in DEVICES"
           :key="d.id"
           type="button"
           :class="['pv-device', { on: device === d.id }]"
           :aria-pressed="device === d.id"
-          :title="tr(`lab.outputs.device.${d.id}`, d.label)"
-          :aria-label="tr(`lab.outputs.device.${d.id}`, d.label)"
+          :title="t(`lab.outputs.device.${d.id}`)"
+          :aria-label="t(`lab.outputs.device.${d.id}`)"
           @click="device = d.id"
         >
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="(p, pi) in d.icon" :key="pi" :d="p" /></svg>
@@ -32,10 +32,10 @@
       </div>
 
       <template v-if="state.status === 'running'">
-        <button type="button" class="btn ghost sm icon-only" :title="tr('lab.outputs.preview_reload', 'Tải lại')" :aria-label="tr('lab.outputs.preview_reload', 'Tải lại')" @click="frameKey++">
+        <button type="button" class="btn ghost sm icon-only" :title="t('lab.outputs.preview_reload')" :aria-label="t('lab.outputs.preview_reload')" @click="frameKey++">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8" /><path d="M21 3v5h-5" /></svg>
         </button>
-        <a class="btn ghost sm icon-only" :href="frameUrl" target="_blank" rel="noopener noreferrer" :title="tr('lab.outputs.new_tab', 'Mở trong tab mới')" :aria-label="tr('lab.outputs.new_tab', 'Mở trong tab mới')">
+        <a class="btn ghost sm icon-only" :href="frameUrl" target="_blank" rel="noopener noreferrer" :title="t('lab.outputs.new_tab')" :aria-label="t('lab.outputs.new_tab')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>
         </a>
       </template>
@@ -48,7 +48,7 @@
       >
         <span v-if="acting" class="btn-spinner" aria-hidden="true"></span>
         <svg v-else viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-        {{ tr('lab.outputs.preview_restart', 'Chạy lại') }}
+        {{ t('lab.outputs.preview_restart') }}
       </button>
       <button
         v-if="busy || state.status === 'running'"
@@ -59,9 +59,9 @@
       >
         <span v-if="acting" class="btn-spinner" aria-hidden="true"></span>
         <svg v-else viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-        {{ tr('lab.outputs.preview_stop', 'Dừng') }}
+        {{ t('lab.outputs.preview_stop') }}
       </button>
-      <button type="button" class="btn ghost sm icon-only" :title="tr('lab.outputs.preview_hide', 'Ẩn khung chạy thử')" :aria-label="tr('lab.outputs.preview_hide', 'Ẩn khung chạy thử')" @click="emit('close')">
+      <button type="button" class="btn ghost sm icon-only" :title="t('lab.outputs.preview_hide')" :aria-label="t('lab.outputs.preview_hide')" @click="emit('close')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
     </header>
@@ -69,11 +69,11 @@
     <div v-if="state.status === 'running' && frameUrl && state.frameable === false" class="pv-external">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
       <div class="pv-external-text">
-        <strong>{{ tr('lab.outputs.preview_no_frame_title', 'App đang chạy, nhưng không cho hiển thị trong khung') }}</strong>
-        <span>{{ tr('lab.outputs.preview_no_frame_hint', 'App tự bật chế độ chống nhúng vào trang khác (X-Frame-Options), đúng chuẩn bảo mật. Mở nó trong tab mới để xem và bấm thử.') }}</span>
+        <strong>{{ t('lab.outputs.preview_no_frame_title') }}</strong>
+        <span>{{ t('lab.outputs.preview_no_frame_hint') }}</span>
       </div>
       <a class="btn primary sm" :href="frameUrl" target="_blank" rel="noopener noreferrer">
-        {{ tr('lab.outputs.preview_open_tab', 'Mở app trong tab mới') }}
+        {{ t('lab.outputs.preview_open_tab') }}
       </a>
     </div>
     <div v-else-if="state.status === 'running' && frameUrl" class="pv-stage">
@@ -81,7 +81,7 @@
         :key="frameKey"
         :src="frameUrl"
         :class="['pv-frame', device]"
-        :title="tr('lab.outputs.preview_frame', 'Bản chạy thử của sản phẩm')"
+        :title="t('lab.outputs.preview_frame')"
         sandbox="allow-scripts allow-forms allow-popups"
         referrerpolicy="no-referrer"
       ></iframe>
@@ -90,20 +90,20 @@
       <span class="btn-spinner" aria-hidden="true"></span>
       <div>
         <strong>{{ statusLabel }}…</strong>
-        <span>{{ tr('lab.outputs.preview_wait', 'Lần đầu có thể mất vài phút để cài thư viện.') }}</span>
+        <span>{{ t('lab.outputs.preview_wait') }}</span>
       </div>
     </div>
     <p v-else-if="state.status === 'failed' || error" class="pv-error" role="alert">
-      <strong>{{ tr('lab.outputs.preview_error', 'Không chạy thử được') }}</strong>
+      <strong>{{ t('lab.outputs.preview_error') }}</strong>
       <span v-if="state.error || state.error_code || error">{{ state.status === 'failed' && (state.error || state.error_code) ? stateErrorText : error }}</span>
     </p>
-    <p v-else-if="state.status === 'stopped'" class="pv-note">{{ tr('lab.outputs.preview_stopped_note', 'Bản chạy thử đã dừng. Bấm "Chạy lại" để chạy tiếp.') }}</p>
+    <p v-else-if="state.status === 'stopped'" class="pv-note">{{ t('lab.outputs.preview_stopped_note') }}</p>
 
     <details v-if="state.log_tail" class="pv-log" :open="state.status === 'failed'">
-      <summary>{{ tr('lab.outputs.preview_log', 'Nhật ký') }}</summary>
+      <summary>{{ t('lab.outputs.preview_log') }}</summary>
       <pre ref="logEl">{{ state.log_tail }}</pre>
     </details>
-    <p v-if="state.status === 'running' && state.kind !== 'static'" class="pv-foot">{{ tr('lab.outputs.preview_idle_note', 'Bản chạy thử tự dừng sau 30 phút không dùng.') }}</p>
+    <p v-if="state.status === 'running' && state.kind !== 'static'" class="pv-foot">{{ t('lab.outputs.preview_idle_note') }}</p>
   </section>
 </template>
 
@@ -125,13 +125,11 @@ const props = defineProps({
 const emit = defineEmits(['close', 'status'])
 
 const { t, te } = useI18n()
-const tr = (key, fallback, params) =>
-  te(key) ? t(key, params) : String(fallback).replace(/\{(\w+)\}/g, (_, k) => params?.[k] ?? '')
 
 const DEVICES = [
-  { id: 'desktop', label: 'Máy tính', icon: ['M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z', 'M8 21h8M12 17v4'] },
-  { id: 'tablet', label: 'Máy tính bảng', icon: ['M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z', 'M11 18h2'] },
-  { id: 'mobile', label: 'Điện thoại', icon: ['M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z', 'M11 18h2'] }
+  { id: 'desktop', icon: ['M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z', 'M8 21h8M12 17v4'] },
+  { id: 'tablet', icon: ['M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z', 'M11 18h2'] },
+  { id: 'mobile', icon: ['M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z', 'M11 18h2'] }
 ]
 const POLL_MS = 1500
 // While the preview is on screen the server is told it is still watched, so it is not stopped as idle.
@@ -155,7 +153,7 @@ const tone = computed(() =>
 const errText = (err) => labErrorText(err, { t, te })
 // A failed preview carries error_code/error_params: show it in the UI language.
 const stateErrorText = computed(() => labErrorText(state, { t, te }))
-const statusLabel = computed(() => tr(`lab.outputs.preview_status.${state.status}`, state.status))
+const statusLabel = computed(() => t(`lab.outputs.preview_status.${state.status}`))
 // Static sites come back as a relative /api/... URL: the app's own origin serves (or proxies) it.
 const frameUrl = computed(() => state.url || '')
 const displayUrl = computed(() => {

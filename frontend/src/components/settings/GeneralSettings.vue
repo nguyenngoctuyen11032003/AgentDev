@@ -95,8 +95,7 @@ const themeOptions = [
 
 const toggles = [
   { key: 'ENABLE_HELP_TOOLTIPS', label: 'settings.enable_help_tooltips', desc: 'settings.enable_help_tooltips_desc' },
-  { key: 'AUTO_SHOW_ADVANCED', label: 'settings.auto_show_advanced', desc: 'settings.auto_show_advanced_desc' },
-  { key: 'AUTO_EXPAND_MESSAGES', label: 'settings.auto_expand_messages', desc: 'settings.auto_expand_messages_desc' }
+  { key: 'AUTO_SHOW_ADVANCED', label: 'settings.auto_show_advanced', desc: 'settings.auto_show_advanced_desc' }
 ]
 </script>
 

@@ -843,8 +843,13 @@ export const setDefaultConnection = (id) =>
     'errors.api.connections_failed'
   )
 
-export const deleteConnection = (id) =>
-  connectionsRequest(`/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'errors.api.connections_failed')
+// Removes only the AgentDev record unless signOutCli is set (machine-wide CLI sign-out, opt-in).
+export const deleteConnection = (id, { signOutCli = false } = {}) =>
+  connectionsRequest(
+    `/${encodeURIComponent(id)}${signOutCli ? '?sign_out_cli=true' : ''}`,
+    { method: 'DELETE' },
+    'errors.api.connections_failed'
+  )
 
 export const checkWorkflowConnections = (yamlContent) =>
   connectionsRequest(
@@ -1038,6 +1043,8 @@ export const labGenerate = ({ yamlFile, count, language }) =>
 export const labJob = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}`)
 
 export const labJobs = (workflow) => labRequest(`/jobs?workflow=${encodeURIComponent(workflow)}`)
+
+export const labDeleteJob = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' })
 
 export const labCancel = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST', body: '{}' })
 

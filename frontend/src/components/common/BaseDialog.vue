@@ -4,7 +4,7 @@
  * initial focus, focus returned to the trigger, teleported to <body>.
  * Slots: header (replaces the title row), default (body), footer.
  *
- *   <BaseDialog v-model="open" :title="t('x.title')">...</BaseDialog>
+ *   <BaseDialog v-model="open" :title="title">...</BaseDialog>
  *
  * Initial focus goes to an element marked [data-autofocus] / [autofocus], else the
  * first field in the body, else the close button.

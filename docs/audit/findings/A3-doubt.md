@@ -1,0 +1,6 @@
+# A3 doubt review (P1 only)
+
+- A3-01 CONFIRMED-CODE: ConfirmHost.vue:87 and BaseDialog.vue:151 both use --z-modal (1100), both teleport to body, and ConfirmHost mounts first (App.vue:39), so later dialogs stack above it. Fix: add `--z-confirm: 1150` in main.css and use it in `.confirm-backdrop`. Test: e2e, open dialog then confirm, `elementFromPoint` on the confirm button must be inside `.confirm`.
+- A3-02 CONFIRMED: ConnectionsView.vue:241 reads `conn.auth_type`; `curl /api/connections` returns `authType:"cli"`, so the guard never fires. Fix: `conn.authType`. Test: mock `authType:'cli'`, `modelsForConnection` must not be called.
+- A3-03 CONFIRMED-CODE: onMounted catch (354-366) only calls toast.error, and `loading=false` shows the empty state. Fix: `loadError` ref plus a `role="alert"` block with a retry button, and empty only when `!loadError`. Test: mock a rejecting fetch, expect the alert and no empty text.
+- A3-04 CONFIRMED-CODE: if window.open returns null, `popup?.closed` is undefined, so reject never happens; `requestClose` returns while `saving` and there is no timeout. Fix: if `!popup`, reject with a popup_blocked error; let Cancel call `stopGoogleOAuth` and close; add a timeout. Test: vitest with window.open mocked to null, expect saving to reset and the error to show.

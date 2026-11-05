@@ -20,6 +20,10 @@
           <div class="confirm-text">
             <h2 :id="titleId">{{ request.title }}</h2>
             <p v-if="request.message" :id="descId">{{ request.message }}</p>
+            <label v-if="request.checkbox" class="confirm-check">
+              <input v-model="checked" type="checkbox" />
+              <span>{{ request.checkbox.label }}</span>
+            </label>
           </div>
 
           <footer class="confirm-foot">
@@ -49,8 +53,10 @@ const cancelEl = ref(null)
 const okEl = ref(null)
 let returnFocus = null
 
+const checked = ref(false)
+
 function answer(value) {
-  request.value?.resolve(value)
+  request.value?.resolve(value, checked.value)
 }
 
 // Keep Tab cycling between the two buttons while the dialog is open.
@@ -69,6 +75,7 @@ function trapFocus(event) {
 
 watch(request, async (current, previous) => {
   if (current && !previous) returnFocus = document.activeElement
+  if (current) checked.value = false
   if (current) {
     await nextTick()
     // Destructive actions start on Cancel so Enter never deletes by accident.
@@ -81,10 +88,24 @@ watch(request, async (current, previous) => {
 </script>
 
 <style scoped>
+.confirm-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.confirm-check input {
+  margin-top: 3px;
+}
+
 .confirm-backdrop {
   position: fixed;
   inset: 0;
-  z-index: var(--z-modal);
+  z-index: var(--z-confirm, 1150); /* above BaseDialog (--z-modal) so a confirm opened from a dialog is clickable */
   display: grid;
   place-items: center;
   padding: 24px 16px;

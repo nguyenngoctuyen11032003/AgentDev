@@ -8,7 +8,7 @@
       <svg class="h-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
     </summary>
     <ul class="h-list">
-      <li v-for="item in jobs" :key="item.id">
+      <li v-for="item in jobs" :key="item.id" class="h-item">
         <button
           type="button"
           :class="['h-row', { current: item.id === currentId }]"
@@ -25,6 +25,16 @@
           </span>
           <span class="h-open">{{ item.id === currentId ? tr('lab.history.viewing', 'Đang xem') : tr('lab.history.open', 'Xem') }}</span>
         </button>
+        <button
+          v-if="!isLive(item)"
+          type="button"
+          class="h-del"
+          :aria-label="t('lab.history.delete')"
+          :title="t('lab.history.delete')"
+          @click="remove(item)"
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
+        </button>
       </li>
     </ul>
   </details>
@@ -33,7 +43,10 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { labJobs } from '@/api/client'
+import { labJobs, labDeleteJob } from '@/api/client'
+import { confirmDialog } from '@/utils/confirm.js'
+import { labErrorText } from '@/utils/labOutputs.js'
+import { toast } from '@/utils/toast.js'
 
 // Past evaluations of one workflow (stored on the server), so results and products stay reachable
 // after a reload or from another tab. Bump refreshKey to re-read the list (e.g. when a job finishes).
@@ -43,7 +56,7 @@ const props = defineProps({
   refreshKey: { type: Number, default: 0 }
 })
 // loaded: the list, so the page can reuse past costs (e.g. the estimate before Run)
-const emit = defineEmits(['open', 'loaded'])
+const emit = defineEmits(['open', 'loaded', 'deleted'])
 
 const { t, te, locale } = useI18n()
 const tr = (key, fallback, params) =>
@@ -72,6 +85,25 @@ async function load() {
 }
 
 watch(() => [props.workflow, props.refreshKey], load, { immediate: true })
+
+const isLive = (item) => item.status === 'running' || item.status === 'queued'
+
+async function remove(item) {
+  const ok = await confirmDialog({
+    title: t('lab.history.delete_title'),
+    message: t('lab.history.delete_message'),
+    confirmText: t('lab.history.delete'),
+    tone: 'danger'
+  })
+  if (!ok) return
+  try {
+    await labDeleteJob(item.id)
+    emit('deleted', item.id)
+    await load()
+  } catch (err) {
+    toast.error(t('lab.history.delete_failed'), { detail: labErrorText(err, { t, te }) })
+  }
+}
 
 function when(seconds) {
   if (!seconds) return '—'
@@ -102,6 +134,11 @@ function tone(item) {
 .h-chevron { flex: none; margin-left: auto; color: var(--fg-muted); transition: transform 0.18s ease; }
 .history[open] .h-chevron { transform: rotate(180deg); }
 .h-list { margin: 0; padding: 0 8px 8px; list-style: none; max-height: 320px; overflow-y: auto; }
+.h-item { position: relative; }
+.h-item .h-row { padding-right: 44px; }
+.h-del { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: none; color: var(--fg-muted); cursor: pointer; }
+.h-del:hover { color: var(--danger); background: var(--surface-raised); }
+.h-del:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .h-row { display: grid; grid-template-columns: auto minmax(110px, auto) minmax(70px, auto) 1fr auto; align-items: center; gap: 12px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: none; font: inherit; font-size: 13px; text-align: left; color: var(--fg); cursor: pointer; }
 .h-row:hover { background: var(--surface-raised); }
 .h-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }

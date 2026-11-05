@@ -14,9 +14,9 @@
         </nav>
       </aside>
 
-      <main class="settings-content">
+      <section class="settings-content">
         <router-view />
-      </main>
+      </section>
     </div>
   </div>
 </template>

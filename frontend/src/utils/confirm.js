@@ -6,8 +6,9 @@ export const pendingConfirm = shallowRef(null)
 
 /**
  * @param {{title: string, message?: string, confirmText?: string, cancelText?: string,
- *          tone?: 'danger'|'default'}} options
- * @returns {Promise<boolean>} true when the user confirms.
+ *          tone?: 'danger'|'default', checkbox?: {label: string}}} options
+ * @returns {Promise<boolean|{confirmed: boolean, checked: boolean}>} true when the user confirms
+ *          (an object when options.checkbox is set).
  */
 export function confirmDialog(options) {
   // Only one question at a time: a newer one cancels the previous.
@@ -16,9 +17,10 @@ export function confirmDialog(options) {
     pendingConfirm.value = {
       tone: 'default',
       ...options,
-      resolve: (answer) => {
+      resolve: (answer, checked = false) => {
         pendingConfirm.value = null
-        resolve(answer)
+        // With an opt-in checkbox the caller needs both answers.
+        resolve(options.checkbox ? { confirmed: answer, checked: answer && checked } : answer)
       }
     }
   })

@@ -27,7 +27,7 @@ AgentDev lets you build an "AI company": every employee is an **agent**, agents 
 
 | Term | Meaning |
 |------|---------|
-| **Workflow** | A YAML file that describes a team of agents and how they work together. Workflows are listed under **Workflows** in the sidebar. |
+| **Workflow** | A YAML file that describes a team of agents and how they work together. Workflows are listed under **Workflows** in the top navigation bar. |
 | **Node** | One step of a workflow. The most common type is **Agent**; there are also Human, Python, Literal, Passthrough, Loop counter and Subgraph nodes. |
 | **Edge** | An arrow between two nodes: it passes the source node's output to the target node and can trigger the target to run. |
 | **Agent** | A node that calls an AI model (Claude, Codex, Gemini) with its own role, prompt, tools and skills. |
@@ -42,7 +42,7 @@ AgentDev lets you build an "AI company": every employee is an **agent**, agents 
 <a id="connections"></a>
 ## 2. Connect your accounts
 
-Agents need an AI account to run. Open **Settings → Connections** (the gear button at the right of the top bar).
+Agents need an AI account to run. Open **Settings → Connections** (the gear button at the right of the top navigation bar).
 
 1. Under **Providers**, pick a provider card and click **Connect**.
 2. Choose how to sign in and follow the dialog:
@@ -59,6 +59,10 @@ Tips:
 - If the Claude CLI or Codex CLI is not installed, the dialog tells you to install it first.
 
 **Automatic account fallback.** When the account an agent is using reports it is out of usage (for example Claude's 5-hour limit), AgentDev moves that agent to another signed-in account, preferring another vendor (Claude → Codex, Codex → Claude, then Gemini), with that account's default model. A chat line and a pop-up tell you which account took over, and later agents in the same run use it straight away. If no account is left you get an error asking you to sign in to another one on **Connections**, so it is worth signing in to both Claude and Codex.
+
+**General settings.** Under **Settings → General settings** you change the interface language (Tiếng Việt, English, 中文) and the light/dark theme. The same options are in the Settings dialog opened from the top navigation bar.
+
+**Provider choice for an agent.** If an agent is set to a model from a vendor (for example OpenAI) that you are signed in to, AgentDev prefers the connection of that same vendor; if there is none, the agent runs on the default connection and the interface shows a notice.
 
 ---
 
@@ -85,7 +89,7 @@ Each skill card has **Edit** and **Delete**. Skills that fail to parse are marke
 <a id="build-workflow"></a>
 ## 4. Build a workflow
 
-Open **Workflows** in the sidebar. The list is on the left; click **Create Workflow** to start a new one, or pick an existing workflow to edit it.
+Open **Workflows** in the top navigation bar. The list is on the left; click **Create Workflow** to start a new one, or pick an existing workflow to edit it.
 
 The editor has two tabs:
 
@@ -100,6 +104,8 @@ The toolbar above the graph has:
 - A menu (hover the icon at the end of the toolbar): **Rename Workflow**, **Copy Workflow**, **Manage Variables**, **Manage Memories**, **Create Edge**.
 
 Turn on **Enable help tooltips** in **Settings** to get explanations when you hover nodes, edges and buttons.
+
+**Workflow assistant.** The editor has a **Workflow assistant** panel: describe in words what you want to change (add a member, edit a prompt, link nodes...) and the assistant proposes changes to the workflow for you to review and apply. Conversations are saved as sessions and you can pick the assistant's model. It runs on your connected accounts, so it uses tokens.
 
 <a id="2-create-nodes"></a>
 ### Create nodes
@@ -208,7 +214,20 @@ To customise it, open the workflow, use **Copy Workflow** to make your own versi
 <a id="run-page"></a>
 ## 6. Run a workflow
 
-Open **Launch** in the sidebar (or click **Launch** in the workflow editor).
+Open **Launch** in the top navigation bar (or click **Launch** in the workflow editor).
+
+**Run modes.** The input box has a **Mode** button; click it or press **Shift+Tab** in the input to cycle through the 4 modes. If a run is in progress, the new mode applies from the next message.
+
+| Mode | Behavior |
+|------|----------|
+| **Ask first** | Runs exactly as designed: every question and approval step waits for you. |
+| **Plan** | The lead always presents a plan and waits for your approval before delegating. |
+| **Auto** | No plan approval needed, the lead's questions are answered automatically; approval steps in the workflow still wait for you. |
+| **Bypass approvals** | Answers every question and approval step automatically. |
+
+> **Paid steps.** A gate marked `paid: true` (for example Veo video rendering) is never approved automatically: not even in **Bypass approvals**, not on silence or timeout. It runs only when you approve it yourself. The Lab always refuses these gates.
+
+**Cost and tokens.** Every run records each agent's tokens and estimated cost; before a paid step the app shows a cost estimate so you can decide. Cost appears in the **Dashboard** view.
 
 **Pick a workflow and a project**
 
@@ -231,6 +250,7 @@ The left list keeps every **session**, grouped by project. Click **New session**
 | **Office** | A 2D office: each agent is a character at its department desk, walking around when handing over or receiving work. Click a character to see its status, model and latest output. |
 | **Tasks** | A task board by team or by step: what each agent is doing, has queued and has finished. |
 | **Dashboard** | Progress, run time, model calls and tool use, a timeline and recent activity. |
+| **Products** | The file tree the team produced (source code, web pages, documents). Click **Try it** to run the product and **View preview**; a preview stops by itself after 30 minutes and only a limited number can run at once. |
 | **Review** | Accept or reject the result (see below). |
 
 **Review results**
@@ -251,11 +271,13 @@ The **Lab** validates a workflow before you rely on it. Choose it under **Workfl
 
 **1. Configuration check** (instant, no tokens). Each item is marked green (pass), amber (warning) or red (error): workflow structure, AI accounts, each agent's role, whether selected skills are in the library, whether tools exist, code/command execution permission, team lead and members, and nodes that can never run. Fix every red item before test runs.
 
-**2. Test scenarios.** Each scenario has a **Request sent to the workflow** (what you would really type) and **Pass criteria** (what the answer must satisfy; empty means any error-free answer passes). **Add sample scenarios** fills two scenarios for the Software company template. Pick **Runs per scenario** (2–3 runs measure stability) and click **Start test run**. The workflow really runs on your accounts; questions it asks (such as plan approval) are answered "Approved" automatically, and an AI judge grades every answer with a reason.
+**2. Test scenarios.** Each scenario has a **Request sent to the workflow** (what you would really type) and **Pass criteria** (what the answer must satisfy; empty means any error-free answer passes). **Add sample scenarios** fills two scenarios for the Software company template. Pick **Runs per scenario** (2–3 runs measure stability) and click **Start test run**. The workflow really runs on your accounts; questions it asks (such as plan approval) are answered "Approved" automatically (a paid gate, `paid: true`, is always refused, so that step never runs in the Lab), and an AI judge grades every answer with a reason.
 
 Results show the pass rate, tokens, estimated cost, time, which agents took part, the questions asked and every answer. A workflow is **Passed** at an 80% pass rate or higher with no errored runs. Scenarios are remembered per workflow in your browser, so after editing the workflow you just run them again.
 
-**Batch run from Excel/CSV.** The button at the top opens the batch page:
+**Diagnosis, fix brief and products.** For each run, **Speed and quality diagnosis** points to slow or token-heavy steps and explains why an answer failed. From there click **Copy brief** to get a fix brief and paste it into the **Workflow assistant** in the editor. Each run also has **Products** and **Try it** parts to browse files and try the result; after validation the app asks whether to clean up previews and temporary data.
+
+**Batch run from Excel/CSV.** The **Batch run** tab in the Lab (also reachable at `/batch-run`) runs one workflow on many inputs:
 
 1. Pick the workflow under **Workflow Selection**.
 2. Pick an `.xlsx` or `.csv` input file under **Input File Selection**. It needs at least a `task` and/or `attachments` column:
@@ -424,6 +446,10 @@ AgentDev uses Tarjan's algorithm to find loops, wraps each loop into a "super no
 ![execution_flow.png](media/execution_flow.png)
 
 > Team-lead workflows need no loops: the lead sends failed work back for fixes itself, up to **Max fix/review rounds** times.
+
+**Several end nodes.** With several end nodes, the end node that finishes **last** with output gives the final answer (ties: declaration order). The linter warns `MULTIPLE_END_NODES` when two end nodes can run in the same turn; prefer mutually exclusive end nodes.
+
+**Failing edge conditions.** A condition that errors while evaluating does not fire its edge and raises a warning. An edge inside a **Loop Counter** loop must point back to the loop-entry step.
 
 ---
 

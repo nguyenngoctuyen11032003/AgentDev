@@ -63,11 +63,11 @@
                 >
                   <div
                     class="progress-fill"
-                    :class="{ processing: status === 'In Progress', 'is-done': status === 'Batch completed', 'is-cancelled': status === 'Batch cancelled' }"
+                    :class="{ processing: status === BATCH_STATUS.IN_PROGRESS, 'is-done': status === BATCH_STATUS.COMPLETED, 'is-cancelled': status === BATCH_STATUS.CANCELLED }"
                     :style="{ width: progressPercentage + '%' }"
                   ></div>
                 </div>
-                <div class="progress-text">{{ progressPercentage }}%</div>
+                <div class="progress-text" role="status" aria-live="polite">{{ progressPercentage }}%</div>
               </div>
             </div>
 
@@ -86,9 +86,9 @@
                 <div class="metric-title">{{ $t('batch_run.success_rate') }}</div>
                 <div class="metric-value">{{ successRate }}</div>
               </div>
-              <div class="metric-card" :class="{ 'status-active': status === 'In Progress' }">
+              <div class="metric-card" :class="{ 'status-active': status === BATCH_STATUS.IN_PROGRESS }">
                 <div class="metric-title">{{ $t('batch_run.current_status') }}</div>
-                <div class="metric-value metric-status">{{ computedStatus }}</div>
+                <div class="metric-value metric-status" role="status" aria-live="polite">{{ computedStatus }}</div>
               </div>
             </div>
           </div>
@@ -244,7 +244,7 @@
             <button
               type="button"
               class="btn secondary cancel-button"
-              :disabled="status !== 'In Progress'"
+              :disabled="status !== BATCH_STATUS.IN_PROGRESS"
               @click="cancelBatchWorkflow"
             >
               {{ $t('common.cancel') }}
@@ -253,7 +253,7 @@
             <button
               type="button"
               class="btn secondary download-button"
-              :disabled="status !== 'Batch completed' && status !== 'Batch cancelled'"
+              :disabled="!isBatchFinished(status)"
               @click="downloadLogs"
             >
               {{ $t('batch_run.download_logs') }}
@@ -278,11 +278,6 @@
       :alt="selectedArtifactImage.name"
     />
   </BaseDialog>
-
-  <SettingsModal
-    :is-visible="showSettingsModal"
-    @update:is-visible="showSettingsModal = $event"
-  />
 
   <!-- Column guide -->
   <BaseDialog
@@ -357,7 +352,7 @@
 import { ref, shallowRef, triggerRef, markRaw, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-const { t, te } = useI18n()
+const { t } = useI18n()
 
 // Extract a readable backend error detail (FastAPI `detail` may be a string, an object or a list)
 const extractErrorDetail = (result) => {
@@ -375,11 +370,11 @@ const extractErrorDetail = (result) => {
 
 // Localized message, optionally followed by the backend detail
 const withErrorDetail = (message, result) => {
-  const detail = extractErrorDetail(result)
+  const detail = batchErrorDetail(result)
   return detail ? t('batch_run.error_with_detail', { message, detail }) : message
 }
 import { fetchWorkflowsWithDesc, fetchLogsZip, postBatchWorkflow } from '@/api/client.js'
-import SettingsModal from '@/components/common/SettingsModal.vue'
+import { BATCH_STATUS, batchStatusLabelKey, batchErrorDetail, isBatchFinished } from './batchRunStatus.js'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
 import { toast } from '@/utils/toast.js'
@@ -423,37 +418,15 @@ const fileSelectorWrapperRef = ref(null)
 const fileSelectorInputRef = ref(null)
 
 // Status state
-const status = ref('Idle')
+const status = ref(BATCH_STATUS.IDLE)
 const loading = ref(false)
-
-// Internal status value -> i18n key
-const STATUS_LABEL_KEYS = {
-  'Connecting...': 'launch.status_connecting',
-  'Pending launch': 'launch.status_waiting_launch',
-  'Launching...': 'launch.status_launching',
-  'Failed': 'launch.status_failed',
-  'Error': 'launch.status_error',
-  'Disconnected': 'launch.status_disconnected',
-  'Connection error': 'launch.status_connection_error',
-  'Pending file selection': 'batch_run.status_waiting_file'
-}
 
 // Computed status from workflow and input file selection
 const computedStatus = computed(() => {
   if (loading.value) return t('batch_run.loading')
-  if (status.value === 'Pending workflow selection') return t('batch_run.status_waiting_workflow')
-  if (!selectedYamlFile.value) return t('batch_run.status_waiting_workflow')
-  if (!selectedInputFile.value) return t('batch_run.status_waiting_file')
-  
-  // Handle specific statuses from logic
-  if (status.value === 'Idle') return t('batch_run.status_idle')
-  if (status.value === 'In Progress') return t('batch_run.status_in_progress')
-  if (status.value === 'Batch completed') return t('batch_run.status_completed')
-  if (status.value === 'Batch cancelled') return t('batch_run.status_cancelled')
-
-  // Map other internal status values to localized labels, falling back to the raw value
-  const key = STATUS_LABEL_KEYS[status.value]
-  return key && te(key) ? t(key) : status.value
+  if (status.value === BATCH_STATUS.PENDING_WORKFLOW || !selectedYamlFile.value) return t(batchStatusLabelKey(BATCH_STATUS.PENDING_WORKFLOW))
+  if (!selectedInputFile.value) return t(batchStatusLabelKey(BATCH_STATUS.PENDING_FILE))
+  return t(batchStatusLabelKey(status.value))
 })
 
 // Session ID for downloads
@@ -473,7 +446,6 @@ const inputFileInputRef = ref(null)
 
 // WebSocket readiness state
 const isConnectionReady = ref(false)
-const showSettingsModal = ref(false)
 const isBatchSettingsModalVisible = ref(false)
 const showColumnGuideModal = ref(false)
 
@@ -582,20 +554,20 @@ const filteredWorkflowFiles = computed(() => {
 
 // Button label computed property
 const buttonLabel = computed(() => {
-  if (status.value === 'Batch completed' || status.value === 'Batch cancelled') {
+  if (isBatchFinished(status.value)) {
     return t('batch_run.relaunch')
   }
   return t('batch_run.launch')
 })
 
 // A launch request is in flight or the batch is running
-const isSending = computed(() => isWorkflowRunning.value || status.value === 'Launching...')
+const isSending = computed(() => isWorkflowRunning.value || status.value === BATCH_STATUS.LAUNCHING)
 
 // Computed button state
 const isLaunchButtonDisabled = computed(() => {
   if (loading.value) return true
   if (isSending.value) return true
-  if (status.value === 'Batch completed' || status.value === 'Batch cancelled') return false
+  if (isBatchFinished(status.value)) return false
   if (!isConnectionReady.value) return true
   if (!selectedYamlFile.value || !selectedInputFile.value) return true
   return false
@@ -948,7 +920,7 @@ const handleYAMLSelection = async (fileName) => {
 
 // Handle button clicks
 const handleButtonClick = () => {
-  if (status.value === 'Batch completed' || status.value === 'Batch cancelled') {
+  if (isBatchFinished(status.value)) {
     // If Relaunch, restart the same workflow and re-enter Launch state
     if (!selectedYamlFile.value) {
       toast.warning(t('launch.alert_choose_workflow'))
@@ -961,7 +933,7 @@ const handleButtonClick = () => {
     }
 
     resetConnectionState()
-    status.value = 'Connecting...'
+    status.value = BATCH_STATUS.CONNECTING
     handleYAMLSelection(selectedYamlFile.value)
     establishWebSocketConnection()
   } else {
@@ -1017,7 +989,7 @@ const establishWebSocketConnection = () => {
       console.log('Connected with session: ', sessionId)
 
       if (!sessionId) {
-        status.value = 'Connection error'
+        status.value = BATCH_STATUS.CONNECTION_ERROR
         toast.error(t('launch.alert_missing_session'))
         resetConnectionState()
         return
@@ -1025,7 +997,7 @@ const establishWebSocketConnection = () => {
 
       isConnectionReady.value = true
       shouldGlow.value = true
-      status.value = 'Pending launch'
+      status.value = BATCH_STATUS.PENDING_LAUNCH
 
       nextTick(() => {
         taskInputRef.value?.focus()
@@ -1040,7 +1012,7 @@ const establishWebSocketConnection = () => {
     if (ws !== socket) return
 
     console.error('WebSocket error:', error)
-    status.value = 'Connection error'
+    status.value = BATCH_STATUS.CONNECTION_ERROR
     toast.error(t('launch.alert_ws_error'))
     resetConnectionState({ closeSocket: false })
   }
@@ -1050,10 +1022,10 @@ const establishWebSocketConnection = () => {
     if (ws !== socket) return
 
     console.log('WebSocket closed')
-    if (status.value === 'In Progress') {
-      status.value = 'Disconnected'
-    } else if (status.value === 'Connecting...' || status.value === 'Pending launch') {
-      status.value = 'Disconnected'
+    if (status.value === BATCH_STATUS.IN_PROGRESS) {
+      status.value = BATCH_STATUS.DISCONNECTED
+    } else if (status.value === BATCH_STATUS.CONNECTING || status.value === BATCH_STATUS.PENDING_LAUNCH) {
+      status.value = BATCH_STATUS.DISCONNECTED
     }
     resetConnectionState({ closeSocket: false, clearInputFile: false })
   }
@@ -1067,13 +1039,13 @@ watch(selectedYamlFile, (newFile) => {
 
   if (!newFile) {
     resetConnectionState()
-    status.value = 'Pending file selection'
+    status.value = BATCH_STATUS.PENDING_FILE
     handleYAMLSelection(newFile)
     return
   }
 
   resetConnectionState()
-  status.value = 'Connecting...'
+  status.value = BATCH_STATUS.CONNECTING
   handleYAMLSelection(newFile)
   establishWebSocketConnection()
 })
@@ -1138,7 +1110,7 @@ const launchBatchWorkflow = async () => {
   }
 
   shouldGlow.value = false
-  status.value = 'Launching...'
+  status.value = BATCH_STATUS.LAUNCHING
 
   try {
     const result = await postBatchWorkflow({
@@ -1151,24 +1123,24 @@ const launchBatchWorkflow = async () => {
 
     if (result.success) {
       console.log('Batch workflow launched: ', result)
-      status.value = 'In Progress'
+      status.value = BATCH_STATUS.IN_PROGRESS
       isWorkflowRunning.value = true
     } else {
       console.error('Failed to launch batch workflow:', result)
-      status.value = 'Failed'
+      status.value = BATCH_STATUS.FAILED
       toast.error(withErrorDetail(t('batch_run.alert_launch_failed'), result))
       shouldGlow.value = true
       if (isConnectionReady.value) {
-        status.value = 'Pending launch'
+        status.value = BATCH_STATUS.PENDING_LAUNCH
       }
     }
   } catch (error) {
     console.error('Error calling batch workflow API:', error)
-    status.value = 'Error'
-    toast.error(withErrorDetail(t('batch_run.alert_launch_api_failed'), { detail: error?.message }))
+    status.value = BATCH_STATUS.ERROR
+    toast.error(withErrorDetail(t('batch_run.alert_launch_api_failed'), error))
     shouldGlow.value = true
     if (isConnectionReady.value) {
-      status.value = 'Pending launch'
+      status.value = BATCH_STATUS.PENDING_LAUNCH
     }
   }
 }
@@ -1196,7 +1168,7 @@ const processBatchMessage = async (msg) => {
     // Stop the timer
     stopTimer()
 
-    status.value = 'Batch completed'
+    status.value = BATCH_STATUS.COMPLETED
     isWorkflowRunning.value = false
     sessionIdToDownload = sessionId
   }
@@ -1264,7 +1236,7 @@ const cancelBatchWorkflow = () => {
   // Stop the timer
   stopTimer()
 
-  status.value = 'Batch cancelled'
+  status.value = BATCH_STATUS.CANCELLED
   isWorkflowRunning.value = false
   sessionIdToDownload = sessionId
 
@@ -1323,6 +1295,8 @@ watch(viewMode, async (mode) => {
   width: 100%;
   height: calc(100 * var(--vh));
   height: calc(100 * var(--dvh));
+  /* the shared navigation bar (55px) sits above this view */
+  height: calc(100 * var(--dvh) - 55px);
   display: flex;
   flex-direction: column;
   background-color: var(--bg);
@@ -2038,6 +2012,12 @@ watch(viewMode, async (mode) => {
 }
 
 @media (max-width: 640px) {
+  .btn.sm,
+  .btn.icon-only {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
   .content { padding: 12px 12px 20px; }
   .dashboard-content { padding: 16px; gap: 22px; }
   .metrics-grid { grid-template-columns: 1fr; }

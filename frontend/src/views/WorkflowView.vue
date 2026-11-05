@@ -40,6 +40,7 @@
          v-model:edges="edges"
          :delete-key-code="false"
          :fit-view-on-init="false"
+         :only-render-visible-elements="shouldOnlyRenderVisible(nodes.length)"
          :min-zoom="MIN_ZOOM"
          :max-zoom="2"
          class="vueflow-graph"
@@ -431,6 +432,7 @@ import { helpContent } from '@/utils/helpContent.js'
 import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import { toast } from '@/utils/toast.js'
+import { createSequenceGuard, createLayoutSaver, shouldOnlyRenderVisible } from '@/composables/workflow/useWorkflowLoadGuards.js'
 import { confirmDialog } from '@/utils/confirm.js'
 import { reconcileLayout } from '@/utils/layoutReconcile.js'
 import { canReconcileLayout } from '@/components/workflow/layoutSyncGuard.js'
@@ -1126,15 +1128,20 @@ const onDeleteEdgeFromContext = async () => {
   await deleteEdgeByEndpoints(info.from, info.to, info.id)
 }
 
+// Newer initializeWorkflow calls invalidate older in-flight loads (fast workflow switching)
+const loadGuard = createSequenceGuard()
+
 const initializeWorkflow = async (name) => {
   if (!name) {
     return
   }
+  const seq = loadGuard.next()
   currentWorkflowName.value = name
-  console.log('Workflow initialized: ', currentWorkflowName.value)
   await loadYamlFile()
+  if (loadGuard.isStale(seq)) return
   // The saved layout must be on the canvas before fitting, or the fit ran on an empty graph
   await loadAndSyncVueFlowGraph()
+  if (loadGuard.isStale(seq)) return
   await nextTick()
   fitGraph()
 }
@@ -1179,6 +1186,11 @@ watch(activeTab, async (newTab) => {
   }
 })
 
+const layoutSaver = createLayoutSaver({
+  save: () => saveVueFlowGraph(),
+  notify: () => toast.error(t('workflow_view.layout_save_failed'))
+})
+
 const saveVueFlowGraph = async () => {
   try {
     const flowObj = toObject()
@@ -1202,7 +1214,10 @@ const saveVueFlowGraph = async () => {
 const loadAndSyncVueFlowGraph = async () => {
   try {
     const key = currentWorkflowName.value
+    const seq = loadGuard.current()
     const result = await fetchVueGraph(key)
+    // A newer workflow load started while this one was in flight: leave the canvas to it
+    if (loadGuard.isStale(seq) || key !== currentWorkflowName.value) return false
 
     if (!result?.success) {
       console.error('Failed to load VueFlow graph:', result?.message || result?.detail)
@@ -1261,7 +1276,10 @@ const loadYamlFile = async () => {
     yamlLoadError.value = null
     yamlLoadedFor.value = null
     const requestedName = currentWorkflowName.value
+    const seq = loadGuard.current()
     const result = await fetchYaml(requestedName)
+    // A newer workflow load started while this one was in flight: do not overwrite its state
+    if (loadGuard.isStale(seq) || requestedName !== currentWorkflowName.value) return
 
     if (!result?.success) {
       console.error('Failed to load YAML file', result?.message || result?.detail)
@@ -2140,7 +2158,7 @@ const onEdgeClick = (event) => {
 
 // Autosave when moving nodes
 const onNodeDragStop = () => {
-  saveVueFlowGraph()
+  layoutSaver.save()
 }
 
 const onConnect = async (connection) => {

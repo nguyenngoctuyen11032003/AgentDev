@@ -27,7 +27,7 @@ AgentDev giúp bạn dựng một "công ty AI": mỗi nhân viên là một **a
 
 | Thuật ngữ | Nghĩa |
 |-----------|-------|
-| **Quy trình** (workflow) | Một tệp YAML mô tả đội agent và cách họ phối hợp. Danh sách quy trình nằm ở mục **Quy trình** trên thanh bên. |
+| **Quy trình** (workflow) | Một tệp YAML mô tả đội agent và cách họ phối hợp. Danh sách quy trình nằm ở mục **Quy trình** trên thanh điều hướng ở trên cùng. |
 | **Nút** (node) | Một bước trong quy trình. Loại nút hay dùng nhất là **Agent**; ngoài ra có Người dùng, Python, Văn bản cố định, Chuyển tiếp, Bộ đếm vòng lặp, Quy trình con. |
 | **Liên kết** (edge) | Mũi tên nối hai nút: chuyển kết quả của nút nguồn sang nút đích và có thể kích hoạt nút đích chạy. |
 | **Agent** | Một nút gọi model AI (Claude, Codex, Gemini) với vai trò, prompt, công cụ và skill riêng. |
@@ -42,7 +42,7 @@ AgentDev giúp bạn dựng một "công ty AI": mỗi nhân viên là một **a
 <a id="connections"></a>
 ## 2. Kết nối tài khoản
 
-Agent cần một tài khoản AI để chạy. Mở **Cài đặt → Kết nối** (nút bánh răng ở góc phải thanh trên cùng).
+Agent cần một tài khoản AI để chạy. Mở **Cài đặt → Kết nối** (nút bánh răng ở góc phải thanh điều hướng ở trên cùng).
 
 1. Ở mục **Nhà cung cấp**, chọn thẻ của nhà cung cấp rồi bấm **Kết nối**.
 2. Chọn cách đăng nhập và làm theo hướng dẫn trong hộp thoại:
@@ -59,6 +59,10 @@ Mẹo:
 - Nếu Claude CLI hoặc Codex CLI chưa được cài, hộp thoại sẽ nhắc bạn cài trước.
 
 **Tự chuyển tài khoản khi hết hạn mức.** Khi tài khoản một agent đang dùng báo hết lượt (ví dụ Claude hết hạn mức 5 giờ), AgentDev tự chuyển agent đó sang một tài khoản khác đã đăng nhập: ưu tiên nhà cung cấp khác (Claude → Codex, Codex → Claude, rồi Gemini). Model được đổi sang model mặc định của tài khoản mới. Khung trò chuyện và một thông báo nổi cho bạn biết đã chuyển từ tài khoản nào sang tài khoản nào. Các agent chạy sau trong cùng lượt dùng luôn tài khoản mới. Nếu không còn tài khoản nào, bạn sẽ nhận thông báo lỗi và cần đăng nhập thêm ở trang **Kết nối**. Vì vậy nên đăng nhập cả Claude và Codex.
+
+**Cài đặt chung.** Trong **Cài đặt → Cài đặt chung** bạn đổi ngôn ngữ giao diện (Tiếng Việt, English, 中文) và giao diện sáng/tối. Cùng nội dung này cũng có trong hộp thoại Cài đặt mở nhanh từ thanh điều hướng.
+
+**Chọn nhà cung cấp cho agent.** Nếu một agent được đặt dùng model của một nhà cung cấp (ví dụ OpenAI) mà bạn đã đăng nhập, AgentDev ưu tiên kết nối cùng nhà cung cấp đó; nếu chưa có, agent chạy bằng kết nối mặc định và giao diện hiện thông báo cho bạn biết.
 
 ---
 
@@ -85,7 +89,7 @@ Mỗi thẻ skill có nút **Sửa** và **Xóa**. Skill có lỗi định dạn
 <a id="build-workflow"></a>
 ## 4. Xây dựng quy trình
 
-Mở **Quy trình** trên thanh bên. Bên trái là danh sách quy trình; bấm **Tạo quy trình** để tạo mới, hoặc chọn một quy trình có sẵn để sửa.
+Mở **Quy trình** trên thanh điều hướng ở trên cùng. Bên trái là danh sách quy trình; bấm **Tạo quy trình** để tạo mới, hoặc chọn một quy trình có sẵn để sửa.
 
 Trình sửa quy trình có hai thẻ:
 
@@ -100,6 +104,8 @@ Thanh công cụ phía trên sơ đồ gồm:
 - Menu (rê chuột lên biểu tượng cuối thanh công cụ): **Đổi tên quy trình**, **Sao chép quy trình**, **Quản lý biến**, **Quản lý bộ nhớ**, **Tạo liên kết**.
 
 Trong **Cài đặt**, bật **Bật chú thích trợ giúp** để xem giải thích khi rê chuột lên nút, liên kết và các nút bấm.
+
+**Trợ lý quy trình.** Trong trình sửa có khung **Trợ lý quy trình**: mô tả bằng lời điều bạn muốn đổi (thêm thành viên, sửa prompt, nối liên kết...) và trợ lý đề xuất thay đổi cho quy trình để bạn xem rồi áp dụng. Các cuộc trò chuyện được lưu thành phiên, và bạn chọn được model cho trợ lý. Trợ lý chạy bằng tài khoản đã kết nối của bạn nên có tốn token.
 
 <a id="2-create-nodes"></a>
 ### Tạo nút
@@ -208,7 +214,20 @@ Tùy biến: mở quy trình, dùng **Sao chép quy trình** để tạo bản c
 <a id="run-page"></a>
 ## 6. Chạy quy trình
 
-Mở **Chạy** trên thanh bên (hoặc bấm **Chạy** trong trình sửa quy trình).
+Mở **Chạy** trên thanh điều hướng ở trên cùng (hoặc bấm **Chạy** trong trình sửa quy trình).
+
+**Chế độ chạy.** Ở ô nhập có nút **Chế độ**; bấm hoặc nhấn **Shift+Tab** trong ô nhập để đổi vòng qua 4 chế độ. Nếu đang có lượt chạy, chế độ mới áp dụng từ tin nhắn tiếp theo.
+
+| Chế độ | Hành vi |
+|--------|---------|
+| **Hỏi trước** | Chạy đúng như quy trình thiết kế: mọi câu hỏi và bước duyệt đều chờ bạn trả lời. |
+| **Lên kế hoạch** | Trưởng nhóm luôn trình kế hoạch và chờ bạn duyệt trước khi giao việc. |
+| **Tự động** | Không cần duyệt kế hoạch, câu hỏi của trưởng nhóm được tự trả lời; các bước duyệt trong quy trình vẫn chờ bạn. |
+| **Bỏ qua xác nhận** | Tự trả lời mọi câu hỏi và bước duyệt. |
+
+> **Bước tốn tiền (paid).** Một cổng đánh dấu `paid: true` (ví dụ tạo video Veo) không bao giờ tự được duyệt: kể cả ở **Bỏ qua xác nhận**, kể cả khi bạn im lặng hay hết thời gian chờ, nó chỉ chạy khi bạn tự bấm đồng ý. Phòng thí nghiệm luôn từ chối các cổng này.
+
+**Chi phí và token.** Mỗi lượt chạy ghi token và chi phí ước tính của từng agent; trước khi chạy một bước tốn tiền, ứng dụng hiện ước tính chi phí để bạn quyết định. Chi phí hiện ở chế độ **Tổng quan**.
 
 **Chọn quy trình và dự án**
 
@@ -231,6 +250,7 @@ Danh sách bên trái lưu mọi **phiên**, nhóm theo dự án. Bấm **Phiên
 | **Văn phòng** | Văn phòng 2D: mỗi agent là một nhân vật ngồi ở phòng ban của mình, đi lại khi giao và nhận việc. Bấm vào nhân vật để xem trạng thái, model và kết quả gần nhất. |
 | **Công việc** | Bảng công việc theo nhóm hoặc theo bước: việc đang làm, sắp làm, đã xong của từng agent. |
 | **Tổng quan** | Tiến độ, thời gian chạy, số lần gọi model và dùng công cụ, dòng thời gian và hoạt động gần đây. |
+| **Sản phẩm** | Cây file nhóm đã làm ra (mã nguồn, trang web, tài liệu). Bấm **Chạy thử** để chạy sản phẩm và **Xem bản chạy thử**; bản chạy thử tự dừng sau 30 phút và chỉ chạy được một số bản cùng lúc. |
 | **Duyệt** | Nghiệm thu kết quả (xem bên dưới). |
 
 **Duyệt kết quả**
@@ -255,11 +275,13 @@ Bấm **Tải xuống nhật ký** để lấy nhật ký chạy chi tiết.
 - **Yêu cầu gửi cho quy trình**: câu bạn sẽ chat thật, ví dụ "Sửa lỗi nút Đăng nhập không phản hồi trên điện thoại".
 - **Tiêu chí đạt**: điều câu trả lời phải đáp ứng, ví dụ "Trả lời bằng tiếng Việt; nêu nguyên nhân; có giao cho Bug Fixer và QA Tester". Để trống thì chỉ cần trả lời không lỗi là đạt.
 
-Bấm **Thêm kịch bản mẫu** để có sẵn hai kịch bản cho mẫu "Công ty phần mềm". Chọn **Số lần chạy mỗi kịch bản** (chạy 2–3 lần để đo độ ổn định), rồi bấm **Bắt đầu chạy thử**. Quy trình chạy thật bằng tài khoản của bạn; câu hỏi của quy trình (như xin duyệt kế hoạch) được tự động trả lời "Đồng ý". Một AI giám khảo chấm từng câu trả lời theo tiêu chí và ghi lý do.
+Bấm **Thêm kịch bản mẫu** để có sẵn hai kịch bản cho mẫu "Công ty phần mềm". Chọn **Số lần chạy mỗi kịch bản** (chạy 2–3 lần để đo độ ổn định), rồi bấm **Bắt đầu chạy thử**. Quy trình chạy thật bằng tài khoản của bạn; câu hỏi của quy trình (như xin duyệt kế hoạch) được tự động trả lời "Đồng ý"; riêng cổng tốn tiền (`paid: true`) luôn bị từ chối, bước đó không chạy trong Lab. Một AI giám khảo chấm từng câu trả lời theo tiêu chí và ghi lý do.
 
 Kết quả gồm: tỷ lệ đạt, số token, chi phí ước tính, thời gian, các agent đã tham gia, câu hỏi quy trình đã hỏi, và từng câu trả lời. Quy trình **Đạt** khi tỷ lệ đạt từ 80% trở lên và không có lượt lỗi. Kịch bản được ghi nhớ theo từng quy trình trên trình duyệt, nên sau khi sửa quy trình bạn chỉ cần bấm chạy lại.
 
-**Chạy hàng loạt từ Excel/CSV.** Nút ở góc trên mở trang chạy một quy trình trên nhiều đầu vào:
+**Chẩn đoán, brief sửa lỗi và sản phẩm.** Với mỗi lượt chạy, mục **Chẩn đoán tốc độ và chất lượng** chỉ ra bước chậm hoặc tốn token và vì sao câu trả lời không đạt. Từ đó bạn bấm **Chép nội dung** để lấy brief sửa lỗi, rồi dán cho **Trợ lý quy trình** ở trình sửa. Mỗi lượt cũng có phần **Sản phẩm** và **Chạy thử** để xem file và chạy thử kết quả; sau khi kiểm định, ứng dụng hỏi có dọn dẹp bản chạy thử và dữ liệu tạm không.
+
+**Chạy hàng loạt từ Excel/CSV.** Thẻ **Chạy hàng loạt** trong Phòng thí nghiệm (cũng mở được ở đường dẫn `/batch-run`) chạy một quy trình trên nhiều đầu vào:
 1. **Chọn quy trình**.
 2. **Chọn tệp đầu vào** dạng `.xlsx` hoặc `.csv`. Tệp cần ít nhất cột `task` và/hoặc `attachments`:
    - `id`: mã duy nhất của dòng (tự tạo nếu không có cột này)
@@ -427,6 +449,10 @@ AgentDev dùng thuật toán Tarjan để tìm các vòng lặp, gói mỗi vòn
 ![execution_flow.png](media/execution_flow.png)
 
 > Quy trình có trưởng nhóm không cần vòng lặp: trưởng nhóm tự gửi việc chưa đạt về để sửa, tối đa **Số vòng sửa/duyệt tối đa** lần.
+
+**Nhiều nút kết thúc.** Khi có nhiều nút kết thúc, nút kết thúc chạy **sau cùng** và có kết quả sẽ cho câu trả lời cuối (hòa thì lấy nút khai báo trước). Bộ kiểm tra cảnh báo `MULTIPLE_END_NODES` khi hai nút kết thúc có thể chạy trong cùng một lượt; nên thiết kế các nút kết thúc loại trừ nhau.
+
+**Điều kiện liên kết lỗi.** Điều kiện gặp lỗi khi đánh giá thì liên kết không kích hoạt và có cảnh báo. Liên kết nằm trong vòng lặp dùng **Bộ đếm vòng lặp** phải quay về bước đầu vòng.
 
 ---
 

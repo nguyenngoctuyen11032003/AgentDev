@@ -8,8 +8,10 @@ import ConfirmHost from '@/components/common/ConfirmHost.vue'
 
 const route = useRoute()
 
-// Hide the sidebar on LaunchView, BatchRunView and WorkflowWorkbench
-const showSidebar = computed(() => route.path !== '/launch' && route.path !== '/batch-run')
+// Hide the navigation bar only on the full-screen run chat (/launch); every other page keeps it.
+const showSidebar = computed(() => route.path !== '/launch')
+// Launch and Batch views render multiple root nodes, so they are mounted without <Transition>.
+const useRouteFade = computed(() => showSidebar.value && route.path !== '/batch-run')
 const isHomeRoute = computed(() => route.path === '/')
 
 // Keep <html lang> in sync with the UI language (accessibility, spell-check, hyphenation)
@@ -27,9 +29,9 @@ watch(locale, (value) => {
         <!--
           Short, enter-only fade (opacity on the compositor) so route switches feel
           settled without delaying the new page. Launch/Batch views render multiple
-          root nodes and open in their own tab, so they are mounted directly.
+          root nodes, so they are mounted directly.
         -->
-        <Transition v-if="showSidebar" name="route-fade">
+        <Transition v-if="useRouteFade" name="route-fade">
           <component :is="Component" />
         </Transition>
         <component :is="Component" v-else />

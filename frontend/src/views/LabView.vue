@@ -6,10 +6,9 @@
         <h1 class="hero-title">{{ $t('lab.title') }}</h1>
         <p class="hero-sub">{{ $t('lab.subtitle') }}</p>
       </div>
-      <router-link to="/batch-run" target="_blank" rel="noopener" class="btn">
+      <router-link to="/batch-run" class="btn">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" /></svg>
-        {{ $t('lab.batch_link').replace(/\s*→\s*$/, '') }}
-        <svg class="ext" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9" /></svg>
+        {{ $t('lab.batch_link_label') }}
       </router-link>
     </header>
 
@@ -325,7 +324,7 @@
           </footer>
         </section>
 
-        <LabHistory :workflow="workflow" :current-id="job?.id || ''" :refresh-key="storageRefresh + historyRefresh" @open="openPastJob" @loaded="historyJobs = $event" />
+        <LabHistory :workflow="workflow" :current-id="job?.id || ''" :refresh-key="storageRefresh + historyRefresh" @open="openPastJob" @loaded="historyJobs = $event" @deleted="onJobDeleted" />
 
         <!-- Results -->
         <!-- Always in the DOM so assistive tech announces the changes (a live region created with its text is often skipped). -->
@@ -366,6 +365,7 @@
                   <li v-for="(reason, ri) in job.verdict_reasons" :key="ri">{{ reason }}</li>
                 </ul>
               </template>
+              <router-link :to="{ path: '/launch', query: { workflow } }" class="next-step" :title="$t('lab.run_for_real_hint')">{{ $t('lab.run_for_real') }}</router-link>
               <a v-if="job.verdict === 'not_ready' && canFix" href="#lab-brief" class="next-step" @click.prevent="focusBrief">{{ $t('lab.next_step_fix') }}</a>
               <span v-if="job.baseline" :class="Object.keys(job.regression || {}).length ? 'warn-text' : ''">
                 {{ tr('lab.vs_baseline', 'So với lần đạt trước: đạt {rate}% (trước {was}%), TB {secs}s (trước {wasSecs}s)', { rate: passPct, was: Math.round((job.baseline.pass_rate || 0) * 100), secs: job.avg_seconds ?? '-', wasSecs: job.baseline.avg_seconds ?? '-' }) }}
@@ -375,7 +375,7 @@
           </div>
           <div v-else-if="job.status === 'error'" class="state-note error-note" role="alert">
             <strong>{{ $t('lab.job_error_title') }}</strong>
-            <template v-if="job.interrupted || String(job.error || '').startsWith('interrupted')">
+            <template v-if="job.interrupted">
               <span>{{ tr('lab.job_interrupted', 'Máy chủ đã khởi động lại khi lượt kiểm định đang chạy (thường do sửa mã nguồn backend khi chạy chế độ tự nạp lại). Không phải lỗi kết nối mô hình.') }}</span>
               <span class="state-hint">{{ tr('lab.job_interrupted_hint', 'Bấm "Chạy tiếp" để chỉ chạy lại {n} lượt dang dở, giữ nguyên các lượt đã chấm.', { n: job.total - job.judged }) }}</span>
             </template>
@@ -694,10 +694,9 @@ watch(isRunning, (now, before) => { if (before && !now) storageRefresh.value += 
 const plannedRuns = computed(() => scenarios.value.filter((s) => s.prompt.trim()).length * repeats.value)
 // Average cost of one run in the latest evaluation of this workflow that recorded a cost (none: no price shown).
 const avgRunCost = computed(() => {
-  const past = historyJobs.value.find((j) => Number(j.cost_usd) > 0 && Number(j.done) > 0)
-  if (past) return Number(past.cost_usd) / Number(past.done)
-  const cur = job.value
-  return cur?.workflow === workflow.value && cur?.cost_usd > 0 && cur?.done > 0 ? cur.cost_usd / cur.done : 0
+  // The server averages graded, priced runs only (a run that failed early costs ~0 and would skew it).
+  const past = historyJobs.value.find((j) => Number(j.avg_run_cost_usd) > 0)
+  return past ? Number(past.avg_run_cost_usd) : 0
 })
 const costEstimate = computed(() => {
   const n = plannedRuns.value
@@ -867,6 +866,14 @@ function revealResults() {
   el.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
   el.focus({ preventScroll: true })
 }
+// A deleted evaluation that is on screen goes away with its record.
+function onJobDeleted(id) {
+  if (job.value?.id === id) {
+    job.value = null
+    submitted.value = []
+  }
+}
+
 async function openPastJob(id) {
   if (!id) return
   // Already shown ("Đang xem"): just bring the results back into view.
@@ -1002,7 +1009,7 @@ async function generateWithAi() {
     if (replaceBlank) scenarios.value = []
     toAdd.forEach((s) => addScenario(s))
   } catch (err) {
-    evalError.value = err?.message || String(err)
+    evalError.value = errText(err)
   } finally {
     generating.value = false
   }
@@ -1037,7 +1044,7 @@ async function runCheck() {
     // The user switched workflow while this request was in flight: drop the stale answer.
     if (workflow.value === name) report.value = result
   } catch (error) {
-    if (workflow.value === name) checkError.value = error.message
+    if (workflow.value === name) checkError.value = errText(error)
   } finally {
     if (workflow.value === name) checking.value = false
   }
@@ -1181,7 +1188,7 @@ async function loadWorkflows() {
     workflows.value = (await fetchWorkflowNames()).map((name) => ({ name }))
   } catch (error) {
     // Shown in the empty state: the workspace (where checkError lives) is not rendered yet.
-    listError.value = error?.message || String(error)
+    listError.value = errText(error)
   } finally {
     loadingWorkflows.value = false
   }
@@ -1487,8 +1494,10 @@ onBeforeUnmount(() => {
   .panel { padding: 16px; }
   .run-bar { margin: 16px -16px -16px; padding: 14px 16px; }
   .run-bar .btn { width: 100%; }
-  .btn { min-height: 44px; }
+  .btn, .btn.sm { min-height: 44px; }
   .btn.icon-only { width: 44px; }
+  .scenario-name { min-height: 44px; }
+  .control :deep(select), .control :deep(.base-select), .scenario-fields :deep(select) { min-height: 44px; }
   .scenario-head { flex-wrap: wrap; }
   .scenario-fields { grid-template-columns: 1fr; }
   .repeat { margin-left: 0; }

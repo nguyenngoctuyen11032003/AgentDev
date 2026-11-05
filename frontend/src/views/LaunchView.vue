@@ -279,7 +279,6 @@
                     message.loading,
                     message.dataUri,
                     message.error,
-                    configStore.AUTO_EXPAND_MESSAGES,
                     message.plan ? isPlanOpen(message) : false,
                     message.retryPrompt ? canRetryRun(message) : false,
                     i18nLocale
@@ -1077,7 +1076,6 @@ import ModePicker from '@/components/launch/chat/ModePicker.vue'
 import { localizeErrorText } from '@/utils/errorTranslate.js'
 import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast.js'
-import { configStore } from '@/stores/configStore.js'
 import { spriteFetcher } from '@/utils/spriteFetcher.js'
 import { onWorkflowChanged, workflowKey } from '@/utils/workflowSync.js'
 import OfficeView from '@/components/office/OfficeView.vue'

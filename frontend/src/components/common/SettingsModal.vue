@@ -29,7 +29,6 @@ const props = defineProps({
 // Draft copy: nothing is saved until "Save"; the theme is previewed live and reverted on cancel.
 const localConfig = reactive({
   AUTO_SHOW_ADVANCED: false,
-  AUTO_EXPAND_MESSAGES: false,
   ENABLE_HELP_TOOLTIPS: true,
   LANGUAGE: 'vi',
   THEME: 'dark'

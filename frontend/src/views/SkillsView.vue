@@ -38,6 +38,15 @@
       <div v-for="n in 6" :key="n" class="skeleton"></div>
     </div>
 
+    <div v-else-if="loadError" class="empty-state" role="alert">
+      <p class="empty-title">{{ $t('skills.load_error_title') }}</p>
+      <p class="empty-desc">{{ loadError }}</p>
+      <p class="empty-desc">{{ $t('skills.load_error_hint') }}</p>
+      <div class="empty-actions">
+        <button type="button" class="btn primary" @click="load">{{ $t('skills.retry') }}</button>
+      </div>
+    </div>
+
     <div v-else-if="!skills.length" class="empty-state">
       <span class="empty-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5" /><path d="M9 7h6M9 11h4" /></svg>
@@ -121,11 +130,12 @@
         ></textarea>
       </div>
 
+      <p v-if="editor.loading" class="loading-note" role="status"><span class="spinner" aria-hidden="true"></span>{{ $t('skills.loading_editor') }}</p>
       <p v-if="editor.error" class="error" role="alert">{{ editor.error }}</p>
 
       <template #footer>
         <button type="button" class="btn ghost" @click="closeEditor">{{ $t('common.cancel') }}</button>
-        <button type="button" class="btn primary" :disabled="editor.saving || !editor.content.trim()" @click="save">
+        <button type="button" class="btn primary" :disabled="editor.saving || editor.loading || !editor.content.trim()" @click="save">
           {{ editor.saving ? $t('skills.saving') : $t('skills.save') }}
         </button>
       </template>
@@ -199,6 +209,7 @@ import {
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast'
+import { createLatest } from '@/utils/latestOnly'
 
 const { t } = useI18n()
 
@@ -224,19 +235,25 @@ const filtered = computed(() => {
   return skills.value.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(q))
 })
 
+const loadError = ref('')
+const listLatest = createLatest()
 async function load() {
+  const ticket = listLatest.begin()
   loading.value = true
+  loadError.value = ''
   try {
-    skills.value = await fetchSkills()
+    const list = await fetchSkills()
+    if (listLatest.isCurrent(ticket)) skills.value = list // an older response never overwrites a newer one
   } catch (error) {
-    toast.error(error.message)
+    if (listLatest.isCurrent(ticket)) loadError.value = error.message
   } finally {
-    loading.value = false
+    if (listLatest.isCurrent(ticket)) loading.value = false
   }
 }
 
 // ---- add / edit ----
-const editor = reactive({ open: false, original: null, name: '', description: '', content: '', error: '', saving: false })
+const editor = reactive({ open: false, original: null, name: '', description: '', content: '', error: '', saving: false, loading: false })
+const editorLatest = createLatest()
 // Form values as last loaded; when the content has frontmatter, unchanged form fields are not sent so
 // edits made directly in the frontmatter are not overridden.
 const baseline = { name: '', description: '' }
@@ -256,20 +273,26 @@ function readFrontmatter(text) {
 }
 
 async function openEditor(name = null) {
-  Object.assign(editor, { open: true, original: name, name: name || '', description: '', content: '', error: '', saving: false })
+  const ticket = editorLatest.begin()
+  Object.assign(editor, { open: true, original: name, name: name || '', description: '', content: '', error: '', saving: false, loading: !!name })
   Object.assign(baseline, { name: editor.name, description: '' })
   if (!name) return
   try {
     const skill = await fetchSkill(name)
+    if (!editorLatest.isCurrent(ticket)) return // another skill was opened (or the editor closed) meanwhile
     editor.content = skill.content
     editor.description = skill.description
     baseline.description = skill.description
   } catch (error) {
-    editor.error = error.message
+    if (editorLatest.isCurrent(ticket)) editor.error = error.message
+  } finally {
+    if (editorLatest.isCurrent(ticket)) editor.loading = false
   }
 }
 
 function closeEditor() {
+  editorLatest.cancel()
+  editor.loading = false
   editor.open = false
 }
 

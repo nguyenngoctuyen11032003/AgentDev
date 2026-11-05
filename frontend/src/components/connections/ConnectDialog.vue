@@ -179,6 +179,8 @@ import {
   submitCliLoginCode
 } from '@/api/client'
 import { toast } from '@/utils/toast'
+import { createGoogleOAuthFlow } from '@/utils/googleOAuth'
+import { localizeBackendError } from '@/utils/errorTranslate'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -283,6 +285,8 @@ async function refreshCliStatus() {
 }
 
 let finishing = false
+let unmounted = false // set on unmount so late async results do not emit or toast
+const backendError = (message) => localizeBackendError(message) || message
 
 async function finishLogin(result) {
   // The poll and a pasted code can both report the end; only the first one counts.
@@ -293,7 +297,7 @@ async function finishLogin(result) {
     resetLogin()
     if (!succeeded) {
       // Sign-in failed: nothing is created, the user can simply try again.
-      login.error = result.message || t('connections.sign_in_failed')
+      login.error = backendError(result.message) || t('connections.sign_in_failed')
       return
     }
     toast.success(t('connections.login_success'))
@@ -329,14 +333,14 @@ async function startLogin() {
       } catch (error) {
         if (login.session?.sessionId === session.sessionId && !login.busy) {
           resetLogin()
-          login.error = error.message
+          login.error = backendError(error.message)
         }
       } finally {
         polling = false
       }
     }, 2000)
   } catch (error) {
-    login.error = error.message
+    login.error = backendError(error.message)
     login.busy = false
   }
 }
@@ -347,7 +351,7 @@ async function submitLoginCode() {
   try {
     finishLogin(await submitCliLoginCode(login.session.sessionId, login.code.trim()))
   } catch (error) {
-    login.error = error.message
+    login.error = backendError(error.message)
     login.busy = false
   }
 }
@@ -383,50 +387,26 @@ async function copyLoginUrl() {
 
 // --- Google OAuth (popup + polling) ---
 // Stops the poll + message listener if the dialog unmounts mid sign-in.
-let stopGoogleOAuth = null
+let stopGoogleOAuth = null // cancels the running Google flow (rejects it, which also cleans up)
+
+let googleFlow = null
 
 function signInWithGoogle(label) {
-  return new Promise((resolve, reject) => {
-    startGoogleOAuth(label)
-      .then(({ authUrl, state }) => {
-        const popup = window.open(authUrl, 'agentdev-oauth', 'width=520,height=680')
-        let timer = null
-        let polling = false
-        const stop = () => {
-          clearInterval(timer)
-          window.removeEventListener('message', onMessage)
-          if (stopGoogleOAuth === stop) stopGoogleOAuth = null
-        }
-        const finish = (fn, value) => {
-          stop()
-          fn(value)
-        }
-        const onMessage = (event) => {
-          if (event.origin === window.location.origin && event.data?.type === 'agentdev-oauth') {
-            if (event.data.ok) finish(resolve, true)
-            else finish(reject, new Error(t('connections.sign_in_failed')))
-          }
-        }
-        window.addEventListener('message', onMessage)
-        stopGoogleOAuth?.()
-        stopGoogleOAuth = stop
-        timer = setInterval(async () => {
-          // A slow poll must not overlap the next one.
-          if (polling) return
-          polling = true
-          try {
-            const { status } = await pollGoogleOAuth(state)
-            if (status === 'done') finish(resolve, true)
-            else if (status === 'error') finish(reject, new Error(t('connections.sign_in_failed')))
-            else if (popup?.closed) finish(reject, new Error(t('connections.sign_in_cancelled')))
-          } catch (error) {
-            finish(reject, error)
-          } finally {
-            polling = false
-          }
-        }, 1500)
-      })
-      .catch(reject)
+  stopGoogleOAuth?.()
+  const flow = createGoogleOAuthFlow(label, {
+    start: startGoogleOAuth,
+    poll: pollGoogleOAuth,
+    openWindow: (...args) => window.open(...args),
+    t,
+    win: window
+  })
+  googleFlow = flow
+  stopGoogleOAuth = () => flow.cancel()
+  return flow.promise.finally(() => {
+    if (googleFlow === flow) {
+      googleFlow = null
+      stopGoogleOAuth = null
+    }
   })
 }
 
@@ -475,12 +455,14 @@ async function saveConnection() {
     } else {
       await createConnection({ vendor: props.vendor.id, label, authType: authType.value })
     }
+    if (unmounted) return
     toast.success(t('connections.added'))
     emit('created')
     emit('close')
   } catch (error) {
-    login.error = error.message
-    toast.error(error.message)
+    if (unmounted) return
+    login.error = backendError(error.message)
+    toast.error(backendError(error.message))
   } finally {
     saving.value = false
   }
@@ -496,7 +478,9 @@ async function submit() {
 }
 
 function requestClose() {
-  if (saving.value) return
+  // Google sign-in can be abandoned at any time (cancel rejects the flow and frees the dialog).
+  if (saving.value && googleFlow) googleFlow.cancel()
+  else if (saving.value) return
   emit('close')
 }
 
@@ -518,6 +502,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  unmounted = true
   if (login.session) cancelCliLogin(login.session.sessionId).catch(() => {})
   clearInterval(loginTimer)
   stopGoogleOAuth?.()
