@@ -294,8 +294,11 @@ def test_route_static_preview(warehouse, monkeypatch):
     assert client.get("/api/lab/jobs/j1/runs/0/preview").json()["status"] == "idle"
     started = client.post("/api/lab/jobs/j1/runs/0/preview").json()
     assert started == {"status": "running", "url": "/api/lab/jobs/j1/runs/0/site/", "port": None, "kind": "static",
-                       "log_tail": "", "error": None, "started_at": started["started_at"],
-                       "frameable": True}
+                       "log_tail": "", "error": None, "error_code": None, "error_params": {},
+                       "started_at": started["started_at"], "frameable": True}
+    beat = client.post("/api/lab/jobs/j1/runs/0/preview/heartbeat").json()
+    assert beat == {"status": "running", "alive": True, "idle_seconds": int(ap.IDLE_SECONDS)}
+    assert client.post("/api/lab/jobs/j1/runs/bad%20run/preview").json()["detail"]["code"] == "preview_run_invalid"
     assert client.delete("/api/lab/jobs/j1/runs/0/preview").json()["status"] == "stopped"
     blocked = client.post("/api/lab/jobs/j1/runs/0/preview", headers={"Origin": "https://evil.example"})
     assert blocked.status_code == 403
@@ -344,3 +347,182 @@ def test_frame_allowed_reads_app_headers(headers, expected):
         assert app_preview.frame_allowed(f"http://127.0.0.1:{server.server_port}/") is expected
     finally:
         server.shutdown()
+
+
+# --- idle heartbeat, port reservation, readiness of OUR app -------------------
+
+def test_heartbeat_keeps_a_viewed_preview_alive(warehouse):
+    mgr = ap.PreviewManager(idle_seconds=60)
+    preview = ap.Preview(key=("j", "r1"), root=warehouse, kind="node", status="running",
+                         last_access=time.monotonic() - 120)
+    mgr._previews[("j", "r1")] = preview
+    assert mgr.heartbeat("j", "r1") == {"status": "running", "alive": True, "idle_seconds": 60}
+    assert mgr.reap_idle() == 0 and preview.status == "running"  # no status poll, but the page is showing it
+    assert mgr.reap_idle(now=time.monotonic() + 61) == 1 and preview.status == "stopped"
+    assert mgr.heartbeat("j", "missing")["alive"] is False
+
+
+def test_concurrent_starts_reserve_distinct_ports(monkeypatch):
+    import threading
+
+    real = ap.port_is_free
+
+    def slow_free(port):  # widen the check-then-bind window the old allocator raced in
+        free = real(port)
+        time.sleep(0.02)
+        return free
+
+    monkeypatch.setattr(ap, "port_is_free", slow_free)
+    mgr = ap.PreviewManager()
+    barrier = threading.Barrier(6)
+    got, lock = [], threading.Lock()
+
+    def grab():
+        barrier.wait()
+        port = mgr._reserve_port([])
+        with lock:
+            got.append(port)
+
+    threads = [threading.Thread(target=grab) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(got) == 6 and len(set(got)) == 6
+    mgr._release_ports(got)
+    assert not mgr._reserved_ports
+
+
+def test_two_previews_started_together_get_distinct_ports(warehouse):
+    import threading
+
+    mgr = ap.PreviewManager()
+    roots = []
+    for i in (7, 8):
+        run = warehouse / f"lab_x_{i}"
+        _write(run / "server.py", _SERVER)
+        roots.append(((f"job{i}", "0"), run))
+    threads = [threading.Thread(target=mgr.start_dir, args=r) for r in roots]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    try:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and any(mgr._previews[k].status not in ("running", "failed")
+                                                  for k, _ in roots):
+            time.sleep(0.2)
+        states = [mgr._previews[k].to_dict() for k, _ in roots]
+        assert all(s["status"] == "running" for s in states), [s["log_tail"] for s in states]
+        assert states[0]["port"] != states[1]["port"]
+    finally:
+        mgr.stop_all()
+
+
+def _foreign_listener():
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(5)
+    return sock, sock.getsockname()[1]
+
+
+def _sleeper():
+    return subprocess.Popen([os.sys.executable, "-c", "import time; time.sleep(60)"])
+
+
+def test_foreign_listener_is_not_our_app(warehouse, monkeypatch):
+    sock, port = _foreign_listener()
+    proc = _sleeper()
+    try:
+        owned = ap.port_owned_by(port, [proc.pid])
+        if owned is None:
+            pytest.skip("this OS gives no listener PIDs (no netstat/lsof)")
+        assert owned is False
+        assert ap.port_owned_by(port, [os.getpid()]) is True  # the listener is this test process
+        monkeypatch.setattr(ap, "READY_TIMEOUT", 1.5)
+        preview = ap.Preview(key=("j", "f"), root=warehouse, kind="python", status="starting")
+        preview.procs.append(("app", proc))
+        with pytest.raises(ap.PreviewError) as err:
+            ap.PreviewManager()._wait_ready(preview, port)
+        assert err.value.code == "preview_port_taken" and err.value.params == {"port": port}
+    finally:
+        proc.kill()
+        proc.wait()
+        sock.close()
+
+
+def test_dead_child_with_foreign_listener_fails_instead_of_ready(warehouse):
+    sock, port = _foreign_listener()
+    proc = subprocess.Popen([os.sys.executable, "-c", "raise SystemExit(4)"])
+    proc.wait()
+    try:
+        preview = ap.Preview(key=("j", "d"), root=warehouse, kind="python", status="starting")
+        preview.procs.append(("app", proc))
+        with pytest.raises(ap.PreviewError) as err:
+            ap.PreviewManager()._wait_ready(preview, port)
+        assert err.value.code == "preview_process_exited" and err.value.params["exit_code"] == 4
+    finally:
+        sock.close()
+
+
+_ORPHAN_SERVER = (
+    "import socket, sys, time\n"
+    "s = socket.socket(); s.bind(('127.0.0.1', int(sys.argv[1]))); s.listen(5)\n"
+    "time.sleep(30)\n"
+)
+
+
+def test_listener_started_after_spawn_by_an_exited_launcher_is_ours(warehouse, tmp_path):
+    """A launcher that starts the server and exits breaks the parent chain: a listener that did not exist before
+    the spawn, on the port reserved for us, is still our app (not "port taken")."""
+    port = ap.allocate_port()
+    before = ap.process_snapshot()
+    if before is None:
+        pytest.skip("this OS gives no process list")
+    sleeper = _sleeper()
+    script = tmp_path / "server.py"
+    script.write_text(_ORPHAN_SERVER, encoding="utf-8")
+    launcher_code = ("import subprocess, sys; subprocess.Popen([sys.executable, sys.argv[1], sys.argv[2]], "
+                     "creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))")
+    subprocess.run([os.sys.executable, "-c", launcher_code, str(script), str(port)], check=True)
+    server_pid = None
+    try:
+        deadline = time.monotonic() + 10
+        while not ap.port_accepts(port) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if ap.port_owned_by(port, [sleeper.pid]) is None:
+            pytest.skip("this OS gives no listener PIDs")
+        server_pid = next(iter(ap._listening_pids(port) or []), None)
+        assert ap.port_owned_by(port, [sleeper.pid]) is False  # not a descendant...
+        preview = ap.Preview(key=("j", "o"), root=warehouse, kind="python", status="starting")
+        preview.procs.append(("app", sleeper))
+        preview.pids_before = before
+        assert ap.PreviewManager()._wait_ready(preview, port) is True  # ...but new since the spawn: ours
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+        if server_pid:
+            try:
+                os.kill(server_pid, 9)
+            except OSError:
+                pass
+
+
+def test_listener_that_existed_before_spawn_stays_foreign(warehouse, monkeypatch):
+    sock, port = _foreign_listener()
+    before = ap.process_snapshot()
+    proc = _sleeper()
+    try:
+        if ap.port_owned_by(port, [proc.pid]) is None or before is None:
+            pytest.skip("this OS gives no listener PIDs")
+        monkeypatch.setattr(ap, "READY_TIMEOUT", 1.5)
+        preview = ap.Preview(key=("j", "g"), root=warehouse, kind="python", status="starting")
+        preview.procs.append(("app", proc))
+        preview.pids_before = before
+        with pytest.raises(ap.PreviewError) as err:
+            ap.PreviewManager()._wait_ready(preview, port)
+        assert err.value.code == "preview_port_taken"
+    finally:
+        proc.kill()
+        proc.wait()
+        sock.close()

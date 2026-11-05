@@ -158,12 +158,18 @@ class CleanupRequest(BaseModel):
     orphans_only: bool = False
 
 
-def _outputs_call(func, *args):
-    """Run a lab_outputs function, turning its errors into HTTP errors."""
+def _outputs_call(func, job_id: str, run: str, *args):
+    """Run a lab_outputs function on one run, turning its errors into HTTP errors.
+
+    ``run`` is the run's stable ``run_id`` (positions shift after a resume), or its position for old jobs.
+    Errors carry ``detail = {message, code, params}``: ``code`` is stable so the UI can translate it."""
+    if not lab_outputs.valid_run_ref(run):
+        raise HTTPException(status_code=400, detail={"message": "Invalid run", "code": "lab_run_invalid",
+                                                     "params": {"run": run[:64]}})
     try:
-        return func(*args)
+        return func(job_id, run, *args)
     except lab_outputs.LabOutputsError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.http_detail()) from exc
 
 
 def _send_file(target) -> FileResponse:
@@ -171,33 +177,35 @@ def _send_file(target) -> FileResponse:
 
 
 @router.get("/jobs/{job_id}/runs/{run}/files")
-def run_files(job_id: str, run: int):
+def run_files(job_id: str, run: str):
     return _outputs_call(lab_outputs.list_files, job_id, run)
 
 
 @router.get("/jobs/{job_id}/runs/{run}/file")
-def run_file(job_id: str, run: int, path: str):
+def run_file(job_id: str, run: str, path: str):
     return _send_file(_outputs_call(lab_outputs.run_file, job_id, run, path))
 
 
 @router.get("/jobs/{job_id}/runs/{run}/site/{path:path}")
-def run_site(job_id: str, run: int, path: str = ""):
+def run_site(job_id: str, run: str, path: str = ""):
     """The product served as a static site (iframe src of a "static" project), so relative assets load."""
     return _send_file(_outputs_call(lab_outputs.site_file, job_id, run, path))
 
 
 @router.post("/jobs/{job_id}/runs/{run}/open")
-async def run_open(job_id: str, run: int, payload: OpenRequest):
+async def run_open(job_id: str, run: str, payload: OpenRequest):
     target = _outputs_call(lab_outputs.open_target, job_id, run, payload.path)
     try:
         action = await asyncio.to_thread(open_on_machine, target, reveal=payload.reveal)
     except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Could not open the file: {exc}") from exc
+        raise HTTPException(status_code=500, detail={
+            "message": f"Could not open the file: {exc}", "code": "lab_open_failed", "params": {"reason": str(exc)},
+        }) from exc
     return {"status": action, "path": str(target)}
 
 
 @router.delete("/jobs/{job_id}/runs/{run}/outputs")
-def delete_run_outputs(job_id: str, run: int):
+def delete_run_outputs(job_id: str, run: str):
     return _outputs_call(lab_outputs.delete_run_outputs, job_id, run)
 
 

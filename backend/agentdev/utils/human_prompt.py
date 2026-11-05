@@ -69,8 +69,21 @@ AUTO_ANSWER = (
 )
 
 
+# Answer given instead of AUTO_ANSWER at a gate marked ``paid: true`` (the step after it costs money or cannot
+# be undone). It deliberately does NOT start with "[Automatic answer" (gates accept that as approval) nor with
+# an approval word or the explicit "tạo video" phrase, so every gate routes it to its skip/refusal branch.
+AUTO_SKIP_PAID = (
+    "[Skipped automatically: no person is available in this run] Not approved. This step costs money or "
+    "cannot be undone, so it was skipped: do not start it; list it for the user to confirm."
+)
+
+
 class AutoAnswerChannel:
-    """Non-interactive channel: approves and records each question (server runs without a chat, Lab)."""
+    """Non-interactive channel: approves and records each question (server runs without a chat, Lab).
+
+    A Human gate marked ``paid`` is never approved: it gets ``AUTO_SKIP_PAID`` and its id is recorded in
+    ``skipped_gates``.
+    """
 
     def __init__(self, answer: str = AUTO_ANSWER, *, allow_human_nodes: bool = True) -> None:
         self.answer = answer
@@ -78,6 +91,7 @@ class AutoAnswerChannel:
         # be approved silently when nobody is watching; the run fails with a clear message instead.
         self.allow_human_nodes = allow_human_nodes
         self.questions: List[Dict[str, str]] = []
+        self.skipped_gates: List[str] = []
 
     def request(
         self,
@@ -92,6 +106,12 @@ class AutoAnswerChannel:
                 f"Node '{node_id}' needs a person to answer, but this run has no chat attached. "
                 "Run the workflow from the Run page to answer it."
             )
+        meta = metadata or {}
+        if meta.get("node_type") == "human" and meta.get("paid"):
+            if node_id not in self.skipped_gates:
+                self.skipped_gates.append(node_id)
+            self.questions.append({"node": node_id, "question": task, "answer": "skipped"})
+            return PromptResult(text=AUTO_SKIP_PAID, blocks=[MessageBlock.text_block(AUTO_SKIP_PAID)])
         self.questions.append({"node": node_id, "question": task})
         return PromptResult(text=self.answer, blocks=[MessageBlock.text_block(self.answer)])
 

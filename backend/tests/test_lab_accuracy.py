@@ -3,6 +3,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from agentdev.api.services import lab_diagnosis, workflow_lab
 from agentdev.api.services.workflow_lab import Scenario
 
@@ -51,7 +53,9 @@ def test_hung_run_turn_is_abandoned_after_job_cancel(monkeypatch):
     assert raised and time.time() - started < 10
 
 
-def test_borderline_rejudge_garbage_keeps_first_verdict(monkeypatch):
+def test_borderline_rejudge_garbage_leaves_run_unjudged(monkeypatch):
+    # Product rule: a pass is never counted without proper grading, so a failed second look is not
+    # replaced by the cheap model's borderline verdict.
     calls = []
 
     class Acc:
@@ -60,14 +64,14 @@ def test_borderline_rejudge_garbage_keeps_first_verdict(monkeypatch):
 
     def fake_call(conn, model, user, system=""):
         calls.append(model)
-        return '{"pass": true, "score": 8, "reason": "ok"}' if model == "mid-model" else "sorry, no JSON"
+        return '{"pass": true, "score": 7, "reason": "ok"}' if model == "mid-model" else "sorry, no JSON"
 
     monkeypatch.setattr(workflow_lab, "_judge_call", fake_call)
     import agentdev.runtime.node.agent.account_fallback as af
     monkeypatch.setattr(af, "default_model_for", lambda conn: "strong-model")
-    verdict = workflow_lab._judge("p", "c", "answer", [], account=Acc())
+    with pytest.raises(workflow_lab.JudgeUnparsable):
+        workflow_lab._judge("p", "c", "answer", [], account=Acc())
     assert calls == ["mid-model", "strong-model"]
-    assert verdict["pass"] is True
 
 
 def test_score_with_denominator_is_not_a_pass():

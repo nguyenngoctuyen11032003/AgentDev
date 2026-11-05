@@ -8,7 +8,8 @@ user can try it from the Lab page. Every preview:
   ports AgentDev itself uses (5173/5174 frontend, 6400 backend);
 - runs in its own process group so the whole tree (npm -> node -> vite ...) can be killed;
 - gets an environment without API keys / tokens / AgentDev settings;
-- is stopped after ``IDLE_SECONDS`` without anyone asking for its status, when its outputs are
+- is stopped after ``IDLE_SECONDS`` without a status request or heartbeat (the page sends one while it
+  shows the preview), when its outputs are
   deleted, and when the server shuts down. At most ``MAX_CONCURRENT`` run at once.
 
 Static sites need no process: their URL is the Lab ``site/`` route that serves the files.
@@ -62,9 +63,15 @@ _PROXY_TARGET = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0)\s*:\
 class PreviewError(Exception):
     """A preview cannot be started (nothing runnable, limit reached, bad directory)."""
 
-    def __init__(self, message: str, status_code: int = 400):
+    def __init__(self, message: str, status_code: int = 400, code: str = "preview_error",
+                 params: Optional[Dict[str, Any]] = None):
         super().__init__(message)
         self.status_code = status_code
+        self.code = code  # stable id the frontend translates; the message stays for older clients / logs
+        self.params = dict(params or {})
+
+    def http_detail(self) -> Dict[str, Any]:
+        return {"message": str(self), "code": self.code, "params": self.params}
 
 
 # ---------------------------------------------------------------------------
@@ -99,10 +106,12 @@ def allocate_port(exclude: Optional[set] = None) -> int:
             continue
         if port_is_free(port):
             return port
-    raise PreviewError("Không còn cổng trống trong khoảng 47100-47199 để chạy thử.", 503)
+    raise PreviewError("Không còn cổng trống trong khoảng 47100-47199 để chạy thử.", 503, "preview_no_free_port",
+                       {"first": PORT_RANGE[0], "last": PORT_RANGE[-1]})
 
 
 def port_accepts(port: int) -> bool:
+    """True when *something* accepts connections on ``port``; see ``port_owned_by`` for whether it is ours."""
     for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
         try:
             with socket.socket(family, socket.SOCK_STREAM) as probe:
@@ -112,6 +121,138 @@ def port_accepts(port: int) -> bool:
         except OSError:
             continue
     return False
+
+
+def _windows_listening_pids(port: int) -> Optional[set]:
+    """Owners of the TCP listeners on ``port`` from ``GetExtendedTcpTable`` (IPv4 + IPv6), no subprocess."""
+    import ctypes
+    from ctypes import wintypes
+
+    fn = ctypes.WinDLL("iphlpapi").GetExtendedTcpTable
+    fn.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), wintypes.BOOL, wintypes.ULONG, ctypes.c_int,
+                   wintypes.ULONG]
+    fn.restype = wintypes.DWORD
+    listener_table = 3  # TCP_TABLE_OWNER_PID_LISTENER
+    pids = set()
+    # (family, row size, offset of the local port, offset of the owning pid) of MIB_TCP(6)ROW_OWNER_PID.
+    for family, row_size, port_at, pid_at in ((socket.AF_INET, 24, 8, 20), (socket.AF_INET6, 56, 20, 52)):
+        size = wintypes.DWORD(0)
+        fn(None, ctypes.byref(size), False, family, listener_table, 0)
+        for _ in range(3):  # the table can grow between the size query and the read
+            buf = ctypes.create_string_buffer(size.value + 4096)
+            size = wintypes.DWORD(len(buf))
+            rc = fn(buf, ctypes.byref(size), False, family, listener_table, 0)
+            if rc != 122:  # ERROR_INSUFFICIENT_BUFFER
+                break
+        if rc != 0:
+            return None
+        raw = buf.raw
+        for i in range(int.from_bytes(raw[0:4], "little")):
+            row = 4 + i * row_size
+            if int.from_bytes(raw[row + port_at:row + port_at + 2], "big") == port:
+                pids.add(int.from_bytes(raw[row + pid_at:row + pid_at + 4], "little"))
+    return pids
+
+
+def _listening_pids(port: int) -> Optional[set]:
+    """PIDs listening on TCP ``port`` on this machine, or None when the OS cannot tell.
+
+    Windows: the IP Helper API (``netstat`` output is localized and, in restricted sessions, incomplete).
+    Elsewhere: ``lsof`` with a fixed argument list (no shell)."""
+    try:
+        if os.name == "nt":
+            return _windows_listening_pids(int(port))
+        lsof = shutil.which("lsof")
+        if not lsof:
+            return None
+        out = subprocess.run([lsof, "-nP", f"-iTCP:{int(port)}", "-sTCP:LISTEN", "-t"], capture_output=True,
+                             text=True, timeout=5).stdout
+        return {int(p) for p in out.split() if p.isdigit()}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _process_parents() -> Optional[Dict[int, int]]:
+    """pid -> parent pid of every process, or None when unavailable."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            class _Entry(ctypes.Structure):
+                _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                            ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                            ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                            ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                            ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+            kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+            kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_Entry)]
+            kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_Entry)]
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            snapshot = kernel32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+            if not snapshot or snapshot == ctypes.c_void_p(-1).value:
+                return None
+            parents: Dict[int, int] = {}
+            try:
+                entry = _Entry()
+                entry.dwSize = ctypes.sizeof(_Entry)
+                ok = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+                while ok:
+                    parents[int(entry.th32ProcessID)] = int(entry.th32ParentProcessID)
+                    ok = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+            finally:
+                kernel32.CloseHandle(snapshot)
+            return parents
+        out = subprocess.run(["ps", "-A", "-o", "pid=", "-o", "ppid="], capture_output=True, text=True,
+                             timeout=5).stdout
+        parents = {}
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                parents[int(parts[0])] = int(parts[1])
+        return parents
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return None
+
+
+def process_snapshot() -> Optional[set]:
+    """PIDs of every process running now (taken before spawning), or None when the OS cannot tell."""
+    parents = _process_parents()
+    return None if parents is None else set(parents)
+
+
+def port_owned_by(port: int, root_pids: List[int], pids_before: Optional[set] = None) -> Optional[bool]:
+    """Whether the process listening on ``port`` is one of ``root_pids`` or a descendant (npm -> node -> vite).
+
+    ``pids_before``: processes that existed before our spawn (``process_snapshot``). A launcher that starts the
+    server and exits breaks the parent chain; a listener that did not exist before the spawn, on a port that was
+    free when we reserved it, was started by our tree, so it counts as ours. One that existed before never does.
+
+    True: ours. False: a listener exists and it belongs to another program. None: cannot tell (no OS tool, or
+    the listener is not visible): callers fall back to "a child is alive and the port answers"."""
+    listeners = _listening_pids(port)
+    if not listeners:
+        return None
+    parents = _process_parents()
+    if parents is None:
+        return None
+    ours = set(root_pids)
+    children: Dict[int, List[int]] = {}
+    for pid, ppid in parents.items():
+        if pid != ppid:
+            children.setdefault(ppid, []).append(pid)
+    pending = list(ours)
+    while pending:
+        for child in children.get(pending.pop(), ()):
+            if child not in ours:
+                ours.add(child)
+                pending.append(child)
+    if listeners & ours:
+        return True
+    return pids_before is not None and bool(listeners - set(pids_before))
 
 
 # ---------------------------------------------------------------------------
@@ -418,15 +559,18 @@ def _now_iso() -> str:
 
 @dataclass
 class Preview:
-    key: Tuple[str, int]
+    key: Tuple[str, Any]
     root: Path
     kind: str
     status: str = "idle"
     url: Optional[str] = None
     port: Optional[int] = None
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    error_params: Dict[str, Any] = field(default_factory=dict)
     started_at: Optional[str] = None
     frameable: Optional[bool] = None  # False: the app forbids being shown inside another page
+    pids_before: Optional[set] = None  # processes alive before the app was spawned (see port_owned_by)
     last_access: float = field(default_factory=time.monotonic)
     procs: List[Tuple[str, subprocess.Popen]] = field(default_factory=list)
     log: Deque[str] = field(default_factory=lambda: deque(maxlen=LOG_LINES))
@@ -441,7 +585,8 @@ class Preview:
         with self.lock:
             tail = "\n".join(list(self.log)[-LOG_TAIL_LINES:])
         return {"status": self.status, "url": self.url, "port": self.port, "kind": self.kind,
-                "log_tail": tail, "error": self.error, "started_at": self.started_at,
+                "log_tail": tail, "error": self.error, "error_code": self.error_code,
+                "error_params": dict(self.error_params), "started_at": self.started_at,
                 "frameable": self.frameable}
 
 
@@ -457,20 +602,28 @@ def _pump(preview: Preview, label: str, proc: subprocess.Popen) -> None:
 
 
 class PreviewManager:
-    def __init__(self) -> None:
-        self._previews: Dict[Tuple[str, int], Preview] = {}
+    def __init__(self, idle_seconds: Optional[float] = None, reap_interval: float = 30.0) -> None:
+        self._previews: Dict[Tuple[str, Any], Preview] = {}
         self._lock = threading.Lock()
         self._reaper: Optional[threading.Thread] = None
         self._closed = False
+        # Ports handed to a preview that is starting or running: held from allocation until the preview ends, so
+        # two previews starting together never get the same port before either child has bound it.
+        self._reserved_ports: set = set()
+        self.idle_seconds = float(IDLE_SECONDS if idle_seconds is None else idle_seconds)
+        self.reap_interval = float(reap_interval)
 
-    # -- public API by (job_id, run_index) ---------------------------------
+    # -- public API by (job_id, run) ---------------------------------------
+    # ``run`` is the run's stable ``run_id`` (or, for old jobs / old clients, its position). Previews are keyed
+    # by the canonical key so a position and the run_id of the same run share one preview.
 
-    def start(self, job_id: str, run_index: int) -> Dict[str, Any]:
-        root = _product_dir_for(job_id, run_index)
-        return self.start_dir((job_id, run_index), root, _site_base(job_id, run_index))
+    def start(self, job_id: str, run: Any) -> Dict[str, Any]:
+        key = _canonical_key(job_id, run)
+        root = _product_dir_for(job_id, key[1])
+        return self.start_dir(key, root, _site_base(job_id, key[1]))
 
-    def status(self, job_id: str, run_index: int) -> Dict[str, Any]:
-        key = (job_id, run_index)
+    def status(self, job_id: str, run: Any) -> Dict[str, Any]:
+        key = _canonical_key(job_id, run)
         with self._lock:
             preview = self._previews.get(key)
         if preview is not None:
@@ -478,37 +631,50 @@ class PreviewManager:
             return preview.to_dict()
         kind: Optional[str] = None
         try:
-            plan = detect_launch_plan(_product_dir_for(job_id, run_index))
+            plan = detect_launch_plan(_product_dir_for(job_id, key[1]))
             kind = plan.kind if plan.kind != "none" else None
         except Exception as exc:  # noqa: BLE001 - status of a run without outputs is just idle
-            logger.debug("No preview plan for %s/%s: %s", job_id, run_index, exc)
+            logger.debug("No preview plan for %s/%s: %s", job_id, run, exc)
         return {"status": "idle", "url": None, "port": None, "kind": kind, "log_tail": "", "error": None,
-                "started_at": None}
+                "error_code": None, "error_params": {}, "started_at": None}
 
-    def stop(self, job_id: str, run_index: int) -> Dict[str, Any]:
+    def heartbeat(self, job_id: str, run: Any) -> Dict[str, Any]:
+        """The page is still showing this preview: keep it from being stopped as idle. Cheap (no log tail)."""
+        key = _canonical_key(job_id, run)
         with self._lock:
-            preview = self._previews.get((job_id, run_index))
+            preview = self._previews.get(key)
+        if preview is None:
+            return {"status": "idle", "alive": False, "idle_seconds": int(self.idle_seconds)}
+        preview.last_access = time.monotonic()
+        return {"status": preview.status, "alive": preview.status in ACTIVE_STATUSES,
+                "idle_seconds": int(self.idle_seconds)}
+
+    def stop(self, job_id: str, run: Any) -> Dict[str, Any]:
+        key = _canonical_key(job_id, run)
+        with self._lock:
+            preview = self._previews.get(key)
         if preview is None:
             return {"status": "stopped", "url": None, "port": None, "kind": None, "log_tail": "", "error": None,
-                    "started_at": None}
+                    "error_code": None, "error_params": {}, "started_at": None}
         self._stop_preview(preview, "Đã dừng chạy thử.")
         return preview.to_dict()
 
     # -- by directory ------------------------------------------------------
 
-    def start_dir(self, key: Tuple[str, int], root: Path, site_base: str = "") -> Dict[str, Any]:
+    def start_dir(self, key: Tuple[str, Any], root: Path, site_base: str = "") -> Dict[str, Any]:
         root = Path(root).resolve()
         _check_root(root)
         with self._lock:
             if self._closed:
-                raise PreviewError("Máy chủ đang tắt.", 503)
+                raise PreviewError("Máy chủ đang tắt.", 503, "preview_server_closing")
             existing = self._previews.get(key)
             if existing is not None and existing.status in ACTIVE_STATUSES:
                 existing.last_access = time.monotonic()
                 return existing.to_dict()
             plan = detect_launch_plan(root)
             if plan.kind == "none":
-                raise PreviewError("Không tìm thấy ứng dụng hoặc trang web để chạy thử trong kết quả này.", 422)
+                raise PreviewError("Không tìm thấy ứng dụng hoặc trang web để chạy thử trong kết quả này.", 422,
+                                   "preview_nothing_to_run")
             preview = Preview(key=key, root=root, kind=plan.kind, started_at=_now_iso())
             if plan.kind == "static":
                 entry = "" if plan.entry == "index.html" else plan.entry
@@ -520,7 +686,7 @@ class PreviewManager:
             active = [p for p in self._previews.values() if p.kind != "static" and p.status in ACTIVE_STATUSES]
             if len(active) >= MAX_CONCURRENT:
                 raise PreviewError(f"Đã có {MAX_CONCURRENT} bản chạy thử đang chạy. Hãy dừng bớt một bản rồi thử lại.",
-                                   409)
+                                   409, "preview_limit_reached", {"max": MAX_CONCURRENT})
             preview.status = "installing" if plan.installs else "starting"
             self._previews[key] = preview
             self._ensure_reaper()
@@ -568,10 +734,13 @@ class PreviewManager:
             preview.status = "stopped"
             preview.add_log(f"[agentdev] {reason}")
 
-    def _fail(self, preview: Preview, error: str) -> None:
+    def _fail(self, preview: Preview, error: str, code: str = "preview_error",
+              params: Optional[Dict[str, Any]] = None) -> None:
         if preview.stop_event.is_set():
             return
         preview.error = error
+        preview.error_code = code
+        preview.error_params = dict(params or {})
         preview.add_log(f"[agentdev] Lỗi: {error}")
         preview.stop_event.set()
         with preview.lock:
@@ -591,15 +760,40 @@ class PreviewManager:
         return proc
 
     def _run(self, preview: Preview, plan: LaunchPlan) -> None:
+        reserved: List[int] = []
         try:
-            self._run_inner(preview, plan)
+            self._run_inner(preview, plan, reserved)
         except PreviewError as exc:
-            self._fail(preview, str(exc))
+            self._fail(preview, str(exc), exc.code, exc.params)
         except Exception as exc:
             logger.exception("App preview failed")
-            self._fail(preview, f"{type(exc).__name__}: {exc}")
+            self._fail(preview, f"{type(exc).__name__}: {exc}", "preview_internal_error",
+                       {"error": type(exc).__name__})
+        finally:
+            self._release_ports(reserved)
 
-    def _run_inner(self, preview: Preview, plan: LaunchPlan) -> None:
+    def _reserve_port(self, reserved: List[int], exclude: Tuple[int, ...] = ()) -> int:
+        """A free port of ``PORT_RANGE`` no other preview holds, reserved until this preview ends."""
+        with self._lock:
+            port = allocate_port(self._reserved_ports | set(exclude))
+            self._reserved_ports.add(port)
+        reserved.append(port)
+        return port
+
+    def _reserve_exact(self, reserved: List[int], port: int) -> bool:
+        with self._lock:
+            if port in self._reserved_ports or port in RESERVED_PORTS or not port_is_free(port):
+                return False
+            self._reserved_ports.add(port)
+        reserved.append(port)
+        return True
+
+    def _release_ports(self, ports: List[int]) -> None:
+        with self._lock:
+            for port in ports:
+                self._reserved_ports.discard(port)
+
+    def _run_inner(self, preview: Preview, plan: LaunchPlan, reserved: List[int]) -> None:
         for directory in plan.installs:
             if preview.stop_event.is_set():
                 return
@@ -612,9 +806,11 @@ class PreviewManager:
                 if preview.stop_event.wait(0.5):
                     return
                 if time.monotonic() > deadline:
-                    raise PreviewError("Cài thư viện (npm install) quá 5 phút.")
+                    raise PreviewError("Cài thư viện (npm install) quá 5 phút.", code="preview_install_timeout",
+                                       params={"seconds": int(INSTALL_TIMEOUT)})
             if proc.returncode != 0:
-                raise PreviewError(f"Cài thư viện (npm) thất bại, mã lỗi {proc.returncode}.")
+                raise PreviewError(f"Cài thư viện (npm) thất bại, mã lỗi {proc.returncode}.", code="preview_install_failed",
+                               params={"exit_code": proc.returncode})
             with preview.lock:
                 preview.procs = [(lbl, p) for lbl, p in preview.procs if p is not proc]
         if preview.stop_event.is_set():
@@ -624,19 +820,20 @@ class PreviewManager:
             _seed_env_file(preview, template.cwd)
         ports: Dict[str, int] = {}
         server = next((p for p in plan.processes if p.role == "server"), None)
-        ports["port"] = allocate_port()
+        ports["port"] = self._reserve_port(reserved)
         if server is not None:
             wanted = server.preferred_port
-            if wanted and wanted not in RESERVED_PORTS and wanted != ports["port"] and port_is_free(wanted):
+            if wanted and wanted != ports["port"] and self._reserve_exact(reserved, wanted):
                 ports["server_port"] = wanted
                 preview.add_log(f"[agentdev] Proxy của client trỏ tới cổng {wanted}: chạy server trên cổng đó.")
             else:
-                ports["server_port"] = allocate_port({ports["port"]})
+                ports["server_port"] = self._reserve_port(reserved, (ports["port"],))
                 if wanted:
                     preview.add_log(
                         f"[agentdev] Proxy của client trỏ tới cổng {wanted} nhưng cổng đó bận hoặc bị cấm; server chạy "
                         f"trên cổng {ports['server_port']}, nên lời gọi API qua proxy có thể không tới được server.")
         preview.port = ports["port"]
+        preview.pids_before = process_snapshot()
         for template in plan.processes:
             port_for = ports["server_port"] if template.role == "server" else ports["port"]
             local = dict(ports, port=port_for)
@@ -645,15 +842,8 @@ class PreviewManager:
             self._spawn(preview, template.name, cmd, template.cwd, env)
             if preview.stop_event.is_set():
                 return
-        deadline = time.monotonic() + READY_TIMEOUT
-        while not port_accepts(ports["port"]):
-            if preview.stop_event.wait(0.5):
-                return
-            dead = self._dead_process(preview)
-            if dead:
-                raise PreviewError(dead)
-            if time.monotonic() > deadline:
-                raise PreviewError(f"Ứng dụng không mở cổng {ports['port']} sau {int(READY_TIMEOUT)} giây.")
+        if not self._wait_ready(preview, ports["port"]):
+            return
         if server is not None and not port_accepts(ports["server_port"]):
             preview.add_log(f"[agentdev] Server chưa nghe ở cổng {ports['server_port']} (có thể nó dùng cổng cố định).")
         preview.url = f"http://localhost:{ports['port']}/"
@@ -666,16 +856,46 @@ class PreviewManager:
         while not preview.stop_event.wait(1.0):
             dead = self._dead_process(preview)
             if dead:
-                raise PreviewError(dead)
+                raise dead
+
+    def _wait_ready(self, preview: Preview, port: int) -> bool:
+        """Wait until OUR app answers on ``port``. False when the preview was stopped meanwhile.
+
+        A listener alone is not enough: another program may hold the port. Ready means every child is alive, the
+        port answers, and (when the OS can tell) the listener is one of our processes or their descendants."""
+        deadline = time.monotonic() + READY_TIMEOUT
+        foreign = False
+        while True:
+            dead = self._dead_process(preview)
+            if dead:
+                raise dead
+            if port_accepts(port):
+                with preview.lock:
+                    pids = [proc.pid for _label, proc in preview.procs]
+                if port_owned_by(port, pids, preview.pids_before) is not False:
+                    return True
+                if not foreign:
+                    foreign = True
+                    preview.add_log(f"[agentdev] Cổng {port} đang do một chương trình khác giữ, không phải app này: "
+                                    "chờ app tự mở cổng.")
+            if preview.stop_event.wait(0.5):
+                return False
+            if time.monotonic() > deadline:
+                if foreign:
+                    raise PreviewError(f"Cổng {port} bị một chương trình khác chiếm; app không mở được cổng này.",
+                                       code="preview_port_taken", params={"port": port})
+                raise PreviewError(f"Ứng dụng không mở cổng {port} sau {int(READY_TIMEOUT)} giây.",
+                                   code="preview_ready_timeout", params={"port": port, "seconds": int(READY_TIMEOUT)})
 
     @staticmethod
-    def _dead_process(preview: Preview) -> Optional[str]:
+    def _dead_process(preview: Preview) -> Optional[PreviewError]:
         with preview.lock:
             procs = list(preview.procs)
         for label, proc in procs:
             code = proc.poll()
             if code is not None:
-                return f"Tiến trình {label} đã thoát (mã {code})."
+                return PreviewError(f"Tiến trình {label} đã thoát (mã {code}).", code="preview_process_exited",
+                                    params={"process": label, "exit_code": code})
         return None
 
     def _ensure_reaper(self) -> None:
@@ -685,16 +905,17 @@ class PreviewManager:
 
     def _reap_loop(self) -> None:
         while not self._closed:
-            time.sleep(30)
+            time.sleep(max(1.0, min(self.reap_interval, self.idle_seconds / 2)))
             self.reap_idle()
 
     def reap_idle(self, now: Optional[float] = None) -> int:
         now = time.monotonic() if now is None else now
         with self._lock:
             idle = [p for p in self._previews.values()
-                    if p.kind != "static" and p.status in ACTIVE_STATUSES and now - p.last_access > IDLE_SECONDS]
+                    if p.kind != "static" and p.status in ACTIVE_STATUSES and now - p.last_access > self.idle_seconds]
+        minutes = max(1, round(self.idle_seconds / 60))
         for preview in idle:
-            self._stop_preview(preview, "Đã dừng vì không dùng trong 30 phút.")
+            self._stop_preview(preview, f"Đã dừng vì không dùng trong {minutes} phút.")
         return len(idle)
 
 
@@ -745,27 +966,39 @@ def _allowed_root() -> Path:
 
 def _check_root(root: Path) -> None:
     if not root.is_dir():
-        raise PreviewError("Không tìm thấy thư mục kết quả của lượt chạy này.", 404)
+        raise PreviewError("Không tìm thấy thư mục kết quả của lượt chạy này.", 404, "preview_dir_missing")
     if not root.is_relative_to(_allowed_root()):
-        raise PreviewError("Thư mục kết quả nằm ngoài kho lưu trữ, không chạy thử.", 403)
+        raise PreviewError("Thư mục kết quả nằm ngoài kho lưu trữ, không chạy thử.", 403, "preview_dir_outside")
 
 
-def _site_base(job_id: str, run_index: int) -> str:
-    return f"/api/lab/jobs/{job_id}/runs/{run_index}/site/"
+def _site_base(job_id: str, run: Any) -> str:
+    return f"/api/lab/jobs/{job_id}/runs/{run}/site/"
 
 
-def _product_dir_for(job_id: str, run_index: int) -> Path:
+def _canonical_key(job_id: str, run: Any) -> Tuple[str, str]:
+    """(job_id, stable run key): the run's ``run_id``, or its position for jobs recorded without one.
+
+    An unknown job/run keeps the given reference: starting it then fails with the lookup's own 404."""
+    from agentdev.api.services import lab_outputs
+
+    try:
+        return job_id, lab_outputs.canonical_run_key(job_id, run)
+    except Exception:  # noqa: BLE001 - unknown run: the caller reports it when it needs the folder
+        return job_id, str(run)
+
+
+def _product_dir_for(job_id: str, run: Any) -> Path:
     from agentdev.api.services import lab_outputs  # written alongside; imported lazily
 
     try:
-        run_dir = lab_outputs.resolve_run_dir(job_id, run_index)
+        run_dir = lab_outputs.resolve_run_dir(job_id, run)
     except lab_outputs.LabOutputsError as exc:
-        raise PreviewError(exc.detail, exc.status_code) from exc
+        raise PreviewError(exc.detail, exc.status_code, exc.code or "preview_run_missing", exc.params) from exc
     if not run_dir:
-        raise PreviewError("Không tìm thấy kết quả của lượt chạy này.", 404)
+        raise PreviewError("Không tìm thấy kết quả của lượt chạy này.", 404, "preview_run_missing")
     product = lab_outputs.product_dir(Path(run_dir))
     if not product:
-        raise PreviewError("Lượt chạy này không có sản phẩm.", 404)
+        raise PreviewError("Lượt chạy này không có sản phẩm.", 404, "preview_no_product")
     return Path(product).resolve()
 
 

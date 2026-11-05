@@ -21,7 +21,7 @@ import time
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 MAX_FILES = 2000
 MAX_TEXT_BYTES = 2 * 1024 * 1024
@@ -78,10 +78,16 @@ _MIME = {
 class LabOutputsError(Exception):
     """A request the routes turn into an HTTP error (``status_code`` + a message for the user)."""
 
-    def __init__(self, status_code: int, detail: str) -> None:
+    def __init__(self, status_code: int, detail: str, code: str = "", params: dict[str, Any] | None = None) -> None:
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+        self.code = code  # stable id the frontend translates (the message stays for older clients / logs)
+        self.params = dict(params or {})
+
+    def http_detail(self) -> dict[str, Any]:
+        """HTTP ``detail`` body: ``message`` is what older clients show, ``code``/``params`` let the UI translate."""
+        return {"message": self.detail, "code": self.code or "lab_error", "params": self.params}
 
 
 # ----------------------------------------------------------------------------------- jobs and run folders
@@ -125,7 +131,7 @@ def _job_results(job: Any) -> list[dict[str, Any]]:
 def _get_job(job_id: str) -> Any:
     job = _runner().get(job_id)
     if job is None:
-        raise LabOutputsError(404, "Lab run not found")
+        raise LabOutputsError(404, "Lab run not found", "lab_job_not_found", {"job_id": job_id})
     return job
 
 
@@ -151,17 +157,65 @@ def checked_run_dir(raw: Any) -> Path | None:
     return resolved
 
 
-def resolve_run_dir(job_id: str, run_index: int) -> Path | None:
-    """The graph folder of run ``run_index`` of job ``job_id``.
+RunRef = Union[int, str]
+_RUN_REF = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def valid_run_ref(run: Any) -> bool:
+    """A run reference from a URL: a run's ``run_id`` or (legacy) its position, plain URL-safe text only."""
+    return isinstance(run, int) and run >= 0 or isinstance(run, str) and bool(_RUN_REF.match(run))
+
+
+def run_key(result: dict[str, Any], index: int) -> str:
+    """Stable key of one run: its ``run_id`` when the job records one, else (old jobs) its position."""
+    run_id = result.get("run_id")
+    return str(run_id) if run_id not in (None, "") else str(index)
+
+
+def _find_run(results: list[dict[str, Any]], run: RunRef) -> tuple[int, dict[str, Any]] | None:
+    """The run that ``run`` names: a matching ``run_id`` first, else a position (old jobs, old clients).
+
+    Positions shift when a job is resumed (errored runs are dropped and re-run) or while parallel runs are
+    added, so the UI keys runs by ``run_id``; the position fallback keeps jobs without ids working."""
+    text = str(run)
+    for index, result in enumerate(results):
+        run_id = result.get("run_id")
+        if run_id not in (None, "") and str(run_id) == text:
+            return index, result
+    if isinstance(run, int) or text.isdigit():
+        index = int(text)
+        if 0 <= index < len(results):
+            return index, results[index]
+    return None
+
+
+def _run_not_found(job_id: str, run: RunRef) -> LabOutputsError:
+    return LabOutputsError(404, "Run not found in this Lab job", "lab_run_not_found",
+                           {"job_id": job_id, "run": str(run)})
+
+
+def canonical_run_key(job_id: str, run: RunRef) -> str:
+    """The stable key (``run_id``, or position for old jobs) of the run ``run`` names. Raises 404 when unknown."""
+    results = _job_results(_get_job(job_id))
+    found = _find_run(results, run) if valid_run_ref(run) else None
+    if found is None:
+        raise _run_not_found(job_id, run)
+    index, result = found
+    return run_key(result, index)
+
+
+def resolve_run_dir(job_id: str, run: RunRef) -> Path | None:
+    """The graph folder of run ``run`` (a ``run_id``, or a legacy position) of job ``job_id``.
 
     Raises ``LabOutputsError(404)`` when the job or the run does not exist. Returns None when the run recorded
     no usable folder (it failed before starting, or the path is outside the warehouse). The folder may no
     longer exist on disk (deleted): callers check ``is_dir()``.
     """
     results = _job_results(_get_job(job_id))
-    if not isinstance(run_index, int) or run_index < 0 or run_index >= len(results):
-        raise LabOutputsError(404, "Run not found in this Lab job")
-    return checked_run_dir(results[run_index].get("output_dir"))
+    found = _find_run(results, run) if valid_run_ref(run) else None
+    if found is None:
+        raise _run_not_found(job_id, run)
+    return checked_run_dir(found[1].get("output_dir"))
 
 
 def product_dir(run_dir: Path) -> Path:
@@ -237,7 +291,7 @@ def _walk(root: Path) -> Iterable[tuple[str, int]]:
         pending.extend(reversed(subdirs))
 
 
-def list_files(job_id: str, run_index: int) -> dict[str, Any]:
+def list_files(job_id: str, run_index: RunRef) -> dict[str, Any]:
     run_dir = resolve_run_dir(job_id, run_index)
     if run_dir is None or not run_dir.is_dir():
         return {"available": False, "root": str(run_dir) if run_dir else "", "total_bytes": 0, "file_count": 0,
@@ -373,29 +427,29 @@ def resolve_product_file(root: Path, relative_path: str, *, allow_dir: bool = Fa
     """``relative_path`` inside ``root``: refuses absolute paths, ``..``, and links that lead outside."""
     text = (relative_path or "").strip().replace("\\", "/")
     if "\x00" in text:
-        raise LabOutputsError(400, "Invalid path")
+        raise LabOutputsError(400, "Invalid path", "lab_path_invalid")
     candidate = Path(text) if text else Path(".")
     if candidate.is_absolute() or candidate.drive or text.startswith("/") or any(p == ".." for p in candidate.parts):
-        raise LabOutputsError(400, "Path must be relative to the run's folder")
+        raise LabOutputsError(400, "Path must be relative to the run's folder", "lab_path_not_relative")
     root_resolved = Path(root).resolve()
     try:
         target = (root_resolved / candidate).resolve()
     except (OSError, ValueError) as exc:
-        raise LabOutputsError(400, "Invalid path") from exc
+        raise LabOutputsError(400, "Invalid path", "lab_path_invalid") from exc
     if target != root_resolved and root_resolved not in target.parents:
-        raise LabOutputsError(400, "Path is outside the run's folder")
+        raise LabOutputsError(400, "Path is outside the run's folder", "lab_path_outside")
     if target.is_dir():
         if not allow_dir:
-            raise LabOutputsError(400, "This path is a folder")
+            raise LabOutputsError(400, "This path is a folder", "lab_path_is_folder")
     elif not target.is_file():
-        raise LabOutputsError(404, "File not found")
+        raise LabOutputsError(404, "File not found", "lab_file_not_found")
     return target
 
 
-def _existing_product(job_id: str, run_index: int) -> Path:
+def _existing_product(job_id: str, run_index: RunRef) -> Path:
     run_dir = resolve_run_dir(job_id, run_index)
     if run_dir is None or not run_dir.is_dir():
-        raise LabOutputsError(404, "The files of this run were deleted or never created")
+        raise LabOutputsError(404, "The files of this run were deleted or never created", "lab_run_files_missing")
     return product_dir(run_dir)
 
 
@@ -406,26 +460,27 @@ def response_headers(path: Path) -> dict[str, str]:
     return headers
 
 
-def run_file(job_id: str, run_index: int, relative_path: str) -> Path:
+def run_file(job_id: str, run_index: RunRef, relative_path: str) -> Path:
     """The file to send for the viewer; text over 2 MB is refused (the viewer would freeze on it)."""
     target = resolve_product_file(_existing_product(job_id, run_index), relative_path)
     if file_kind(target.name) in TEXT_KINDS and target.stat().st_size > MAX_TEXT_BYTES:
-        raise LabOutputsError(413, "This text file is too large to show (over 2 MB); open it on the machine")
+        raise LabOutputsError(413, "This text file is too large to show (over 2 MB); open it on the machine",
+                              "lab_file_too_large", {"max_bytes": MAX_TEXT_BYTES})
     return target
 
 
-def site_file(job_id: str, run_index: int, relative_path: str) -> Path:
+def site_file(job_id: str, run_index: RunRef, relative_path: str) -> Path:
     """A file of the product served as a static site: a folder (or the root) gives its index.html."""
     target = resolve_product_file(_existing_product(job_id, run_index), relative_path, allow_dir=True)
     if target.is_dir():
         index = target / "index.html"
         if not index.is_file():
-            raise LabOutputsError(404, "No index.html in this folder")
+            raise LabOutputsError(404, "No index.html in this folder", "lab_site_no_index")
         target = index
     return target
 
 
-def open_target(job_id: str, run_index: int, relative_path: str) -> Path:
+def open_target(job_id: str, run_index: RunRef, relative_path: str) -> Path:
     """The file or folder to open on the machine (empty path = the product folder)."""
     return resolve_product_file(_existing_product(job_id, run_index), relative_path, allow_dir=True)
 
@@ -547,11 +602,12 @@ def _sibling_turn_dirs(run_dir: Path) -> list[Path]:
     return [d for d in _lab_dirs() if d != run_dir and session_key(d.name) == key]
 
 
-def delete_run_outputs(job_id: str, run_index: int) -> dict[str, Any]:
+def delete_run_outputs(job_id: str, run_index: RunRef) -> dict[str, Any]:
     """Delete the folder of one run (and the earlier turn folders of the same run); the run entry stays."""
     job = _get_job(job_id)
     if is_running(job):
-        raise LabOutputsError(409, "This Lab job is still running; stop it before deleting its files")
+        raise LabOutputsError(409, "This Lab job is still running; stop it before deleting its files",
+                              "lab_job_running")
     run_dir = resolve_run_dir(job_id, run_index)
     if run_dir is None or not run_dir.is_dir():
         return {"deleted": False, "freed_bytes": 0}

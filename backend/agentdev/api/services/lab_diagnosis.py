@@ -423,7 +423,8 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
         "- Quy trình phải chạy NHANH: việc nhỏ trả lời trong vài chục giây, mọi vòng lặp có giới hạn, model nhẹ cho việc đơn giản.",
         "- Các bước duyệt của người phải chấp nhận cả câu tự trả lời `[Automatic answer ...]` của Phòng thí nghiệm "
         "(người thật vẫn chỉ cần gõ OK). Ngoại lệ: bước duyệt trước việc tốn tiền hoặc không thể hoàn tác (tạo video, "
-        "gửi email, thanh toán, đăng bài) phải đưa câu tự trả lời và lúc hết giờ sang nhánh bỏ qua, không được duyệt.",
+        "gửi email, thanh toán, đăng bài) phải có `paid: true` trong config của node duyệt và đưa câu tự trả lời, "
+        "câu bỏ qua `[Skipped automatically ...]` và lúc hết giờ sang nhánh bỏ qua, không được duyệt.",
         "- Sau khi sửa, nói rõ đã đổi gì và vì sao nó khắc phục từng lỗi.",
         "",
         "Thông tin bổ sung của tôi: ",
