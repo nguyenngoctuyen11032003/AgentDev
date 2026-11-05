@@ -1,4 +1,4 @@
-"""Workflow assistant API: provider list, one chat turn, cancel."""
+"""Workflow assistant API: provider list, one chat turn, cancel, saved sessions."""
 
 import logging
 from typing import List, Literal, Optional
@@ -8,6 +8,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
+from agentdev.api.services import assistant_sessions as sessions
 from agentdev.api.services import workflow_assistant as service
 from agentdev.connections.security import require_local_origin
 
@@ -33,6 +34,8 @@ class MessageIn(BaseModel):
 
 class ChatRequest(BaseModel):
     vendor: str
+    # A model of the vendor's account (from the connection's model list); empty = the account default.
+    model: Optional[str] = Field(None, max_length=120, pattern=r"^[A-Za-z0-9._:/@\[\]-]*$")
     workflow: Optional[str] = None
     messages: List[MessageIn] = Field(..., min_length=1, max_length=200)
     pending_yaml: Optional[str] = Field(None, max_length=200_000)
@@ -65,6 +68,7 @@ async def chat(body: ChatRequest):
         return await run_in_threadpool(
             service.run_turn,
             vendor=body.vendor,
+            model=body.model or None,
             workflow=body.workflow,
             messages=[m.model_dump() for m in body.messages],
             pending_yaml=body.pending_yaml,
@@ -82,3 +86,54 @@ async def chat(body: ChatRequest):
 @router.post("/cancel")
 def cancel(body: CancelRequest) -> dict:
     return {"cancelled": service.cancel(body.request_id)}
+
+
+# ---------------------------------------------------------------------------- saved sessions
+
+
+class SessionIn(BaseModel):
+    workflow: Optional[str] = Field(None, max_length=140)
+    title: str = Field("", max_length=500)
+    messages: List[dict] = Field(default_factory=list, max_length=2000)
+    pending_message_id: Optional[str] = Field(None, max_length=64)
+    vendor: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=120)
+
+
+def _session_error(exc: sessions.SessionError) -> JSONResponse:
+    status = 404 if exc.code == "not_found" else 400
+    return JSONResponse({"error": exc.code, "message": str(exc)}, status_code=status)
+
+
+@router.get("/sessions")
+def list_sessions(workflow: Optional[str] = None, all: bool = False):  # noqa: A002 - query name
+    try:
+        return {"sessions": sessions.list_sessions(workflow, all_workflows=all)}
+    except sessions.SessionError as exc:
+        return _session_error(exc)
+
+
+@router.get("/sessions/{session_id}")
+def get_session(session_id: str):
+    try:
+        return sessions.get_session(session_id)
+    except sessions.SessionError as exc:
+        return _session_error(exc)
+
+
+@router.put("/sessions/{session_id}")
+def save_session(session_id: str, body: SessionIn):
+    try:
+        return sessions.save_session(session_id, workflow=body.workflow, title=body.title,
+                                     messages=body.messages, pending_message_id=body.pending_message_id,
+                                     vendor=body.vendor, model=body.model)
+    except sessions.SessionError as exc:
+        return _session_error(exc)
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(session_id: str):
+    try:
+        return {"deleted": sessions.delete_session(session_id)}
+    except sessions.SessionError as exc:
+        return _session_error(exc)

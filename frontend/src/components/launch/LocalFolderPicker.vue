@@ -81,12 +81,44 @@
                 :placeholder="$t('launch.open_folder.path_placeholder')"
                 :aria-label="$t('launch.open_folder.path_placeholder')"
               />
+              <button
+                type="button"
+                class="icon-btn"
+                :disabled="!current || loading"
+                :title="$t('launch.open_folder.new_folder')"
+                :aria-label="$t('launch.open_folder.new_folder')"
+                @click="startCreate"
+              >
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M12 11v5M9.5 13.5h5" /></svg>
+              </button>
             </form>
+
+            <form v-if="creating" class="create-bar" @submit.prevent="submitCreate">
+              <input
+                ref="createInputEl"
+                v-model="newName"
+                class="path-input"
+                spellcheck="false"
+                autocomplete="off"
+                :placeholder="$t('launch.open_folder.new_folder_name')"
+                :aria-label="$t('launch.open_folder.new_folder_name')"
+                @keydown.esc.stop.prevent="creating = false"
+              />
+              <button type="submit" class="btn btn-primary btn-sm" :disabled="!newName.trim() || createBusy">
+                {{ $t('launch.open_folder.new_folder_create') }}
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="creating = false">{{ $t('common.cancel') }}</button>
+            </form>
+            <p v-if="creating && createError" class="create-error" role="alert">{{ createError }}</p>
 
             <div class="folder-list" :aria-busy="loading">
               <p v-if="error" class="list-state is-error">{{ error }}</p>
               <p v-else-if="loading" class="list-state">{{ $t('launch.open_folder.loading') }}</p>
-              <p v-else-if="current && !visibleFolders.length" class="list-state">{{ $t('launch.open_folder.empty') }}</p>
+              <div v-else-if="current && !visibleFolders.length" class="list-state">
+                <p>{{ $t('launch.open_folder.empty') }}</p>
+                <p>{{ $t('launch.open_folder.empty_create') }}</p>
+                <button type="button" class="btn btn-ghost btn-sm" @click="startCreate">{{ $t('launch.open_folder.new_folder') }}</button>
+              </div>
               <ul v-else>
                 <li v-for="folder in visibleFolders" :key="folder.path">
                   <button
@@ -130,7 +162,7 @@
 
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
-import { browseLocalFolders } from '@/api/client.js'
+import { browseLocalFolders, createLocalFolder } from '@/api/client.js'
 import { IGNORED_PROJECT_DIRS } from '@/utils/projectFiles.js'
 
 const props = defineProps({
@@ -198,6 +230,37 @@ const go = async (path) => {
   }
 }
 
+const creating = ref(false)
+const newName = ref('')
+const createBusy = ref(false)
+const createError = ref('')
+const createInputEl = ref(null)
+
+const startCreate = async () => {
+  creating.value = true
+  newName.value = ''
+  createError.value = ''
+  await nextTick()
+  createInputEl.value?.focus()
+}
+
+// Creates the folder inside the one being viewed and steps into it, ready to be opened as a project
+const submitCreate = async () => {
+  if (!current.value || !newName.value.trim() || createBusy.value) return
+  createBusy.value = true
+  createError.value = ''
+  try {
+    const listing = await createLocalFolder(current.value.path, newName.value.trim())
+    current.value = listing
+    pathInput.value = listing.path
+    creating.value = false
+  } catch (err) {
+    createError.value = err?.message || String(err)
+  } finally {
+    createBusy.value = false
+  }
+}
+
 const confirm = () => {
   if (!current.value) return
   rememberRecent(current.value.path)
@@ -208,6 +271,7 @@ watch(
   () => props.open,
   async (open) => {
     if (!open) return
+    creating.value = false
     recent.value = readRecent()
     error.value = ''
     if (!locations.value.length) {
@@ -430,6 +494,31 @@ watch(
   outline-offset: 1px;
   border-color: var(--accent-sky);
 }
+
+.create-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-4);
+  background: color-mix(in srgb, var(--accent-sky) 7%, transparent);
+}
+
+.create-error {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--danger);
+  border-bottom: 1px solid var(--line-4);
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.list-state .btn { margin-top: 10px; }
+.list-state p { margin: 0 0 4px; padding: 0; }
 
 .folder-list {
   flex: 1;

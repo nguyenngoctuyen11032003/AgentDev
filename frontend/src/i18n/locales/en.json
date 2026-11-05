@@ -322,6 +322,8 @@
       "others": "+{n} more",
       "elapsed": "Time elapsed",
       "steps": "{n} calls",
+      "steps_label": "Calls",
+      "usage_label": "Tokens and cost",
       "issues": "{n} tool issues being handled",
       "issues_hint": "Show the tool errors the agent is fixing on its own",
       "finished_completed": "This turn is done",
@@ -1022,6 +1024,14 @@
         "instruction": "Redo the work following this feedback: keep what was already right, fix each issue and report clearly what changed."
       }
     },
+    "output": {
+      "project": "Results (source code, videos, files) are saved in the project:",
+      "session": "No project is open. Results (source code, videos, files) will be saved in this session's own folder:",
+      "session_later": "The path appears after you send the first message.",
+      "open": "Open folder",
+      "choose": "Choose where to save",
+      "open_failed": "Could not open the results folder"
+    },
     "open_folder": {
       "title": "Open project folder",
       "subtitle": "Pick a project on this machine to work on, like Open Folder in VS Code.",
@@ -1039,7 +1049,11 @@
       "opened": "Opened project \"{name}\"",
       "opened_detail": "{count} files · {path}",
       "failed": "Could not open the folder",
-      "drop_hint": "You dropped the folder \"{name}\". Find and open it here: agents work in it directly, nothing is uploaded."
+      "drop_hint": "You dropped the folder \"{name}\". Find and open it here: agents work in it directly, nothing is uploaded.",
+      "new_folder": "New folder",
+      "new_folder_name": "New folder name",
+      "new_folder_create": "Create",
+      "empty_create": "Create a new folder here to start an empty project."
     },
     "team": {
       "assigned": "{lead} assigned a task to {member}",
@@ -3079,6 +3093,27 @@
       "code_execution": "Some agents use code or command tools, but the server has them turned off, so those tools will not run.",
       "unreachable": "Some nodes have no incoming edge and are in no team, so they will never run.",
       "other": "This check did not pass. See the details below."
-    }
+    },
+    "history": "Chat history",
+    "history_for": "Sessions · {name}",
+    "history_loading": "Loading…",
+    "history_empty": "No saved sessions yet. Every conversation is saved here automatically.",
+    "untitled": "Untitled session",
+    "message_count": "{n} messages",
+    "delete_session": "Delete this session",
+    "delete_confirm": "Click again to delete permanently",
+    "delete_confirm_short": "Delete?",
+    "time_now": "just now",
+    "time_minutes": "{n} min ago",
+    "time_hours": "{n} h ago",
+    "time_days": "{n} days ago",
+    "model_name_label": "Model",
+    "model_hint": "Pick one of the account's models. A small, fast model spends fewer tokens on simple questions; a strong one suits designing or editing complex workflows.",
+    "model_default": "Default model",
+    "model_default_named": "Default ({model})",
+    "meta_tokens": "{n} tokens",
+    "meta_detail": "In: {input} tokens · Out: {output} tokens · Cached: {cached} · {calls} calls",
+    "copy": "Copy",
+    "copied": "Copied"
   }
 }

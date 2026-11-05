@@ -191,6 +191,11 @@ class RunInbox:
                     pass
         return taken
 
+    def taken_texts(self) -> List[str]:
+        """Texts of the notes the lead took this run (oldest first), for the turn history."""
+        with self._lock:
+            return [n.text for n in self._notes if n.lead_took and n.text]
+
     def take_for_member(self, node_id: str) -> List[Note]:
         """Notes a running member has not seen yet (it never consumes them: the lead still gets them)."""
         with self._lock:

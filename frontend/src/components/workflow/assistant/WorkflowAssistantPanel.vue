@@ -26,6 +26,19 @@
         <span class="panel-context" :title="contextLabel">{{ contextLabel }}</span>
       </div>
       <button
+        ref="historyBtnRef"
+        type="button"
+        class="icon-btn"
+        :class="{ on: historyOpen }"
+        :title="$t('workflow_assistant.history')"
+        :aria-label="$t('workflow_assistant.history')"
+        :aria-expanded="historyOpen"
+        aria-controls="assistant-history"
+        @click="toggleHistory"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" /></svg>
+      </button>
+      <button
         type="button"
         class="icon-btn"
         :title="$t('workflow_assistant.new_conversation')"
@@ -45,6 +58,38 @@
         <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
       </button>
     </header>
+
+    <!-- Saved conversations of this workflow (or of "new workflow") -->
+    <div v-if="historyOpen" id="assistant-history" class="history" role="region" :aria-label="$t('workflow_assistant.history')">
+      <div class="history-head">
+        <span class="history-title">{{ $t('workflow_assistant.history_for', { name: contextLabel }) }}</span>
+        <button type="button" class="btn-small" @click="startNewConversation">{{ $t('workflow_assistant.new_conversation') }}</button>
+      </div>
+      <p v-if="sessionsLoading && !currentSessions.length" class="history-empty">{{ $t('workflow_assistant.history_loading') }}</p>
+      <p v-else-if="!currentSessions.length" class="history-empty">{{ $t('workflow_assistant.history_empty') }}</p>
+      <ul v-else class="history-list">
+        <li v-for="s in currentSessions" :key="s.id" :class="['history-item', { current: s.id === thread.id }]">
+          <button type="button" class="history-open" :aria-current="s.id === thread.id ? 'true' : undefined" @click="pickSession(s.id)">
+            <span class="history-name">{{ s.title || $t('workflow_assistant.untitled') }}</span>
+            <span class="history-sub">
+              {{ relativeTime(s.updated_at) }} · {{ $t('workflow_assistant.message_count', { n: s.message_count || 0 }) }}
+              <span v-if="threadBusy(s.id)" class="history-busy">· {{ $t('workflow_assistant.thinking') }}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="icon-btn history-delete"
+            :class="{ confirm: confirmDelete === s.id }"
+            :title="confirmDelete === s.id ? $t('workflow_assistant.delete_confirm') : $t('workflow_assistant.delete_session')"
+            :aria-label="confirmDelete === s.id ? $t('workflow_assistant.delete_confirm') : $t('workflow_assistant.delete_session')"
+            @click="removeSession(s.id)"
+          >
+            <svg v-if="confirmDelete !== s.id" aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+            <span v-else class="confirm-text">{{ $t('workflow_assistant.delete_confirm_short') }}</span>
+          </button>
+        </li>
+      </ul>
+    </div>
 
     <div ref="scrollRef" class="panel-body">
       <!-- Empty thread -->
@@ -101,6 +146,12 @@
               @discard="discardProposal"
               @undo="emit('undo', workflowKey(m.proposal.filename))"
             />
+            <div v-if="metaLine(m)" class="reply-meta" :title="metaTitle(m)">
+              <span>{{ metaLine(m) }}</span>
+              <button v-if="m.content" type="button" class="meta-btn" :title="$t('workflow_assistant.copy')" @click="copyReply(m)">
+                {{ copiedId === m.id ? $t('workflow_assistant.copied') : $t('workflow_assistant.copy') }}
+              </button>
+            </div>
             <div
               v-if="showQuickReplies(m, index)"
               class="quick-replies"
@@ -209,6 +260,17 @@
               {{ p.available ? p.label : $t('workflow_assistant.not_signed_in_option', { vendor: p.label }) }}
             </option>
           </select>
+          <label class="sr-only" for="assistant-model">{{ $t('workflow_assistant.model_name_label') }}</label>
+          <select
+            id="assistant-model"
+            v-model="model"
+            class="vendor-select model-select"
+            :title="$t('workflow_assistant.model_hint')"
+            :disabled="thread.status === 'sending' || !vendor"
+          >
+            <option value="">{{ defaultModelLabel }}</option>
+            <option v-for="opt in modelOptions" :key="opt.id" :value="opt.id">{{ opt.name && opt.name !== opt.id ? `${opt.name} (${opt.id})` : opt.id }}</option>
+          </select>
         </template>
         <span v-else-if="providersLoaded" class="no-provider">
           {{ $t('workflow_assistant.no_provider') }}
@@ -246,6 +308,14 @@ const {
   providers,
   vendor,
   currentThread: thread,
+  currentSessions,
+  sessionsLoading,
+  loadSessions,
+  openSession,
+  deleteSession,
+  model,
+  models,
+  threads,
   undoMessageId,
   refreshProviders,
   send,
@@ -320,6 +390,90 @@ const providersLoaded = ref(false)
 const hasProvider = computed(() => providers.value.some((p) => p.available))
 const draft = ref('')
 const canSend = computed(() => !!draft.value.trim() && !!vendor.value && thread.value.status === 'idle')
+
+// ---------------------------------------------------------------- models
+const currentProvider = computed(() => providers.value.find((p) => p.vendor === vendor.value))
+const defaultModelLabel = computed(() => {
+  const name = currentProvider.value?.model
+  return name ? t('workflow_assistant.model_default_named', { model: name }) : t('workflow_assistant.model_default')
+})
+// The remembered model stays listed even before the account's list has loaded.
+const modelOptions = computed(() => {
+  const list = models.value.slice()
+  if (model.value && !list.some((m) => m.id === model.value)) list.unshift({ id: model.value, name: model.value })
+  return list
+})
+
+// "Claude · claude-sonnet-4-5 · 12.3k tokens · 8s" under a reply: what answered and what it cost.
+const formatTokens = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
+const metaLine = (m) => {
+  const parts = []
+  if (m.vendor) parts.push(vendorLabel(m.vendor))
+  if (m.model) parts.push(m.model)
+  const u = m.usage || {}
+  const tokens = (u.input_tokens || 0) + (u.output_tokens || 0)
+  if (tokens) parts.push(t('workflow_assistant.meta_tokens', { n: formatTokens(tokens) }))
+  if (u.duration_ms) parts.push(`${Math.max(1, Math.round(u.duration_ms / 1000))}s`)
+  return parts.join(' · ')
+}
+const metaTitle = (m) => {
+  const u = m.usage || {}
+  if (u.input_tokens == null && u.output_tokens == null) return undefined
+  return t('workflow_assistant.meta_detail', {
+    input: u.input_tokens ?? '?',
+    output: u.output_tokens ?? '?',
+    cached: u.cache_read_tokens ?? 0,
+    calls: u.calls ?? 1
+  })
+}
+const copiedId = ref(null)
+let copiedTimer = null
+const copyReply = async (m) => {
+  try {
+    await navigator.clipboard.writeText(m.content)
+    copiedId.value = m.id
+    clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => (copiedId.value = null), 1500)
+  } catch {
+    // clipboard blocked (http on a LAN address): nothing to do
+  }
+}
+
+// ---------------------------------------------------------------- history
+const historyOpen = ref(false)
+const historyBtnRef = ref(null)
+const confirmDelete = ref(null)
+const toggleHistory = () => {
+  historyOpen.value = !historyOpen.value
+  confirmDelete.value = null
+  if (historyOpen.value) loadSessions()
+}
+const threadBusy = (id) => threads.get(id)?.status === 'sending'
+const pickSession = async (id) => {
+  const result = await openSession(id)
+  if (result.ok) {
+    historyOpen.value = false
+    draft.value = ''
+    focusInput()
+  }
+}
+const removeSession = async (id) => {
+  if (confirmDelete.value !== id) {
+    confirmDelete.value = id
+    return
+  }
+  confirmDelete.value = null
+  await deleteSession(id)
+}
+const relativeTime = (seconds) => {
+  if (!seconds) return ''
+  const diff = Math.max(0, Date.now() / 1000 - seconds)
+  if (diff < 60) return t('workflow_assistant.time_now')
+  if (diff < 3600) return t('workflow_assistant.time_minutes', { n: Math.floor(diff / 60) })
+  if (diff < 86400) return t('workflow_assistant.time_hours', { n: Math.floor(diff / 3600) })
+  if (diff < 86400 * 7) return t('workflow_assistant.time_days', { n: Math.floor(diff / 86400) })
+  return new Date(seconds * 1000).toLocaleDateString()
+}
 
 const vendorLabel = (code) =>
   providers.value.find((p) => p.vendor === code)?.label || VENDOR_FALLBACK_LABELS[code] || code
@@ -512,6 +666,7 @@ const stopWaiting = () => {
 
 const startNewConversation = () => {
   newConversation()
+  historyOpen.value = false
   draft.value = ''
   focusInput()
 }
@@ -526,20 +681,31 @@ const close = () => {
 const onEscape = (event) => {
   if (event.isComposing || event.keyCode === 229) return
   event.stopPropagation()
+  // Esc first closes the history list, then the panel.
+  if (historyOpen.value) {
+    historyOpen.value = false
+    nextTick(() => historyBtnRef.value?.focus())
+    return
+  }
   close()
 }
 
 // ---------------------------------------------------------------- waiting timer, scrolling
 const elapsed = ref(0)
 let tick = null
+// Counted from when the request left, so switching sessions and back keeps the true time.
+const updateElapsed = () => {
+  const since = thread.value.sendingSince
+  elapsed.value = since ? Math.max(0, Math.floor((Date.now() - since) / 1000)) : 0
+}
 watch(
-  () => thread.value.status,
-  (status) => {
+  () => [thread.value, thread.value.status],
+  () => {
     clearInterval(tick)
     tick = null
-    if (status === 'sending') {
-      elapsed.value = 0
-      tick = setInterval(() => (elapsed.value += 1), 1000)
+    if (thread.value.status === 'sending') {
+      updateElapsed()
+      tick = setInterval(updateElapsed, 1000)
     }
   },
   { immediate: true }
@@ -561,6 +727,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearInterval(tick)
+  clearTimeout(copiedTimer)
   stopResize()
 })
 </script>
@@ -659,6 +826,164 @@ onBeforeUnmount(() => {
 .icon-btn:hover:not(:disabled) {
   background: rgb(var(--ink) / 0.08);
   color: var(--text-1);
+}
+
+.icon-btn.on {
+  background: rgb(var(--accent-sky-rgb) / 0.16);
+  color: var(--text-1);
+}
+
+.history {
+  flex-shrink: 0;
+  max-height: 55%;
+  overflow-y: auto;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid rgb(var(--ink) / 0.1);
+  background: rgb(var(--ink) / 0.025);
+}
+
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 8px;
+}
+
+.history-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted-1);
+}
+
+.history-empty {
+  margin: 4px;
+  font-size: 12.5px;
+  color: var(--text-muted-1);
+}
+
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+}
+
+.history-item:hover,
+.history-item.current {
+  background: rgb(var(--ink) / 0.06);
+}
+
+.history-item.current {
+  box-shadow: inset 2px 0 0 var(--accent-sky);
+}
+
+.history-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-open:focus-visible {
+  outline: 2px solid var(--accent-sky);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+.history-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.history-sub {
+  font-size: 11.5px;
+  color: var(--text-muted-1);
+}
+
+.history-busy {
+  color: var(--accent-sky);
+}
+
+.history-delete {
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.history-item:hover .history-delete,
+.history-delete:focus-visible,
+.history-delete.confirm {
+  opacity: 1;
+}
+
+.history-delete.confirm {
+  width: auto;
+  padding: 0 8px;
+  color: var(--danger);
+}
+
+.confirm-text {
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.reply-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted-1);
+}
+
+.meta-btn {
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted-1);
+  font: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.msg:hover .meta-btn,
+.meta-btn:focus-visible {
+  opacity: 1;
+}
+
+.meta-btn:hover {
+  background: rgb(var(--ink) / 0.08);
+  color: var(--text-1);
+}
+
+.model-select {
+  min-width: 0;
+  max-width: 150px;
+  text-overflow: ellipsis;
 }
 
 .icon-btn:disabled {
