@@ -848,6 +848,7 @@
       "states": {
         "todo": "To do",
         "idle": "Not started",
+        "skipped": "Skipped (branch not taken)",
         "draft": "Draft",
         "working": "Working",
         "waiting": "Needs you",

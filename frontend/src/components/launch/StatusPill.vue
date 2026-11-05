@@ -7,6 +7,7 @@
       <template v-else-if="kind === 'error'"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></template>
       <template v-else-if="kind === 'rework'"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" /><path d="M3 21v-5h5" /></template>
       <template v-else-if="kind === 'cancelled'"><rect x="6" y="6" width="12" height="12" rx="2" /></template>
+      <template v-else-if="kind === 'skipped'"><circle cx="12" cy="12" r="9" /><path d="M8 12h8" /></template>
       <template v-else><circle cx="12" cy="12" r="8" stroke-dasharray="3 4" /></template>
     </svg>
     <span class="sp-label"><slot>{{ label }}</slot></span>
@@ -62,6 +63,7 @@ const kind = computed(() => ALIAS[props.tone] || props.tone)
 .is-error { --tone: var(--danger); }
 .is-rework { --tone: color-mix(in srgb, var(--warn) 60%, var(--danger)); }
 .is-cancelled,
+.is-skipped,
 .is-idle { --tone: var(--fg-muted); }
 
 .sp-icon { width: 13px; height: 13px; flex: none; }

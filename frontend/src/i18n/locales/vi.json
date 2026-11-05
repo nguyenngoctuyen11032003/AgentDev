@@ -848,6 +848,7 @@
       "states": {
         "todo": "Chờ",
         "idle": "Chưa chạy",
+        "skipped": "Bỏ qua (nhánh không chạy)",
         "draft": "Bản nháp",
         "working": "Đang làm",
         "waiting": "Chờ bạn",

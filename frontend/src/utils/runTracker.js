@@ -5,6 +5,7 @@
 // A session can hold several turns (a follow-up message runs the team again): `state` is
 // always the current turn, and the finished turns before it are kept in `state.turns`, so
 // the board and the dashboard can show the whole session. Only a new session resets it.
+import { STEP_STATUS } from '@/components/launch/runStatus.js'
 import { reactive } from 'vue'
 
 const MAX_EVENTS = 300
@@ -365,9 +366,16 @@ function combineUsage(reports) {
   return { total_usage: total, call_history: calls, node_usages: nodeUsages }
 }
 
-/** Status of one workflow step: 'working' | 'waiting' | 'done' | 'error' | 'cancelled' | 'todo'. */
-export function stepStatus(node) {
-  if (!node || !node.runs.length) return node?.waiting ? 'waiting' : 'todo'
+/**
+ * Status of one workflow step: 'working' | 'waiting' | 'done' | 'error' | 'cancelled' | 'todo' | 'skipped'.
+ * `outcome` is the run's outcome: once it completed, a step that never started was skipped
+ * (an untaken branch); after a stop or failure it is simply not reached ('todo').
+ */
+export function stepStatus(node, outcome = '') {
+  if (!node || !node.runs.length) {
+    if (node?.waiting) return 'waiting'
+    return outcome === 'completed' ? STEP_STATUS.SKIPPED : 'todo'
+  }
   if (node.waiting) return 'waiting'
   const last = node.runs[node.runs.length - 1]
   return last.endedAt ? last.status : 'working'
@@ -425,4 +433,15 @@ export function formatSpan(ms) {
   if (h) return `${h}h ${String(m).padStart(2, '0')}m`
   if (m) return `${m}m ${String(s).padStart(2, '0')}s`
   return `${s}s`
+}
+
+/** Model calls and the number of runs that made at least one (literal / human steps make none). */
+export function modelCallStats(runs) {
+  let calls = 0
+  let withModel = 0
+  for (const run of runs) {
+    calls += run.models
+    if (run.models > 0) withModel += 1
+  }
+  return { calls, runs: withModel }
 }

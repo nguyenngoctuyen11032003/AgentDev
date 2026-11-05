@@ -19,6 +19,9 @@ export const RUN_STATUS = Object.freeze({
   ERROR: 'Error'
 })
 
+// Per-step state added on top of the tracker's own ('todo' | 'working' | 'waiting' | 'done' | 'error' | 'cancelled')
+export const STEP_STATUS = Object.freeze({ SKIPPED: 'skipped' })
+
 // The server's English reason when a restart cut a run off. Compare through isRestartInterruption;
 // the UI shows launch.sessions.interrupted_restart / interrupted_notice instead of this text.
 export const SERVER_RESTART_REASON = 'Interrupted by a server restart'

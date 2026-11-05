@@ -5,7 +5,7 @@
  * (continue_on_error) did run and still counts, which keeps the percentage below 100.
  */
 export function stepProgress(statuses, outcome) {
-  const counted = outcome === 'completed' ? statuses.filter((s) => s !== 'todo') : statuses
+  const counted = outcome === 'completed' ? statuses.filter((s) => s !== 'todo' && s !== 'skipped') : statuses
   const done = counted.filter((s) => s === 'done').length
   const total = counted.length
   return { done, total, percent: total ? Math.round((done / total) * 100) : 0 }

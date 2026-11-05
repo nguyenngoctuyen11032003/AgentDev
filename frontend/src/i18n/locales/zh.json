@@ -806,6 +806,7 @@
       "states": {
         "todo": "待办",
         "idle": "未运行",
+        "skipped": "已跳过（分支未触发）",
         "draft": "草稿",
         "working": "进行中",
         "waiting": "等你回复",

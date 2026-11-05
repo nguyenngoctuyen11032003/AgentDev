@@ -86,6 +86,7 @@
           <span class="pipe-node" :title="stateLabel(statusOf(step.id))">
             <svg v-if="statusOf(step.id) === 'done'" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
             <svg v-else-if="statusOf(step.id) === 'error'" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg>
+            <svg v-else-if="statusOf(step.id) === STEP_STATUS.SKIPPED" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12" /></svg>
             <template v-else>{{ step.index }}</template>
           </span>
           <span class="pipe-name" :title="step.id">{{ step.id }}</span>
@@ -268,12 +269,12 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { combineTurns, formatCost, formatSpan, sessionTurns, stepDuration, stepStatus, turnSpan, usageTotals } from '@/utils/runTracker.js'
+import { combineTurns, formatCost, formatSpan, sessionTurns, stepDuration, stepStatus, turnSpan, usageTotals, modelCallStats } from '@/utils/runTracker.js'
 import { stepProgress } from '@/utils/runProgress.js'
 import { buildSteps, initialsOf } from '@/utils/workflowSteps.js'
 import { buildOrgChart, computeTeamLinks } from '@/utils/teamLinks.js'
 import StatusPill from './StatusPill.vue'
-import { RUN_STATUS, isLiveStatus } from './runStatus.js'
+import { RUN_STATUS, STEP_STATUS, isLiveStatus } from './runStatus.js'
 
 const props = defineProps({
   graph: { type: Object, default: () => ({}) },
@@ -324,7 +325,7 @@ const turnRows = computed(() =>
 
 const nodeOf = (id) => session.value.nodes[id]
 const runsOf = (id) => nodeOf(id)?.runs || []
-const statusOf = (id) => stepStatus(nodeOf(id))
+const statusOf = (id) => stepStatus(nodeOf(id), session.value.outcome)
 const durationOf = (id) => stepDuration(nodeOf(id), now.value)
 
 const stepCounts = computed(() => stepProgress(steps.value.map((s) => statusOf(s.id)), session.value.outcome))
@@ -360,6 +361,7 @@ const progress = computed(() => {
 const pipeSub = (step) => {
   const status = statusOf(step.id)
   if (status === 'todo') return deptLabel(step.dept)
+  if (status === STEP_STATUS.SKIPPED) return stateLabel(status)
   const time = formatSpan(durationOf(step.id))
   return status === 'done' ? time : `${stateLabel(status)} · ${time}`
 }
@@ -392,7 +394,8 @@ const span = computed(() => {
 
 const allRuns = computed(() => Object.values(session.value.nodes).flatMap((node) => node.runs))
 const totals = computed(() => ({
-  models: allRuns.value.reduce((sum, run) => sum + run.models, 0),
+  models: modelCallStats(allRuns.value).calls,
+  modelRuns: modelCallStats(allRuns.value).runs,
   tools: allRuns.value.reduce((sum, run) => sum + run.tools.length, 0),
   runs: allRuns.value.length
 }))
@@ -438,7 +441,7 @@ const kpis = computed(() => {
       key: 'calls',
       label: t('launch.dashboard.kpi_calls'),
       value: String(totals.value.models),
-      sub: t('launch.dashboard.kpi_runs', { n: totals.value.runs })
+      sub: t('launch.dashboard.kpi_runs', { n: totals.value.modelRuns })
     },
     {
       key: 'tools',
@@ -903,6 +906,8 @@ button:focus-visible,
 .pipe-step.is-done .pipe-node { color: var(--on-success); border-color: var(--ok); background: var(--ok); }
 .pipe-step.is-working .pipe-node { color: var(--run); border-color: var(--run); box-shadow: 0 0 0 4px color-mix(in srgb, var(--run) 18%, transparent); }
 .pipe-step.is-waiting .pipe-node { color: var(--wait); border-color: var(--wait); box-shadow: 0 0 0 4px color-mix(in srgb, var(--wait) 18%, transparent); }
+.pipe-step.is-skipped { opacity: 0.75; }
+.pipe-step.is-skipped .pipe-node { border-style: dashed; }
 .pipe-step.is-error .pipe-node { color: var(--on-danger); border-color: var(--err); background: var(--err); }
 
 .pipe-name {
