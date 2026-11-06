@@ -224,3 +224,50 @@ Quy tắc quyết định: bật mặc định chỉ khi ON thành công >= OFF,
 Không đổi mặc định nào trong code, không đổi test. Hướng tiếp: (1) sửa ép kiểu đối số số (`"1"` -> 1) cho tool native rescue + test đỏ trước, kiểm lại `delegate_parallel` từ native; (2) A/B lại với `NATIVE_TOOL_RESCUE` riêng, rồi `PARALLEL_READS` riêng, n >= 10 mỗi nhánh; (3) nhầm đường dẫn dự án (nhiều thư mục tạm trong phiên bench) là một lớp lỗi riêng cần điều tra.
 
 Chi tiêu thật mục 12: 48 lượt, 0,742 USD (0,302 OFF + 0,361 ON + 0,079 bisect), toàn bộ cost đã biết. Cộng dồn cả vòng (so với 46 lượt / khoảng 0,9 USD trước đó): 94 lượt, khoảng 1,64 USD. Dưới trần 48 lượt / 1,5 USD của đợt này, vượt trần tích lũy cũ vì chúng là hai trần khác nhau.
+
+
+## 14. Sửa ép kiểu đối số, rò rỉ thư mục tạm, và A/B từng cờ (NATIVE_TOOL_RESCUE, PARALLEL_READS)
+
+Ba bản sửa (test đỏ trước, `backend/tests/test_native_rescue_args.py`, 20 test):
+
+| Việc | Nguyên nhân gốc | Sửa |
+|---|---|---|
+| `'<' not supported between 'str' and 'int'` (39 lần trong log ON) | tool_use native mang đối số toàn chuỗi (`start_line: "1"`, `max_results: "1000"`, `recursive: "true"`); gặp ở `read_file_segment`, `search_in_files`, `list_directory` | `runtime/node/agent/tool/arg_coercion.py`: ép kiểu theo schema đã khai báo (integer, number, boolean, array, object, đệ quy) tại điểm dispatch cho MỌI tool call (batch, đọc song song, ủy quyền song song). Giá trị không ép được -> tool không chạy, trả lỗi rõ (`argument 'start_line' must be an integer, got 'abc'`) |
+| `delegate_parallel` bị từ chối "list of at least 2" | `tasks` đến dưới dạng chuỗi JSON (và có khi chỉ 1 task) | rescue (`_native.py`) parse chuỗi JSON; 1 task -> `delegate_task`; nhiều task -> `delegate_parallel` với list thật. Validation của `_parse_parallel_tasks` giữ nguyên cho lời gọi thường (có test) |
+| ~86 thư mục `agentdev-cli-*` còn lại | workdir có thể bị tạo lại sau `close()` (không còn finalizer); `rmtree(ignore_errors=True)` bỏ qua lỗi Windows khi thư mục còn bị giữ; tiến trình bị kill không chạy cleanup | `_cli_common.py`: dấu chủ sở hữu `.agentdev-owner`, tập `_LIVE` + `atexit`, finalizer gắn lại khi workdir tạo lại, `remove_tree` thử lại 4 lần, `make_tempdir` luôn xóa (finally), quét thư mục cũ hơn 1 ngày một lần mỗi tiến trình (chỉ thư mục có dấu hoặc chỉ chứa file AgentDev tự ghi, không đụng thư mục đang dùng) |
+
+Đã xóa 86 thư mục cũ (không có tiến trình nào còn dùng chúng); hiện 0 còn lại.
+
+A/B thật (`bugfix_team`, Haiku, a,b,c, các nhánh chạy đồng thời mỗi vòng, `VERIFY_GATE=0`, các cờ khác `=0`; dữ liệu thô `docs/audit/ab-flags/{rescue2,reads,off2}/`, `run_round2.sh`). Đối chứng OFF = 21 lượt cũ + 6 lượt OFF mới (kiểm trôi) = 27.
+
+| Chỉ số (TB mỗi lượt) | OFF (n=27) | RESCUE riêng (n=12) | READS riêng (n=12) |
+|---|---|---|---|
+| Thành công | 17/27 (63%) | 10/12 (83%) | 9/12 (75%) |
+| a / b / c | 6/9, 7/9, 4/9 | 3/4, 4/4, 3/4 | 3/4, 3/4, 3/4 |
+| Thời gian | 114 s | 148 s (+30%) | 109 s (-4%) |
+| Lời gọi model | 13,0 | 15,5 | 13,0 |
+| Chi phí / lượt | 0,0152 USD | 0,0185 USD (+22%) | 0,0153 USD (+1%) |
+| Chi phí / lượt thành công | 0,0241 USD | 0,0222 USD (-8%) | 0,0205 USD (-15%) |
+| Tổng chi phí | 0,409 USD (0,302 + 0,107) | 0,222 USD | 0,184 USD |
+
+Kiểm trôi: 6 lượt OFF mới được 4/6 (đối chứng cũ 13/21), cost/lượt 0,0178 USD, không trôi đáng kể.
+
+Phân loại lượt hỏng:
+
+| Nhánh | Lượt hỏng | Nhóm |
+|---|---|---|
+| RESCUE | a: lead dừng sau khi tìm ra nguyên nhân, chưa sửa | lead dừng sớm (không còn "No such tool", không còn lỗi đối số) |
+| RESCUE | c: đổi tên còn sót 1 chỗ, thành viên làm trong bản sao thư mục tạm | nhầm đường dẫn dự án (lớp đã biết, OFF cũng có) |
+| READS | a, b: lead chạy một mình, delegate trả "No such tool available"; c: thành viên báo tool không có | "No such tool" đã biết (READS không chạm tới; RESCUE tắt) |
+| OFF mới | a, c | "No such tool available" |
+
+Log: RESCUE riêng có 0 lỗi `'<' not supported`, 0 lần "tasks must be a list of at least 2" (trước: 6 và 4). Không lớp lỗi mới ở cả hai nhánh.
+
+Quyết định theo quy tắc cũ (thành công >= OFF, chi phí/thời gian không tệ hơn 15%, không lớp lỗi mới):
+
+| Cờ | Kết quả | Quyết định |
+|---|---|---|
+| `AGENTDEV_NATIVE_TOOL_RESCUE` | thành công cao hơn và hai lỗi cũ đã hết, nhưng chi phí/lượt +22% và thời gian +30% (vượt 15%; lead và thành viên làm nhiều việc hơn, chi phí trên mỗi lượt thành công -8%) | **giữ TẮT**. Muốn bật cần chấp nhận chi phí cao hơn hoặc A/B lớn hơn; n = 12 chưa tách được nhiễu |
+| `AGENTDEV_PARALLEL_READS` | thành công 75% >= 63%, chi phí +1%, thời gian -4%, không lớp lỗi mới | **bật mặc định** (`PARALLEL_READS_DEFAULT = True`; `AGENTDEV_PARALLEL_READS=0` vẫn tắt). Trung thực: chênh thành công nằm trong nhiễu (mọi lượt hỏng của nhánh này là lỗi "No such tool" không liên quan tới đọc song song); lý do bật là rủi ro thấp, chi phí/thời gian không tệ hơn và test chứng minh hành vi. ADR 0006 và dòng cờ trong CLAUDE.md đã cập nhật |
+
+Chi tiêu thật mục 14: 30 lượt, 0,513 USD (0,222 RESCUE + 0,184 READS + 0,107 OFF), mọi chi phí đã biết, không có cổng trả phí. Cộng dồn cả vòng: 124 lượt, khoảng 2,15 USD (94 lượt / 1,64 USD trước đó). Trong trần 40 lượt / 1,0 USD của đợt này.

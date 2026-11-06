@@ -1,0 +1,58 @@
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off2\bench-projects-20261106-121234.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off2\bench-projects-20261106-121234.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T12:12:34
+- total cost: $0.0363
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | False | True | 76.54 | 12 | 172461/12348 | 0.013817 (True) | - | - | red -> red |
+| b_ok | True | True | 101.56 | 15 | 209813/13053 | 0.014239 (True) | - | - | green -> green |
+| c_ok | False | True | 53.71 | 6 | 108561/7551 | 0.00827 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": false, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": false, "new_name_in_all_user_files": false, "behaviour_unchanged": true, "no_test_removed": true, "old_name_left_in": false}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off2\bench-projects-20261106-122445.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off2\bench-projects-20261106-122445.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T12:23:29.315522] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call save_file for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'save_file', 'success': False, 'result_size': 0, 'error': 'Path is outside workspace', 'arguments': {'path': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\claude\\54f5a3a76ca7a163\\40354688-52af-4076-b8bc-2fdc87d1f16f\\scratchpad\\rename_changes.md', 'mode': 'overwrite', 'encoding': 'utf-8', 'content': '# Rename normalize_value -> normalize_number: change log\n\nTotal: 16 files changed, 34 replacements (33 line edits).\n\n| File | Replacements | Lines |\n|---|---|---|\n| pkg/core/norm.py | 1 | 4 (def) |\n| tests/test_core_norm.py | 5 | 1 (import), 4 (def test_normalize_value -> test_normalize_number), 5 (... [+627 chars]'}, 'stage': 'after'} Duration: 0.002997159957885742
+[2026-11-06T12:24:20.737583] [ERROR] Node Tech Lead - Event EventType.TOOL_CALL - Tool call read_file_segment for node Tech Lead Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': 'Path is outside session directory', 'arguments': {'path': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-ebpnwt4q\\pkg\\core\\norm.py', 'start_line': 1, 'line_count': 20, 'inline_line_numbers': True}, 'stage': 'after'} Duration: 0.003000020980834961
+[2026-11-06T12:24:20.739582] [ERROR] Node Tech Lead - Event EventType.TOOL_CALL - Tool call read_file_segment for node Tech Lead Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': 'Path is outside session directory', 'arguments': {'path': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-douq946m\\pkg\\core\\norm.py', 'start_line': 1, 'line_count': 20, 'inline_line_numbers': True}, 'stage': 'after'} Duration: 0.0019986629486083984
+[2026-11-06T12:24:20.742632] [ERROR] Node Tech Lead - Event EventType.TOOL_CALL - Tool call list_directory for node Tech Lead Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': 'Path is outside workspace', 'arguments': {'path': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-douq946m', 'recursive': False, 'include_hidden': True}, 'stage': 'after'} Duration: 0.0015325546264648438
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T12:24:45
+- total cost: $0.0707
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 189.74 | 16 | 250684/11844 | 0.015976 (True) | - | - | red -> green |
+| b_ok | True | True | 142.36 | 18 | 433533/19927 | 0.02167 (True) | - | - | green -> green |
+| c_ok | True | True | 186.34 | 21 | 422161/29187 | 0.033071 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": true, "new_name_in_all_user_files": true, "behaviour_unchanged": true, "no_test_removed": true}
+

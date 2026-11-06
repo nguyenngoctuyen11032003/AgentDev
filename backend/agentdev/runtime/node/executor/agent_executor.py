@@ -83,6 +83,7 @@ from agentdev.runtime.node.agent.interject import (
 from agentdev.runtime.node.agent.providers.cli_cancel import CliCancelled, cli_cancel_scope, cli_idle_scope
 from agentdev.runtime.node.agent.providers._native import describe_tool_failure
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV, require_unsafe_code_execution
+from agentdev.runtime.node.agent.tool.arg_coercion import ToolArgumentError, coerce_arguments
 from agentdev.utils.exceptions import (
     SecurityError,
     ValidationError,
@@ -136,7 +137,7 @@ MAX_TOOL_RESULT_CHARS = _env_int("AGENTDEV_MAX_TOOL_RESULT_CHARS", 16_000)
 PARALLEL_READ_TOOLS = frozenset(
     {"describe_available_files", "list_directory", "read_text_file_snippet", "read_file_segment", "search_in_files"}
 )
-PARALLEL_READS_DEFAULT = False
+PARALLEL_READS_DEFAULT = True
 
 
 def parallel_reads_enabled() -> bool:
@@ -1387,6 +1388,10 @@ class AgentNodeExecutor(NodeExecutor):
                 call = tool_calls[idx]
                 events: List[Any] = []
                 arguments = self._parse_tool_call_arguments(call.arguments)
+                try:
+                    arguments = self._coerce_call_arguments(spec_map.get(call.function_name), arguments)
+                except ToolArgumentError as exc:
+                    return self._argument_error_message(node, call, call.function_name, arguments, exc, events), events
                 message = self._run_team_tool(node, call, call.function_name, arguments, events)
                 return message, events
 
@@ -1468,7 +1473,7 @@ class AgentNodeExecutor(NodeExecutor):
                 name = spec.metadata.get("original_name", call.function_name)
                 config = configs[spec.metadata["_config_index"]]
                 try:
-                    arguments = self._parse_tool_call_arguments(call.arguments)
+                    arguments = self._coerce_call_arguments(spec, self._parse_tool_call_arguments(call.arguments))
                     result = asyncio.run(
                         self.tool_manager.execute_tool(name, arguments, config, tool_context=tool_context)
                     )
@@ -1526,6 +1531,11 @@ class AgentNodeExecutor(NodeExecutor):
 
                 # Resolve tool config
                 spec = spec_map.get(tool_name)
+                try:
+                    arguments = self._coerce_call_arguments(spec, arguments)
+                except ToolArgumentError as exc:
+                    messages.append(self._argument_error_message(node, tool_call, tool_name, arguments, exc, events))
+                    continue
                 tool_config = None
                 execution_name = tool_name
 
@@ -2284,6 +2294,39 @@ class AgentNodeExecutor(NodeExecutor):
             return blocks
 
         return []
+
+    @staticmethod
+    def _coerce_call_arguments(spec: Any, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert string numbers/booleans/JSON to the types the tool's schema declares (see arg_coercion)."""
+        schema = getattr(spec, "parameters", None) if spec is not None else None
+        return coerce_arguments(arguments, schema) if schema else arguments
+
+    def _argument_error_message(
+        self,
+        node: Node,
+        tool_call: ToolCallPayload,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        exc: Exception,
+        events: List[Any],
+    ) -> Message:
+        """The tool is not run: the model gets a clear message naming the bad argument."""
+        self.log_manager.record_tool_call(
+            node.id, tool_name, False, None, {"error": str(exc), "arguments": arguments}, CallStage.AFTER
+        )
+        events.append(
+            FunctionCallOutputEvent(
+                call_id=tool_call.id or tool_call.function_name or "tool_call",
+                function_name=tool_call.function_name,
+                output_text=f"error: {exc}",
+            )
+        )
+        return Message(
+            role=MessageRole.TOOL,
+            content=f"Tool {tool_name} error: {exc}",
+            tool_call_id=tool_call.id,
+            metadata={"tool_name": tool_name, "source": node.id},
+        )
 
     def _parse_tool_call_arguments(self, raw_arguments: Any) -> Dict[str, Any]:
         if isinstance(raw_arguments, dict):

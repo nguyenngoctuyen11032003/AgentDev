@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import atexit
+import contextlib
 import json
 import logging
 import os
@@ -10,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 import weakref
 from dataclasses import dataclass, field
@@ -446,8 +449,126 @@ def record_failed_usage(provider: Any, raw_response: Any, provider_name: str) ->
         logger.debug("could not record usage of a failed call", exc_info=True)
 
 
-def make_tempdir() -> Any:
-    return tempfile.TemporaryDirectory(prefix="agentdev-cli-")
+TEMP_PREFIX = "agentdev-cli-"
+OWNER_MARKER = ".agentdev-owner"
+STALE_TEMP_SECONDS = 24 * 3600
+_LEGACY_FILE_RE = re.compile(r"^agentdev_(system(_[0-9a-f]+)?\.txt|settings\.json)$")
+_LIVE: set = set()  # temp folders this process created and has not removed yet
+_LIVE_LOCK = threading.Lock()
+_swept = False
+
+
+def live_dirs() -> List[str]:
+    with _LIVE_LOCK:
+        return sorted(_LIVE)
+
+
+def remove_tree(path: str) -> bool:
+    """Delete a folder, retrying a few times (Windows keeps a folder busy while a CLI child exits)."""
+    if not path:
+        return True
+
+    def _unlock(func, target, _exc):  # read-only files
+        try:
+            os.chmod(target, 0o700)
+            func(target)
+        except OSError:
+            pass
+
+    for attempt in range(4):
+        try:
+            shutil.rmtree(path, onerror=_unlock)
+        except OSError:
+            pass
+        if not os.path.exists(path):
+            with _LIVE_LOCK:
+                _LIVE.discard(path)
+            return True
+        if attempt < 3:
+            time.sleep(0.2 * (attempt + 1))
+    return False
+
+
+def cleanup_live_dirs() -> None:
+    """Remove every temp folder this process still owns (runs at interpreter exit)."""
+    for path in live_dirs():
+        remove_tree(path)
+
+
+atexit.register(cleanup_live_dirs)
+
+
+def _is_owned_stale(path: str, cutoff: float) -> bool:
+    try:
+        if not os.path.isdir(path) or os.path.getmtime(path) > cutoff:
+            return False
+        names = os.listdir(path)
+    except OSError:
+        return False
+    if OWNER_MARKER in names:
+        return True
+    # Folders from before the marker existed: empty, or only files AgentDev writes itself.
+    return all(_LEGACY_FILE_RE.match(name) for name in names)
+
+
+def sweep_stale_tempdirs(root: Optional[str] = None, max_age_s: float = STALE_TEMP_SECONDS) -> int:
+    """Delete AgentDev CLI temp folders older than ``max_age_s`` left by runs that died. Returns the count.
+
+    Only folders named ``agentdev-cli-*`` that carry the owner marker (or hold nothing but AgentDev's own
+    files) are touched, never one this process is still using.
+    """
+    base = root or tempfile.gettempdir()
+    cutoff = time.time() - max_age_s
+    removed = 0
+    try:
+        entries = os.listdir(base)
+    except OSError:
+        return 0
+    live = set(live_dirs())
+    for name in entries:
+        if not name.startswith(TEMP_PREFIX):
+            continue
+        path = os.path.join(base, name)
+        if path in live or not _is_owned_stale(path, cutoff):
+            continue
+        if remove_tree(path):
+            removed += 1
+    return removed
+
+
+def _sweep_once() -> None:
+    global _swept
+    if _swept:
+        return
+    _swept = True
+    try:
+        sweep_stale_tempdirs()
+    except Exception:  # noqa: BLE001 - housekeeping must never break a run
+        logger.debug("temp folder sweep failed", exc_info=True)
+
+
+def make_owned_dir() -> str:
+    """A new ``agentdev-cli-*`` temp folder, marked as ours and tracked until it is removed."""
+    _sweep_once()
+    path = tempfile.mkdtemp(prefix=TEMP_PREFIX)
+    try:
+        with open(os.path.join(path, OWNER_MARKER), "w", encoding="utf-8") as fh:
+            fh.write(str(os.getpid()))
+    except OSError:
+        pass
+    with _LIVE_LOCK:
+        _LIVE.add(path)
+    return path
+
+
+@contextlib.contextmanager
+def make_tempdir():
+    """Scratch folder for one CLI call; removed on every exit path (success, error, cancel)."""
+    path = make_owned_dir()
+    try:
+        yield path
+    finally:
+        remove_tree(path)
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +641,7 @@ class CliRunState:
         # What the finalizer releases; it must not reference the owner (or this object) to let GC run it.
         self._box: Dict[str, Any] = {"workdir": None, "sessions": [], "cleanup": cleanup}
         self._finalizer = weakref.finalize(owner, CliRunState._release, self._lock, self._box)
+        self._owner_ref = weakref.ref(owner)
 
     def _parts(self) -> Dict[str, Any]:
         return self._box
@@ -527,8 +649,10 @@ class CliRunState:
     def workdir(self) -> str:
         with self._lock:
             if self._workdir is None or not os.path.isdir(self._workdir):
-                self._workdir = tempfile.mkdtemp(prefix="agentdev-cli-")
+                self._workdir = make_owned_dir()
                 self._parts()["workdir"] = self._workdir
+                if not self._finalizer.alive:  # a late call after close(): release it again at GC / exit
+                    self._finalizer = weakref.finalize(self._owner_ref(), CliRunState._release, self._lock, self._box)
             return self._workdir
 
     def match(self, conversation: List[Message], scope: str) -> Optional[Tuple[CliSession, int]]:
@@ -603,7 +727,7 @@ class CliRunState:
                     cleanup(None, workdir)
                 except Exception:
                     pass
-            shutil.rmtree(workdir, ignore_errors=True)
+            remove_tree(workdir)
 
 
 # ---------------------------------------------------------------------------

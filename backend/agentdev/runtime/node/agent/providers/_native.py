@@ -119,11 +119,36 @@ def native_calls_of_listed_tools(stdout: str, names: Any) -> List[Tuple[str, Dic
             if not isinstance(block, dict) or block.get("type") != "tool_use" or block.get("name") not in known:
                 continue
             args = block.get("input") if isinstance(block.get("input"), dict) else {}
-            key = (block["name"], json.dumps(args, sort_keys=True, default=str))
+            name, args = _reshape_rescued_call(block["name"], args, known)
+            key = (name, json.dumps(args, sort_keys=True, default=str))
             if key not in seen:
                 seen.add(key)
-                found.append((block["name"], args))
+                found.append((name, args))
     return found
+
+
+def _reshape_rescued_call(name: str, args: Dict[str, Any], known: Set[str]) -> Tuple[str, Dict[str, Any]]:
+    """Map a native ``delegate_parallel`` call onto the host tool that matches its shape.
+
+    The model often sends ``tasks`` as a JSON string, or as a single task. One task is ``delegate_task``
+    (``delegate_parallel`` itself still requires two or more); several tasks stay parallel with a real list.
+    """
+    if name != "delegate_parallel":
+        return name, args
+    tasks = args.get("tasks")
+    if isinstance(tasks, str):
+        try:
+            tasks = json.loads(tasks)
+        except ValueError:
+            return name, args
+    if isinstance(tasks, dict):
+        tasks = [tasks]
+    if not isinstance(tasks, list):
+        return name, args
+    if len(tasks) == 1 and isinstance(tasks[0], dict) and "delegate_task" in known:
+        only = tasks[0]
+        return "delegate_task", {"member": only.get("member", ""), "task": only.get("task", "")}
+    return name, {**args, "tasks": tasks}
 
 
 

@@ -1,6 +1,6 @@
 # 0006. Parallel pure read-only tool calls in one model turn
 
-Status: accepted as opt-in, flag stays OFF by default (2026-11-06): section 12 bundle A/B (n=21 per arm) did not clear the cost and new-failure-class rule; no per-flag measurement
+Status: accepted, flag default ON since 2026-11-06 (section 14: A/B n=12 vs 27 control, success 9/12 vs 17/27, cost/run +1%, time -4%, no new failure class). `AGENTDEV_PARALLEL_READS=0` disables.
 
 ## Context
 `AgentNodeExecutor._execute_tool_batch` ran the tool calls of one model reply one after the other. A reply with 4
