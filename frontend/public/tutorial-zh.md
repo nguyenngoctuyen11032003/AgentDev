@@ -176,11 +176,11 @@ AgentDev 让你搭建一家“AI 公司”：每位员工都是一个**智能体
 2. 把开始节点连到 Poet 和 Article Writer：它们并行运行。
 3. 连接 `Poet → Editor 1` 和 `Article Writer → Editor 1`：两份结果都到达后 Editor 1 才运行。
 
-<img src="media/create_edge.webp" width="800" height="450" />
+<img src="media/create_edge.webp" alt="用连线连接 Poet、Article Writer 和 Editor 1 节点的示意图" width="800" height="450" />
 
 如果要加入评审循环，创建一个 **人工** 节点，提问“请对文章提出意见，或输入 ACCEPT 结束”，然后使用**条件连线**：`ACCEPT` 结束运行，其他任何内容都转到 **Editor 2** 再修改一轮。参见[连线条件](#edge-condition)。
 
-<img src="media/complex_run.webp" width="800" height="450" />
+<img src="media/complex_run.webp" alt="带审阅循环的工作流运行结果" width="800" height="450" />
 
 ---
 

@@ -96,6 +96,7 @@
   },
   "tutorial": {
     "toc": "Trong trang này",
+    "table": "Bảng dữ liệu, cuộn ngang được",
     "copy": "Sao chép",
     "copied": "Đã sao chép",
     "failed_to_copy": "Không thể sao chép mã: ",

@@ -176,11 +176,11 @@ Quy trình mẫu `demo_loop_counter` minh họa cách nối các nút bằng li�
 2. Nối nút bắt đầu tới Poet và Article Writer: hai nút này chạy song song.
 3. Nối `Poet → Editor 1` và `Article Writer → Editor 1`: Editor 1 chạy sau khi nhận đủ hai kết quả.
 
-<img src="media/create_edge.webp" width="800" height="450" />
+<img src="media/create_edge.webp" alt="Sơ đồ nối các nút Poet, Article Writer và Editor 1 bằng liên kết" width="800" height="450" />
 
 Muốn thêm vòng duyệt, tạo nút **Người dùng** (human) hỏi bạn "Góp ý cho bài viết, hoặc nhập ACCEPT để kết thúc", rồi dùng **liên kết có điều kiện**: nếu bạn nhập `ACCEPT` thì kết thúc, ngược lại chuyển sang **Editor 2** để sửa tiếp. Xem [Điều kiện liên kết](#edge-condition).
 
-<img src="media/complex_run.webp" width="800" height="450" />
+<img src="media/complex_run.webp" alt="Kết quả chạy quy trình có vòng duyệt" width="800" height="450" />
 
 ---
 

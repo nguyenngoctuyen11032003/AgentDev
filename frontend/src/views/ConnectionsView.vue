@@ -66,7 +66,6 @@
           <button
             type="button"
             class="card-open"
-            :aria-label="$t('connections.open_details', { name: conn.label })"
             @click="openDetail(conn)"
           >
             <ProviderLogo :vendor="conn.vendor" :label="vendorLabel(conn.vendor)" :size="44" />
@@ -458,6 +457,9 @@ onMounted(load)
   border: 1px solid color-mix(in srgb, var(--accent-mint) 30%, transparent);
 }
 
+/* Light theme: darker mint keeps the count >= 4.5:1 on its tint */
+:root[data-theme='light'] .hero-count { color: color-mix(in srgb, var(--accent-mint) 75%, #000); }
+
 .count-dot {
   width: 8px;
   height: 8px;
@@ -629,6 +631,8 @@ onMounted(load)
   color: var(--accent-mint);
   background: color-mix(in srgb, var(--accent-mint) 14%, transparent);
 }
+
+:root[data-theme='light'] .default-badge { color: color-mix(in srgb, var(--accent-mint) 75%, #000); }
 
 .account-name {
   color: var(--fg);
@@ -821,6 +825,8 @@ onMounted(load)
   color: var(--accent-mint);
   background: rgb(var(--accent-mint-rgb) / 0.12);
 }
+
+:root[data-theme='light'] .fallback-step.is-linked .fallback-state { color: color-mix(in srgb, var(--accent-mint) 75%, #000); }
 
 .fallback-note {
   margin: 14px 0 0;

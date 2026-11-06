@@ -176,11 +176,11 @@ The `demo_loop_counter` workflow shows how to chain nodes with edges:
 2. Connect the start node to Poet and Article Writer: they run in parallel.
 3. Connect `Poet → Editor 1` and `Article Writer → Editor 1`: Editor 1 runs once both results arrive.
 
-<img src="media/create_edge.webp" width="800" height="450" />
+<img src="media/create_edge.webp" alt="Diagram linking the Poet, Article Writer and Editor 1 nodes with edges" width="800" height="450" />
 
 To add a review loop, create a **Human** node that asks "Give feedback on the article, or enter ACCEPT to finish", then use **conditional edges**: `ACCEPT` ends the run, anything else goes to **Editor 2** for another revision. See [Edge condition](#edge-condition).
 
-<img src="media/complex_run.webp" width="800" height="450" />
+<img src="media/complex_run.webp" alt="Run result of a workflow with a review loop" width="800" height="450" />
 
 ---
 

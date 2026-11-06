@@ -64,7 +64,7 @@ const kind = computed(() => ALIAS[props.tone] || props.tone)
 .is-rework { --tone: color-mix(in srgb, var(--warn) 60%, var(--danger)); }
 .is-cancelled,
 .is-skipped,
-.is-idle { --tone: var(--fg-muted); }
+.is-idle { --tone: var(--fg-muted); --tone-ink: color-mix(in srgb, var(--fg-muted) 65%, var(--fg)); }
 
 .sp-icon { width: 13px; height: 13px; flex: none; }
 .is-working .sp-icon { animation: sp-spin 1.1s linear infinite; }

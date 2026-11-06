@@ -107,7 +107,7 @@ watch(() => props.refreshKey, load)
 .storage { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 20px; padding: 6px 6px 6px 14px; border-radius: 12px; font-size: 13px; color: var(--fg-muted); box-shadow: inset 0 0 0 1px var(--line); }
 .st-icon { flex: none; }
 .st-line { flex: 1 1 240px; min-width: 0; margin: 0; padding: 6px 0; line-height: 1.5; }
-.st-sub { color: var(--fg-muted); opacity: 0.85; }
+.st-sub { color: var(--fg-muted); }
 .dl-intro { margin: 0 0 16px; font-size: 13.5px; line-height: 1.6; color: var(--fg-muted); }
 .dl-options { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; border: 0; }
 .dl-options legend { margin-bottom: 8px; padding: 0; font-size: 13px; font-weight: 600; color: var(--fg); }

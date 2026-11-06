@@ -96,6 +96,7 @@
   },
   "tutorial": {
     "toc": "On this page",
+    "table": "Data table, scrolls horizontally",
     "copy": "Copy",
     "copied": "Copied",
     "failed_to_copy": "Failed to copy code: ",

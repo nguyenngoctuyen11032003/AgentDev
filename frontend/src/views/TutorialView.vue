@@ -20,7 +20,9 @@ md.use(markdownItAnchor, {
     placement: 'before',
     symbol: '#',
     space: true,
-    class: 'header-anchor'
+    class: 'header-anchor',
+    // Decorative permalink (aria-hidden): keep it out of the tab order so no focusable node is hidden
+    renderAttrs: () => ({ tabindex: '-1' })
   }),
   slugify: s =>
     s
@@ -110,6 +112,16 @@ const scrollToHash = () => {
         }, 100)
       }
     }
+  })
+}
+
+// Wide tables scroll sideways: make the scroll region reachable and named for keyboard users
+const addTableAccess = () => {
+  nextTick(() => {
+    markdownBody.value?.querySelectorAll('table').forEach((table) => {
+      table.setAttribute('tabindex', '0')
+      table.setAttribute('aria-label', t('tutorial.table'))
+    })
   })
 }
 
@@ -240,6 +252,7 @@ const loadTutorial = async () => {
     renderedContent.value = html
     status.value = 'ready'
     addCopyButtons()
+    addTableAccess()
     buildToc()
     scrollToHash()
   } catch (error) {
