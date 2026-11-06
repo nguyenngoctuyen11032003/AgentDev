@@ -184,3 +184,30 @@ def test_attachments_hidden_and_cloned_project_app_found(env):
     assert started["url"] == f"/api/sessions/{SID}/outputs/site/projects/shop/web/index.html"
     assert env.client.get(started["url"]).text == "<h1>shop</h1>"
     env.client.delete(_url("preview"))
+
+
+def test_archive_zips_product_without_dependencies_or_inputs(env):
+    import io
+    import zipfile
+
+    _write(env.workspace / "README.md", "# Trang bán hàng\n")
+    _write(env.workspace / "src" / "app.js", "1")
+    _write(env.workspace / "node_modules" / "pkg" / "x.js", "skip")
+    _write(env.workspace / "attachments" / "brief.pdf", "input")
+    assert env.client.get(_url("files")).json()["name"] == "Trang bán hàng"
+    res = env.client.get(_url("archive"))
+    assert res.status_code == 200 and "trang-ban-hang.zip" in res.headers["content-disposition"]
+    assert sorted(zipfile.ZipFile(io.BytesIO(res.content)).namelist()) == [
+        "trang-ban-hang/README.md", "trang-ban-hang/src/app.js"]
+
+
+def test_archive_before_anything_written_is_404(env):
+    assert env.client.get(_url("archive")).status_code == 404
+
+
+def test_session_accounts_round_trip(env):
+    assert env.client.get(_url("accounts")).json() == {"accounts": []}
+    res = env.client.put(_url("accounts"), json={"accounts": [{"username": "demo", "password": "123"}]})
+    assert res.json()["accounts"][0]["username"] == "demo"
+    assert env.client.get(_url("accounts")).json()["accounts"][0]["password"] == "123"
+    assert env.client.get(_url("accounts", sid="../x")).status_code in (400, 404)

@@ -19,7 +19,7 @@ import contextlib
 from pathlib import Path
 from typing import Any, Callable
 
-from agentdev.api.services import lab_outputs
+from agentdev.api.services import lab_outputs, product_archive
 from agentdev.api.services.lab_outputs import LabOutputsError
 from agentdev.utils.workspace_paths import is_link
 
@@ -83,6 +83,12 @@ def output_location(session_id: str) -> dict[str, Any]:
     return {"kind": "session", "root": resolved}
 
 
+def session_dir_id(session_id: str) -> str:
+    """``session_id`` once checked to be a valid id (raises LabOutputsError(400) otherwise)."""
+    _session_dir_name(session_id)
+    return session_id
+
+
 def _existing_root(session_id: str) -> Path:
     root = output_location(session_id)["root"]
     if not root.is_dir():
@@ -135,8 +141,17 @@ def list_files(session_id: str) -> dict[str, Any]:
         rel, project = app_dir(root, location["kind"])
         listing = lab_outputs.list_dir(root, max_scan=MAX_SCAN, hide_top=_hidden(location["kind"]),
                                        project=_with_dir(project, rel))
+        product_archive.describe(listing, root)
     listing["location"] = location["kind"]
     return listing
+
+
+def archive(session_id: str) -> tuple[Path, str]:
+    """(temporary zip, download file name) of the session's product, without dependency folders or inputs."""
+    location = output_location(session_id)
+    root = _existing_root(session_id)
+    top = product_archive.slug(product_archive.project_name(root))
+    return product_archive.build_archive(root, top, hide_top=_hidden(location["kind"])), f"{top}.zip"
 
 
 def summary(session_id: str) -> dict[str, Any]:

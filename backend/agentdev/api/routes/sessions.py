@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
+from agentdev.api.services.lab_outputs import SKIP_DIR_NAMES
 from agentdev.api.services.session_review import VERDICTS, build_digest, clean_review
 from agentdev.api.services.session_store import SessionStatus
 from agentdev.api.settings import WARE_HOUSE_DIR
@@ -168,6 +169,9 @@ async def download_session(session_id: str):
         entries = [session_path]
         for path in iter_tree_without_links(session_path):
             if is_link(path):
+                continue
+            # Dependency and tooling folders (node_modules, .venv, .git, caches) are re-installable: leave them out.
+            if any(part in SKIP_DIR_NAMES for part in path.relative_to(session_path).parts):
                 continue
             if not path.resolve().is_relative_to(session_path):
                 raise SecurityError("Session downloads must not follow symbolic links")

@@ -23,6 +23,16 @@
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
           {{ tr('lab.outputs.preview', 'Chạy thử') }}
         </button>
+        <a
+          v-if="hasFiles && src.archiveUrl"
+          class="btn secondary sm"
+          :href="src.archiveUrl()"
+          download
+          :title="tr('lab.outputs.download_zip_hint', 'Tải cả dự án thành file .zip (không kèm node_modules, .git, .env)')"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
+          {{ tr('lab.outputs.download_zip', 'Tải về (.zip)') }}
+        </a>
         <button type="button" class="btn secondary sm" :title="trc('open_folder_hint', 'lab.outputs.open_folder_hint', 'Mở thư mục sản phẩm trên máy này')" :disabled="opening" @click="openOnMachine('', false)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="(p, pi) in KIND_ICONS.folderOpen" :key="pi" :d="p" /></svg>
           {{ tr('lab.outputs.open_folder', 'Mở thư mục') }}
@@ -61,6 +71,13 @@
     </div>
 
     <template v-else-if="hasFiles">
+      <!-- Accounts to try an app behind a login: the ones the team reported + the ones the user keeps -->
+      <ProductAccounts
+        v-if="src.accounts && (data.project?.can_preview || data.login || login)"
+        :key="src.key"
+        :api="src.accounts"
+        :login="data.login || login"
+      />
       <LabRunPreview
         v-if="previewOpen"
         :key="previewKey"
@@ -72,7 +89,24 @@
       <div class="browser">
         <!-- file tree -->
         <nav class="tree" :aria-label="trc('tree_label', 'lab.outputs.tree_label', 'Cây thư mục sản phẩm')">
-          <ul ref="treeEl" class="tree-list" @keydown="onTreeKey">
+          <!-- Explorer header: the project's name is the root folder, like a code editor -->
+          <div class="tree-head">
+            <button type="button" class="tree-root" :aria-expanded="rootOpen" :title="data.root" @click="rootOpen = !rootOpen">
+              <svg class="tree-chev" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+              <span class="tree-root-name">{{ projectName }}</span>
+            </button>
+            <button
+              v-if="expanded.size"
+              type="button"
+              class="tree-tool"
+              :title="tr('lab.outputs.collapse_all', 'Thu gọn tất cả')"
+              :aria-label="tr('lab.outputs.collapse_all', 'Thu gọn tất cả')"
+              @click="expanded = new Set()"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 20 5-5 5 5M7 4l5 5 5-5" /></svg>
+            </button>
+          </div>
+          <ul v-show="rootOpen" ref="treeEl" class="tree-list" @keydown="onTreeKey">
             <li v-for="{ node, depth } in rows" :key="node.path">
               <button
                 type="button"
@@ -86,7 +120,8 @@
               >
                 <svg v-if="node.type === 'dir'" class="tree-chev" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
                 <span v-else class="tree-chev" aria-hidden="true"></span>
-                <svg :class="['tree-icon', node.type === 'dir' ? 'dir' : node.file.kind]" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <span v-if="node.type === 'file' && fileBadge(node.name)" :class="['tree-badge', fileBadge(node.name).tone]" aria-hidden="true">{{ fileBadge(node.name).label }}</span>
+                <svg v-else :class="['tree-icon', node.type === 'dir' ? 'dir' : node.file.kind]" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path v-for="(p, pi) in iconFor(node)" :key="pi" :d="p" />
                 </svg>
                 <span class="tree-name">{{ node.name }}</span>
@@ -214,10 +249,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } fro
 import { useI18n } from 'vue-i18n'
 import MarkdownIt from 'markdown-it'
 import LabRunPreview from './LabRunPreview.vue'
+import ProductAccounts from './ProductAccounts.vue'
 import { toast } from '@/utils/toast.js'
 import { confirmDialog } from '@/utils/confirm.js'
 import {
-  KIND_ICONS, MAX_TEXT_BYTES, TEXT_KINDS, ancestorsOf, buildTree, countKinds, flattenTree, formatBytes, labErrorText, pickDefaultFile
+  KIND_ICONS, MAX_TEXT_BYTES, TEXT_KINDS, ancestorsOf, buildTree, countKinds, fileBadge, flattenTree, formatBytes, labErrorText,
+  pickDefaultFile
 } from '@/utils/labOutputs.js'
 import { labOutputSource } from '@/utils/outputSources.js'
 
@@ -228,7 +265,9 @@ const props = defineProps({
   run: { type: [String, Number], default: -1 },
   source: { type: Object, default: null },
   // The evaluation is still running: its folders cannot be deleted yet.
-  jobRunning: { type: Boolean, default: false }
+  jobRunning: { type: Boolean, default: false },
+  // Login details known without the listing (a Lab run's graded result); the listing's own wins
+  login: { type: Object, default: null }
 })
 const emit = defineEmits(['deleted'])
 
@@ -255,6 +294,7 @@ const loadError = ref('')
 const selected = ref('')
 const expanded = ref(new Set())
 const treeEl = ref(null)
+const rootOpen = ref(true)
 const opening = ref(false)
 const deleting = ref(false)
 let alive = true
@@ -264,6 +304,8 @@ const fileMap = computed(() => new Map((data.value?.files || []).map((f) => [f.p
 const tree = computed(() => buildTree(data.value?.files || []))
 const rows = computed(() => flattenTree(tree.value, expanded.value))
 const current = computed(() => fileMap.value.get(selected.value) || null)
+// The root of the explorer: the project's name (folder, README title, package or page title)
+const projectName = computed(() => data.value?.name || trc('project_fallback', 'lab.outputs.project_fallback', 'Dự án'))
 const currentName = computed(() => (current.value ? current.value.path.split('/').pop() : ''))
 const currentDir = computed(() => (current.value ? current.value.path.split('/').slice(0, -1).join('/') : ''))
 const summaryLine = computed(() => {
@@ -584,12 +626,24 @@ watch(() => src.value.key, () => {
 /* ---------------------------------------------------------------- browser */
 .browser { display: grid; grid-template-columns: minmax(200px, 30%) minmax(0, 1fr); height: min(68vh, 560px); margin-top: 12px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); overflow: hidden; }
 .tree { min-width: 0; overflow: auto; border-right: 1px solid var(--line); padding: 6px; overscroll-behavior: contain; }
+.tree { padding-top: 0; }
+.tree-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 2px; margin: 0 -6px 4px; padding: 4px 6px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.tree-root { display: flex; flex: 1; align-items: center; gap: 5px; min-width: 0; min-height: 30px; padding: 4px 6px; border: 0; border-radius: 7px; background: transparent; color: var(--fg); font: inherit; font-size: 11.5px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; text-align: left; cursor: pointer; }
+.tree-root:hover { background: var(--tint-2); }
+.tree-root:focus-visible, .tree-tool:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.tree-root[aria-expanded='true'] .tree-chev { transform: rotate(90deg); }
+.tree-root-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-tool { display: grid; flex: none; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--fg-muted); cursor: pointer; }
+.tree-tool:hover { color: var(--fg); background: var(--tint-2); }
 .tree-list { list-style: none; margin: 0; padding: 0; }
 .tree-row {
   display: flex; align-items: center; gap: 5px; width: 100%; min-height: 30px; padding: 4px 8px 4px calc(6px + var(--depth) * 14px);
   border: 0; border-radius: 7px; background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
   transition: background-color 0.12s ease;
 }
+.tree-row { position: relative; }
+/* Indent guides, one per level, like a code editor */
+.tree-row::before { content: ''; position: absolute; top: 0; bottom: 0; left: 12px; width: calc(var(--depth) * 14px); background-image: repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px 14px); pointer-events: none; }
 .tree-row:hover { background: var(--tint-2); }
 .tree-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .tree-row.on { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--fg); font-weight: 600; }
@@ -601,6 +655,19 @@ watch(() => src.value.key, () => {
 .tree-icon.markdown, .tree-icon.text, .tree-icon.pdf { color: rgb(var(--accent-indigo-rgb)); }
 .tree-icon.image, .tree-icon.video, .tree-icon.audio { color: rgb(var(--accent-mint-rgb)); }
 .tree-icon.html { color: var(--accent); }
+/* Language badges ("JS", "{}") coloured like a code editor; --badge-* tokens switch with the theme */
+.tree-badge { display: inline-grid; flex: none; place-items: center; width: 17px; height: 15px; font-size: 9px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; color: var(--badge, var(--fg-muted)); }
+.tree-badge.js { --badge: var(--badge-js); }
+.tree-badge.react { --badge: var(--badge-react); font-size: 12px; }
+.tree-badge.ts, .tree-badge.md, .tree-badge.py { --badge: var(--badge-ts); }
+.tree-badge.vue, .tree-badge.shell { --badge: var(--badge-green); }
+.tree-badge.json, .tree-badge.db { --badge: var(--badge-json); }
+.tree-badge.css { --badge: var(--badge-css); font-size: 11px; }
+.tree-badge.html, .tree-badge.yaml { --badge: var(--badge-html); }
+.tree-badge.yaml, .tree-badge.shell, .tree-badge.config { font-size: 11px; }
+/* the app is dark by default; [data-theme=light] switches the palette */
+.outputs { --badge-js: #e8c547; --badge-react: #4fc3e8; --badge-ts: #6aa8e8; --badge-green: #5cc58f; --badge-json: #e0b44a; --badge-css: #a78bfa; --badge-html: #f08a5d; }
+:root[data-theme='light'] .outputs { --badge-js: #9a7608; --badge-react: #0b7fa3; --badge-ts: #2f6db5; --badge-green: #2f7d57; --badge-json: #976a0c; --badge-css: #6d4fbf; --badge-html: #c24a1f; }
 .tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-size { flex: none; font-size: 11px; font-weight: 500; color: var(--fg-muted); opacity: 0; transition: opacity 0.12s ease; }
 .tree-row:hover .tree-size, .tree-row:focus-visible .tree-size, .tree-row.on .tree-size { opacity: 1; }

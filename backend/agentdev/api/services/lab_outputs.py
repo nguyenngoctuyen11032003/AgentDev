@@ -436,7 +436,9 @@ def list_files(job_id: str, run_index: RunRef) -> dict[str, Any]:
     listing = list_dir(root, is_graph_dir=root == run_dir)
     found = _find_run(_job_results(_get_job(job_id)), run_index)
     listing["inferred"] = found is None or not checked_run_dir(found[1].get("output_dir"))
-    return listing
+    from agentdev.api.services.product_archive import describe
+
+    return describe(listing, root, str((found[1].get("answer") if found else "") or ""))
 
 
 # ----------------------------------------------------------------------------------- project type

@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from agentdev.api.services import lab_outputs
+from agentdev.api.services import lab_outputs, product_accounts, product_archive
+from agentdev.api.services.product_archive import archive_response
 from agentdev.api.services.local_projects import open_on_machine
 from agentdev.api.services.workflow_lab import (
     MAX_REPEATS,
@@ -275,6 +276,37 @@ def run_file(job_id: str, run: str, path: str):
 def run_site(job_id: str, run: str, path: str = ""):
     """The product served as a static site (iframe src of a "static" project), so relative assets load."""
     return _send_file(_outputs_call(lab_outputs.site_file, job_id, run, path))
+
+
+@router.get("/jobs/{job_id}/runs/{run}/archive")
+def run_archive(job_id: str, run: str):
+    """The run's product as a .zip (no node_modules, .venv, .git, caches or .env)."""
+    path, filename = _outputs_call(product_archive.lab_run_archive, job_id, run)
+    return archive_response(path, filename)
+
+
+class AccountsRequest(BaseModel):
+    accounts: list = Field(default_factory=list, max_length=product_accounts.MAX_ACCOUNTS)
+
+
+def _accounts_key(job_id: str, run: str) -> str:
+    return product_accounts.lab_key(job_id, str(_outputs_call(lab_outputs.canonical_run_key, job_id, run)))
+
+
+@router.get("/jobs/{job_id}/runs/{run}/accounts", dependencies=[Depends(require_local_origin)])
+def run_accounts(job_id: str, run: str):
+    """Test accounts the user saved for this run's app ("Tài khoản dùng thử")."""
+    return {"accounts": product_accounts.load(_accounts_key(job_id, run))}
+
+
+@router.put("/jobs/{job_id}/runs/{run}/accounts", dependencies=[Depends(require_local_origin)])
+def save_run_accounts(job_id: str, run: str, payload: AccountsRequest):
+    key = _accounts_key(job_id, run)
+    try:
+        return {"accounts": product_accounts.save(key, payload.accounts)}
+    except product_accounts.AccountsError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc), "code": "accounts_invalid",
+                                                     "params": {"reason": str(exc)}}) from exc
 
 
 @router.post("/jobs/{job_id}/runs/{run}/open")

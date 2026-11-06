@@ -752,6 +752,12 @@ async function sessionOutputsRequest(sessionId, suffix, options = {}) {
 export const sessionOutputsSummary = (sessionId) => sessionOutputsRequest(sessionId, '/summary')
 /** -> {available, root, total_bytes, file_count, truncated, files: [{path, size, kind}], project, location} */
 export const sessionOutputsFiles = (sessionId) => sessionOutputsRequest(sessionId, '/files')
+// The product as a .zip (no node_modules, .venv, .git, caches, .env or attachments)
+// Test accounts the user keeps for the session's app ("Tài khoản dùng thử")
+export const sessionAccounts = (sessionId) => sessionOutputsRequest(sessionId, '/accounts')
+export const sessionAccountsSave = (sessionId, accounts) =>
+  sessionOutputsRequest(sessionId, '/accounts', { method: 'PUT', body: JSON.stringify({ accounts }) })
+export const sessionOutputsArchiveUrl = (sessionId) => apiUrl(`${sessionOutputsPath(sessionId)}/archive`)
 export const sessionOutputsFileUrl = (sessionId, path) =>
   apiUrl(`${sessionOutputsPath(sessionId)}/file?path=${encodeURIComponent(path)}`)
 export const sessionOutputsSiteUrl = (sessionId, path = '') =>
@@ -1166,6 +1172,11 @@ export const labCleanupWorkflow = (workflow, keepJob = '') =>
 export const labRunFiles = (jobId, run) => labRequest(`${labRunPath(jobId, run)}/files`)
 
 /** Raw URL of one product file (img/video src, download link, text fetch). */
+// Test accounts the user keeps for a run's app ("Tài khoản dùng thử")
+export const labRunAccounts = (jobId, run) => labRequest(`${labRunPath(jobId, run)}/accounts`)
+export const labRunAccountsSave = (jobId, run, accounts) =>
+  labRequest(`${labRunPath(jobId, run)}/accounts`, { method: 'PUT', body: JSON.stringify({ accounts }) })
+export const labRunArchiveUrl = (jobId, run) => apiUrl(`/api/lab${labRunPath(jobId, run)}/archive`)
 export const labRunFileUrl = (jobId, run, path) =>
   apiUrl(`/api/lab${labRunPath(jobId, run)}/file?path=${encodeURIComponent(path)}`)
 

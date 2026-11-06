@@ -12,8 +12,9 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from agentdev.api.services import git_checkpoint, lab_outputs, session_outputs
+from agentdev.api.services import git_checkpoint, lab_outputs, product_accounts, session_outputs
 from agentdev.api.services.app_preview import PreviewError
+from agentdev.api.services.product_archive import archive_response
 from agentdev.api.services.local_projects import open_on_machine
 from agentdev.connections.security import require_local_origin
 
@@ -64,6 +65,33 @@ async def outputs_files(session_id: str) -> Dict[str, Any]:
 @router.get("/file")
 async def outputs_file(session_id: str, path: str):
     return _send_file(await _call(session_outputs.file, session_id, path))
+
+
+@router.get("/archive")
+async def outputs_archive(session_id: str):
+    """The session's product as a .zip (no node_modules, .venv, .git, caches, .env or attachments)."""
+    path, filename = await _call(session_outputs.archive, session_id)
+    return archive_response(path, filename)
+
+
+class AccountsRequest(BaseModel):
+    accounts: list = Field(default_factory=list, max_length=product_accounts.MAX_ACCOUNTS)
+
+
+@router.get("/accounts")
+async def outputs_accounts(session_id: str) -> Dict[str, Any]:
+    """Test accounts the user saved for this session's app ("Tài khoản dùng thử")."""
+    key = product_accounts.session_key(await _call(session_outputs.session_dir_id, session_id))
+    return {"accounts": await run_in_threadpool(product_accounts.load, key)}
+
+
+@router.put("/accounts")
+async def outputs_accounts_save(session_id: str, payload: AccountsRequest) -> Dict[str, Any]:
+    key = product_accounts.session_key(await _call(session_outputs.session_dir_id, session_id))
+    try:
+        return {"accounts": await run_in_threadpool(product_accounts.save, key, payload.accounts)}
+    except product_accounts.AccountsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/site/{path:path}")

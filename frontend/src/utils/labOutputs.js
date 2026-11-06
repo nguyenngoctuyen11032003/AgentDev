@@ -127,3 +127,32 @@ export const KIND_ICONS = {
 export const TEXT_KINDS = new Set(['markdown', 'text', 'code'])
 /** Same limit as the server (larger text answers 413): don't even try. */
 export const MAX_TEXT_BYTES = 2 * 1024 * 1024
+
+// Explorer-style badges for common source files ("JS", "{}", "#"), coloured by language like a code editor.
+const FILE_BADGES = [
+  [/\.(m|c)?js$/, 'JS', 'js'],
+  [/\.(jsx|tsx)$/, '⚛', 'react'],
+  [/\.(m|c)?ts$/, 'TS', 'ts'],
+  [/\.vue$/, 'V', 'vue'],
+  [/\.svelte$/, 'S', 'html'],
+  [/\.jsonc?$/, '{}', 'json'],
+  [/\.(css|scss|sass|less)$/, '#', 'css'],
+  [/\.html?$/, '<>', 'html'],
+  [/\.(md|markdown|mdx)$/, 'M↓', 'md'],
+  [/\.py$/, 'PY', 'py'],
+  [/\.(ya?ml|toml)$/, '≡', 'yaml'],
+  [/\.sql$/, 'DB', 'db'],
+  [/\.(sh|bash|ps1|bat|cmd)$/, '$', 'shell'],
+  [/\.(java|kt|go|rs|c|h|cpp|hpp|cs|rb|php|swift|dart)$/, '</>', 'ts'],
+  [/^(\.env.*|\.gitignore|\.dockerignore|\.editorconfig|\.npmrc|\.nvmrc|\.prettierrc.*|\.eslintrc.*|\.babelrc)$/, '⚙', 'config'],
+  [/\.lock$/, '⚙', 'config'],
+  [/^dockerfile$|\.dockerfile$/, 'D', 'ts']
+]
+
+/** `{label, tone}` badge of a source/config file by its name, or null (the kind icon is drawn instead). */
+export function fileBadge(name) {
+  const lower = String(name || '').toLowerCase()
+  if (lower === 'package-lock.json') return { label: '{}', tone: 'config' }
+  for (const [re, label, tone] of FILE_BADGES) if (re.test(lower)) return { label, tone }
+  return null
+}

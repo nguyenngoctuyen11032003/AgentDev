@@ -82,7 +82,7 @@
         :src="frameUrl"
         :class="['pv-frame', device]"
         :title="t('lab.outputs.preview_frame')"
-        sandbox="allow-scripts allow-forms allow-popups"
+        :sandbox="frameSandbox"
         referrerpolicy="no-referrer"
       ></iframe>
     </div>
@@ -111,7 +111,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { labErrorText } from '@/utils/labOutputs.js'
-import { labOutputSource } from '@/utils/outputSources.js'
+import { labOutputSource, previewSandbox } from '@/utils/outputSources.js'
 
 const props = defineProps({
   // A Lab run (jobId + run: its run_id, or position for jobs stored before run ids existed) or any
@@ -156,6 +156,10 @@ const stateErrorText = computed(() => labErrorText(state, { t, te }))
 const statusLabel = computed(() => t(`lab.outputs.preview_status.${state.status}`))
 // Static sites come back as a relative /api/... URL: the app's own origin serves (or proxies) it.
 const frameUrl = computed(() => state.url || '')
+// An app on its own port (Vite, Express...) is another origin than AgentDev, so it keeps that origin in the
+// frame: without it its ES modules are refused (Vite answers no CORS for the "null" origin), localStorage
+// throws and the page stays blank. Same-origin URLs (static sites served by AgentDev) stay opaque.
+const frameSandbox = computed(() => previewSandbox(frameUrl.value, window.location.origin))
 const displayUrl = computed(() => {
   const url = frameUrl.value
   if (!url) return ''

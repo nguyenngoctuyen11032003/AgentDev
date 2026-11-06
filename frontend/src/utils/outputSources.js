@@ -2,6 +2,8 @@
 // A source is an adapter over one product folder:
 //   key                     changes when the folder changes (the browser reloads)
 //   files()                 -> {available, root, files: [{path, size, kind}], project, ...}
+//   archiveUrl()            the whole product as a .zip (no dependency folders)
+//   accounts: {load, save}  test accounts the user keeps for the product's app
 //   fileUrl(path)           raw file URL (img/video src, download, text fetch)
 //   fileText(path, {signal})
 //   siteUrl(path)           the folder served as a static site (HTML pages with relative assets)
@@ -10,17 +12,38 @@
 //   deleteOutputs()         optional: absent = the browser offers no delete
 //   copy                    optional: {name: [i18nKey, fallback]} for wording that depends on the context
 import {
-  labPreviewHeartbeat, labPreviewStart, labPreviewStatus, labPreviewStop, labRunDeleteOutputs, labRunFileText, labRunFileUrl,
+  labPreviewHeartbeat, labPreviewStart, labRunAccounts, labRunAccountsSave, labRunArchiveUrl, labPreviewStatus, labPreviewStop, labRunDeleteOutputs, labRunFileText, labRunFileUrl,
   labRunFiles, labRunOpen, labRunSiteUrl,
-  sessionOutputsFileText, sessionOutputsFileUrl, sessionOutputsFiles, sessionOutputsOpen, sessionOutputsSiteUrl,
+  sessionAccounts, sessionAccountsSave, sessionOutputsArchiveUrl, sessionOutputsFileText, sessionOutputsFileUrl, sessionOutputsFiles, sessionOutputsOpen, sessionOutputsSiteUrl,
   sessionPreviewStart, sessionPreviewStatus, sessionPreviewStop
 } from '@/api/client'
+
+const SANDBOX_BASE = 'allow-scripts allow-forms allow-popups'
+
+/**
+ * The iframe sandbox of a running preview at `url`, shown inside a page of `pageOrigin`.
+ * An app served from its own origin (another port) keeps that origin, plus dialogs (confirm/alert) its UI may
+ * use: it cannot reach AgentDev's storage, which lives on a different origin. A relative or same-origin URL
+ * (a static site served by AgentDev itself) stays fully opaque, so its scripts cannot call AgentDev's API.
+ */
+export function previewSandbox(url, pageOrigin) {
+  let origin = ''
+  try {
+    origin = /^https?:\/\//i.test(url || '') ? new URL(url).origin : ''
+  } catch {
+    origin = ''
+  }
+  if (!origin || origin === pageOrigin) return SANDBOX_BASE
+  return `${SANDBOX_BASE} allow-same-origin allow-modals allow-downloads`
+}
 
 /** One run of a Lab job (storage/warehouse/lab_*); `run` is its run_id (position for older jobs). */
 export function labOutputSource(jobId, run) {
   return {
     key: `lab:${jobId}:${run}`,
     files: () => labRunFiles(jobId, run),
+    archiveUrl: () => labRunArchiveUrl(jobId, run),
+    accounts: { load: () => labRunAccounts(jobId, run), save: (rows) => labRunAccountsSave(jobId, run, rows) },
     fileUrl: (path) => labRunFileUrl(jobId, run, path),
     fileText: (path, options) => labRunFileText(jobId, run, path, options),
     siteUrl: (path) => labRunSiteUrl(jobId, run, path),
@@ -40,6 +63,8 @@ export function sessionOutputSource(sessionId) {
   return {
     key: `session:${sessionId}`,
     files: () => sessionOutputsFiles(sessionId),
+    archiveUrl: () => sessionOutputsArchiveUrl(sessionId),
+    accounts: { load: () => sessionAccounts(sessionId), save: (rows) => sessionAccountsSave(sessionId, rows) },
     fileUrl: (path) => sessionOutputsFileUrl(sessionId, path),
     fileText: (path, options) => sessionOutputsFileText(sessionId, path, options),
     siteUrl: (path) => sessionOutputsSiteUrl(sessionId, path),
