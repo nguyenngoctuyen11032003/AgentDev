@@ -310,7 +310,7 @@ def test_paid_gate_changes_flag_unmarked_removed_and_silence_reaching_paid_step(
     assert proposal_lint.paid_gate_changes(None, _paid_flow(paid=False)) == []  # a new file has nothing to weaken
 
 
-VIDEO_YAML = Path(__file__).resolve().parents[2] / "workspace" / "workflows" / "phong_san_xuat_video.yaml"
+VIDEO_YAML = Path(__file__).resolve().parents[2] / "workspace" / "workflows" / "video_production.yaml"
 
 
 def _video():

@@ -1,6 +1,6 @@
 """The real video workflow's revision loops, run through the engine with scripted stand-ins.
 
-Every agent and human node of ``workspace/workflows/phong_san_xuat_video.yaml`` is replaced by a literal node
+Every agent and human node of ``workspace/workflows/video_production.yaml`` is replaced by a literal node
 that always answers the same text, so the loop counters, gates and exits are exercised exactly as wired in the
 YAML, without any model call. Each test then checks how many times each step ran and where the run ended.
 """
@@ -15,7 +15,7 @@ from agentdev.paths import BACKEND_ROOT
 from agentdev.runtime.node.executor.literal_executor import LiteralNodeExecutor
 from agentdev.runtime.sdk import run_workflow
 
-VIDEO_YAML = BACKEND_ROOT.parent / "workspace" / "workflows" / "phong_san_xuat_video.yaml"
+VIDEO_YAML = BACKEND_ROOT.parent / "workspace" / "workflows" / "video_production.yaml"
 REJECT = "Sửa lại màu cảnh 2"
 
 

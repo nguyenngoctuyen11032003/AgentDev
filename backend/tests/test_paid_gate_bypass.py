@@ -57,7 +57,7 @@ VARIANTS = [NO_REPLY_TEXT, NO_REPLY_TEXT + " OK", NO_REPLY_TEXT + " Approved", "
 
 def test_gate_workflows_are_found():
     names = {p.name for p in _with_gates()}
-    assert {"support.yaml", "video.yaml", "phong_san_xuat_video.yaml"} <= names
+    assert {"support.yaml", "video.yaml", "video_production.yaml"} <= names
 
 
 @pytest.mark.parametrize("variant", VARIANTS)
