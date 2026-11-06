@@ -250,8 +250,14 @@
                     {{ $t('lab.packs.menu.auto') }} <small>({{ $t(`lab.packs.${detectedPack}.title`) }})</small>
                   </button>
                 </li>
-                <li v-for="id in PACK_IDS.filter((p) => p !== 'general')" :key="id" role="none">
-                  <button type="button" role="menuitem" class="sample-menu-item" @click="addSamplePack(id)">
+                <li v-if="detectedPack !== 'general'" role="none">
+                  <button type="button" role="menuitem" class="sample-menu-item" @click="addSamplePack(detectedPack)">
+                    {{ $t(`lab.packs.${detectedPack}.title`) }}
+                  </button>
+                </li>
+                <li class="sample-menu-label" role="presentation">{{ $t('lab.packs.menu.other_fields') }}</li>
+                <li v-for="id in PACK_IDS.filter((p) => p !== 'general' && p !== detectedPack)" :key="id" role="none">
+                  <button type="button" role="menuitem" class="sample-menu-item muted" @click="addSamplePack(id)">
                     {{ $t(`lab.packs.${id}.title`) }}
                   </button>
                 </li>
@@ -1433,6 +1439,8 @@ onBeforeUnmount(() => {
 .sample-menu-item:hover, .sample-menu-item:focus-visible { background: var(--tint-2); }
 .sample-menu-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .sample-menu-item.strong { font-weight: 600; }
+.sample-menu-item.muted { color: var(--fg-muted); }
+.sample-menu-label { padding: 8px 12px 4px; font-size: 11px; color: var(--fg-subtle); }
 .sample-menu-item small { font-weight: 400; color: var(--fg-muted); }
 .scenario-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
 .repeat { margin-left: auto; font-size: 13px; color: var(--fg-muted); }

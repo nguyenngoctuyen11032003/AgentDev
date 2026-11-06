@@ -2197,31 +2197,86 @@ def get_lab_runner() -> LabRunner:
 
 
 GENERATE_SYSTEM = (
-    "You design acceptance-test scenarios for an AI workflow (a team of agents). Reply with ONLY a JSON array, "
-    "no prose and no code fence. Each item: {\"name\": short title, \"prompt\": the request a real user would send "
-    "to this workflow (concrete, with the details the workflow needs), \"criteria\": 2-4 checkable pass criteria "
-    "separated by semicolons (what the answer and deliverables must contain, which members should have worked, "
-    "the language)}. Cover different paths of THIS workflow: the main happy path, a small/quick task, a task that "
-    "needs several members, and one edge case (unclear, impossible or unverifiable request). Each run starts in an "
-    "EMPTY project folder: a scenario about changing or fixing an existing app must paste the relevant code (a short "
-    "file of 10-40 lines) into the prompt, otherwise there is nothing to fix. Fit the workflow's "
-    "real purpose and members; never invent members it does not have."
+    "You design acceptance-test scenarios for ONE specific AI workflow (a team of agents). Reply with ONLY a JSON "
+    "array, no prose and no code fence. Each item: {\"name\": short title, \"prompt\": the request a real user would "
+    "send to this workflow (concrete, with every detail the workflow needs), \"criteria\": 2-4 checkable pass "
+    "criteria separated by semicolons}. "
+    "Rules: (1) Read the workflow description, its members and its flow first; every scenario must be something "
+    "this workflow is built to do, in its own domain. Never a generic task from another domain. "
+    "(2) Cover different paths: the main happy path, a small/quick task, a task that needs several members, and "
+    "one edge case (unclear, impossible or unverifiable request) where the right behaviour is to ask or to say no. "
+    "(3) Criteria are judged only from the final answer and the files it produced: state what they must contain "
+    "or do; mention a member only when it is in the roster given below, never invent members, tools or steps. "
+    "(4) The test runs unattended with no external accounts, network credentials or real users: ordinary approval "
+    "gates are approved automatically, but a step marked PAID is refused, so no scenario may depend on a paid "
+    "step succeeding. (5) Each run starts in an EMPTY project folder: a scenario about changing or fixing an "
+    "existing app must paste the relevant code (a short file of 10-40 lines) into the prompt. "
+    "(6) The scenarios must differ from each other."
 )
+
+
+def _team_roster(graph: Dict[str, Any]) -> List[str]:
+    """Members of every team lead of ``graph`` (the explicit roster, else the agents wired to nothing)."""
+    nodes = [n for n in graph.get("nodes") or [] if isinstance(n, dict)]
+    edges = graph.get("edges") or []
+    wired = {e.get("from") for e in edges if isinstance(e, dict)} | {e.get("to") for e in edges if isinstance(e, dict)}
+    agents = [n for n in nodes if n.get("type") == "agent"]
+    leads = [a for a in agents if ((a.get("config") or {}).get("team") or {}).get("enabled")]
+    lead_ids = {a.get("id") for a in leads}
+    agent_ids = {a.get("id") for a in agents}
+    roster: List[str] = []
+    for lead in leads:
+        members = ((lead.get("config") or {}).get("team") or {}).get("members") or []
+        if members:
+            roster += [m for m in members if m in agent_ids]
+        else:
+            roster += [a.get("id") for a in agents if a.get("id") != lead.get("id") and a.get("id") not in wired]
+    return [m for m in dict.fromkeys(roster) if m not in lead_ids]
 
 
 def _workflow_brief(data: Dict[str, Any]) -> str:
     graph = (data or {}).get("graph") or {}
     lines = [f"Workflow: {graph.get('id', '')}", f"Description: {graph.get('description', '')}"]
+    start, end = list(graph.get("start") or []), list(graph.get("end") or [])
+    if start or end:
+        lines.append(f"Entry: {', '.join(map(str, start))} | Ends: {', '.join(map(str, end))}")
+    roster = _team_roster(graph)
+    if roster:
+        lines.append(f"Roster (the ONLY members that exist): {', '.join(map(str, roster))}")
     for node in graph.get("nodes") or []:
         cfg = node.get("config") or {}
         role = " ".join(str(cfg.get("role") or "").split())[:350]
         team = (cfg.get("team") or {}).get("members") or []
+        tags = []
+        if node.get("type") == "human":
+            tags.append("PAID gate: refused in tests" if cfg.get("paid") is True else "approval gate: auto-approved in tests")
         lines.append(
             f"- {node.get('id')} ({node.get('type')}): {node.get('description', '')}"
             + (f" | leads: {', '.join(team)}" if team else "")
+            + (f" | {'; '.join(tags)}" if tags else "")
             + (f" | role: {role}" if role else "")
         )
+    flow = [f"{e.get('from')}->{e.get('to')}" for e in graph.get("edges") or [] if isinstance(e, dict)]
+    if flow:
+        lines.append("Flow: " + ", ".join(flow[:60]))
     return "\n".join(lines)[:9000]
+
+
+def _clean_generated(items: Any, count: int) -> List[Dict[str, str]]:
+    """Usable scenarios only: a real prompt, a pass criterion, no duplicate request."""
+    out: List[Dict[str, str]] = []
+    seen: set = set()
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        prompt = str(item.get("prompt") or "").strip()[:20_000]
+        criteria = str(item.get("criteria") or "").strip()[:5_000]
+        key = " ".join(prompt.lower().split())
+        if not prompt or not criteria or key in seen:
+            continue  # without criteria the judge has nothing to check the answer against
+        seen.add(key)
+        out.append({"name": str(item.get("name") or "").strip()[:120], "prompt": prompt, "criteria": criteria})
+    return out[:count]
 
 
 def generate_scenarios(yaml_path: Path, count: int = 4, language: str = "Vietnamese") -> List[Dict[str, str]]:
@@ -2243,14 +2298,7 @@ def generate_scenarios(yaml_path: Path, count: int = 4, language: str = "Vietnam
         items = json.loads(match.group(0)) if match else []
     except ValueError:
         items = []
-    out: List[Dict[str, str]] = []
-    for item in items if isinstance(items, list) else []:
-        if isinstance(item, dict) and str(item.get("prompt") or "").strip():
-            out.append({
-                "name": str(item.get("name") or "").strip()[:120],
-                "prompt": str(item["prompt"]).strip()[:20_000],
-                "criteria": str(item.get("criteria") or "").strip()[:5_000],
-            })
+    out = _clean_generated(items, count)
     if not out:
         raise RuntimeError("The AI did not return usable scenarios. Try again.")
-    return out[:count]
+    return out

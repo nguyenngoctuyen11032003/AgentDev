@@ -2837,6 +2837,7 @@
         "title": "Add sample scenarios",
         "auto": "Suggest for this workflow",
         "all_general": "Add all general samples",
+        "other_fields": "Other fields (may not fit this workflow)",
         "menu_label": "Choose a sample pack"
       }
     },

@@ -160,7 +160,7 @@ def test_auto_answer_channel_refuses_paid_gate():
 
 
 def test_video_workflow_marks_render_gate_paid():
-    data = yaml.safe_load((REPO / "workspace" / "workflows" / "phong_san_xuat_video.yaml").read_text(encoding="utf-8"))
+    data = yaml.safe_load((REPO / "workspace" / "workflows" / "video_production.yaml").read_text(encoding="utf-8"))
     nodes = {n["id"]: n for n in data["graph"]["nodes"]}
     assert nodes["Render Approval"]["config"]["paid"] is True
     report = workflow_lab.static_check_data(data)
@@ -396,3 +396,39 @@ def test_lab_run_skipped_paid_gate_does_not_flow_through_unconditional_edge(tmp_
     result = workflow_lab._run_once(path, Scenario("Làm video"), threading.Event())
     assert "Renderer" not in _PaidProvider.calls
     assert result["skipped_gates"] == ["Render Approval"]
+
+
+# ---------------------------------------------------------------------------- scenario generator fits the workflow
+
+
+def test_generator_brief_lists_roster_flow_and_paid_gates():
+    data = {"graph": {
+        "id": "wf", "description": "d", "start": ["Lead"], "end": ["Lead"],
+        "nodes": [
+            {"id": "Lead", "type": "agent", "config": {"team": {"enabled": True, "members": ["Dev"]}}},
+            {"id": "Dev", "type": "agent", "config": {}},
+            {"id": "Ghost", "type": "agent", "config": {}},
+            {"id": "Render", "type": "human", "config": {"paid": True}},
+        ],
+        "edges": [{"from": "Lead", "to": "Render"}],
+    }}
+    brief = workflow_lab._workflow_brief(data)
+    assert "the ONLY members that exist): Dev" in brief
+    assert "Ghost" not in brief.split("Roster")[1].splitlines()[0]
+    assert "PAID gate: refused in tests" in brief
+    assert "Lead->Render" in brief
+    assert "PAID" in workflow_lab.GENERATE_SYSTEM
+
+
+def test_generated_scenarios_need_prompt_criteria_and_are_unique():
+    items = [
+        {"name": "a", "prompt": "Build X", "criteria": "has X"},
+        {"name": "dup", "prompt": "  build   x ", "criteria": "has X"},
+        {"name": "no criteria", "prompt": "Build Y", "criteria": ""},
+        {"name": "no prompt", "prompt": "", "criteria": "c"},
+        "junk",
+        {"name": "b", "prompt": "Build Z", "criteria": "has Z"},
+    ]
+    got = workflow_lab._clean_generated(items, 4)
+    assert [g["name"] for g in got] == ["a", "b"]
+    assert len(workflow_lab._clean_generated(items, 1)) == 1

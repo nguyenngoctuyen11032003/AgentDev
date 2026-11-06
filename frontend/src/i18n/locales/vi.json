@@ -3124,6 +3124,7 @@
         "title": "Thêm kịch bản mẫu",
         "auto": "Gợi ý theo quy trình",
         "all_general": "Thêm tất cả mẫu chung",
+        "other_fields": "Mẫu lĩnh vực khác (có thể không khớp quy trình này)",
         "menu_label": "Chọn bộ kịch bản mẫu"
       }
     },
