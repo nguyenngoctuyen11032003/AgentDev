@@ -258,3 +258,30 @@ export const isEchoOfLastReply = (messages, text, { userSender = '' } = {}) => {
   }
   return false
 }
+
+// Server session states in which a stopped run is still winding down
+const STOP_PENDING_STATUSES = ['running', 'waiting_for_input', 'cancelling']
+
+/**
+ * Stop was pressed but the server never confirmed it: what its status answer means.
+ * 'wait' while the run is still winding down there, 'stopped' once it has ended,
+ * 'unknown' when the answer has no status (keep asking until the give-up time).
+ */
+export const stopCheckOutcome = (data) => {
+  const status = data?.status
+  if (!status) return 'unknown'
+  return STOP_PENDING_STATUSES.includes(status) ? 'wait' : 'stopped'
+}
+
+/**
+ * After the screen gave up waiting for a stop confirmation, the server may still send the
+ * end of that run. 'drop' for its activity (no new spinners), 'close' for its final event
+ * (the turn is already recorded as stopped, so the status must not flip), 'keep' otherwise.
+ */
+export const lateStopEvent = (msg) => {
+  const type = msg?.type
+  if (type === 'workflow_completed' || type === 'workflow_cancelled') return 'close'
+  if (type === 'error' && errorKind(msg?.data) === 'fatal') return 'close'
+  if (type === 'log' || type === 'human_input_required' || type === 'handoff' || type === 'plan_proposed') return 'drop'
+  return 'keep'
+}

@@ -1161,7 +1161,9 @@ import {
   handoffOf,
   completionNotice,
   errorKind,
-  isEchoOfLastReply
+  isEchoOfLastReply,
+  stopCheckOutcome,
+  lateStopEvent
 } from '@/views/launch/launchEvents.js'
 import { buildSocketUrl, createClientId, createIncomingQueue, createReconnector, parseSocketFrame } from '@/composables/useLaunchSocket.js'
 import { useLaunchLayout, useChatColumn, CHAT_MIN_W, CHAT_MAX_W, CHAT_DEFAULT_W } from '@/composables/useLaunchLayout.js'
@@ -2593,6 +2595,14 @@ let cancelRequested = false
 const isStopping = ref(false)
 let stopFallbackTimer = null
 const STOP_FALLBACK_MS = 20000
+// After STOP_FALLBACK_MS without a confirmation the server is asked how the run is doing
+// (every STOP_CHECK_MS); only after STOP_GIVE_UP_MS does the screen stop waiting on its own
+const STOP_CHECK_MS = 5000
+const STOP_GIVE_UP_MS = 120000
+let stopStartedAt = 0
+// The screen marked the run stopped without the server's word: what that run still sends
+// (activity, its end) is dropped until the next turn starts (see lateStopEvent)
+let stopUnconfirmed = false
 const endStopping = () => {
   clearTimeout(stopFallbackTimer)
   stopFallbackTimer = null
@@ -3062,6 +3072,7 @@ const resetConnectionState = ({ closeSocket = true, keepSession = false } = {}) 
   if (!keepSession) {
     locallyCancelled = false
     cancelRequested = false
+    stopUnconfirmed = false
     endStopping()
     replacedSessionId.value = ''
     sessionId = null
@@ -5505,6 +5516,23 @@ const processMessage = async (msg) => {
   // When the server sent it (null on older servers: the chat then stamps "now")
   const at = messageTime(msg)
   if (msg.type === 'log' && msg.data?.timestamp) lastLogAt = eventTime(msg.data.timestamp)
+  // The server's answer to get_status while a stop waits for its confirmation
+  if (msg.type === 'status') {
+    if (isStopping.value && stopCheckOutcome(msg.data) === 'stopped') {
+      markRunCancelled(t('launch.workflow_cancelled'), { at })
+    }
+    return
+  }
+  // A new turn: whatever the earlier stopped run still had to say is over
+  if (msg.type === 'workflow_started' || msg.type === 'user_message') stopUnconfirmed = false
+  if (stopUnconfirmed) {
+    const late = lateStopEvent(msg)
+    if (late === 'close') {
+      stopUnconfirmed = false
+      return
+    }
+    if (late === 'drop') return
+  }
   // What the user typed earlier; only arrives when a saved session is replayed
   if (msg.type === 'user_message') {
     const { text, names } = userMessageParts(msg.data)
@@ -6193,12 +6221,31 @@ const cancelWorkflow = () => {
 // if it never does (also used when a reopened session is still winding down: "cancelling")
 const startStopping = () => {
   isStopping.value = true
+  stopStartedAt = Date.now()
   clearTimeout(stopFallbackTimer)
-  stopFallbackTimer = setTimeout(() => {
-    stopFallbackTimer = null
-    if (!isStopping.value) return
-    markRunCancelled(t('launch.stop_unconfirmed'))
-  }, STOP_FALLBACK_MS)
+  stopFallbackTimer = setTimeout(checkStopWithServer, STOP_FALLBACK_MS)
+}
+// No confirmation yet: ask the server (its answer is a 'status' message). The screen only says
+// "stopped" on its own when the socket is gone or the server stays silent past STOP_GIVE_UP_MS.
+const checkStopWithServer = () => {
+  stopFallbackTimer = null
+  if (!isStopping.value) return
+  const socketOpen = ws && ws.readyState === WebSocket.OPEN
+  if (!socketOpen || Date.now() - stopStartedAt >= STOP_GIVE_UP_MS) {
+    giveUpWaitingForStop()
+    return
+  }
+  try {
+    ws.send(JSON.stringify({ type: 'get_status' }))
+  } catch {
+    giveUpWaitingForStop()
+    return
+  }
+  stopFallbackTimer = setTimeout(checkStopWithServer, STOP_CHECK_MS)
+}
+const giveUpWaitingForStop = () => {
+  markRunCancelled(t('launch.stop_unconfirmed'))
+  stopUnconfirmed = true
 }
 
 // Download logs
