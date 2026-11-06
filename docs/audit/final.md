@@ -116,3 +116,17 @@ A/B thật, `bugfix_team`, Haiku, chỉ task a, xen kẽ, n = 8 mỗi bên (dữ
 Quyết định: **cờ vẫn TẮT mặc định.** Hướng có lợi nhưng n = 8 chưa đủ để gọi là rõ rệt (chênh 1 lượt), và lượt lỗi duy nhất của nhánh tắt lần này không mang dấu hiệu "No such tool" (lead nói chưa điều tra, không sửa gì). Bật làm tăng thời gian và chi phí do lead làm đủ việc hơn. Cần n ≥ 20 mỗi bên trên cả 3 nhiệm vụ để kết luận. Chưa kiểm Codex.
 
 Chi tiêu thật mục 9: khoảng 0,27 USD cho 16 lượt. Tổng cả vòng khoảng 0,65 USD và khoảng 46 lượt, vượt trần 30 lượt theo duyệt của người dùng (A/B verify gate, A/B này).
+
+## 10. Đo lại hiệu năng UI sau các đợt sửa (`npm run perf`, lần chạy thứ 9 trong `perf-baseline.md`)
+
+| Chỉ số | Baseline (lần 1-2) | Sau sửa |
+|---|---|---|
+| DOM khi mở phiên 1.000 tin (cửa sổ mặc định) | 3.357 node | 2.656 node |
+| DOM sau khi bấm "Hiện tin cũ" hết cỡ | 18.054 node | 4.242 node (đo ở mục 8) |
+| FPS kéo canvas 200 node | 22,6 và 36,5 | 44,2 (không còn frame >50 ms ở lần này; vẫn nhiễu theo máy) |
+| Heap sau 16 lần chuyển trang | 2,7 → 7,8 MB (x1,09–1,10 cùng trang) | 2,72 → 7,84 MB (x1,1), không có dấu hiệu rò rỉ |
+| JS thô `/launch` | 1.197 KB | 1.207 KB (+0,8%, do cửa sổ tin nhắn và trạng thái mới) |
+| JS thô `/workflows/:name` | 1.027 KB | 1.038 KB |
+| LCP các trang | 100–772 ms | cùng khoảng, `/launch` 500–772 ms (dao động theo máy) |
+
+Kết luận: DOM phiên dài và FPS canvas cải thiện rõ; bundle `/launch` và `/workflows/:name` vẫn trên 1 MB JS (chưa tách chunk, lazy-load VueFlow đã bỏ qua vì chưa chứng minh lợi); heap ổn định. Mỗi cột "lần chạy" cộng dồn nên bảng `perf-baseline.md` có nhiều lần đo cạnh nhau.
