@@ -17,6 +17,7 @@ from agentdev.utils.task_input import TaskInputBuilder
 from agentdev.utils.workspace_paths import session_directory_name
 from agentdev.workflow.graph_context import GraphContext
 
+from agentdev.api.services import git_checkpoint
 from agentdev.api.services.attachment_service import AttachmentService
 from agentdev.api.services.conversation_turns import attachment_refs, compose_follow_up_prompt, make_turn
 from agentdev.api.services.run_checkpoint import (
@@ -250,6 +251,7 @@ class WorkflowRunService:
         session = self.session_store.get_session(session_id)
         cancel_event = session.cancel_event if session else None
         run_started = time.time()
+        checkpoint_turn = None
         try:
             # Parsing the YAML, building the graph and the runtime, and reading attachments are
             # blocking work: keep them off the event loop so other sessions' sockets stay responsive.
@@ -265,6 +267,7 @@ class WorkflowRunService:
                 cancel_event,
                 mode,
             )
+            checkpoint_turn = (await asyncio.to_thread(git_checkpoint.begin_turn, session_id)).get("turn")  # never raises
             await executor.execute_graph_async(task_input)
 
             # If cancellation was requested during execution but not raised inside threads,
@@ -359,6 +362,8 @@ class WorkflowRunService:
         finally:
             self._release(session_id, session)
             await asyncio.to_thread(_stop_leftover_processes, session_id, run_started)
+            if checkpoint_turn:
+                await asyncio.to_thread(git_checkpoint.end_turn, session_id, checkpoint_turn)
 
     def _prepare_run(
         self,

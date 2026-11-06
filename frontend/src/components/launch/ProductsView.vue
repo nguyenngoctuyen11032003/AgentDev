@@ -26,7 +26,10 @@
       <strong>{{ tr('launch.products.no_session_title', 'Chưa có phiên làm việc') }}</strong>
       <span>{{ tr('launch.products.no_session_hint', 'Giao việc cho nhóm trong khung chat. Mã nguồn, trang web, tài liệu nhóm làm ra sẽ hiện ở đây để bạn xem và chạy thử.') }}</span>
     </div>
-    <LabRunOutputs v-else ref="outputsRef" class="pr-outputs" :source="source" />
+    <template v-else>
+      <GitChangesPanel ref="changesRef" :session-id="sessionId" :refresh-key="refreshKey" :visible="visible" />
+      <LabRunOutputs ref="outputsRef" class="pr-outputs" :source="source" />
+    </template>
   </div>
 </template>
 
@@ -35,6 +38,7 @@
 // ("Chạy thử"), with the Lab's file browser and app runner pointed at the session's output folder.
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import GitChangesPanel from '@/components/launch/GitChangesPanel.vue'
 import LabRunOutputs from '@/components/lab/LabRunOutputs.vue'
 import { fetchOutputLocation } from '@/api/client.js'
 import { sessionOutputSource } from '@/utils/outputSources.js'
@@ -55,6 +59,7 @@ const clock = (ms) => new Date(ms).toLocaleTimeString(locale.value, { hour: '2-d
 
 const source = computed(() => (props.sessionId ? sessionOutputSource(props.sessionId) : null))
 const outputsRef = ref(null)
+const changesRef = ref(null)
 const location = ref(null)
 const refreshing = ref(false)
 const refreshedAt = ref(0)
@@ -80,7 +85,7 @@ async function refresh() {
   refreshing.value = true
   stale = false
   try {
-    await Promise.all([loadLocation(), outputsRef.value?.reload?.()])
+    await Promise.all([loadLocation(), outputsRef.value?.reload?.(), changesRef.value?.reload?.()])
     refreshedAt.value = Date.now()
   } finally {
     refreshing.value = false

@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from agentdev.api.services import lab_outputs, session_outputs
+from agentdev.api.services import git_checkpoint, lab_outputs, session_outputs
 from agentdev.api.services.app_preview import PreviewError
 from agentdev.api.services.local_projects import open_on_machine
 from agentdev.connections.security import require_local_origin
@@ -29,6 +29,10 @@ router = APIRouter(prefix="/api/sessions/{session_id}/outputs", tags=["session-o
 class OpenRequest(BaseModel):
     path: str = Field("", max_length=4096)
     reveal: bool = False
+
+
+class UndoRequest(BaseModel):
+    paths: list[str] | None = Field(None, max_length=500)  # None = every file the run changed
 
 
 async def _call(func: Callable[..., Any], *args: Any) -> Any:
@@ -91,3 +95,20 @@ async def outputs_preview_status(session_id: str) -> Dict[str, Any]:
 @router.delete("/preview")
 async def outputs_preview_stop(session_id: str) -> Dict[str, Any]:
     return await _call(session_outputs.preview_stop, session_id)
+
+
+@router.get("/changes")
+async def outputs_changes(session_id: str) -> Dict[str, Any]:
+    """Files the latest run turn changed in a git workspace (hidden checkpoint), with diffs and undo state."""
+    return await _call(git_checkpoint.changes, session_id)
+
+
+@router.post("/changes/undo")
+async def outputs_changes_undo(session_id: str, payload: UndoRequest | None = None) -> Dict[str, Any]:
+    paths = payload.paths if payload else None
+    return await _call(git_checkpoint.undo, session_id, paths)
+
+
+@router.post("/changes/keep-branch")
+async def outputs_changes_keep_branch(session_id: str) -> Dict[str, Any]:
+    return await _call(git_checkpoint.keep_branch, session_id)

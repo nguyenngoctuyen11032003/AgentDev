@@ -768,6 +768,24 @@ export const sessionPreviewStart = (sessionId) => sessionOutputsRequest(sessionI
 export const sessionPreviewStatus = (sessionId) => sessionOutputsRequest(sessionId, '/preview')
 export const sessionPreviewStop = (sessionId) => sessionOutputsRequest(sessionId, '/preview', { method: 'DELETE' })
 
+// Git checkpoints: what the latest run turn changed in a git workspace, with undo (never overwrites the user's edits)
+async function sessionChangesRequest(sessionId, suffix, options = {}) {
+  const response = await fetch(apiUrl(`${sessionOutputsPath(sessionId)}/changes${suffix}`), {
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    ...options
+  })
+  if (!response.ok) throw await responseError('errors.api.git_changes_failed', response)
+  return response.json()
+}
+/** -> {status: ok|running|not_git|disabled|no_checkpoint|error, turn, files: [{path, change, state, diff, binary, truncated}], counts} */
+export const sessionChanges = (sessionId) => sessionChangesRequest(sessionId, '')
+/** paths = null undoes every pending file. -> {restored, removed, conflicts: [{path, reason}], errors} */
+export const sessionChangesUndo = (sessionId, paths = null) =>
+  sessionChangesRequest(sessionId, '/undo', { method: 'POST', body: JSON.stringify({ paths }) })
+/** -> {branch, commit, turn} */
+export const sessionChangesKeepBranch = (sessionId) => sessionChangesRequest(sessionId, '/keep-branch', { method: 'POST', body: '{}' })
+
 /**
  * Open a folder on this machine in place, like "Open Folder" in VS Code: nothing is
  * uploaded, the agents read and edit the real project.
