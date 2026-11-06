@@ -115,7 +115,8 @@ import WorkflowList from './WorkflowList.vue'
 import WorkflowView from './WorkflowView.vue'
 import { pickDefaultTemplate } from '@/components/workflow/workflowTemplates.js'
 import WorkflowTemplateCards from '@/components/workflow/WorkflowTemplateCards.vue'
-import WorkflowAssistantPanel from '@/components/workflow/assistant/WorkflowAssistantPanel.vue'
+import { lazyPanel } from '@/components/common/lazyPanel.js'
+const WorkflowAssistantPanel = lazyPanel(() => import('@/components/workflow/assistant/WorkflowAssistantPanel.vue'), { overlay: true })
 import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
 import { dismissToast, toast } from '@/utils/toast.js'
 

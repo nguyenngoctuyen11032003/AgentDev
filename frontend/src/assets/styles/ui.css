@@ -189,3 +189,30 @@ textarea.input { padding: var(--space-3); line-height: 1.5; resize: vertical; mi
 /* ---- Page shell ---- */
 .page { box-sizing: border-box; width: 100%; max-width: 1120px; margin: 0 auto; padding: 48px 32px; }
 @media (max-width: 640px) { .page { padding: 28px 16px; } }
+
+/* Lazy panels (components/common/lazyPanel.js): loading and error boxes */
+.lazy-panel-state { margin: 0; padding: 24px 20px; color: var(--fg-muted); }
+.lazy-panel-error { color: var(--fg); }
+.lazy-panel-retry {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.lazy-panel-retry:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.lazy-panel-overlay {
+  position: fixed;
+  z-index: 1000;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}

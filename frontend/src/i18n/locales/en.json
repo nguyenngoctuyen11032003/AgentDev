@@ -67,6 +67,10 @@
     "theme_system": "System"
   },
   "common": {
+    "lazy": {
+      "loading": "Loading...",
+      "load_failed": "Could not load this section. Check your network connection and retry; if it still fails, reload the page."
+    },
     "cancel": "Cancel",
     "save": "Save",
     "submit": "Submit",

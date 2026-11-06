@@ -159,8 +159,9 @@ import { onWorkflowChanged } from '@/utils/workflowSync.js'
 import { confirmDialog } from '@/utils/confirm.js'
 import { toast } from '@/utils/toast.js'
 import { localizedWorkflowDescription } from '@/utils/workflowDescription.js'
-import FormGenerator from '@/components/form/FormGenerator.vue'
-import DepartmentTemplatePicker from '@/components/workflow/DepartmentTemplatePicker.vue'
+import { lazyPanel } from '@/components/common/lazyPanel.js'
+const FormGenerator = lazyPanel(() => import('@/components/form/FormGenerator.vue'), { overlay: true })
+const DepartmentTemplatePicker = lazyPanel(() => import('@/components/workflow/DepartmentTemplatePicker.vue'), { overlay: true })
 
 const router = useRouter()
 const { locale, t } = useI18n()

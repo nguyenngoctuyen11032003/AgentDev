@@ -25,6 +25,10 @@
     "theme_system": "跟随系统"
   },
   "common": {
+    "lazy": {
+      "loading": "加载中...",
+      "load_failed": "无法加载此部分。请检查网络连接后重试；如仍失败，请刷新页面。"
+    },
     "cancel": "取消",
     "save": "保存",
     "submit": "提交",

@@ -2218,6 +2218,1275 @@
         "workflow: 1037.6 KB raw JS",
         "launch: 1206.9 KB raw JS"
       ]
+    },
+    {
+      "startedAt": "2026-11-06T03:53:27.389Z",
+      "loads": [
+        {
+          "page": "home",
+          "url": "/",
+          "domContentLoadedMs": 50.8,
+          "loadMs": 52.1,
+          "lcpMs": 492,
+          "domNodes": 131,
+          "js": {
+            "files": 7,
+            "rawKB": 499.9,
+            "transferredKB": 171
+          },
+          "css": {
+            "files": 3,
+            "rawKB": 39.2,
+            "transferredKB": 11.3
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "tutorial",
+          "url": "/tutorial",
+          "domContentLoadedMs": 63.4,
+          "loadMs": 64.7,
+          "lcpMs": 140,
+          "domNodes": 1109,
+          "js": {
+            "files": 7,
+            "rawKB": 605.6,
+            "transferredKB": 217
+          },
+          "css": {
+            "files": 2,
+            "rawKB": 37.1,
+            "transferredKB": 9.8
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "workflow",
+          "url": "/workflows/zz_perf_small.yaml",
+          "domContentLoadedMs": 41.2,
+          "loadMs": 41.2,
+          "lcpMs": 628,
+          "domNodes": 368,
+          "js": {
+            "files": 16,
+            "rawKB": 1042.8,
+            "transferredKB": 357.9
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 134.9,
+            "transferredKB": 26.2
+          },
+          "apiRequests": 3
+        },
+        {
+          "page": "launch",
+          "url": "/launch",
+          "domContentLoadedMs": 42.2,
+          "loadMs": 43.2,
+          "lcpMs": 832,
+          "domNodes": 455,
+          "js": {
+            "files": 16,
+            "rawKB": 1220.8,
+            "transferredKB": 414.8
+          },
+          "css": {
+            "files": 7,
+            "rawKB": 238.7,
+            "transferredKB": 46.3
+          },
+          "apiRequests": 2
+        },
+        {
+          "page": "lab",
+          "url": "/lab",
+          "domContentLoadedMs": 47.4,
+          "loadMs": 47.4,
+          "lcpMs": 412,
+          "domNodes": 123,
+          "js": {
+            "files": 13,
+            "rawKB": 779.2,
+            "transferredKB": 276.1
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 77.7,
+            "transferredKB": 18.4
+          },
+          "apiRequests": 2
+        },
+        {
+          "page": "settings-general",
+          "url": "/settings/general",
+          "domContentLoadedMs": 45.7,
+          "loadMs": 45.7,
+          "lcpMs": 444,
+          "domNodes": 153,
+          "js": {
+            "files": 10,
+            "rawKB": 500.9,
+            "transferredKB": 172.9
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 34.9,
+            "transferredKB": 10.8
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "settings-connections",
+          "url": "/settings/connections",
+          "domContentLoadedMs": 57.5,
+          "loadMs": 59,
+          "lcpMs": 424,
+          "domNodes": 252,
+          "js": {
+            "files": 10,
+            "rawKB": 555.5,
+            "transferredKB": 189.4
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 54.1,
+            "transferredKB": 14.8
+          },
+          "apiRequests": 6
+        },
+        {
+          "page": "settings-skills",
+          "url": "/settings/skills",
+          "domContentLoadedMs": 43.1,
+          "loadMs": 43.2,
+          "lcpMs": 416,
+          "domNodes": 995,
+          "js": {
+            "files": 9,
+            "rawKB": 533.1,
+            "transferredKB": 180.7
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 40.7,
+            "transferredKB": 12
+          },
+          "apiRequests": 1
+        },
+        {
+          "page": "lab-batch",
+          "url": "/lab?tab=batch",
+          "domContentLoadedMs": 46.5,
+          "loadMs": 47.8,
+          "lcpMs": 180,
+          "domNodes": 203,
+          "js": {
+            "files": 15,
+            "rawKB": 803.8,
+            "transferredKB": 285
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 91.6,
+            "transferredKB": 21.9
+          },
+          "apiRequests": 3
+        }
+      ],
+      "messages": {
+        "sentMessages": 1000,
+        "firstBubbleMs": 1247,
+        "initial": {
+          "dom": 2656,
+          "items": 120
+        },
+        "expanded": {
+          "dom": 3706,
+          "items": 180
+        },
+        "showOlderClicks": 15
+      },
+      "drag": {
+        "workflowNodes": 200,
+        "renderedNodes": 48,
+        "domNodes": 1828,
+        "dragMs": 3039,
+        "mouseMoves": 29,
+        "frames": 145,
+        "avgFps": 47.5,
+        "p95FrameMs": 33.5,
+        "maxFrameMs": 100,
+        "framesOver50ms": 4
+      },
+      "heap": {
+        "series": [
+          {
+            "step": 0,
+            "page": "home",
+            "usedMB": 2.74,
+            "totalMB": 3.25
+          },
+          {
+            "step": 1,
+            "page": "tutorial",
+            "usedMB": 4.31,
+            "totalMB": 4.75
+          },
+          {
+            "step": 2,
+            "page": "workflow",
+            "usedMB": 5.96,
+            "totalMB": 6.75
+          },
+          {
+            "step": 3,
+            "page": "launch",
+            "usedMB": 7.25,
+            "totalMB": 7.5
+          },
+          {
+            "step": 4,
+            "page": "lab",
+            "usedMB": 7.07,
+            "totalMB": 7.75
+          },
+          {
+            "step": 5,
+            "page": "settings-general",
+            "usedMB": 7.18,
+            "totalMB": 7.75
+          },
+          {
+            "step": 6,
+            "page": "settings-connections",
+            "usedMB": 7.4,
+            "totalMB": 8
+          },
+          {
+            "step": 7,
+            "page": "settings-skills",
+            "usedMB": 7.64,
+            "totalMB": 8.25
+          },
+          {
+            "step": 8,
+            "page": "home",
+            "usedMB": 7.48,
+            "totalMB": 8
+          },
+          {
+            "step": 9,
+            "page": "tutorial",
+            "usedMB": 8.2,
+            "totalMB": 8.75
+          },
+          {
+            "step": 10,
+            "page": "workflow",
+            "usedMB": 7.88,
+            "totalMB": 8.25
+          },
+          {
+            "step": 11,
+            "page": "launch",
+            "usedMB": 8.37,
+            "totalMB": 9
+          },
+          {
+            "step": 12,
+            "page": "lab",
+            "usedMB": 8.03,
+            "totalMB": 8.75
+          },
+          {
+            "step": 13,
+            "page": "settings-general",
+            "usedMB": 8.07,
+            "totalMB": 8.75
+          },
+          {
+            "step": 14,
+            "page": "settings-connections",
+            "usedMB": 8.2,
+            "totalMB": 8.75
+          },
+          {
+            "step": 15,
+            "page": "settings-skills",
+            "usedMB": 8.05,
+            "totalMB": 8.75
+          },
+          {
+            "step": 16,
+            "page": "home",
+            "usedMB": 7.86,
+            "totalMB": 8.5
+          }
+        ],
+        "firstMB": 2.74,
+        "lastMB": 7.86,
+        "ratio": 2.87,
+        "steadyFirstMB": 7.48,
+        "steadyLastMB": 7.86,
+        "steadyRatio": 1.05
+      },
+      "mode": "production build (vite build + vite preview, no compression)",
+      "finishedAt": "2026-11-06T03:54:53.271Z",
+      "alerts": [
+        "workflow: 1042.8 KB raw JS",
+        "launch: 1220.8 KB raw JS"
+      ]
+    },
+    {
+      "startedAt": "2026-11-06T03:57:47.352Z",
+      "loads": [
+        {
+          "page": "home",
+          "url": "/",
+          "domContentLoadedMs": 48.1,
+          "loadMs": 49.5,
+          "lcpMs": 524,
+          "domNodes": 131,
+          "js": {
+            "files": 7,
+            "rawKB": 500.4,
+            "transferredKB": 171.2
+          },
+          "css": {
+            "files": 3,
+            "rawKB": 39.8,
+            "transferredKB": 11.4
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "tutorial",
+          "url": "/tutorial",
+          "domContentLoadedMs": 50.9,
+          "loadMs": 50.9,
+          "lcpMs": 124,
+          "domNodes": 1109,
+          "js": {
+            "files": 7,
+            "rawKB": 606.1,
+            "transferredKB": 217.2
+          },
+          "css": {
+            "files": 2,
+            "rawKB": 37.7,
+            "transferredKB": 9.9
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "workflow",
+          "url": "/workflows/zz_perf_small.yaml",
+          "domContentLoadedMs": 40,
+          "loadMs": 40,
+          "lcpMs": 676,
+          "domNodes": 367,
+          "js": {
+            "files": 15,
+            "rawKB": 832,
+            "transferredKB": 282.6
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 76.3,
+            "transferredKB": 18.8
+          },
+          "apiRequests": 3
+        },
+        {
+          "page": "launch",
+          "url": "/launch",
+          "domContentLoadedMs": 46.6,
+          "loadMs": 47.8,
+          "lcpMs": 640,
+          "domNodes": 451,
+          "js": {
+            "files": 15,
+            "rawKB": 1098.4,
+            "transferredKB": 378.8
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 161.8,
+            "transferredKB": 31.6
+          },
+          "apiRequests": 2
+        },
+        {
+          "page": "lab",
+          "url": "/lab",
+          "domContentLoadedMs": 41.6,
+          "loadMs": 41.7,
+          "lcpMs": 448,
+          "domNodes": 125,
+          "js": {
+            "files": 15,
+            "rawKB": 779.9,
+            "transferredKB": 277.4
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 78.3,
+            "transferredKB": 18.5
+          },
+          "apiRequests": 2
+        },
+        {
+          "page": "settings-general",
+          "url": "/settings/general",
+          "domContentLoadedMs": 45.3,
+          "loadMs": 46.2,
+          "lcpMs": 296,
+          "domNodes": 153,
+          "js": {
+            "files": 10,
+            "rawKB": 501.4,
+            "transferredKB": 173.1
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 35.5,
+            "transferredKB": 10.9
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "settings-connections",
+          "url": "/settings/connections",
+          "domContentLoadedMs": 55.1,
+          "loadMs": 55.1,
+          "lcpMs": 448,
+          "domNodes": 253,
+          "js": {
+            "files": 11,
+            "rawKB": 556,
+            "transferredKB": 190
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 54.7,
+            "transferredKB": 14.9
+          },
+          "apiRequests": 6
+        },
+        {
+          "page": "settings-skills",
+          "url": "/settings/skills",
+          "domContentLoadedMs": 41.6,
+          "loadMs": 41.6,
+          "lcpMs": 240,
+          "domNodes": 996,
+          "js": {
+            "files": 10,
+            "rawKB": 533.6,
+            "transferredKB": 181.4
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 41.3,
+            "transferredKB": 12.1
+          },
+          "apiRequests": 1
+        },
+        {
+          "page": "lab-batch",
+          "url": "/lab?tab=batch",
+          "domContentLoadedMs": 42.4,
+          "loadMs": 42.5,
+          "lcpMs": 176,
+          "domNodes": 205,
+          "js": {
+            "files": 17,
+            "rawKB": 804.5,
+            "transferredKB": 286.3
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 92.2,
+            "transferredKB": 22
+          },
+          "apiRequests": 3
+        }
+      ],
+      "messages": {
+        "sentMessages": 1000,
+        "firstBubbleMs": 1158,
+        "initial": {
+          "dom": 2652,
+          "items": 120
+        },
+        "expanded": {
+          "dom": 3702,
+          "items": 180
+        },
+        "showOlderClicks": 15
+      },
+      "drag": {
+        "workflowNodes": 200,
+        "renderedNodes": 48,
+        "domNodes": 1827,
+        "dragMs": 3086,
+        "mouseMoves": 48,
+        "frames": 157,
+        "avgFps": 51.2,
+        "p95FrameMs": 33.3,
+        "maxFrameMs": 66.7,
+        "framesOver50ms": 3
+      },
+      "heap": {
+        "series": [
+          {
+            "step": 0,
+            "page": "home",
+            "usedMB": 2.74,
+            "totalMB": 3.25
+          },
+          {
+            "step": 1,
+            "page": "tutorial",
+            "usedMB": 4.31,
+            "totalMB": 4.75
+          },
+          {
+            "step": 2,
+            "page": "workflow",
+            "usedMB": 5.9,
+            "totalMB": 6.5
+          },
+          {
+            "step": 3,
+            "page": "launch",
+            "usedMB": 7.08,
+            "totalMB": 7.5
+          },
+          {
+            "step": 4,
+            "page": "lab",
+            "usedMB": 6.94,
+            "totalMB": 7.75
+          },
+          {
+            "step": 5,
+            "page": "settings-general",
+            "usedMB": 7.04,
+            "totalMB": 7.75
+          },
+          {
+            "step": 6,
+            "page": "settings-connections",
+            "usedMB": 6.97,
+            "totalMB": 7.75
+          },
+          {
+            "step": 7,
+            "page": "settings-skills",
+            "usedMB": 7.22,
+            "totalMB": 7.75
+          },
+          {
+            "step": 8,
+            "page": "home",
+            "usedMB": 7.05,
+            "totalMB": 7.75
+          },
+          {
+            "step": 9,
+            "page": "tutorial",
+            "usedMB": 7.78,
+            "totalMB": 8.25
+          },
+          {
+            "step": 10,
+            "page": "workflow",
+            "usedMB": 7.45,
+            "totalMB": 8
+          },
+          {
+            "step": 11,
+            "page": "launch",
+            "usedMB": 8.23,
+            "totalMB": 8.75
+          },
+          {
+            "step": 12,
+            "page": "lab",
+            "usedMB": 7.9,
+            "totalMB": 8.25
+          },
+          {
+            "step": 13,
+            "page": "settings-general",
+            "usedMB": 7.95,
+            "totalMB": 8.5
+          },
+          {
+            "step": 14,
+            "page": "settings-connections",
+            "usedMB": 7.78,
+            "totalMB": 8.25
+          },
+          {
+            "step": 15,
+            "page": "settings-skills",
+            "usedMB": 7.96,
+            "totalMB": 8.25
+          },
+          {
+            "step": 16,
+            "page": "home",
+            "usedMB": 7.77,
+            "totalMB": 8.25
+          }
+        ],
+        "firstMB": 2.74,
+        "lastMB": 7.77,
+        "ratio": 2.84,
+        "steadyFirstMB": 7.05,
+        "steadyLastMB": 7.77,
+        "steadyRatio": 1.1
+      },
+      "mode": "production build (vite build + vite preview, no compression)",
+      "finishedAt": "2026-11-06T03:59:10.881Z",
+      "alerts": [
+        "launch: 1098.4 KB raw JS"
+      ]
+    },
+    {
+      "startedAt": "2026-11-06T03:59:43.241Z",
+      "loads": [
+        {
+          "page": "home",
+          "url": "/",
+          "domContentLoadedMs": 74.7,
+          "loadMs": 76.5,
+          "lcpMs": 476,
+          "domNodes": 131,
+          "js": {
+            "files": 6,
+            "rawKB": 357.7,
+            "transferredKB": 121.9
+          },
+          "css": {
+            "files": 3,
+            "rawKB": 39.8,
+            "transferredKB": 11.4
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "tutorial",
+          "url": "/tutorial",
+          "domContentLoadedMs": 54.1,
+          "loadMs": 54.1,
+          "lcpMs": 164,
+          "domNodes": 1109,
+          "js": {
+            "files": 6,
+            "rawKB": 463.4,
+            "transferredKB": 167.9
+          },
+          "css": {
+            "files": 2,
+            "rawKB": 37.7,
+            "transferredKB": 9.9
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "workflow",
+          "url": "/workflows/zz_perf_small.yaml",
+          "domContentLoadedMs": 49.2,
+          "loadMs": 49.2,
+          "lcpMs": 724,
+          "domNodes": 367,
+          "js": {
+            "files": 14,
+            "rawKB": 689.3,
+            "transferredKB": 233.4
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 76.3,
+            "transferredKB": 18.8
+          },
+          "apiRequests": 3
+        },
+        {
+          "page": "launch",
+          "url": "/launch",
+          "domContentLoadedMs": 68.4,
+          "loadMs": 68.5,
+          "lcpMs": 676,
+          "domNodes": 451,
+          "js": {
+            "files": 14,
+            "rawKB": 955.6,
+            "transferredKB": 329.5
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 161.8,
+            "transferredKB": 31.6
+          },
+          "apiRequests": 2
+        },
+        {
+          "page": "lab",
+          "url": "/lab",
+          "domContentLoadedMs": 69.8,
+          "loadMs": 69.9,
+          "lcpMs": 436,
+          "domNodes": 125,
+          "js": {
+            "files": 14,
+            "rawKB": 637.2,
+            "transferredKB": 228.2
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 78.3,
+            "transferredKB": 18.5
+          },
+          "apiRequests": 2
+        },
+        {
+          "page": "settings-general",
+          "url": "/settings/general",
+          "domContentLoadedMs": 47.5,
+          "loadMs": 48.4,
+          "lcpMs": 340,
+          "domNodes": 153,
+          "js": {
+            "files": 9,
+            "rawKB": 358.6,
+            "transferredKB": 123.9
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 35.5,
+            "transferredKB": 10.9
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "settings-connections",
+          "url": "/settings/connections",
+          "domContentLoadedMs": 63.9,
+          "loadMs": 64.9,
+          "lcpMs": 424,
+          "domNodes": 253,
+          "js": {
+            "files": 10,
+            "rawKB": 413.2,
+            "transferredKB": 140.8
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 54.7,
+            "transferredKB": 14.9
+          },
+          "apiRequests": 6
+        },
+        {
+          "page": "settings-skills",
+          "url": "/settings/skills",
+          "domContentLoadedMs": 45,
+          "loadMs": 46.1,
+          "lcpMs": 468,
+          "domNodes": 996,
+          "js": {
+            "files": 9,
+            "rawKB": 390.9,
+            "transferredKB": 132.1
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 41.3,
+            "transferredKB": 12.1
+          },
+          "apiRequests": 1
+        },
+        {
+          "page": "lab-batch",
+          "url": "/lab?tab=batch",
+          "domContentLoadedMs": 63.6,
+          "loadMs": 63.7,
+          "lcpMs": 208,
+          "domNodes": 205,
+          "js": {
+            "files": 16,
+            "rawKB": 661.8,
+            "transferredKB": 237.1
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 92.2,
+            "transferredKB": 22
+          },
+          "apiRequests": 3
+        }
+      ],
+      "messages": {
+        "sentMessages": 1000,
+        "firstBubbleMs": 1159,
+        "initial": {
+          "dom": 2652,
+          "items": 120
+        },
+        "expanded": {
+          "dom": 3702,
+          "items": 180
+        },
+        "showOlderClicks": 15
+      },
+      "drag": {
+        "workflowNodes": 200,
+        "renderedNodes": 48,
+        "domNodes": 1827,
+        "dragMs": 3096,
+        "mouseMoves": 48,
+        "frames": 153,
+        "avgFps": 49.6,
+        "p95FrameMs": 50,
+        "maxFrameMs": 66.7,
+        "framesOver50ms": 2
+      },
+      "heap": {
+        "series": [
+          {
+            "step": 0,
+            "page": "home",
+            "usedMB": 2.41,
+            "totalMB": 2.75
+          },
+          {
+            "step": 1,
+            "page": "tutorial",
+            "usedMB": 3.99,
+            "totalMB": 4.25
+          },
+          {
+            "step": 2,
+            "page": "workflow",
+            "usedMB": 5.58,
+            "totalMB": 6.25
+          },
+          {
+            "step": 3,
+            "page": "launch",
+            "usedMB": 6.76,
+            "totalMB": 7
+          },
+          {
+            "step": 4,
+            "page": "lab",
+            "usedMB": 6.61,
+            "totalMB": 7.25
+          },
+          {
+            "step": 5,
+            "page": "settings-general",
+            "usedMB": 6.71,
+            "totalMB": 7.5
+          },
+          {
+            "step": 6,
+            "page": "settings-connections",
+            "usedMB": 6.65,
+            "totalMB": 7.25
+          },
+          {
+            "step": 7,
+            "page": "settings-skills",
+            "usedMB": 6.9,
+            "totalMB": 7.5
+          },
+          {
+            "step": 8,
+            "page": "home",
+            "usedMB": 6.73,
+            "totalMB": 7.25
+          },
+          {
+            "step": 9,
+            "page": "tutorial",
+            "usedMB": 7.46,
+            "totalMB": 8
+          },
+          {
+            "step": 10,
+            "page": "workflow",
+            "usedMB": 7.13,
+            "totalMB": 7.75
+          },
+          {
+            "step": 11,
+            "page": "launch",
+            "usedMB": 7.88,
+            "totalMB": 8.5
+          },
+          {
+            "step": 12,
+            "page": "lab",
+            "usedMB": 7.55,
+            "totalMB": 8.5
+          },
+          {
+            "step": 13,
+            "page": "settings-general",
+            "usedMB": 7.61,
+            "totalMB": 8.5
+          },
+          {
+            "step": 14,
+            "page": "settings-connections",
+            "usedMB": 7.43,
+            "totalMB": 8
+          },
+          {
+            "step": 15,
+            "page": "settings-skills",
+            "usedMB": 7.61,
+            "totalMB": 8
+          },
+          {
+            "step": 16,
+            "page": "home",
+            "usedMB": 7.42,
+            "totalMB": 8
+          }
+        ],
+        "firstMB": 2.41,
+        "lastMB": 7.42,
+        "ratio": 3.08,
+        "steadyFirstMB": 6.73,
+        "steadyLastMB": 7.42,
+        "steadyRatio": 1.1
+      },
+      "mode": "production build (vite build + vite preview, no compression)",
+      "finishedAt": "2026-11-06T04:01:03.404Z",
+      "alerts": []
+    },
+    {
+      "startedAt": "2026-11-06T04:02:12.089Z",
+      "loads": [
+        {
+          "page": "home",
+          "url": "/",
+          "domContentLoadedMs": 55.7,
+          "loadMs": 57.1,
+          "lcpMs": 460,
+          "domNodes": 131,
+          "js": {
+            "files": 6,
+            "rawKB": 358,
+            "transferredKB": 122.1
+          },
+          "css": {
+            "files": 3,
+            "rawKB": 39.8,
+            "transferredKB": 11.4
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "tutorial",
+          "url": "/tutorial",
+          "domContentLoadedMs": 37.3,
+          "loadMs": 38.3,
+          "lcpMs": 104,
+          "domNodes": 1109,
+          "js": {
+            "files": 6,
+            "rawKB": 463.7,
+            "transferredKB": 168.1
+          },
+          "css": {
+            "files": 2,
+            "rawKB": 37.7,
+            "transferredKB": 9.9
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "workflow",
+          "url": "/workflows/zz_perf_small.yaml",
+          "domContentLoadedMs": 46.3,
+          "loadMs": 47.4,
+          "lcpMs": 824,
+          "domNodes": 375,
+          "js": {
+            "files": 18,
+            "rawKB": 691.1,
+            "transferredKB": 236.9
+          },
+          "css": {
+            "files": 9,
+            "rawKB": 76.3,
+            "transferredKB": 21.8
+          },
+          "apiRequests": 3
+        },
+        {
+          "page": "launch",
+          "url": "/launch",
+          "domContentLoadedMs": 48.5,
+          "loadMs": 50,
+          "lcpMs": 632,
+          "domNodes": 416,
+          "js": {
+            "files": 13,
+            "rawKB": 924.9,
+            "transferredKB": 319.3
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 152.4,
+            "transferredKB": 29.7
+          },
+          "apiRequests": 2
+        },
+        {
+          "page": "lab",
+          "url": "/lab",
+          "domContentLoadedMs": 47.5,
+          "loadMs": 47.6,
+          "lcpMs": 300,
+          "domNodes": 125,
+          "js": {
+            "files": 14,
+            "rawKB": 637.5,
+            "transferredKB": 228.3
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 78.3,
+            "transferredKB": 18.5
+          },
+          "apiRequests": 2
+        },
+        {
+          "page": "settings-general",
+          "url": "/settings/general",
+          "domContentLoadedMs": 46.1,
+          "loadMs": 47.3,
+          "lcpMs": 484,
+          "domNodes": 153,
+          "js": {
+            "files": 9,
+            "rawKB": 358.9,
+            "transferredKB": 124
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 35.5,
+            "transferredKB": 10.9
+          },
+          "apiRequests": 0
+        },
+        {
+          "page": "settings-connections",
+          "url": "/settings/connections",
+          "domContentLoadedMs": 40.2,
+          "loadMs": 41.3,
+          "lcpMs": 252,
+          "domNodes": 253,
+          "js": {
+            "files": 10,
+            "rawKB": 413.5,
+            "transferredKB": 140.9
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 54.7,
+            "transferredKB": 14.9
+          },
+          "apiRequests": 6
+        },
+        {
+          "page": "settings-skills",
+          "url": "/settings/skills",
+          "domContentLoadedMs": 51.6,
+          "loadMs": 53,
+          "lcpMs": 472,
+          "domNodes": 996,
+          "js": {
+            "files": 9,
+            "rawKB": 391.2,
+            "transferredKB": 132.3
+          },
+          "css": {
+            "files": 4,
+            "rawKB": 41.3,
+            "transferredKB": 12.1
+          },
+          "apiRequests": 1
+        },
+        {
+          "page": "lab-batch",
+          "url": "/lab?tab=batch",
+          "domContentLoadedMs": 46.4,
+          "loadMs": 47.8,
+          "lcpMs": 196,
+          "domNodes": 205,
+          "js": {
+            "files": 16,
+            "rawKB": 662.1,
+            "transferredKB": 237.2
+          },
+          "css": {
+            "files": 5,
+            "rawKB": 92.2,
+            "transferredKB": 22
+          },
+          "apiRequests": 3
+        }
+      ],
+      "messages": {
+        "sentMessages": 1000,
+        "firstBubbleMs": 1216,
+        "initial": {
+          "dom": 2617,
+          "items": 120
+        },
+        "expanded": {
+          "dom": 3667,
+          "items": 180
+        },
+        "showOlderClicks": 15
+      },
+      "drag": {
+        "workflowNodes": 200,
+        "renderedNodes": 48,
+        "domNodes": 1835,
+        "dragMs": 3048,
+        "mouseMoves": 48,
+        "frames": 160,
+        "avgFps": 53,
+        "p95FrameMs": 33.4,
+        "maxFrameMs": 50,
+        "framesOver50ms": 0
+      },
+      "heap": {
+        "series": [
+          {
+            "step": 0,
+            "page": "home",
+            "usedMB": 2.42,
+            "totalMB": 2.75
+          },
+          {
+            "step": 1,
+            "page": "tutorial",
+            "usedMB": 3.99,
+            "totalMB": 4.5
+          },
+          {
+            "step": 2,
+            "page": "workflow",
+            "usedMB": 5.59,
+            "totalMB": 6.25
+          },
+          {
+            "step": 3,
+            "page": "launch",
+            "usedMB": 6.61,
+            "totalMB": 7.25
+          },
+          {
+            "step": 4,
+            "page": "lab",
+            "usedMB": 6.58,
+            "totalMB": 7.5
+          },
+          {
+            "step": 5,
+            "page": "settings-general",
+            "usedMB": 6.7,
+            "totalMB": 7.5
+          },
+          {
+            "step": 6,
+            "page": "settings-connections",
+            "usedMB": 6.64,
+            "totalMB": 7.5
+          },
+          {
+            "step": 7,
+            "page": "settings-skills",
+            "usedMB": 6.89,
+            "totalMB": 7.5
+          },
+          {
+            "step": 8,
+            "page": "home",
+            "usedMB": 6.72,
+            "totalMB": 7.25
+          },
+          {
+            "step": 9,
+            "page": "tutorial",
+            "usedMB": 7.44,
+            "totalMB": 8
+          },
+          {
+            "step": 10,
+            "page": "workflow",
+            "usedMB": 7.12,
+            "totalMB": 7.5
+          },
+          {
+            "step": 11,
+            "page": "launch",
+            "usedMB": 7.74,
+            "totalMB": 8.5
+          },
+          {
+            "step": 12,
+            "page": "lab",
+            "usedMB": 7.54,
+            "totalMB": 8
+          },
+          {
+            "step": 13,
+            "page": "settings-general",
+            "usedMB": 7.59,
+            "totalMB": 8
+          },
+          {
+            "step": 14,
+            "page": "settings-connections",
+            "usedMB": 7.41,
+            "totalMB": 7.75
+          },
+          {
+            "step": 15,
+            "page": "settings-skills",
+            "usedMB": 7.59,
+            "totalMB": 8
+          },
+          {
+            "step": 16,
+            "page": "home",
+            "usedMB": 7.4,
+            "totalMB": 7.75
+          }
+        ],
+        "firstMB": 2.42,
+        "lastMB": 7.4,
+        "ratio": 3.06,
+        "steadyFirstMB": 6.72,
+        "steadyLastMB": 7.4,
+        "steadyRatio": 1.1
+      },
+      "mode": "production build (vite build + vite preview, no compression)",
+      "finishedAt": "2026-11-06T04:03:31.074Z",
+      "alerts": []
     }
   ]
 }

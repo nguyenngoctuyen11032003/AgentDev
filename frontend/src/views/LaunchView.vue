@@ -851,10 +851,17 @@
           </div>
         </div>
 
-        <div v-show="viewMode === 'graph'" class="graph-panel graph-flow-panel" :style="insetStyle">
-          <VueFlow class="vueflow-graph">
+        <div v-if="visitedViews.graph" v-show="viewMode === 'graph'" class="graph-panel graph-flow-panel" :style="insetStyle">
+          <div v-if="!graphParts" class="graph-parts-state" :role="graphPartsFailed ? 'alert' : 'status'">
+            <template v-if="graphPartsFailed">
+              <p>{{ $t('common.lazy.load_failed') }}</p>
+              <button type="button" class="graph-tool graph-parts-retry" @click="loadGraphParts">{{ $t('common.retry') }}</button>
+            </template>
+            <p v-else>{{ $t('common.lazy.loading') }}</p>
+          </div>
+          <VueFlow v-else class="vueflow-graph">
             <template #node-workflow-node="props">
-              <WorkflowNode
+              <component :is="graphParts.WorkflowNode"
                 :id="props.id"
                 :data="props.data"
                 :is-active="activeNodes.includes(props.id)"
@@ -864,10 +871,10 @@
               />
             </template>
             <template #node-start-node="props">
-              <StartNode :id="props.id" :data="props.data" />
+              <component :is="graphParts.StartNode" :id="props.id" :data="props.data" />
             </template>
             <template #edge-workflow-edge="props">
-              <WorkflowEdge
+              <component :is="graphParts.WorkflowEdge"
                 :id="props.id"
                 :source="props.source"
                 :target="props.target"
@@ -883,7 +890,7 @@
                 :hovered-node-id="hoveredNodeId"
               />
             </template>
-            <Background pattern-color="var(--canvas-dot)"/>
+            <component :is="graphParts.Background" pattern-color="var(--canvas-dot)"/>
           </VueFlow>
           <!-- Its own bar above the canvas: the zoom controls never sit on a node -->
           <div class="graph-bar">
@@ -1051,11 +1058,13 @@
   </Transition>
 
   <SettingsModal
+    v-if="showSettingsModal || settingsModalSeen"
     :is-visible="showSettingsModal"
     @update:is-visible="showSettingsModal = $event"
   />
 
   <LocalFolderPicker
+    v-if="showFolderPicker || folderPickerSeen"
     :open="showFolderPicker"
     :busy="isOpeningFolder"
     :hint="folderPickerHint"
@@ -1065,19 +1074,20 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
+import { ref, reactive, shallowRef, computed, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, postWorkflowExecute, sessionOutputsSummary } from '@/api/client.js'
+import { lazyPanel } from '@/components/common/lazyPanel.js'
 import { WINDOW, openAtLatest, showOlder, showNewer, onLengthChange, revealIndex, sliceWindow, hiddenOlder, hiddenNewer, followTail } from '@/utils/messageWindow.js'
 import { collectDroppedItems } from '@/utils/projectFiles.js'
-import LocalFolderPicker from '@/components/launch/LocalFolderPicker.vue'
+const LocalFolderPicker = lazyPanel(() => import('@/components/launch/LocalFolderPicker.vue'), { overlay: true })
 import OutputLocation from '@/components/launch/OutputLocation.vue'
-import ProductsView from '@/components/launch/ProductsView.vue'
+const ProductsView = lazyPanel(() => import('@/components/launch/ProductsView.vue'))
 import { formatBytes } from '@/utils/labOutputs.js'
-import KanbanView from '@/components/launch/KanbanView.vue'
-import DashboardView from '@/components/launch/DashboardView.vue'
-import ReviewView from '@/components/launch/ReviewView.vue'
+const KanbanView = lazyPanel(() => import('@/components/launch/KanbanView.vue'))
+const DashboardView = lazyPanel(() => import('@/components/launch/DashboardView.vue'))
+const ReviewView = lazyPanel(() => import('@/components/launch/ReviewView.vue'))
 import { createRunTracker, usageTotals, formatCost, stepStatus } from '@/utils/runTracker.js'
 import StatusPill from '@/components/launch/StatusPill.vue'
 import LiveProgress from '@/components/launch/chat/LiveProgress.vue'
@@ -1116,7 +1126,7 @@ import {
 import { buildSocketUrl, createClientId, createIncomingQueue, createReconnector, parseSocketFrame } from '@/composables/useLaunchSocket.js'
 import { useLaunchLayout, useChatColumn, CHAT_MIN_W, CHAT_MAX_W, CHAT_DEFAULT_W } from '@/composables/useLaunchLayout.js'
 import { readStorage, writeStorage } from '@/views/launch/layoutStorage.js'
-import SettingsModal from '@/components/common/SettingsModal.vue'
+const SettingsModal = lazyPanel(() => import('@/components/common/SettingsModal.vue'), { overlay: true })
 // Markdown rendering lives in useMarkdown(); it is wired up after useI18n() below
 
 // Intl.DateTimeFormat is expensive to create; keep one per locale
@@ -1141,12 +1151,8 @@ const formatTime = (timestamp) => {
   return getTimeFormatter(dateLocale).format(new Date(timestamp)) // HH:mm:ss
 }
 import { VueFlow, useVueFlow, MarkerType, getRectOfNodes } from '@vue-flow/core'
-import { Background } from '@vue-flow/background'
 import '@vue-flow/core/dist/style.css'
 import '@/assets/styles/vueflow.css'
-import WorkflowNode from '@/components/workflow/WorkflowNode.vue'
-import WorkflowEdge from '@/components/workflow/WorkflowEdge.vue'
-import StartNode from '@/components/workflow/StartNode.vue'
 import CollapsibleMessage from '@/components/common/CollapsibleMessage.vue'
 // Ticking durations render themselves; the chat list no longer re-renders every second.
 import LiveDuration from '@/components/common/LiveDuration.js'
@@ -2064,6 +2070,9 @@ let dragDepth = 0
 // WebSocket readiness state
 const isConnectionReady = ref(false)
 const showSettingsModal = ref(false)
+// Modals are separate chunks: mount on first open, then keep (closing animation, state)
+const settingsModalSeen = ref(false)
+watch(showSettingsModal, (open) => { if (open) settingsModalSeen.value = true })
 
 // View mode: 'chat' | 'graph' | 'office'
 const viewMode = ref('chat')
@@ -2078,9 +2087,27 @@ const isRightPanelOpen = ref(true)
 const runTracker = createRunTracker()
 const workflowTitle = computed(() => (selectedFile.value ? selectedFile.value.replace(/\.ya?ml$/i, '') : ''))
 // Mounted on first use only, then kept so switching views is instant
-const visitedViews = reactive({ board: false, dashboard: false, review: false, products: false })
+// Node, edge and background components of the graph tab load with the first visit to that tab
+const graphParts = shallowRef(null)
+const graphPartsFailed = ref(false)
+const loadGraphParts = () => {
+  graphPartsFailed.value = false
+  Promise.all([
+    import('@/components/workflow/WorkflowNode.vue'),
+    import('@/components/workflow/WorkflowEdge.vue'),
+    import('@/components/workflow/StartNode.vue'),
+    import('@vue-flow/background')
+  ]).then(
+    ([node, edge, start, bg]) => {
+      graphParts.value = { WorkflowNode: node.default, WorkflowEdge: edge.default, StartNode: start.default, Background: bg.Background }
+    },
+    () => { graphPartsFailed.value = true }
+  )
+}
+const visitedViews = reactive({ graph: false, board: false, dashboard: false, review: false, products: false })
 watch(viewMode, (mode) => {
   if (mode in visitedViews) visitedViews[mode] = true
+  if (mode === 'graph' && !graphParts.value) loadGraphParts()
 }, { immediate: true })
 // Outside the chat the control panel is a drawer over the view: after picking a view, get it
 // out of the way (the "Bảng điều khiển" button in the header brings it back).
@@ -3452,6 +3479,8 @@ const onAttachmentSelected = async (event) => {
 // (served by the local backend, so the browser never asks for file access) and the
 // agents then work directly in the chosen folder; nothing is uploaded.
 const showFolderPicker = ref(false)
+const folderPickerSeen = ref(false)
+watch(showFolderPicker, (open) => { if (open) folderPickerSeen.value = true })
 const isOpeningFolder = ref(false)
 // Name of a folder dropped on the chat: the picker points it out when it shows up
 const folderPickerHint = ref('')

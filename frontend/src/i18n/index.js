@@ -31,7 +31,9 @@ const i18n = createI18n({
   globalInjection: true,
   // Missing keys are expected while the 'en' fallback is still loading.
   missingWarn: false,
-  fallbackWarn: false
+  fallbackWarn: false,
+  // First missing key: fetch the 'en' fallback once; the UI re-renders when it lands.
+  missing: () => { loadLocaleMessages('en').catch(() => {}) }
 })
 
 const pending = new Map()
@@ -58,15 +60,12 @@ export async function setLocale(lang) {
 }
 
 /**
- * Load what the first render needs. The fallback ('en') only matters for keys
- * missing from the active locale, so it is fetched in the background.
+ * Load what the first render needs. The fallback ('en') is NOT fetched up front:
+ * check-i18n keeps the locales in sync, so it is only pulled in (see `missing`
+ * above) the first time a key is absent from the active locale.
  */
 export function initI18n() {
-  const ready = loadLocaleMessages(savedLanguage)
-  if (savedLanguage !== 'en') {
-    ready.then(() => loadLocaleMessages('en')).catch(() => {})
-  }
-  return ready
+  return loadLocaleMessages(savedLanguage)
 }
 
 export default i18n

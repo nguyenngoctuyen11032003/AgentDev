@@ -67,6 +67,10 @@
     "theme_system": "Hệ thống"
   },
   "common": {
+    "lazy": {
+      "loading": "Đang tải...",
+      "load_failed": "Không tải được phần này. Kiểm tra kết nối mạng rồi thử lại; nếu vẫn lỗi, hãy tải lại trang."
+    },
     "cancel": "Hủy",
     "save": "Lưu",
     "submit": "Xác nhận",

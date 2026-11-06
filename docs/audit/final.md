@@ -165,3 +165,19 @@ A/B thật `bugfix_team`, Haiku, task a, xen kẽ, n = 4 mỗi bên, bật cả 
 | Chi phí TB | 0,0132 USD | 0,0112 USD |
 
 n = 4 không đủ kết luận (lượt hỏng của nhánh tắt là lỗi lead dừng sớm đã biết ở mục 9; hai lượt hỏng nhánh bật chưa điều tra nguyên nhân). Quyết định: **giữ cả bốn cờ TẮT** cho tới khi có A/B n >= 20 mỗi bên; `PARALLEL_READS` là ứng viên bật đầu tiên (đã chứng minh bằng test, rủi ro thấp nhất). Chi tiêu thật mục 11: khoảng 0,22 USD, 9 lượt (1 lời gọi kiểm env var 0,127 USD do chạy ở thư mục có ngữ cảnh lớn + 8 lượt A/B 0,095 USD), dưới trần 24 lượt / 1,0 USD. Test backend đầy đủ: 1804 passed, 18 skipped.
+
+## 13. Giảm JS theo route (`npm run perf`, lần 10 = trước, lần 13 = sau)
+
+Cách làm: (1) locale `en` chỉ là dự phòng, không tải lúc khởi động nữa mà tải một lần khi gặp khóa thiếu (`missing` trong `src/i18n/index.js`, test `lazyFallback.test.js`; `check-i18n` bảo đảm vi/en/zh không lệch); (2) `components/common/lazyPanel.js`: import động có trạng thái đang tải, lỗi kèm nút "Thử lại" (khóa `common.lazy.*`, vi/en/zh) cho KanbanView, DashboardView, ReviewView, ProductsView, SettingsModal, LocalFolderPicker (Chạy), FormGenerator, DepartmentTemplatePicker, WorkflowAssistantPanel (Quy trình); (3) tab Đồ thị của Chạy chỉ nạp WorkflowNode/Edge/StartNode/Background khi mở tab lần đầu (có trạng thái tải/lỗi/thử lại). Không đổi `updateMessage`, `RUN_STATUS`; `manualChunks` giữ nguyên (vendor đã tách).
+
+| Route | JS thô trước | JS thô sau | Truyền trước | Truyền sau | CSS thô trước -> sau | LCP (lần cuối) trước -> sau |
+|---|---|---|---|---|---|---|
+| `/` | 499,9 KB | 358,0 KB | 171,0 | 122,1 | 39,2 -> 39,8 | 492 -> 460 ms |
+| `/tutorial` | 605,6 KB | 463,7 KB | 217,0 | 168,1 | 37,1 -> 37,7 | 140 -> 104 ms |
+| `/workflows/:name` | 1.042,8 KB | 691,1 KB | 357,9 | 236,9 | 134,9 -> 76,3 | 628 -> 824 ms (dao động 476-824 ở các lần trước) |
+| `/launch` | 1.220,8 KB | 924,9 KB | 414,8 | 319,3 | 238,7 -> 152,4 | 832 -> 632 ms |
+| `/lab` | 779,2 KB | 637,5 KB | 276,1 | 228,3 | 77,7 -> 78,3 | 412 -> 300 ms |
+| `/settings/*` | 500,9-555,5 KB | 358,9-413,5 KB | 172,9-189,4 | 124,0-140,9 | không đổi đáng kể | cùng khoảng |
+| `/lab?tab=batch` | 803,8 KB | 662,1 KB | 285,0 | 237,2 | 91,6 -> 92,2 | 180 -> 196 ms |
+
+Kết quả: mọi route dưới 700 KB JS thô trừ `/launch` (925 KB, giảm 24%). `/launch` còn: LaunchView 234, vi 176, vue-flow 160, markdown-it 107, vue 104, i18n 53, yaml 39 KB; hết đường lui an toàn vì vue-flow store (`useVueFlow`) nằm trong script 6k dòng, markdown-it được gọi đồng bộ trong chat, OfficeView phải gắn từ đầu để nhận sự kiện. Việc kế tiếp nếu cần: tách đồ thị ra component riêng, hoặc tách locale theo namespace. LCP dao động theo máy (workflow 476-824 ms trong cả lịch sử), không thấy hồi quy rõ. Kiểm tra: `npm test` 167 pass, lint sạch, build ok, check-i18n ok, e2e `--grep-invert perf` 151 pass / 1 skipped (gồm 48 ảnh chụp thị giác, không đổi ảnh nào), `e2e:axe` 32 pass.
