@@ -21,6 +21,8 @@
         >
           <option value="" disabled>{{ loading ? $t('launch.loading') : $t('launch.select_yaml') }}</option>
           <option v-for="workflow in workflowFiles" :key="workflow.name" :value="workflow.name">{{ workflow.name.replace(/\.ya?ml$/i, '') }}</option>
+          <!-- The session's workflow was deleted or renamed: still name it instead of an empty box -->
+          <option v-if="isSelectedMissing" :value="selectedFile" disabled>{{ $t('launch.workflow_missing_option', { name: selectedFile.replace(/\.ya?ml$/i, '') }) }}</option>
         </BaseSelect>
       </div>
       <template v-if="selectedDescription">
@@ -118,7 +120,7 @@
 // The Launch view's control panel: workflow picker and description, run facts, the team of
 // the run, recent activity and the log export. Lives in a column (chat view), a drawer
 // (other views) or a bottom sheet (narrow); the parent decides where and when it shows.
-import { ref, watch, nextTick, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSkeleton from '@/components/ui/BaseSkeleton.vue'
@@ -159,6 +161,9 @@ const { t, te } = useI18n()
 // Translated text, or the Vietnamese fallback while a locale lacks the key
 const trl = (key, fallback) => (te(key) ? t(key) : fallback)
 
+const isSelectedMissing = computed(() =>
+  Boolean(props.selectedFile) && props.workflowFiles.length > 0 && !props.workflowFiles.some((item) => item.name === props.selectedFile)
+)
 // The workflow picker's box: the parent focuses its <select> (see focusWorkflowPicker)
 const picker = ref(null)
 defineExpose({ picker })

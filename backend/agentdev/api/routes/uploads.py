@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from agentdev.api.services.local_projects import opened_project_folder
+from agentdev.api.services.local_projects import FolderNotFoundError, opened_project_folder
 from agentdev.api.state import ensure_known_session, get_websocket_manager
 from agentdev.connections.security import require_local_origin
 from agentdev.utils.exceptions import ValidationError
@@ -38,6 +38,52 @@ async def upload_attachment(session_id: str, file: UploadFile = File(...)):
         "name": ref.name,
         "mime_type": ref.mime_type,
         "size": ref.size,
+    }
+
+
+class WebReferenceRequest(BaseModel):
+    # Exactly one: a page to read, or a query to search for
+    url: Optional[str] = None
+    query: Optional[str] = None
+    language: Optional[str] = None
+
+
+@router.post("/api/uploads/{session_id}/web")
+async def add_web_reference(session_id: str, request: WebReferenceRequest):
+    """Read a web page (or search the web) and attach the text to the next message."""
+    from agentdev.api.services import web_reference
+
+    service = _attachment_service(session_id)
+    if bool(request.url) == bool(request.query):
+        raise HTTPException(status_code=400, detail="Send either a url or a query")
+    try:
+        if request.url:
+            name, markdown, url = await asyncio.to_thread(web_reference.read_page, request.url)
+            extra = {"source": "web_page", "kind": "web", "url": url}
+        else:
+            name, markdown = await asyncio.to_thread(
+                web_reference.search, request.query, language=request.language or "en"
+            )
+            extra = {"source": "web_search", "kind": "web_search", "query": request.query}
+        record = await asyncio.to_thread(
+            service.register_web_reference, session_id, markdown, display_name=name, extra=extra
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        get_server_logger().error(
+            "Failed to add web reference", log_type=LogType.REQUEST, session_id=session_id, error=str(exc)
+        )
+        raise HTTPException(status_code=502, detail="Could not reach the web")
+    ref = record.ref
+    return {
+        "attachment_id": ref.attachment_id,
+        "name": ref.name,
+        "mime_type": ref.mime_type,
+        "size": ref.size,
+        "kind": extra["kind"],
+        "url": extra.get("url", ""),
+        "query": extra.get("query", ""),
     }
 
 
@@ -81,6 +127,8 @@ def _attachment_service(session_id: str):
 
 
 def _project_failure(session_id: str, action: str, exc: Exception) -> HTTPException:
+    if isinstance(exc, FolderNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, ValidationError):
         return HTTPException(status_code=400, detail=str(exc))
     get_server_logger().error(

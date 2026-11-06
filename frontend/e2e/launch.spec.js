@@ -82,3 +82,38 @@ test('launch: the session list keeps the run and can open it again', async ({ pa
   await row.click()
   await expect(page).toHaveURL(new RegExp(`session=${session}`))
 })
+
+test('launch: the + menu adds images and web links; a private address is refused with a hint', async ({ page, guard }) => {
+  guard.allow(/http 400: POST .*\/web$/)
+  guard.allow(/Failed to load resource.*400/)
+  await page.goto(`/launch?workflow=${WORKFLOW_FILE}`)
+  await expect(composer(page)).toBeVisible()
+  // The "results are saved in this session's folder" bar is gone from the chat column
+  await expect(page.locator('.output-loc')).toHaveCount(0)
+  const plus = page.locator('.attach-menu-wrap .composer-icon-btn')
+  await expect(plus).toBeEnabled({ timeout: 30_000 })
+  await plus.click()
+  const menu = page.locator('.attach-menu[role="menu"]')
+  for (const label of ['Thêm hình ảnh', 'Thêm link web', 'Tra cứu web']) {
+    await expect(menu.getByRole('menuitem', { name: label })).toBeVisible()
+  }
+  await menu.getByRole('menuitem', { name: 'Thêm link web' }).click()
+  const input = page.locator('#attach-web-input')
+  await expect(input).toBeFocused()
+  await input.fill('http://127.0.0.1:9/')
+  await page.locator('.attach-web').getByRole('button', { name: 'Thêm' }).click()
+  // 400 is the expected answer here, not an app error
+  await expect(page.locator('.attach-web-error')).toContainText(/private|nội bộ|local/i, { timeout: 30_000 })
+  await expect(page.locator('.attachment-chip')).toHaveCount(0)
+  await input.press('Escape')
+  await expect(page.locator('.attach-web')).toHaveCount(0)
+})
+
+test('launch: a workflow that no longer exists blocks sending and says how to fix it', async ({ page, guard }) => {
+  guard.allow(/zz_deleted_e2e_missing/)
+  guard.allow(/Failed to load (YAML|resource)/)
+  await page.goto('/launch?workflow=zz_deleted_e2e_missing.yaml')
+  await expect(page.locator('.composer-hint')).toContainText('không còn tồn tại', { timeout: 30_000 })
+  await expect(page.locator('.composer-hint-action')).toBeVisible()
+  await expect(page.getByText('Lượt trước bị gián đoạn')).toHaveCount(0)
+})

@@ -514,7 +514,9 @@
       "project_missing": "No copy of project {name} is left on the server. The new session opens without it; add the folder again if needed.",
       "project_workflow_hint": "This is project {name}'s own workflow; other projects keep theirs.",
       "workflow_locked_hint": "This session ran with the workflow above. Picking another one opens a new session (same project).",
-      "load_error": "Couldn't load sessions."
+      "load_error": "Couldn't load sessions.",
+      "project_folder_missing": "The folder of project {name} is no longer where it was (deleted or moved). The new session opened without the project.",
+      "project_folder_pick": "Choose another folder"
     },
     "title": "Launch",
     "collapse_chat": "Collapse chat",
@@ -628,7 +630,8 @@
     "composer": {
       "pick_workflow": "Choose a workflow before sending a message.",
       "pick_workflow_action": "Choose workflow",
-      "connecting": "Connecting to the server..."
+      "connecting": "Connecting to the server...",
+      "workflow_missing": "This session's workflow \"{name}\" no longer exists. Pick another workflow to open a new session."
     },
     "unknown_node": "Unknown node",
     "unknown_name": "unknown",
@@ -719,7 +722,8 @@
         "session_not_found": "This session no longer exists on the server.",
         "invalid_input": "The message is not valid.",
         "message_failed": "The server could not process the message. Please try again."
-      }
+      },
+      "workflow_missing": "Workflow \"{name}\" no longer exists (deleted or renamed). Pick another workflow to continue."
     },
     "input_from_header": "— Input from {source} ({role}) —",
     "input_source_task": "task",
@@ -1203,7 +1207,19 @@
         "desc": "Answers every question and approval step automatically. Paid steps (such as a Veo video render) still never run on their own."
       }
     },
-    "close_image": "Close image"
+    "close_image": "Close image",
+    "workflow_missing_option": "{name} (no longer exists)",
+    "attach": {
+      "image": "Add image",
+      "link": "Add web link",
+      "link_hint": "The team reads this page (for example to pull information from it or build something similar).",
+      "link_placeholder": "https://example.com/page",
+      "search": "Search the web",
+      "search_hint": "Searches the web and sends the results (title, link, snippet) to the team.",
+      "search_placeholder": "What do you want to find?",
+      "adding": "Reading…",
+      "add": "Add"
+    }
   },
   "form_generator": {
     "advanced_settings": "Advanced Settings",
@@ -1686,7 +1702,8 @@
       "sessions_failed": "Failed to load sessions",
       "skills_failed": "Skill library request failed",
       "lab_failed": "Lab request failed",
-      "delete_workflow_failed": "Could not delete the workflow."
+      "delete_workflow_failed": "Could not delete the workflow.",
+      "web_reference_failed": "Could not read the web page. Check the address (public http/https pages only) and try again."
     },
     "backend": {
       "technical": "Technical details: {detail}",

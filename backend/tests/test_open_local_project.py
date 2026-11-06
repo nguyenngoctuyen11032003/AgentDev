@@ -132,3 +132,14 @@ def test_browse_api_blocks_other_websites(project):
         "/api/local-folders", params={"path": str(project)}, headers={"Origin": "https://evil.example"}
     )
     assert blocked.status_code == 403
+
+
+def test_missing_folder_is_reported_as_404_so_the_ui_can_offer_another(tmp_path):
+    from agentdev.api.routes.uploads import _project_failure
+    from agentdev.api.services.local_projects import FolderNotFoundError
+
+    service = AttachmentService(root=tmp_path / "warehouse")
+    with pytest.raises(FolderNotFoundError) as caught:
+        service.open_local_project(SESSION, str(tmp_path / "gone"))
+    assert _project_failure(SESSION, "open", caught.value).status_code == 404
+    assert _project_failure(SESSION, "open", ValidationError("bad", field="path")).status_code == 400

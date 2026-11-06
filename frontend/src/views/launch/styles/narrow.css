@@ -15,7 +15,7 @@
   .chat-header-btn { width: 40px; height: 40px; }
   .composer-icon-btn,
   .composer-send { width: 40px; height: 40px; }
-  .attach-menu-item { min-height: 44px; }
+  .attach-menu-item, .attach-web-btn, .attach-web-input { min-height: 44px; }
 
   .sessions-drawer.is-drawer {
     position: fixed;

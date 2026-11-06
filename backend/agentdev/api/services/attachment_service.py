@@ -611,6 +611,26 @@ class AttachmentService:
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def register_web_reference(
+        self, session_id: str, markdown: str, *, display_name: str, extra: Dict[str, Any]
+    ) -> AttachmentRecord:
+        """Save a fetched web page / search result as an upload of this session (the agents receive it)."""
+        self._session_attachments_path(session_id, create=False)
+        temp_dir = Path(tempfile.mkdtemp(prefix="mac_web_"))
+        temp_path = temp_dir / "WEB.md"
+        try:
+            temp_path.write_text(markdown, encoding="utf-8")
+            store = self.get_attachment_store(session_id)
+            return store.register_file(
+                temp_path,
+                kind=MessageBlockType.FILE,
+                display_name=display_name,
+                mime_type="text/markdown",
+                extra={**extra, "origin": "web_upload", "session_id": session_id},
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def open_local_project(self, session_id: str, folder: str, *, current_folder: Optional[str] = None) -> AttachmentRecord:
         """Open a folder on this machine in place, like "Open Folder" in an editor.
 

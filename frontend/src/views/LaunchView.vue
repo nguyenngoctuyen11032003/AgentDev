@@ -651,17 +651,11 @@
               <p v-if="composerHint" class="composer-hint">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12.5"></line><circle cx="12" cy="16" r="0.6" fill="currentColor"></circle></svg>
                 <span>{{ composerHint }}</span>
-                <button v-if="!selectedFile && !loading && chatMessages.length" type="button" class="composer-hint-action" @click="focusWorkflowPicker">
+                <button v-if="(!selectedFile || missingWorkflow) && !loading && (chatMessages.length || missingWorkflow)" type="button" class="composer-hint-action" @click="focusWorkflowPicker">
                   {{ $t('launch.composer.pick_workflow_action') }}
                 </button>
               </p>
               </div>
-              <!-- Only while no project is open: tell where results will be saved (with a project open that is obvious) -->
-              <OutputLocation
-                v-if="!currentProjectName"
-                :session-id="activeSessionId"
-                @choose="handleFolderButtonClick({ newSession: !activeSessionId })"
-              />
               <!-- The last run stopped before it finished: one click continues it with what it already did -->
               <p v-if="canResumeRun" class="composer-hint" role="status">
                 <span>{{ $t('launch.resume.banner') }}</span>
@@ -712,7 +706,7 @@
                     v-for="attachment in uploadedAttachments"
                     :key="attachment.attachmentId"
                     class="attachment-chip"
-                    :title="attachment.kind === 'project' ? attachment.workspacePath : attachment.name"
+                    :title="attachment.kind === 'project' ? attachment.workspacePath : (attachment.url || attachment.query || attachment.name)"
                   >
                     <img
                       v-if="attachmentPreviews[attachment.attachmentId]"
@@ -770,7 +764,7 @@
                       aria-haspopup="menu"
                       :aria-expanded="showAttachMenu"
                       :disabled="!isConnectionReady || !sessionId || isUploadingAttachment || isStopping || (isWorkflowRunning && !isWaitingForInput)"
-                      @click="showAttachMenu = !showAttachMenu"
+                      @click="toggleAttachMenu"
                     >
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -778,21 +772,67 @@
                       </svg>
                     </button>
                     <Transition name="attachment-popover">
-                      <div v-if="showAttachMenu" class="attach-menu" role="menu">
+                      <div v-if="showAttachMenu && !webForm" class="attach-menu" role="menu">
                         <button type="button" class="attach-menu-item" role="menuitem" @click="pickAttachmentFile">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                           {{ $t('launch.upload_file') }}
+                        </button>
+                        <button type="button" class="attach-menu-item" role="menuitem" @click="pickAttachmentImage">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                          {{ $t('launch.attach.image') }}
                         </button>
                         <button type="button" class="attach-menu-item" role="menuitem" :title="$t('launch.upload_folder_hint')" @click="pickAttachmentFolder">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                           {{ $t('launch.upload_folder') }}
                         </button>
+                        <div class="attach-menu-sep" role="separator"></div>
+                        <button type="button" class="attach-menu-item" role="menuitem" :title="$t('launch.attach.link_hint')" @click="openWebForm('url')">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                          {{ $t('launch.attach.link') }}
+                        </button>
+                        <button type="button" class="attach-menu-item" role="menuitem" :title="$t('launch.attach.search_hint')" @click="openWebForm('search')">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                          {{ $t('launch.attach.search') }}
+                        </button>
                       </div>
+                      <!-- Add a web page / search the web: the server reads it and attaches the text -->
+                      <form v-else-if="showAttachMenu && webForm" class="attach-menu attach-web" @submit.prevent="submitWebForm">
+                        <label class="attach-web-label" for="attach-web-input">
+                          {{ webForm === 'url' ? $t('launch.attach.link') : $t('launch.attach.search') }}
+                        </label>
+                        <input
+                          id="attach-web-input"
+                          ref="webInputRef"
+                          v-model="webInput"
+                          class="attach-web-input"
+                          :type="webForm === 'url' ? 'url' : 'search'"
+                          :placeholder="webForm === 'url' ? $t('launch.attach.link_placeholder') : $t('launch.attach.search_placeholder')"
+                          :disabled="isAddingWeb"
+                          autocomplete="off"
+                          @keydown.esc.prevent="closeWebForm"
+                        />
+                        <p class="attach-web-note">{{ webForm === 'url' ? $t('launch.attach.link_hint') : $t('launch.attach.search_hint') }}</p>
+                        <p v-if="webError" class="attach-web-error" role="alert">{{ webError }}</p>
+                        <div class="attach-web-actions">
+                          <button type="button" class="attach-web-btn" :disabled="isAddingWeb" @click="closeWebForm">{{ $t('common.cancel') }}</button>
+                          <button type="submit" class="attach-web-btn is-primary" :disabled="isAddingWeb || !webInput.trim()">
+                            {{ isAddingWeb ? $t('launch.attach.adding') : $t('launch.attach.add') }}
+                          </button>
+                        </div>
+                      </form>
                     </Transition>
                   </div>
                   <input
                     ref="attachmentInputRef"
                     type="file"
+                    multiple
+                    class="hidden-file-input"
+                    @change="onAttachmentSelected"
+                  />
+                  <input
+                    ref="imageInputRef"
+                    type="file"
+                    accept="image/*"
                     multiple
                     class="hidden-file-input"
                     @change="onAttachmentSelected"
@@ -1077,12 +1117,11 @@
 import { ref, reactive, shallowRef, computed, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, postWorkflowExecute, sessionOutputsSummary } from '@/api/client.js'
+import { checkWorkflowConnections, fetchWorkflowsWithDesc, fetchLogsZip, fetchWorkflowYAML, postFile, getAttachment, fetchVueGraph, saveSessionReview, renameSession, deleteSession, updateSessionWorkflow, cloneProjectIntoSession, openLocalProject, openLocalProjectFile, postWorkflowExecute, sessionOutputsSummary, addWebReference } from '@/api/client.js'
 import { lazyPanel } from '@/components/common/lazyPanel.js'
 import { WINDOW, openAtLatest, showOlder, showNewer, onLengthChange, revealIndex, sliceWindow, hiddenOlder, hiddenNewer, followTail } from '@/utils/messageWindow.js'
 import { collectDroppedItems } from '@/utils/projectFiles.js'
 const LocalFolderPicker = lazyPanel(() => import('@/components/launch/LocalFolderPicker.vue'), { overlay: true })
-import OutputLocation from '@/components/launch/OutputLocation.vue'
 const ProductsView = lazyPanel(() => import('@/components/launch/ProductsView.vue'))
 import { formatBytes } from '@/utils/labOutputs.js'
 const KanbanView = lazyPanel(() => import('@/components/launch/KanbanView.vue'))
@@ -1121,7 +1160,8 @@ import {
   isCancelRequestLog,
   handoffOf,
   completionNotice,
-  errorKind
+  errorKind,
+  isEchoOfLastReply
 } from '@/views/launch/launchEvents.js'
 import { buildSocketUrl, createClientId, createIncomingQueue, createReconnector, parseSocketFrame } from '@/composables/useLaunchSocket.js'
 import { useLaunchLayout, useChatColumn, CHAT_MIN_W, CHAT_MAX_W, CHAT_DEFAULT_W } from '@/composables/useLaunchLayout.js'
@@ -2251,6 +2291,9 @@ const EMPTY_SUGGESTION_KEYS = [
 // Why the composer cannot send yet; the old Run button's disabled reasons live here now
 const composerHint = computed(() => {
   if (!selectedFile.value) return loading.value ? '' : t('launch.composer.pick_workflow')
+  if (missingWorkflow.value && !isWorkflowRunning.value) {
+    return t('launch.composer.workflow_missing', { name: missingWorkflow.value.replace(/\.ya?ml$/i, '') })
+  }
   if (!isWorkflowRunning.value && !isRunFinished.value && !isConnectionReady.value && !isReconnecting.value) {
     return t('launch.composer.connecting')
   }
@@ -2743,6 +2786,7 @@ const approvePlan = () => {
 }
 // A run that was stopped or failed can be continued: the backend resumes from its saved progress
 const canResumeRun = computed(() => {
+  if (missingWorkflow.value) return false
   if (loading.value || isStopping.value || isAwaitingPlan.value || !isRunFinished.value) return false
   if ([RUN_STATUS.CANCELLED, RUN_STATUS.ERROR, RUN_STATUS.FAILED].includes(status.value)) return true
   return Boolean(sessions.value.find((s) => s.session_id === activeSessionId.value)?.resumable)
@@ -2895,6 +2939,8 @@ const recallLastPrompt = (event) => {
 // Chip icon by kind: project folder, video, audio, archive, any other file
 const attachmentIcon = (attachment) => {
   if (attachment.kind === 'project') return '📁'
+  if (attachment.kind === 'web') return '🌐'
+  if (attachment.kind === 'web_search') return '🔎'
   const ext = String(attachment.name || '').split('.').pop().toLowerCase()
   if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(ext)) return '🎬'
   if (['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(ext)) return '🎵'
@@ -2918,18 +2964,24 @@ const composerPlaceholder = computed(() => {
 })
 
 // The question the run is waiting on (the latest one an agent asked), pinned above the composer
+// The message holding the open question (set when the run asks; see human_input_required)
+const askedMessage = shallowRef(null)
+const questionView = (message) => {
+  const text = String(message.text || '').trim()
+  // Clamped to three lines; longer ones get a "show more"
+  const isLong = text.length > 180 || text.split('\n').length > 3
+  return { name: getDisplayName(message), text, isLong }
+}
 const pendingQuestion = computed(() => {
   if (!isWaitingForInput.value) return null
   const list = chatMessages.value
+  // A note you sent while the lead worked may sit below its question: the question still counts
+  const asked = askedMessage.value
+  if (asked?.isQuestion && list.includes(asked)) return questionView(asked)
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const message = list[i]
     if (message.type === 'dialogue' && message.isRight) break
-    if (message.isQuestion) {
-      const text = String(message.text || '').trim()
-      // Clamped to three lines; longer ones get a "show more"
-      const isLong = text.length > 180 || text.split('\n').length > 3
-      return { name: getDisplayName(message), text, isLong }
-    }
+    if (message.isQuestion) return questionView(message)
   }
   return { name: '', text: '', isLong: false }
 })
@@ -3139,9 +3191,66 @@ const pickAttachmentFolder = () => {
   handleFolderButtonClick()
 }
 
+const imageInputRef = ref(null)
+const pickAttachmentImage = () => {
+  showAttachMenu.value = false
+  if (!isAttachmentUploadAllowed()) return
+  imageInputRef.value?.click()
+}
+
+// "Add web link" / "Search the web": a small form in the + menu ('' = the menu itself)
+const webForm = ref('')
+const webInput = ref('')
+const webError = ref('')
+const isAddingWeb = ref(false)
+const webInputRef = ref(null)
+const toggleAttachMenu = () => {
+  showAttachMenu.value = !showAttachMenu.value
+  if (!showAttachMenu.value) closeWebForm()
+}
+const openWebForm = (mode) => {
+  webForm.value = mode
+  webInput.value = ''
+  webError.value = ''
+  nextTick(() => webInputRef.value?.focus())
+}
+const closeWebForm = () => {
+  if (isAddingWeb.value) return
+  webForm.value = ''
+  webInput.value = ''
+  webError.value = ''
+  showAttachMenu.value = false
+}
+const submitWebForm = async () => {
+  const value = webInput.value.trim()
+  if (!value || isAddingWeb.value) return
+  if (!isAttachmentUploadAllowed()) return
+  const targetSession = sessionId
+  isAddingWeb.value = true
+  webError.value = ''
+  try {
+    const result = await addWebReference(
+      targetSession,
+      webForm.value === 'url' ? { url: value } : { query: value, language: i18nLocale.value }
+    )
+    if (targetSession !== sessionId) return // the user moved to another session meanwhile
+    if (result?.success && result.attachmentId) {
+      uploadedAttachments.value.push(result)
+      isAddingWeb.value = false
+      closeWebForm()
+      nextTick(() => taskInputRef.value?.focus())
+    } else {
+      webError.value = result?.detail || result?.message || t('errors.api.web_reference_failed')
+    }
+  } finally {
+    isAddingWeb.value = false
+  }
+}
+
 const handleClickOutside = (event) => {
   if (showAttachMenu.value && attachMenuRef.value && !attachMenuRef.value.contains(event.target)) {
-    showAttachMenu.value = false
+    if (isAddingWeb.value) return // the page is being read: keep the form (and its result) open
+    closeWebForm()
   }
 }
 
@@ -3439,11 +3548,15 @@ const uploadFiles = async (files) => {
     return
   }
 
+  // Every file goes to the session it was picked in; switching sessions stops the rest
+  const targetSession = sessionId
   isUploadingAttachment.value = true
   try {
     for (const file of files) {
+      if (targetSession !== sessionId) break
       try {
-        const result = await postFile(sessionId, file)
+        const result = await postFile(targetSession, file)
+        if (targetSession !== sessionId) break
 
         if (result?.success && result?.attachmentId) {
           uploadedAttachments.value.push(result)
@@ -3520,7 +3633,9 @@ const onFolderPicked = async (path) => {
       toast.warning(t('launch.alert_session_not_ready'))
       return
     }
-    const result = await openLocalProject(sessionId, path, { yamlFile: selectedFile.value })
+    const targetSession = sessionId
+    const result = await openLocalProject(targetSession, path, { yamlFile: selectedFile.value })
+    if (targetSession !== sessionId) return // another session was opened meanwhile
     if (!result?.success || !result.attachmentId) {
       toast.error(t('launch.open_folder.failed'), { detail: result?.detail || result?.message || '' })
       return
@@ -3771,8 +3886,12 @@ const handleDrop = async (event) => {
 // Bumped by every selection and session switch: a slow load that is no longer current must not
 // put its instructions into another chat or rebind another workflow's sprites
 let yamlSelectionSeq = 0
+// Name of the selected workflow when its file is gone (deleted or renamed): nothing can run until
+// another one is picked, so the box says so instead of letting a send fail on the server
+const missingWorkflow = ref('')
 const handleYAMLSelection = async (fileName) => {
   const seq = ++yamlSelectionSeq
+  missingWorkflow.value = ''
   if (!fileName) {
     workflowYaml.value = {}
     chatMessages.value = []
@@ -3808,10 +3927,15 @@ const handleYAMLSelection = async (fileName) => {
     if (seq !== yamlSelectionSeq) return
     console.error('Failed to load YAML file:', error)
     workflowYaml.value = {}
-    addChatNotification(
-      errorWithDetail('launch.errors.load_yaml_failed', error, { name: fileName }),
-      { type: 'error' }
-    )
+    if (error?.status === 404) {
+      missingWorkflow.value = fileName
+      addChatNotification(t('launch.errors.workflow_missing', { name: fileName }), { type: 'error' })
+    } else {
+      addChatNotification(
+        errorWithDetail('launch.errors.load_yaml_failed', error, { name: fileName }),
+        { type: 'error' }
+      )
+    }
     nodeSpriteMap.value.clear()
   }
 
@@ -4221,6 +4345,16 @@ const bringProjectIntoSession = async (source) => {
       await router.replace({ query: { ...route.query, session: targetSession } })
       scheduleSessionsRefresh()
       addChatNotification(t('launch.sessions.project_continued', { name: source.name }))
+    } else if (source.localPath && result?.status === 404) {
+      // The project's folder was moved or deleted: the new session still opens, without it
+      currentProjectName.value = ''
+      toast.warning(t('launch.sessions.project_folder_missing', { name: source.name }), {
+        detail: source.localPath,
+        action: {
+          label: t('launch.sessions.project_folder_pick'),
+          run: () => handleFolderButtonClick()
+        }
+      })
     } else {
       currentProjectName.value = ''
       toast.error(t('launch.sessions.project_copy_failed', { name: source.name }), {
@@ -4243,12 +4377,15 @@ const startNewSession = async (target = null) => {
   const isGroup = target && typeof target === 'object' && 'isProject' in target
   let project
   let file
+  // force: the open session is gone (deleted), so even a "fresh" one must be replaced
+  let force = false
   if (isGroup) {
     project = target.isProject ? target.label : ''
     file = target.isProject ? '' : target.workflow
   } else if (target && typeof target === 'object') {
     project = target.project || ''
     file = target.file || ''
+    force = Boolean(target.force)
   } else {
     project = currentProjectName.value
     file = ''
@@ -4262,6 +4399,7 @@ const startNewSession = async (target = null) => {
   }
   // Already in a fresh session of that project and workflow: no second empty one
   if (
+    !force &&
     !hasLaunched.value &&
     isConnectionReady.value &&
     !isUploadingAttachment.value &&
@@ -4404,7 +4542,7 @@ const handleRenameSession = async (item, title) => {
 }
 
 const handleDeleteSession = async (item) => {
-  if (['running', 'waiting_for_input'].includes(item.status)) {
+  if (['running', 'waiting_for_input', 'cancelling'].includes(item.status)) {
     toast.warning(t('launch.sessions.delete_running'))
     return
   }
@@ -4425,7 +4563,7 @@ const handleDeleteSession = async (item) => {
   }
   sessions.value = sessions.value.filter((entry) => entry.session_id !== item.session_id)
   if (item.session_id === activeSessionId.value) {
-    startNewSession({ project: sessionProject(item)?.name || '', file: item.yaml_file })
+    startNewSession({ project: sessionProject(item)?.name || '', file: item.yaml_file, force: true })
   }
 }
 
@@ -4462,7 +4600,7 @@ const handleDeleteGroup = async (group) => {
     toast.info(t('launch.sessions.delete_group_running', { n: running.length }))
   }
   if (deleted.has(activeSessionId.value)) {
-    startNewSession({ project: '', file: group.workflow || selectedFile.value })
+    startNewSession({ project: '', file: group.workflow || selectedFile.value, force: true })
   }
 }
 
@@ -4804,8 +4942,9 @@ const launchWorkflow = async () => {
 }
 
 const launchWorkflowOnce = async () => {
-  if (!selectedFile.value) {
+  if (!selectedFile.value || missingWorkflow.value) {
     toast.warning(t('launch.alert_choose_workflow'))
+    focusWorkflowPicker()
     return
   }
 
@@ -4998,6 +5137,7 @@ const retryLaunch = () => {
 // typed meanwhile is kept and put back once the retry is on its way.
 const canRetryRun = (message) =>
   Boolean(message.retryPrompt) &&
+  !missingWorkflow.value &&
   message === chatMessages.value[chatMessages.value.length - 1] &&
   !isWorkflowRunning.value &&
   isRunFinished.value
@@ -5427,6 +5567,7 @@ const processMessage = async (msg) => {
       selectedFile.value = data.yaml_file
       // Load YAML data and sprites (but don't clear chat)
       const socketBefore = ws
+      missingWorkflow.value = ''
       try {
         const yamlContentString = await takeWorkflowYaml(data.yaml_file)
         // Another session was opened while the file loaded: this answer is no longer ours
@@ -5438,6 +5579,7 @@ const processMessage = async (msg) => {
         applyWorkflowSprites(parsedYaml?.graph?.nodes, yamlContentString)
       } catch (e) {
         console.error('Failed to load YAML on reconnect:', e)
+        if (ws === socketBefore && e?.status === 404) missingWorkflow.value = data.yaml_file
       }
       if (ws !== socketBefore) return
     }
@@ -5538,19 +5680,24 @@ const processMessage = async (msg) => {
     // Without a server time it follows the agent's last logged event (right for replays too)
     const askedAt = at || lastLogAt || Date.now()
     let question = null
+    askedMessage.value = null
     if (repeatsLast && !fullMessage) {
       // Nothing new to say: the reply on screen is the question
       settleNodeTurn(askingNode, null, askedAt)
       question = lastAgentBubble
     } else {
-      if (!settleNodeTurn(askingNode, fullMessage || t('launch.input_required'), askedAt)) {
-        addDialogue(askingNode || t('launch.unknown_node'), fullMessage || t('launch.input_required'), at)
+      // The asker's own bubble (a note you sent meanwhile may sit below it): the question goes there
+      const askingBubble = askingNode ? nodesLoadingMessagesMap.get(askingNode)?.message || null : null
+      if (settleNodeTurn(askingNode, fullMessage || t('launch.input_required'), askedAt)) {
+        question = askingBubble
+      } else {
+        question = addDialogue(askingNode || t('launch.unknown_node'), fullMessage || t('launch.input_required'), at) || null
       }
-      question = chatMessages.value[chatMessages.value.length - 1]
     }
     // Shown as the lead's question, waiting for your answer
     if (question?.type === 'dialogue' && !question.isRight) {
       updateMessage(question, { isQuestion: true })
+      askedMessage.value = question
     }
     // Ready to answer: the box takes the focus unless you are typing somewhere else
     nextTick(() => {
@@ -5636,7 +5783,8 @@ const processMessage = async (msg) => {
   if (alert?.kind === 'account') {
     const key = alert.event === 'account_fallback' ? 'launch.account_fallback' : 'launch.account_exhausted'
     addChatNotification(t(key, alert.params), { type: alert.level, at })
-    toast[alert.level](t(key, alert.params))
+    // A replayed session shows past switches in the chat only, not as if they happened now
+    if (!isReconnecting.value) toast[alert.level](t(key, alert.params))
   }
 
   // Handle warning/error messages
@@ -5807,7 +5955,11 @@ const processMessage = async (msg) => {
         memberStarts.delete(nodeId)
         memberNow.delete(nodeId)
       } else if (!settleNodeTurn(nodeId, msg.data.details?.output, eventAt)) {
-        addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output, at)
+        // A step that just forwards the reply already shown (e.g. a passthrough end node) adds no bubble
+        const forwarded = buildDialogueContent(msg.data.details?.output)?.text
+        if (!isEchoOfLastReply(chatMessages.value, forwarded, { userSender: USER_SENDER })) {
+          addDialogue(nodeId || t('launch.unknown_node'), msg.data.details?.output, at)
+        }
       }
       // The step is over: its tool problems were handled (or no longer matter)
       if (nodeId) markToolsRecovered(nodeId, { close: true })
@@ -5981,6 +6133,8 @@ const processMessage = async (msg) => {
   }
 }
 
+// The "Stopping…" line of the stop in progress (replaced by the final notice)
+let stoppingNotice = null
 // The run is over after a stop: notice, run record, status, and the open activity rows
 const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
   cancelRequested = true
@@ -5991,7 +6145,14 @@ const markRunCancelled = (message, { at = null, summary = '' } = {}) => {
   if (isReconnecting.value) pendingNotes.clear()
   else returnPendingNotes()
   settleAllToolIssues({ recovered: false })
-  if (message) addChatNotification(message, { ...(at ? { at } : {}), coalesce: 'run-stop' })
+  // The "Stopping…" line of this stop becomes the final notice (never left behind, never reused later)
+  const stopping = stoppingNotice
+  stoppingNotice = null
+  if (message && stopping && chatMessages.value.includes(stopping)) {
+    updateMessage(stopping, { message, timestamp: at ?? Date.now() })
+  } else if (message) {
+    addChatNotification(message, at ? { at } : {})
+  }
   if (runTracker.state.task && !runTracker.state.outcome) runTracker.finish('cancelled', { summary })
   status.value = RUN_STATUS.CANCELLED
   isWorkflowRunning.value = false
@@ -6022,7 +6183,9 @@ const cancelWorkflow = () => {
 
   locallyCancelled = true
   // Same line as the final 'cancelled' notice: it is replaced, not left behind as a stale "Đang dừng…"
-  addChatNotification(t('launch.stopping'), { coalesce: 'run-stop' })
+  addChatNotification(t('launch.stopping'))
+  const last = chatMessages.value[chatMessages.value.length - 1]
+  stoppingNotice = last?.type === 'notification' ? last : null
   startStopping()
 }
 

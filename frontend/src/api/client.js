@@ -790,6 +790,34 @@ export const sessionChangesKeepBranch = (sessionId) => sessionChangesRequest(ses
  * Open a folder on this machine in place, like "Open Folder" in VS Code: nothing is
  * uploaded, the agents read and edit the real project.
  */
+// Read a web page ({ url }) or search the web ({ query }) on the server; the text is attached to
+// the next message like an uploaded file, so every agent receives it
+export async function addWebReference(sessionId, { url = '', query = '', language = '' } = {}) {
+  try {
+    const response = await fetch(apiUrl(`/api/uploads/${encodeURIComponent(sessionId)}/web`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(url ? { url } : { query, language: language || undefined })
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      return failureResult('errors.api.web_reference_failed', response, data)
+    }
+    return {
+      success: true,
+      kind: data?.kind || 'web',
+      name: data?.name,
+      attachmentId: data?.attachment_id,
+      mimeType: data?.mime_type,
+      size: data?.size,
+      url: data?.url || '',
+      query: data?.query || ''
+    }
+  } catch (error) {
+    return networkFailure(error)
+  }
+}
+
 export async function openLocalProject(sessionId, path, { yamlFile = null } = {}) {
   try {
     const response = await fetch(apiUrl(`/api/uploads/${encodeURIComponent(sessionId)}/projects/open-local`), {

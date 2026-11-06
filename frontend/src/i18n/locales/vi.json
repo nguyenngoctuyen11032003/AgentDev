@@ -514,7 +514,9 @@
       "project_missing": "Không còn bản dự án {name} trên server. Phiên mới được mở không kèm dự án; hãy thêm lại thư mục nếu cần.",
       "project_workflow_hint": "Quy trình riêng của dự án {name}; các dự án khác giữ quy trình của chúng.",
       "workflow_locked_hint": "Phiên này đã chạy với quy trình trên. Chọn quy trình khác sẽ mở phiên mới (cùng dự án).",
-      "load_error": "Không tải được danh sách phiên."
+      "load_error": "Không tải được danh sách phiên.",
+      "project_folder_missing": "Thư mục của dự án {name} không còn ở chỗ cũ (đã bị xoá hoặc đổi chỗ). Phiên mới mở không kèm dự án.",
+      "project_folder_pick": "Chọn thư mục khác"
     },
     "title": "Chạy",
     "collapse_chat": "Thu gọn khung trò chuyện",
@@ -628,7 +630,8 @@
     "composer": {
       "pick_workflow": "Chọn một quy trình trước khi gửi tin nhắn.",
       "pick_workflow_action": "Chọn quy trình",
-      "connecting": "Đang kết nối tới máy chủ..."
+      "connecting": "Đang kết nối tới máy chủ...",
+      "workflow_missing": "Quy trình \"{name}\" của phiên này không còn tồn tại. Chọn quy trình khác để mở phiên mới."
     },
     "unknown_node": "Nút không xác định",
     "unknown_name": "không xác định",
@@ -719,7 +722,8 @@
         "session_not_found": "Phiên này không còn trên máy chủ.",
         "invalid_input": "Tin nhắn không hợp lệ.",
         "message_failed": "Máy chủ chưa xử lý được tin nhắn. Hãy thử lại."
-      }
+      },
+      "workflow_missing": "Quy trình \"{name}\" không còn tồn tại (đã bị xoá hoặc đổi tên). Chọn quy trình khác để tiếp tục."
     },
     "input_from_header": "— Đầu vào từ {source} ({role}) —",
     "input_source_task": "nhiệm vụ",
@@ -1203,7 +1207,19 @@
         "desc": "Tự trả lời mọi câu hỏi và bước duyệt. Bước tốn tiền (như tạo video Veo) vẫn không tự chạy."
       }
     },
-    "close_image": "Đóng ảnh"
+    "close_image": "Đóng ảnh",
+    "workflow_missing_option": "{name} (không còn tồn tại)",
+    "attach": {
+      "image": "Thêm hình ảnh",
+      "link": "Thêm link web",
+      "link_hint": "Nhóm sẽ đọc nội dung trang này (ví dụ để lấy thông tin hoặc làm dự án tương tự).",
+      "link_placeholder": "https://vi-du.com/trang",
+      "search": "Tra cứu web",
+      "search_hint": "Tìm trên web và gửi kèm kết quả (tiêu đề, link, tóm tắt) cho nhóm.",
+      "search_placeholder": "Bạn muốn tìm gì?",
+      "adding": "Đang đọc…",
+      "add": "Thêm"
+    }
   },
   "form_generator": {
     "advanced_settings": "Cài đặt nâng cao",
@@ -1686,7 +1702,8 @@
       "sessions_failed": "Không thể tải danh sách phiên",
       "skills_failed": "Không thể xử lý thư viện skill",
       "lab_failed": "Phòng thí nghiệm gặp lỗi",
-      "delete_workflow_failed": "Không thể xoá quy trình."
+      "delete_workflow_failed": "Không thể xoá quy trình.",
+      "web_reference_failed": "Không đọc được trang web. Kiểm tra địa chỉ (chỉ trang công khai http/https) rồi thử lại."
     },
     "backend": {
       "technical": "Chi tiết kỹ thuật: {detail}",

@@ -472,7 +472,9 @@
       "project_missing": "服务器上已没有项目 {name} 的副本。新会话将不带项目打开；如有需要请重新添加文件夹。",
       "project_workflow_hint": "这是项目 {name} 自己的工作流；其他项目保留各自的工作流。",
       "workflow_locked_hint": "此会话已使用上述工作流运行。选择其他工作流将打开新会话（同一项目）。",
-      "load_error": "无法加载会话列表。"
+      "load_error": "无法加载会话列表。",
+      "project_folder_missing": "项目 {name} 的文件夹已不在原处（已删除或移动）。新会话未带入该项目。",
+      "project_folder_pick": "选择其他文件夹"
     },
     "title": "启动",
     "collapse_chat": "折叠聊天",
@@ -586,7 +588,8 @@
     "composer": {
       "pick_workflow": "发送消息前请先选择一个工作流。",
       "pick_workflow_action": "选择工作流",
-      "connecting": "正在连接服务器..."
+      "connecting": "正在连接服务器...",
+      "workflow_missing": "此会话的工作流“{name}”已不存在。请选择其他工作流以打开新会话。"
     },
     "unknown_node": "未知节点",
     "unknown_name": "未知",
@@ -677,7 +680,8 @@
         "session_not_found": "服务器上已不存在此会话。",
         "invalid_input": "消息无效。",
         "message_failed": "服务器未能处理该消息，请重试。"
-      }
+      },
+      "workflow_missing": "工作流“{name}”已不存在（已删除或重命名）。请选择其他工作流后继续。"
     },
     "input_from_header": "— 来自 {source} 的输入（{role}）—",
     "input_source_task": "任务",
@@ -1161,7 +1165,19 @@
         "desc": "自动回答所有问题和审批步骤。付费步骤（如 Veo 视频生成）仍不会自动运行。"
       }
     },
-    "close_image": "关闭图片"
+    "close_image": "关闭图片",
+    "workflow_missing_option": "{name}（已不存在）",
+    "attach": {
+      "image": "添加图片",
+      "link": "添加网页链接",
+      "link_hint": "团队会读取此网页（例如提取信息或做一个类似的项目）。",
+      "link_placeholder": "https://example.com/page",
+      "search": "网页搜索",
+      "search_hint": "在网上搜索，并把结果（标题、链接、摘要）发给团队。",
+      "search_placeholder": "想搜索什么？",
+      "adding": "正在读取…",
+      "add": "添加"
+    }
   },
   "components": {
     "workflow_edge": {
@@ -1686,7 +1702,8 @@
       "sessions_failed": "无法加载会话列表",
       "skills_failed": "技能库请求失败",
       "lab_failed": "实验室请求失败",
-      "delete_workflow_failed": "无法删除工作流。"
+      "delete_workflow_failed": "无法删除工作流。",
+      "web_reference_failed": "无法读取该网页。请检查地址（仅限公开的 http/https 网页）后重试。"
     },
     "backend": {
       "technical": "技术详情：{detail}",

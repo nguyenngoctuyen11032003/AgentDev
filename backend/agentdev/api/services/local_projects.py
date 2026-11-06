@@ -118,6 +118,10 @@ def opened_project_folder(session) -> Optional[Path]:
 # ---------------------------------------------------------------- browsing
 
 
+class FolderNotFoundError(ValidationError):
+    """The folder does not exist (any more): the API answers 404 so the UI can offer another folder."""
+
+
 def _resolve_folder(raw: str) -> Path:
     text = (raw or "").strip()
     if not text:
@@ -128,9 +132,9 @@ def _resolve_folder(raw: str) -> Path:
     try:
         path = path.resolve()
     except OSError as exc:
-        raise ValidationError(f"Folder not found: {text}", field="path") from exc
+        raise FolderNotFoundError(f"Folder not found: {text}", field="path") from exc
     if not path.is_dir():
-        raise ValidationError(f"Folder not found: {text}", field="path")
+        raise FolderNotFoundError(f"Folder not found: {text}", field="path")
     return path
 
 

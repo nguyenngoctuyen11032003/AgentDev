@@ -364,3 +364,43 @@
 }
 
 .attach-menu-item:hover { background: rgb(var(--ink) / 0.08); color: var(--text-1); }
+
+.attach-menu-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+.attach-menu-sep { height: 1px; margin: 4px 6px; background: rgb(var(--ink) / 0.1); }
+
+/* "Add web link" / "Search the web" form in the + menu */
+.attach-web {
+  width: min(340px, calc(100vw - 48px));
+  gap: 8px;
+  padding: 12px;
+}
+.attach-web-label { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.attach-web-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgb(var(--ink) / 0.16);
+  border-radius: 8px;
+  background: var(--surface-2, transparent);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+}
+.attach-web-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.attach-web-note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.attach-web-error { margin: 0; font-size: 12px; line-height: 1.4; color: var(--danger-soft); }
+.attach-web-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.attach-web-btn {
+  padding: 6px 12px;
+  border: 1px solid rgb(var(--ink) / 0.16);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.attach-web-btn.is-primary { border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent); }
+.attach-web-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.attach-web-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

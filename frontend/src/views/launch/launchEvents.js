@@ -241,3 +241,20 @@ export const errorKind = (data) => {
   if (data?.fatal === false) return 'rejected'
   return 'fatal'
 }
+
+/**
+ * A step that only forwards text (e.g. a passthrough "Chat Reply" end node) repeats the reply the
+ * user just read. True when `text` is the same as the latest agent reply of this turn (after the
+ * user's last message), so the chat does not show the same answer twice.
+ */
+export const isEchoOfLastReply = (messages, text, { userSender = '' } = {}) => {
+  const wanted = typeof text === 'string' ? text.trim() : ''
+  if (!wanted) return false
+  for (let i = (messages?.length || 0) - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message?.type !== 'dialogue') continue
+    if (message.isRight || message.name === userSender) return false
+    if (typeof message.text === 'string' && message.text.trim()) return message.text.trim() === wanted
+  }
+  return false
+}

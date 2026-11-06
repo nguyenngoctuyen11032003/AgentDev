@@ -23,7 +23,7 @@ export function useSessions({ t, activeSessionId, sessionProject, openSession, o
 
   // Runs keep going on the server while another session is open here. Watch their
   // status and say when one needs an answer or has finished.
-  const LIVE_STATUSES = new Set(['running', 'waiting_for_input'])
+  const LIVE_STATUSES = new Set(['running', 'waiting_for_input', 'cancelling'])
   const knownStatuses = new Map()
   let statusesPrimed = false
   const notifyBackgroundChanges = (list) => {
