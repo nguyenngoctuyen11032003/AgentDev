@@ -55,6 +55,7 @@ from agentdev.runtime.node.agent.account_fallback import (
 )
 from agentdev.runtime.node.agent.providers._native import NativeRunContext
 from agentdev.runtime.node.agent import verify_gate
+from agentdev.runtime.node.agent.report_format import clip_old_result, structured_report_enabled
 from agentdev.runtime.node.agent.team import (
     DELEGATE_PARALLEL_TOOL,
     DELEGATE_TOOL,
@@ -128,6 +129,26 @@ def _env_int(name: str, default: int) -> int:
 
 
 MAX_TOOL_RESULT_CHARS = _env_int("AGENTDEV_MAX_TOOL_RESULT_CHARS", 16_000)
+
+# Pure read-only function tools: several of them in one reply may run at the same time (flag
+# AGENTDEV_PARALLEL_READS, ADR 0006). Anything that writes, runs a shell, registers state (load_file adds an
+# attachment), opens a gate or can cost money is deliberately absent and always runs one at a time, in order.
+PARALLEL_READ_TOOLS = frozenset(
+    {"describe_available_files", "list_directory", "read_text_file_snippet", "read_file_segment", "search_in_files"}
+)
+PARALLEL_READS_DEFAULT = False
+
+
+def parallel_reads_enabled() -> bool:
+    raw = os.environ.get("AGENTDEV_PARALLEL_READS")
+    if raw is None or not raw.strip():
+        return PARALLEL_READS_DEFAULT
+    return raw.strip().lower() not in ("0", "false", "off", "no")
+
+
+def parallel_reads_workers() -> int:
+    return max(1, min(_env_int("AGENTDEV_PARALLEL_READS_MAX", 4), 8))
+
 # Inside one tool loop only the newest results stay in full; older ones are clipped to a short stub so
 # every further model call does not resend them.
 KEEP_RECENT_TOOL_RESULTS = _env_int("AGENTDEV_KEEP_RECENT_TOOL_RESULTS", 3)
@@ -586,6 +607,9 @@ class AgentNodeExecutor(NodeExecutor):
         profile = self._agent_profile_section(node)
         if profile:
             parts.append(profile)
+        member_protocol = self._member_protocol_section(node)
+        if member_protocol:
+            parts.append(member_protocol)
 
         # Prompt caching is prefix based: static content first, the small per-message block (plan rule,
         # language) last, so a changed message only invalidates the tail.
@@ -640,6 +664,20 @@ class AgentNodeExecutor(NodeExecutor):
         if not parts:
             return None
         return "\n\n".join(part for part in parts if part)
+
+    def _member_protocol_section(self, node: Node) -> str:
+        """The member protocol for a plain member (not a lead) when AGENTDEV_MEMBER_PROTOCOL_SYSTEM is on.
+
+        Same text for every lead, so it is part of the cacheable prefix instead of the changing brief."""
+        from agentdev.runtime.node.agent.team import (
+            DECISION_MARKER,
+            MEMBER_PROTOCOL,
+            member_protocol_in_system,
+        )
+
+        if not member_protocol_in_system() or self._active_teams().get(node.id) is not None or not is_delegated_call():
+            return ""
+        return MEMBER_PROTOCOL.format(lead="the lead named in the task header", marker=DECISION_MARKER).strip()
 
     @staticmethod
     def _agent_profile_section(node: Node) -> str:
@@ -1187,7 +1225,10 @@ class AgentNodeExecutor(NodeExecutor):
             if len(content) <= OLD_TOOL_RESULT_CHARS:
                 continue
             clipped = msg.clone()
-            clipped.content = content[:OLD_TOOL_RESULT_CHARS] + "\n" + OLD_TOOL_RESULT_MARKER
+            if structured_report_enabled():
+                clipped.content = clip_old_result(content, OLD_TOOL_RESULT_CHARS) + "\n" + OLD_TOOL_RESULT_MARKER
+            else:
+                clipped.content = content[:OLD_TOOL_RESULT_CHARS] + "\n" + OLD_TOOL_RESULT_MARKER
             conversation[i] = clipped
 
     def _tool_batch_signature(self, tool_calls: List[ToolCallPayload]) -> str:
@@ -1369,6 +1410,81 @@ class AgentNodeExecutor(NodeExecutor):
             raise WorkflowCancelledError("Workflow execution cancelled") from cancelled
         return results
 
+    def _read_runs(
+        self,
+        tool_calls: List[ToolCallPayload],
+        spec_map: Dict[str, ToolSpec],
+        configs: List[Any],
+        skill_manager: AgentSkillManager | None,
+    ) -> Dict[int, List[int]]:
+        """Runs of 2+ neighbouring pure read-only calls, keyed by the index of the first call.
+
+        Only neighbours form a run, so a read never moves across a write. Empty when the flag is off.
+        """
+        if not parallel_reads_enabled() or parallel_reads_workers() < 2:
+            return {}
+        enforced = skill_manager.allowed_tools_for_active() if skill_manager is not None else ()
+        eligible: List[bool] = []
+        for call in tool_calls:
+            spec = spec_map.get(call.function_name)
+            ok = False
+            if spec is not None and spec.metadata.get("source") == "function":
+                cfg_idx = spec.metadata.get("_config_index")
+                name = spec.metadata.get("original_name", call.function_name)
+                ok = (
+                    name in PARALLEL_READ_TOOLS
+                    and cfg_idx is not None
+                    and 0 <= cfg_idx < len(configs)
+                    and (not enforced or name in enforced)
+                )
+            eligible.append(ok)
+        runs: Dict[int, List[int]] = {}
+        current: List[int] = []
+        for idx, ok in enumerate(eligible + [False]):
+            if ok:
+                current.append(idx)
+                continue
+            if len(current) >= 2:
+                runs[current[0]] = current
+            current = []
+        return runs
+
+    def _run_reads(
+        self,
+        node: Node,
+        indices: List[int],
+        tool_calls: List[ToolCallPayload],
+        spec_map: Dict[str, ToolSpec],
+        configs: List[Any],
+        tool_context: Any,
+    ) -> Dict[int, tuple]:
+        """Run one read run on a bounded pool. ``{index: (result, error)}``; each call keeps its own error."""
+        cancel_event = getattr(self.context, "cancel_event", None)
+
+        def run_one(idx: int) -> tuple:
+            with cli_cancel_scope(cancel_event):
+                call = tool_calls[idx]
+                spec = spec_map[call.function_name]
+                name = spec.metadata.get("original_name", call.function_name)
+                config = configs[spec.metadata["_config_index"]]
+                try:
+                    arguments = self._parse_tool_call_arguments(call.arguments)
+                    result = asyncio.run(
+                        self.tool_manager.execute_tool(name, arguments, config, tool_context=tool_context)
+                    )
+                    return result, None
+                except BaseException as exc:  # noqa: BLE001 - re-raised per call at its turn
+                    return None, exc
+
+        results: Dict[int, tuple] = {}
+        workers = min(parallel_reads_workers(), len(indices))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=f"reads-{node.id}") as pool:
+            futures = [(idx, pool.submit(contextvars.copy_context().run, run_one, idx)) for idx in indices]
+            for idx, future in futures:
+                results[idx] = future.result()
+        self._ensure_not_cancelled()
+        return results
+
     def _execute_tool_batch(
         self,
         node: Node,
@@ -1396,9 +1512,15 @@ class AgentNodeExecutor(NodeExecutor):
         )
         delegated = {} if plan_in_batch else self._parallel_delegations(node, tool_calls, spec_map)
 
+        read_runs = self._read_runs(tool_calls, spec_map, configs, skill_manager)
+        prefetched: Dict[int, tuple] = {}
         with self._node_tool_context(node) as tool_context:
             for call_index, tool_call in enumerate(tool_calls):
                 self._ensure_not_cancelled()
+                if call_index in read_runs:
+                    prefetched.update(
+                        self._run_reads(node, read_runs[call_index], tool_calls, spec_map, configs, tool_context)
+                    )
                 tool_name = tool_call.function_name
                 arguments = self._parse_tool_call_arguments(tool_call.arguments)
 
@@ -1565,14 +1687,19 @@ class AgentNodeExecutor(NodeExecutor):
                         CallStage.BEFORE,
                     )
                     with self.log_manager.tool_timer(node.id, tool_name):
-                        result = asyncio.run(
-                            self.tool_manager.execute_tool(
-                                execution_name,
-                                arguments,
-                                tool_config,
-                                tool_context=tool_context,
+                        if call_index in prefetched:
+                            result, read_error = prefetched.pop(call_index)
+                            if read_error is not None:
+                                raise read_error
+                        else:
+                            result = asyncio.run(
+                                self.tool_manager.execute_tool(
+                                    execution_name,
+                                    arguments,
+                                    tool_config,
+                                    tool_context=tool_context,
+                                )
                             )
-                        )
 
                     tool_message = self._build_tool_message(
                         result,

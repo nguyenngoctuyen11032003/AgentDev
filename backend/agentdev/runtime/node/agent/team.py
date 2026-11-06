@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Set, 
 
 from agentdev.entity.messages import Message, MessageRole
 from agentdev.entity.tool_spec import ToolSpec
+from agentdev.runtime.node.agent.report_format import structure_report, structured_report_enabled
 from agentdev.utils.exceptions import WorkflowCancelledError
 
 TEAM_TOOL_SOURCE = "agent_team_internal"
@@ -314,6 +315,25 @@ def _truncate(text: str, limit: int) -> str:
     head = text[: limit // 2]
     tail = text[-limit // 2 :]
     return f"{head}\n\n[… {len(text) - limit} characters omitted …]\n\n{tail}"
+
+
+def _clip_report(report: str) -> str:
+    """A member's report as the lead sees it: field-wise (flag AGENTDEV_STRUCTURED_REPORT) or head + tail."""
+    if structured_report_enabled():
+        return structure_report(report, MAX_MEMBER_RESULT_CHARS, _truncate)
+    return _truncate(report, MAX_MEMBER_RESULT_CHARS)
+
+
+# Flag AGENTDEV_MEMBER_PROTOCOL_SYSTEM (ADR 0008): the member protocol goes to the member's system prompt
+# (cacheable prefix) instead of the front of every brief.
+MEMBER_PROTOCOL_SYSTEM_DEFAULT = False
+
+
+def member_protocol_in_system() -> bool:
+    raw = os.environ.get("AGENTDEV_MEMBER_PROTOCOL_SYSTEM")
+    if raw is None or not raw.strip():
+        return MEMBER_PROTOCOL_SYSTEM_DEFAULT
+    return raw.strip().lower() not in ("0", "false", "off", "no")
 
 
 def clip_middle(text: Optional[str], limit: int, head_ratio: float = 0.6) -> str:
@@ -1129,7 +1149,7 @@ class TeamDelegation:
             return None
         return {
             "member": member,
-            "report": _truncate(report, MAX_MEMBER_RESULT_CHARS),
+            "report": _clip_report(report),
             "needs_user_decision": report.lstrip().upper().startswith(DECISION_MARKER),
             "note": (
                 f"Not run again: {member} just finished this exact task and nothing ran since; this is its "
@@ -1232,7 +1252,7 @@ class TeamDelegation:
         self.state.add_report(member, task, report, lead=self.lead_id, reusable=not did_nothing)
         result: Dict[str, Any] = {
             "member": member,
-            "report": _truncate(report, MAX_MEMBER_RESULT_CHARS),
+            "report": _clip_report(report),
             "needs_user_decision": report.lstrip().upper().startswith(DECISION_MARKER),
         }
         if account_note:
@@ -1394,6 +1414,8 @@ class TeamDelegation:
         if info is not None and info.manages:
             # A sub-lead's system prompt already holds its protocol (SUB_LEAD_SYSTEM); do not repeat it.
             parts = [f"# Assigned by {self.lead_id}\nRun this with your team and report back to {self.lead_id}."]
+        elif member_protocol_in_system():
+            parts = []  # the protocol sits in the member's system prompt (AgentNodeExecutor._build_system_prompt)
         else:
             parts = [MEMBER_PROTOCOL.format(lead=self.lead_id, marker=DECISION_MARKER)]
         current = self.state.recent(member, MAX_DIGEST_ENTRIES)

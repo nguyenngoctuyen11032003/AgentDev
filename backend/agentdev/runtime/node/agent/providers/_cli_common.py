@@ -324,7 +324,8 @@ def cli_run_env(cwd: Optional[str]) -> Dict[str, str]:
 
 
 def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str,
-            on_line: Optional[Callable[[str], None]] = None) -> subprocess.CompletedProcess:
+            on_line: Optional[Callable[[str], None]] = None,
+            extra_env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
     """Run a vendor CLI. Raises ``CliCancelled`` (CLI tree killed) when the enclosing
     ``cli_cancel_scope`` event is set while it runs. ``on_line`` gets each stdout line live (reader thread).
 
@@ -350,7 +351,7 @@ def run_cli(cmd: List[str], prompt: str, timeout: float, name: str, cwd: str,
                  "is_busy": tracker.busy, "on_idle": _idle}
     try:
         return cli_auth.run_capture(
-            cmd, input=prompt, timeout=timeout, cwd=cwd, env=cli_run_env(cwd), cancel_event=current_cancel_event(),
+            cmd, input=prompt, timeout=timeout, cwd=cwd, env={**cli_run_env(cwd), **(extra_env or {})}, cancel_event=current_cancel_event(),
             **extra,
         )
     except cli_auth.CliIdle as exc:
@@ -378,6 +379,33 @@ def effort_level(params: Any) -> Optional[str]:
     value = params.get("effort") if isinstance(params, dict) else None
     value = str(value).strip().lower() if value is not None else ""
     return value if value in EFFORT_LEVELS else None
+
+
+MAX_OUTPUT_ENV = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
+CLI_MAX_OUTPUT_DEFAULT = False
+
+
+def cli_max_output_enabled() -> bool:
+    raw = os.environ.get("AGENTDEV_CLI_MAX_OUTPUT")
+    if raw is None or not raw.strip():
+        return CLI_MAX_OUTPUT_DEFAULT
+    return raw.strip().lower() not in ("0", "false", "off", "no")
+
+
+def max_output_env(params: Any) -> Dict[str, str]:
+    """``{CLAUDE_CODE_MAX_OUTPUT_TOKENS: n}`` for a node's ``params.max_tokens`` (Claude CLI only; flag
+    ``AGENTDEV_CLI_MAX_OUTPUT``, ADR 0008). Empty when the flag is off or the value is not a usable number.
+    Below 1000 is ignored: a cap that small would cut every answer."""
+    if not cli_max_output_enabled() or not isinstance(params, dict):
+        return {}
+    value = params.get("max_tokens")
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return {}
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return {}
+    return {MAX_OUTPUT_ENV: str(min(number, 64_000))} if number >= 1000 else {}
 
 
 def validate_model_name(name: str) -> str:

@@ -30,6 +30,7 @@ from agentdev.runtime.node.agent.providers._cli_common import (
     split_conversation,
     attachments_section,
     effort_level,
+    max_output_env,
     stage_attachments,
     build_tool_preamble,
     flatten_conversation,
@@ -326,7 +327,7 @@ class ClaudeCliProvider(ModelProvider):
                     reader.feed(event)
 
         try:
-            proc = run_cli(cmd, prompt, timeout, "claude", cwd, on_line=_watch)
+            proc = run_cli(cmd, prompt, timeout, "claude", cwd, on_line=_watch, extra_env=max_output_env(self.params))
         except BaseException:
             # Timeout, idle kill or cancel: no final result, but the tokens seen so far were spent.
             partial = reader.partial_usage()
@@ -498,12 +499,12 @@ class ClaudeCliProvider(ModelProvider):
         raw["changed_files"] = changed
         return ModelResponse(message=Message(role=MessageRole.ASSISTANT, content=text), raw_response=raw)
 
-    @staticmethod
-    def _run_native_cli(cmd: List[str], prompt: str, timeout: float, native: NativeRunContext):
+    def _run_native_cli(self, cmd: List[str], prompt: str, timeout: float, native: NativeRunContext):
         """Run a native ``claude -p`` with its stream-json tool calls reported to ``native`` as they arrive."""
         live = LiveEvents(ClaudeStreamReader(native))
         try:
-            return run_cli(cmd, prompt, timeout, "claude", native.workspace, on_line=live.push), live
+            return run_cli(cmd, prompt, timeout, "claude", native.workspace, on_line=live.push,
+                           extra_env=max_output_env(self.params)), live
         except BaseException as exc:
             # The call never produced its final result (timeout, kill, cancel) but still spent tokens: hand
             # what the stream showed to the caller, which records it.

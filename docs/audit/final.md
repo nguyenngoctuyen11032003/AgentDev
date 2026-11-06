@@ -130,3 +130,38 @@ Chi tiêu thật mục 9: khoảng 0,27 USD cho 16 lượt. Tổng cả vòng kh
 | LCP các trang | 100–772 ms | cùng khoảng, `/launch` 500–772 ms (dao động theo máy) |
 
 Kết luận: DOM phiên dài và FPS canvas cải thiện rõ; bundle `/launch` và `/workflows/:name` vẫn trên 1 MB JS (chưa tách chunk, lazy-load VueFlow đã bỏ qua vì chưa chứng minh lợi); heap ổn định. Mỗi cột "lần chạy" cộng dồn nên bảng `perf-baseline.md` có nhiều lần đo cạnh nhau.
+
+## 11. Phase B (mục 8, 6, 10): đọc song song, báo cáo có cấu trúc, backlog token
+
+Ba thay đổi, mỗi thay đổi sau một cờ, có ADR (`docs/adr/0006`, `0007`, `0008`) và test đỏ trước. **Cả ba cờ vẫn TẮT mặc định** (xem lý do ở cuối).
+
+| Cờ | Mặc định | Việc làm | Test |
+|---|---|---|---|
+| `AGENTDEV_PARALLEL_READS` (+ `_MAX`, mặc định 4) | tắt | các lời gọi tool chỉ-đọc liền nhau trong một lượt model (`search_in_files`, `read_file_segment`, `read_text_file_snippet`, `list_directory`, `describe_available_files`) chạy song song, kết quả giữ thứ tự, lỗi theo từng lời gọi, có hủy; ghi/shell/gate/paid/`load_file` không bao giờ song song | `test_parallel_reads.py` |
+| `AGENTDEV_STRUCTURED_REPORT` | tắt | báo cáo thành viên -> lead cắt theo trường (Evidence file:line, Commands + kết quả, Files changed, Open) trong cùng trần 2000 ký tự; kết quả tool cũ giữ đầu + đuôi + dòng lỗi | `test_structured_report.py` |
+| `AGENTDEV_CLI_MAX_OUTPUT` | tắt | `params.max_tokens` thành env `CLAUDE_CODE_MAX_OUTPUT_TOKENS` cho Claude CLI (>= 1000, tối đa 64000); Codex không có tương đương nên vẫn bị bỏ qua | `test_cli_max_output.py` |
+| `AGENTDEV_MEMBER_PROTOCOL_SYSTEM` | tắt | `MEMBER_PROTOCOL` chuyển từ đầu brief sang system prompt của thành viên thường (phần cache được) | `test_member_protocol_system.py` |
+
+Số liệu (model giả, đo được):
+
+| Phép đo | Cờ tắt | Cờ bật |
+|---|---|---|
+| 4 lời gọi đọc, mỗi lời 0,25 s (wall) | 1,01 s (peak 1) | 0,26 s (peak 4) |
+| Báo cáo 11.267 ký tự: số dòng evidence còn lại (6 dòng) | 0/6 (2033 ký tự) | 6/6 (1868 ký tự) |
+| Kết quả tool cũ 6k ký tự, dòng ERROR ở giữa | mất (1500 ký tự) | còn, đuôi còn (1109 ký tự) |
+| Brief của thành viên (ký tự) | 1242 | 39 (+1230 sang system) |
+| Phần cache được của một lượt thành viên (ước tính, system nền 2500) | 66,8% | 99,0% |
+| `bench_engine` (chain/fanout/diamond efficiency) | 0,98 / 0,97 / 0,98 | không đổi (không có lô tool) |
+| `bench_tokens --fake` team (Plan 11068, Worker 11479, Merge 12605 ký tự) | - | không đổi (không có ủy quyền) |
+
+A6-1 (catalog skill) đã xong từ vòng 2, không còn gì. A6-5: một lời gọi Haiku thật xác nhận env var có tác dụng (trần 60 cho đúng 60 token ra). Lịch ủy quyền theo phụ thuộc: không làm, `software_company.yaml` đã mã hóa phụ thuộc thành các batch và `max_parallel` = 4 giữ nguyên.
+
+A/B thật `bugfix_team`, Haiku, task a, xen kẽ, n = 4 mỗi bên, bật cả ba cờ (PARALLEL_READS, STRUCTURED_REPORT, MEMBER_PROTOCOL_SYSTEM; CLI_MAX_OUTPUT không bật):
+
+| | Tắt | Bật |
+|---|---|---|
+| Thành công | 3/4 | 2/4 |
+| Lời gọi model TB | 12,8 | 11,5 |
+| Chi phí TB | 0,0132 USD | 0,0112 USD |
+
+n = 4 không đủ kết luận (lượt hỏng của nhánh tắt là lỗi lead dừng sớm đã biết ở mục 9; hai lượt hỏng nhánh bật chưa điều tra nguyên nhân). Quyết định: **giữ cả bốn cờ TẮT** cho tới khi có A/B n >= 20 mỗi bên; `PARALLEL_READS` là ứng viên bật đầu tiên (đã chứng minh bằng test, rủi ro thấp nhất). Chi tiêu thật mục 11: khoảng 0,22 USD, 9 lượt (1 lời gọi kiểm env var 0,127 USD do chạy ở thư mục có ngữ cảnh lớn + 8 lượt A/B 0,095 USD), dưới trần 24 lượt / 1,0 USD. Test backend đầy đủ: 1804 passed, 18 skipped.
