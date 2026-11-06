@@ -1,6 +1,12 @@
 ---
 name: frontend-ui-engineering
 description: Builds production-quality, accessible, responsive user-facing UIs. Use when building or modifying interfaces and pages, creating components, implementing layouts, meeting WCAG accessibility requirements, managing state, or when the output needs to look and feel production-quality rather than AI-generated.
+metadata:
+  category: dev
+  guide:
+    purpose: 'Xây giao diện chất lượng sản xuất: truy cập được, responsive, quản lý state, bám design system.'
+    when: Xây hoặc sửa trang, component, bố cục cần chất lượng thật.
+    benefit: UI sạch, đạt WCAG và không có vẻ ngoài do AI sinh ra.
 ---
 
 # Frontend UI Engineering

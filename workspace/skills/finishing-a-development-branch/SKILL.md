@@ -1,6 +1,13 @@
 ---
 name: finishing-a-development-branch
 description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work
+metadata:
+  category: dev
+  guide:
+    purpose: 'Hướng dẫn agent kết thúc nhánh: chạy test, xác định môi trường worktree, đưa phương án merge/PR/giữ/bỏ rồi dọn dẹp.'
+    when: code đã xong, test xanh và cần quyết định cách tích hợp.
+    benefit: Kết thúc việc có kiểm soát, không bỏ sót test và không dọn nhầm worktree.
+    requires: git
 ---
 
 # Finishing a Development Branch

@@ -1,6 +1,12 @@
 ---
 name: writing-plans
 description: Use when you have a spec or requirements for a multi-step task, before touching code
+metadata:
+  category: workflow
+  guide:
+    purpose: 'Hướng dẫn agent viết kế hoạch triển khai chi tiết: file, chữ ký, test và các task nhỏ theo TDD.'
+    when: đã có spec cho việc nhiều bước, trước khi đụng vào code.
+    benefit: Người thực thi chưa biết codebase vẫn làm đúng nhờ kế hoạch đầy đủ.
 ---
 
 # Writing Plans

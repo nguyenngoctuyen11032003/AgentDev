@@ -1,6 +1,12 @@
 ---
 name: subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn agent thực thi kế hoạch bằng subagent mới cho mỗi task, kèm review đặc tả/chất lượng và review cuối nhánh.
+    when: kế hoạch gồm các task độc lập và cần chất lượng cao, ngữ cảnh sạch.
+    benefit: Mỗi task có người thực hiện và người review riêng, giữ ngữ cảnh điều phối gọn.
 ---
 
 # Subagent-Driven Development

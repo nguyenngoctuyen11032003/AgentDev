@@ -1,6 +1,12 @@
 ---
 name: debugging-and-error-recovery
 description: Guides systematic root-cause debugging. Use when tests fail, builds break, something that worked yesterday broke, behavior doesn't match expectations, or you encounter any unexpected error. Use when you need to figure out what broke and why — a systematic approach to finding and fixing the root cause rather than guessing.
+metadata:
+  category: dev
+  guide:
+    purpose: Hướng dẫn gỡ lỗi có hệ thống theo checklist phân loại lỗi.
+    when: Khi test hỏng, build lỗi hoặc hành vi không như mong đợi.
+    benefit: Tìm đúng nguyên nhân gốc thay vì đoán.
 ---
 
 # Debugging and Error Recovery

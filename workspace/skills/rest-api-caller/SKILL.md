@@ -2,6 +2,13 @@
 name: rest-api-caller
 description: Call REST APIs from Python, parse JSON responses, and report the useful fields back to the user.
 allowed-tools: execute_code
+metadata:
+  category: dev
+  guide:
+    purpose: Gọi REST API bằng Python, phân tích JSON và báo lại trường quan trọng.
+    when: Khi cần lấy dữ liệu từ endpoint HTTP.
+    benefit: Lấy dữ liệu API nhanh.
+    requires: Công cụ execute_code
 ---
 
 # REST API Caller

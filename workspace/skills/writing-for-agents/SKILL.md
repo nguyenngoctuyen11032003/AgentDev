@@ -1,6 +1,12 @@
 ---
 name: writing-for-agents
 description: Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md.
+metadata:
+  category: docs
+  guide:
+    purpose: 'Hướng dẫn viết tài liệu cho agent: con trỏ ngữ cảnh, mô tả skill, AGENTS.md/CLAUDE.md, giảm biến động giữa các lần chạy.'
+    when: tạo hoặc sửa skill, AGENTS.md hay CLAUDE.md.
+    benefit: Tài liệu gọn, được agent nạp đúng lúc và cho hành vi ổn định.
 ---
 
 Reference for writing any document an agent consumes: a skill, an `AGENTS.md` / `CLAUDE.md`, a doc reached by a pointer. The packaging differs; the writing does not: the same levers make each one predictable, since the agent takes the same _process_ every run rather than producing the same output.

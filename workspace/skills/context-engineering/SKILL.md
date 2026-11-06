@@ -1,6 +1,12 @@
 ---
 name: context-engineering
 description: Optimizes agent context setup. Use when starting a new session, when agent output quality degrades, when switching between tasks, or when you need to configure rules files and context for a project.
+metadata:
+  category: workflow
+  guide:
+    purpose: 'Hướng dẫn agent chuẩn bị ngữ cảnh đúng lúc: file luật, spec, mã nguồn liên quan, kết quả lỗi.'
+    when: bắt đầu phiên mới, chuyển sang phần khác của dự án hoặc chất lượng đầu ra giảm.
+    benefit: Agent bám quy ước dự án, bớt bịa API và giữ tập trung.
 ---
 
 # Context Engineering

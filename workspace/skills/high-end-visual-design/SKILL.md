@@ -1,6 +1,12 @@
 ---
 name: high-end-visual-design
 description: Teaches the AI to design like a high-end agency. Defines the exact fonts, spacing, shadows, card structures, and animations that make a website feel expensive. Blocks all the common defaults that make AI designs look cheap or generic.
+metadata:
+  category: design
+  guide:
+    purpose: Persona thiết kế cao cấp với font, khoảng cách, đổ bóng, hiệu ứng kiểu agency.
+    when: Cần giao diện sang trọng, tránh mặc định chung chung.
+    benefit: Giảm giao diện tầm thường nhưng trùng với skill đầy đủ hơn.
 ---
 
 # Agent Skill: Principal UI/UX Architect & Motion Choreographer (Awwwards-Tier)

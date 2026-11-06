@@ -1,6 +1,12 @@
 ---
 name: receiving-code-review
 description: Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation
+metadata:
+  category: workflow
+  guide:
+    purpose: 'Hướng dẫn xử lý phản hồi review: kiểm chứng kỹ thuật trước khi áp dụng, không đồng ý máy móc.'
+    when: Khi nhận góp ý review, nhất là góp ý mơ hồ hoặc đáng ngờ.
+    benefit: Chỉ áp dụng góp ý đúng, tránh sửa sai theo phản hồi.
 ---
 
 # Code Review Reception

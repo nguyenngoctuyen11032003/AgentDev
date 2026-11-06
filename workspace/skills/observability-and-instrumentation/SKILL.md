@@ -1,6 +1,12 @@
 ---
 name: observability-and-instrumentation
 description: Instruments code so production behavior is visible and diagnosable. Use when adding logging, metrics, tracing, or alerting. Use when shipping any feature that runs in production and you need evidence it works. Use when production issues are reported but you can't tell what happened from the available data.
+metadata:
+  category: dev
+  guide:
+    purpose: Hướng dẫn thêm log, metric, trace và cảnh báo để hành vi production nhìn thấy và chẩn đoán được.
+    when: Khi phát hành tính năng chạy production hoặc không hiểu sự cố từ dữ liệu hiện có.
+    benefit: Có bằng chứng tính năng hoạt động và truy vết sự cố nhanh.
 ---
 
 # Observability and Instrumentation

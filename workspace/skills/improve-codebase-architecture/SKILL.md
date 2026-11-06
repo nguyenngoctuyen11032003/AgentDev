@@ -2,6 +2,13 @@
 name: improve-codebase-architecture
 description: Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.
 disable-model-invocation: true
+metadata:
+  category: dev
+  guide:
+    purpose: Quét codebase tìm cơ hội làm module sâu hơn, trình bày bằng báo cáo HTML rồi cùng người dùng thảo luận.
+    when: Khi muốn cải thiện kiến trúc, tăng khả năng test và giúp agent dễ điều hướng mã.
+    benefit: Có danh sách refactor kiến trúc ưu tiên theo vùng mã hay đổi.
+    requires: Skill codebase-design
 ---
 
 # Improve Codebase Architecture

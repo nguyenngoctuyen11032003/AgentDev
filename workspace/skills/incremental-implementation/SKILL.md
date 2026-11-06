@@ -1,6 +1,12 @@
 ---
 name: incremental-implementation
 description: Delivers changes incrementally in thin, verifiable slices. Use when implementing any feature or change that touches more than one file, or when picking up the next task from a plan. Use when rolling a change out behind a feature flag, when you're about to write a large amount of code at once, or when a task feels too big to land in one step.
+metadata:
+  category: workflow
+  guide:
+    purpose: 'Hướng dẫn triển khai theo từng lát mỏng: làm, test, xác minh, commit rồi mở rộng.'
+    when: Khi làm tính năng nhiều file hoặc cảm thấy sắp viết quá nhiều mã một lúc.
+    benefit: Hệ thống luôn ở trạng thái chạy được, dễ phát hiện lỗi sớm.
 ---
 
 # Incremental Implementation

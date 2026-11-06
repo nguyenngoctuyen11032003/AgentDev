@@ -1,6 +1,12 @@
 ---
 name: executing-plans
 description: Use when executing an implementation plan in the current session as the implementer yourself — your human partner chose inline execution, or no subagent tool is available
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn agent tự thực thi kế hoạch từng task trong phiên hiện tại, dùng TDD, sổ ghi quyết định và một review cuối nhánh.
+    when: đã có kế hoạch triển khai và chọn chạy trực tiếp, không dùng subagent cho từng task.
+    benefit: Chạy hết kế hoạch liên tục, có bằng chứng test và ít tốn kém hơn.
 ---
 
 # Executing Plans

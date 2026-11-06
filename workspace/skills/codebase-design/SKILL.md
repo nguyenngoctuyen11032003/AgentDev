@@ -1,6 +1,12 @@
 ---
 name: codebase-design
 description: Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary.
+metadata:
+  category: dev
+  guide:
+    purpose: 'Từ vựng và nguyên tắc thiết kế module sâu: giao diện nhỏ, nhiều hành vi, đặt đường nối đúng chỗ.'
+    when: Thiết kế hoặc cải thiện giao diện module, tăng khả năng test và dễ điều hướng cho AI.
+    benefit: Mã được tái cấu trúc có ngôn ngữ chung, dễ test và bảo trì.
 ---
 
 # Codebase Design

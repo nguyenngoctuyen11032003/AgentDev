@@ -1,6 +1,12 @@
 ---
 name: code-review-and-quality
 description: Conducts multi-axis code review. Use before merging any change. Use when reviewing code written by yourself, another agent, or a human. Use when you need to assess code quality across multiple dimensions before it enters the main branch. Use when asked to review a diff or a pull request, even when the diff is pasted inline.
+metadata:
+  category: dev
+  guide:
+    purpose: 'Hướng dẫn review mã theo 5 trục: đúng đắn, dễ đọc, kiến trúc, bảo mật, hiệu năng.'
+    when: Khi review diff hoặc PR trước khi merge, kể cả mã do agent khác viết.
+    benefit: Review nhất quán, tiêu chuẩn duyệt rõ ràng, bắt lỗi sớm.
 ---
 
 # Code Review and Quality

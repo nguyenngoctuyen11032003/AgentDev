@@ -1,6 +1,12 @@
 ---
 name: performance-optimization
 description: Optimizes application performance across frontend, backend, queries, and databases. Use when performance requirements exist, when you suspect performance regressions, when Core Web Vitals or load times need improvement, when N+1 query patterns need fixing, or when profiling reveals bottlenecks.
+metadata:
+  category: dev
+  guide:
+    purpose: Hướng dẫn tối ưu hiệu năng frontend, backend và truy vấn dựa trên đo đạc.
+    when: Khi có hồi quy hiệu năng, Core Web Vitals kém hoặc lỗi N+1 query.
+    benefit: Tối ưu đúng điểm nghẽn có số liệu chứng minh.
 ---
 
 # Performance Optimization

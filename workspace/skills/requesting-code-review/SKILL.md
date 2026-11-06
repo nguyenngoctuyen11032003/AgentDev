@@ -1,6 +1,12 @@
 ---
 name: requesting-code-review
 description: Use when completing tasks, implementing major features, or before merging to verify work meets requirements
+metadata:
+  category: workflow
+  guide:
+    purpose: 'Hướng dẫn yêu cầu review: khi nào gọi và chuẩn bị ngữ cảnh cho người review.'
+    when: Khi hoàn thành tác vụ hoặc tính năng lớn, trước khi merge.
+    benefit: Phát hiện sớm lỗi, review đúng trọng tâm.
 ---
 
 # Requesting Code Review

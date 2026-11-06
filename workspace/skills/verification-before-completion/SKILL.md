@@ -1,6 +1,12 @@
 ---
 name: verification-before-completion
 description: Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn agent chỉ báo hoàn thành sau khi chạy lệnh kiểm chứng mới và đọc đầy đủ kết quả.
+    when: sắp tuyên bố xong, sửa được, test qua, trước khi commit hoặc tạo PR.
+    benefit: Loại bỏ báo cáo thành công không có bằng chứng.
 ---
 
 # Verification Before Completion

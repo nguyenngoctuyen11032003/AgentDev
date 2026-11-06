@@ -1,7 +1,19 @@
 ---
 name: playwright-cli
 description: Automate browser interactions, test web pages and work with Playwright tests.
-allowed-tools: [run_shell_command, read_file_segment, list_directory, search_in_files, save_file]
+allowed-tools:
+- run_shell_command
+- read_file_segment
+- list_directory
+- search_in_files
+- save_file
+metadata:
+  category: dev
+  guide:
+    purpose: 'Điều khiển trình duyệt bằng playwright-cli: mở trang, snapshot, click, gõ, chụp màn hình và viết test.'
+    when: Khi cần tự động hóa trình duyệt, kiểm thử trang web hoặc làm việc với test Playwright.
+    benefit: Agent tự kiểm chứng giao diện thật trên trình duyệt.
+    requires: playwright-cli (Node.js)
 ---
 
 # Browser Automation with playwright-cli

@@ -1,6 +1,12 @@
 ---
 name: api-and-interface-design
 description: Guides stable API and interface design. Use when designing APIs, module boundaries, or any public interface. Use when creating REST or GraphQL endpoints, defining type contracts between modules, or establishing boundaries between frontend and backend.
+metadata:
+  category: dev
+  guide:
+    purpose: Hướng dẫn thiết kế API và giao diện module ổn định, khó dùng sai (REST, GraphQL, props).
+    when: Thiết kế endpoint, ranh giới module, hợp đồng kiểu giữa frontend và backend.
+    benefit: API nhất quán, dễ bảo trì và ít phá vỡ khi thay đổi.
 ---
 
 # API and Interface Design

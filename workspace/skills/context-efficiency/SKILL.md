@@ -1,6 +1,12 @@
 ---
 name: context-efficiency
-description: "Apply per-turn tactics to keep token consumption low across coding sessions — constrain bulk tool outputs at the source, avoid re-reading files within a session, prefer Edit over Write for changes, fire independent tool calls in parallel, and don't quote tool results back in prose. Trigger on any multi-step coding work — debugging, refactors, investigations, anything that involves more than a couple of tool calls. These tactics are individually small but compound across a session: a 10% saving per turn becomes a 10% saving on every future turn too. Use alongside [[delegate-reading]] when bulk reading is also on the path."
+description: 'Apply per-turn tactics to keep token consumption low across coding sessions — constrain bulk tool outputs at the source, avoid re-reading files within a session, prefer Edit over Write for changes, fire independent tool calls in parallel, and don''t quote tool results back in prose. Trigger on any multi-step coding work — debugging, refactors, investigations, anything that involves more than a couple of tool calls. These tactics are individually small but compound across a session: a 10% saving per turn becomes a 10% saving on every future turn too. Use alongside [[delegate-reading]] when bulk reading is also on the path.'
+metadata:
+  category: workflow
+  guide:
+    purpose: 'Hướng dẫn agent tiết kiệm token mỗi lượt: giới hạn đầu ra lệnh, không đọc lại file, dùng Edit, gọi công cụ song song.'
+    when: làm việc nhiều bước như debug, refactor, khảo sát mã nguồn.
+    benefit: Giảm chi phí và giữ ngữ cảnh gọn suốt phiên làm việc dài.
 ---
 
 # Context efficiency

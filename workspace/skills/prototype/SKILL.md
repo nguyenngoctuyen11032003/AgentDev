@@ -1,6 +1,12 @@
 ---
 name: prototype
 description: Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like.
+metadata:
+  category: workflow
+  guide:
+    purpose: 'Xây nguyên mẫu bỏ đi để trả lời một câu hỏi: logic có đúng không hoặc UI nên trông thế nào.'
+    when: Cần thử nhanh mô hình trạng thái hoặc so sánh nhiều biến thể giao diện.
+    benefit: Có file HTML thử được và nhiều phương án UI khác nhau để chọn.
 ---
 
 # Prototype

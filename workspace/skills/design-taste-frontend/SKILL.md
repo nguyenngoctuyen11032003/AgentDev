@@ -1,6 +1,12 @@
 ---
 name: design-taste-frontend
 description: Anti-slop frontend skill for landing pages, portfolios, and redesigns. The agent reads the brief, infers the right design direction, and ships interfaces that do not look templated. Real design systems when applicable, audit-first on redesigns, strict pre-flight check.
+metadata:
+  category: design
+  guide:
+    purpose: Hướng dẫn agent làm landing page, portfolio, redesign không giống mẫu AI chung chung.
+    when: Làm trang giới thiệu hoặc redesign cần có gu thiết kế riêng.
+    benefit: Đọc brief, chọn hướng thiết kế đúng và qua bước kiểm tra trước khi giao.
 ---
 
 # tasteskill: Anti-Slop Frontend Skill

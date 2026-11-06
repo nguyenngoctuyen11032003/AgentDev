@@ -1,6 +1,12 @@
 ---
 name: writing-skills
 description: Use when creating new skills, editing existing skills, or verifying skills work before deployment
+metadata:
+  category: docs
+  guide:
+    purpose: 'Hướng dẫn viết và kiểm thử skill như TDD: tạo kịch bản áp lực, xem agent sai, rồi viết skill và vá lỗ hổng.'
+    when: tạo, sửa hoặc kiểm tra skill trước khi đưa vào dùng.
+    benefit: Skill được chứng minh hiệu quả bằng hành vi agent thực tế.
 ---
 
 # Writing Skills

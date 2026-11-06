@@ -1,6 +1,12 @@
 ---
 name: brainstorming
-description: "You MUST use this before any creative work - creating features, building components, adding functionality, modifying behavior, or planning anything new, in software or out of it (a talk, a business, a renovation)."
+description: You MUST use this before any creative work - creating features, building components, adding functionality, modifying behavior, or planning anything new, in software or out of it (a talk, a business, a renovation).
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn agent làm rõ ý định người dùng bằng câu hỏi, đề xuất phương án và viết tài liệu thiết kế trước khi xây.
+    when: bắt đầu tính năng hoặc việc sáng tạo mới mà yêu cầu còn thiếu ý quan trọng.
+    benefit: Giảm làm sai hướng nhờ chốt phương án và thiết kế được duyệt trước khi lập kế hoạch.
 ---
 
 # Brainstorming

@@ -1,6 +1,13 @@
 ---
 name: ui-ux-pro-max
-description: "UI/UX design intelligence for web, mobile, and desktop. This skill should be used when designing, building, reviewing, or fixing interfaces, including pages, components, design systems, accessibility, interaction, responsive layout, typography, color, charts, and stack-specific UI implementation. Searchable local data: 79 searchable styles (50 active), 192 product palettes and reasoning profiles, 74 font pairings, 119 UX guidelines, 105 icons, 17 GSAP presets, 25 chart types, and 22 stacks."
+description: 'UI/UX design intelligence for web, mobile, and desktop. This skill should be used when designing, building, reviewing, or fixing interfaces, including pages, components, design systems, accessibility, interaction, responsive layout, typography, color, charts, and stack-specific UI implementation. Searchable local data: 79 searchable styles (50 active), 192 product palettes and reasoning profiles, 74 font pairings, 119 UX guidelines, 105 icons, 17 GSAP presets, 25 chart types, and 22 stacks.'
+metadata:
+  category: design
+  guide:
+    purpose: 'Kho tri thức UI/UX tìm kiếm cục bộ: phong cách, bảng màu, cặp font, hướng dẫn UX, biểu đồ, stack.'
+    when: Thiết kế hoặc rà soát giao diện cần chọn phong cách, màu, font có căn cứ.
+    benefit: Quyết định thiết kế dựa trên dữ liệu có sẵn, hỗ trợ nhiều stack.
+    requires: Python (script tìm kiếm)
 ---
 
 # UI/UX Pro Max - Design Intelligence

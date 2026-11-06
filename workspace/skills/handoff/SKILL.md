@@ -1,8 +1,14 @@
 ---
 name: handoff
 description: Compact the current conversation into a handoff document for another agent to pick up.
-argument-hint: "What will the next session be used for?"
+argument-hint: What will the next session be used for?
 disable-model-invocation: true
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn agent tóm tắt cuộc hội thoại thành tài liệu bàn giao, gợi ý skill cho agent kế tiếp, che thông tin nhạy cảm.
+    when: cần chuyển việc sang phiên hoặc agent mới.
+    benefit: Agent mới tiếp tục việc nhanh mà không lặp lại nội dung đã có trong spec, commit.
 ---
 
 Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save to the temporary directory of the user's OS (`$TMPDIR`, else `/tmp`; `%TEMP%` on Windows) - not the current workspace.

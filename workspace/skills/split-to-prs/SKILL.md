@@ -1,9 +1,14 @@
 ---
 name: split-to-prs
-description: >-
-  Split current work into small reviewable PRs. Use when the user asks to split
-  a chat, set of changes, branch, or PR.
+description: Split current work into small reviewable PRs. Use when the user asks to split a chat, set of changes, branch, or PR.
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn tách một đống thay đổi thành vài PR nhỏ dễ review, có sao lưu và chờ duyệt kế hoạch.
+    when: Khi một nhánh hoặc phiên làm việc chứa nhiều thay đổi lẫn nhau.
+    benefit: PR nhỏ, an toàn, không mất công việc.
 ---
+
 # Split to PRs
 
 Turn one pile of work into a few small PRs.

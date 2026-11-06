@@ -1,6 +1,12 @@
 ---
 name: ci-cd-and-automation
 description: Automates CI/CD pipeline setup. Use when setting up or modifying build and deployment pipelines. Use when you need to automate quality gates, configure test runners in CI, or establish deployment strategies.
+metadata:
+  category: dev
+  guide:
+    purpose: 'Hướng dẫn thiết lập CI/CD với các cổng chất lượng: lint, kiểm tra kiểu, test, build và triển khai.'
+    when: Khi tạo hoặc sửa pipeline, cấu hình test trong CI hoặc gỡ lỗi CI hỏng.
+    benefit: Không thay đổi nào vào production mà chưa qua kiểm tra tự động.
 ---
 
 # CI/CD and Automation

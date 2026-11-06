@@ -2,6 +2,13 @@
 name: python-scratchpad
 description: Use the existing Python execution tools as a scratchpad for calculations, data transformation, and quick script-based validation.
 allowed-tools: execute_code
+metadata:
+  category: dev
+  guide:
+    purpose: Dùng công cụ execute_code làm nháp tính toán và biến đổi dữ liệu bằng Python.
+    when: Khi cần tính toán, thử regex hoặc đổi JSON/CSV nhỏ.
+    benefit: Kết quả tính toán chính xác hơn suy luận.
+    requires: Công cụ execute_code
 ---
 
 # Python Scratchpad

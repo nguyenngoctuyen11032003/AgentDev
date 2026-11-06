@@ -1,6 +1,12 @@
 ---
 name: planning-and-task-breakdown
 description: Breaks work into ordered tasks. Use when you have a spec or clear requirements and need to break work into implementable tasks. Use when a task feels too large to start, when you need to estimate scope, or when parallel work is possible.
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn agent chia spec thành các task nhỏ có thứ tự, phụ thuộc và tiêu chí nghiệm thu rõ ràng.
+    when: có spec nhưng việc quá lớn, hoặc cần song song hóa nhiều agent.
+    benefit: Agent làm việc từng lát nhỏ, kiểm chứng được thay vì một mớ rối.
 ---
 
 # Planning and Task Breakdown

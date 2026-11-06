@@ -1,6 +1,13 @@
 ---
 name: setup-pre-commit
 description: Set up Husky pre-commit hooks with lint-staged (Prettier), type checking, and tests in the current repo. Use when user wants to add pre-commit hooks, set up Husky, configure lint-staged, or add commit-time formatting/typechecking/testing.
+metadata:
+  category: dev
+  guide:
+    purpose: Cài Husky, lint-staged, Prettier cùng kiểm tra kiểu và test chạy trước mỗi commit.
+    when: Khi muốn thêm hook pre-commit cho dự án Node.
+    benefit: Mã được format và kiểm tra trước khi commit.
+    requires: Node.js, npm/pnpm/yarn
 ---
 
 # Setup Pre-Commit Hooks

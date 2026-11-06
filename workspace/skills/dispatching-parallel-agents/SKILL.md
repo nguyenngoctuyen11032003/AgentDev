@@ -1,6 +1,12 @@
 ---
 name: dispatching-parallel-agents
 description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn agent giao mỗi vấn đề độc lập cho một subagent riêng và chạy song song với ngữ cảnh tự dựng.
+    when: có từ 2 việc độc lập, ví dụ nhiều test hỏng do nguyên nhân khác nhau.
+    benefit: Rút ngắn thời gian xử lý và giữ ngữ cảnh điều phối gọn.
 ---
 
 # Dispatching Parallel Agents

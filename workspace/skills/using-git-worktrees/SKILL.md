@@ -1,6 +1,13 @@
 ---
 name: using-git-worktrees
 description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback
+metadata:
+  category: dev
+  guide:
+    purpose: Hướng dẫn agent dùng git worktree để có không gian làm việc tách biệt, ưu tiên công cụ native và phát hiện cô lập sẵn có.
+    when: bắt đầu tính năng cần cô lập khỏi workspace hiện tại hoặc trước khi chạy kế hoạch.
+    benefit: Tránh lẫn thay đổi giữa các nhánh và tránh tạo worktree chồng.
+    requires: git
 ---
 
 # Using Git Worktrees

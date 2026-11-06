@@ -1,6 +1,12 @@
 ---
 name: idea-refine
 description: Refines raw ideas into sharp, actionable concepts through structured divergent and convergent thinking. Use when an idea is still vague, when you need to stress-test assumptions before committing to a plan, or when you want to expand options before converging on one. Triggers on "ideate", "refine this idea", or "stress-test my plan".
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn agent biến ý tưởng thô thành bản một trang rõ ràng qua giai đoạn mở rộng rồi thu hẹp.
+    when: ý tưởng còn mơ hồ cần thử thách giả định trước khi lập kế hoạch.
+    benefit: Có khái niệm sắc nét, đã qua kiểm tra giả định, sẵn sàng viết spec.
 ---
 
 # Idea Refine

@@ -1,6 +1,12 @@
 ---
 name: doubt-driven-development
 description: Subjects every non-trivial decision to a fresh-context adversarial review before it stands. Use when you want every assumption cross-examined before proceeding, when stress-testing a plan for hidden failure modes, when correctness matters more than speed, when working in unfamiliar code, when stakes are high (production auth, security-sensitive logic, a high-stakes migration, irreversible operations), or any time a confident output would be cheaper to verify now than to debug later.
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn agent cho mọi quyết định quan trọng qua một người phản biện ngữ cảnh mới, thiên về bác bỏ.
+    when: rủi ro cao như auth, migration, thao tác không hoàn tác hoặc làm trong mã lạ.
+    benefit: Bắt lỗi giả định sớm khi còn rẻ để sửa, thay vì debug muộn.
 ---
 
 # Doubt-Driven Development

@@ -1,6 +1,12 @@
 ---
 name: redesign-existing-projects
 description: Upgrades existing websites and apps to premium quality. Audits current design, identifies generic AI patterns, and applies high-end design standards without breaking functionality. Works with any CSS framework or vanilla CSS.
+metadata:
+  category: design
+  guide:
+    purpose: 'Kiểm tra và nâng cấp giao diện web hiện có: phát hiện kiểu AI chung chung, sửa mà không phá chức năng.'
+    when: Dự án có sẵn cần nâng chất lượng thiết kế.
+    benefit: Quy trình quét, chẩn đoán, sửa có mục tiêu theo công nghệ đang dùng.
 ---
 
 # Redesign Skill

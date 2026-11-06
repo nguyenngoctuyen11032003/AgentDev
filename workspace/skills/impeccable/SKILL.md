@@ -3,11 +3,18 @@ name: impeccable
 description: Use when the user wants to design, redesign, shape, critique, audit, polish, clarify, distill, harden, optimize, adapt, animate, colorize, extract, or otherwise improve a frontend interface. Covers websites, landing pages, dashboards, product UI, app shells, components, forms, settings, onboarding, and empty states. Handles UX review, visual hierarchy, information architecture, cognitive load, accessibility, performance, responsive behavior, theming, anti-patterns, typography, fonts, spacing, layout, alignment, color, motion, micro-interactions, UX copy, error states, edge cases, i18n, and reusable design systems or tokens. Also use for bland designs that need to become bolder or more delightful, loud designs that should become quieter, live browser iteration on UI elements, or ambitious visual effects that should feel technically extraordinary. Not for backend-only or non-UI tasks.
 version: 3.9.1
 user-invocable: true
-argument-hint: "[craft|shape · audit|critique · animate|bolder|colorize|delight|layout|overdrive|quieter|typeset · adapt|clarify|distill · harden|onboard|optimize|polish · init|document|extract|live] [target]"
+argument-hint: '[craft|shape · audit|critique · animate|bolder|colorize|delight|layout|overdrive|quieter|typeset · adapt|clarify|distill · harden|onboard|optimize|polish · init|document|extract|live] [target]'
 license: Apache 2.0
 allowed-tools:
-  - Bash(npx impeccable *)
-  - Bash(node .claude/skills/impeccable/scripts/*)
+- Bash(npx impeccable *)
+- Bash(node .claude/skills/impeccable/scripts/*)
+metadata:
+  category: design
+  guide:
+    purpose: 'Bộ lệnh thiết kế UI toàn diện: shape, critique, audit, polish, harden, animate cho giao diện web và app.'
+    when: Cần thiết kế, rà soát, chỉnh bóng hoặc cải thiện giao diện hiện có.
+    benefit: Quy trình có script kiểm tra, nâng chất lượng UX, truy cập và thiết kế nhất quán.
+    requires: Node.js (script đi kèm)
 ---
 
 Designs and iterates production-grade frontend interfaces. Real working code, committed design choices, exceptional craft.

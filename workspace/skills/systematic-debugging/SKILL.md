@@ -1,6 +1,12 @@
 ---
 name: systematic-debugging
 description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+metadata:
+  category: dev
+  guide:
+    purpose: 'Hướng dẫn gỡ lỗi có hệ thống: tìm nguyên nhân gốc trước khi đề xuất sửa, kèm truy vết và phòng thủ nhiều lớp.'
+    when: Khi gặp lỗi, test hỏng hoặc hành vi bất thường, trước khi sửa.
+    benefit: Sửa đúng gốc, tránh vá tạm và lỗi lặp lại.
 ---
 
 # Systematic Debugging

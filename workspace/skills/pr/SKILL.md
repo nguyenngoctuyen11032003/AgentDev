@@ -1,12 +1,17 @@
 ---
 name: pr
-description: "Use when writing a PR body."
+description: Use when writing a PR body.
 metadata:
   credits:
     skill: show-me
     author: Dex Horthy
     organisation: Humanlayer
-    url: "https://github.com/humanlayer/skills/blob/main/plugins/show-me/skills/show-me/SKILL.md"
+    url: https://github.com/humanlayer/skills/blob/main/plugins/show-me/skills/show-me/SKILL.md
+  category: dev
+  guide:
+    purpose: 'Mẫu viết phần thân PR: tóm tắt bằng sơ đồ, bằng chứng trước/sau, mức nguy hiểm khi merge.'
+    when: Khi cần viết mô tả PR ngắn gọn, có bằng chứng.
+    benefit: PR dễ review, người duyệt nắm ngay phạm vi và rủi ro.
 ---
 
 Use this template for writing the PR body:

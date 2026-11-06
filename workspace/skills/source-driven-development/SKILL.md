@@ -1,6 +1,13 @@
 ---
 name: source-driven-development
 description: Grounds every implementation decision in official documentation. Use when you want to verify an approach against the official docs before implementing it, or when you want authoritative, source-cited code free from outdated patterns. Use when building with any framework or library where correctness matters.
+metadata:
+  category: workflow
+  guide:
+    purpose: Hướng dẫn dựa mọi quyết định cài đặt vào tài liệu chính thức và trích nguồn.
+    when: Khi dùng framework hoặc thư viện mà độ đúng quan trọng, tránh mẫu lỗi thời.
+    benefit: Mã chuẩn, có nguồn dẫn, ít lỗi do kiến thức cũ.
+    requires: Truy cập tài liệu chính thức
 ---
 
 # Source-Driven Development

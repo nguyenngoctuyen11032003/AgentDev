@@ -1,6 +1,12 @@
 ---
 name: test-driven-development
 description: Drives development with tests using the red-green-refactor loop. Use when implementing any logic, fixing any bug, or changing any behavior. Use when you need to prove that code works, when a bug report arrives, or when you're about to modify existing functionality. Use when asked to add tests to a function, fix a bug in it or change its behavior, even when the code is pasted inline and the request does not mention tests.
+metadata:
+  category: dev
+  guide:
+    purpose: 'Hướng dẫn phát triển theo test: viết test đỏ, làm xanh rồi refactor.'
+    when: Khi cài logic mới, sửa lỗi hoặc đổi hành vi.
+    benefit: Có test chứng minh mã đúng và chống hồi quy.
 ---
 
 # Test-Driven Development

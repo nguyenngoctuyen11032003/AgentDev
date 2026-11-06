@@ -1,6 +1,12 @@
 ---
 name: domain-modeling
 description: Build and sharpen a project's domain model. Use when discussing codebase terminology, writing or editing a GLOSSARY.md, or recording or editing an ADR.
+metadata:
+  category: docs
+  guide:
+    purpose: 'Hướng dẫn agent xây và chỉnh mô hình miền: thách thức thuật ngữ, viết GLOSSARY.md và ADR ngay khi chốt.'
+    when: bàn về thuật ngữ codebase hoặc ghi, sửa glossary và ADR.
+    benefit: Ngôn ngữ dự án nhất quán, quyết định được ghi lại kịp thời.
 ---
 
 # Domain Modeling
