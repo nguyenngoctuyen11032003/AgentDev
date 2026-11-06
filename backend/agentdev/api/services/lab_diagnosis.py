@@ -13,6 +13,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
+from agentdev.api.services.lab_quality import brief_section, quality_profile, run_brief_lines
 from agentdev.utils.redact import redact_secrets
 
 # Time budget (seconds) of a greeting-like run; real requests get LONG_SECONDS. Override with AGENTDEV_LAB_SLOW_SECONDS.
@@ -437,6 +438,18 @@ def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
                     "liên kết dài và chọn model nhỏ cho việc đơn giản."),
         })
 
+    login = run.get("login") or {}
+    if login.get("needs_login") and not login.get("credentials") and status in ("passed", "failed"):
+        findings.append({
+            "code": "login_missing",
+            "kind": "quality",
+            "severity": "warn",
+            "detail": "Sản phẩm có đăng nhập nhưng quy trình không báo tài khoản/mật khẩu để vào xem thử.",
+            "fix": ("Khi sản phẩm có đăng nhập: tạo sẵn tài khoản demo (seed khi khởi động, mỗi vai trò một tài khoản "
+                    "nếu có phân quyền) và câu trả lời cuối phải ghi rõ địa chỉ trang đăng nhập, tài khoản, mật khẩu; "
+                    "người duyệt chặn bàn giao khi thiếu."),
+        })
+
     judge = run.get("judge") or {}
     if status == "unjudged":
         findings.append({
@@ -731,6 +744,7 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
         reason = (run.get("judge") or {}).get("reason")
         if reason:
             lines.append(f"- Giám khảo nhận xét: {reason}")
+        lines += run_brief_lines(run.get("judge") or {})
         if run.get("error") and KIND_LAYER.get(error_kind_of(run)) == "workflow":
             lines.append(f"- Lỗi: {str(run['error'])[:500]}")
         agents = ", ".join(f"{n} ×{c}" if c > 1 else n for n, c in (run.get("agents") or {}).items())
@@ -746,6 +760,7 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
         answer = " ".join(str(run.get("answer") or "").split())[:400]
         if answer:
             lines.append(f"- Câu trả lời nhận được: {answer}")
+    lines += brief_section(quality_profile(runs))
     lines += ["", "### Chẩn đoán tự động (lỗi thuộc quy trình)"]
     seen = set()
     for f in workflow_findings:
@@ -772,6 +787,8 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
         "(người thật vẫn chỉ cần gõ OK). Ngoại lệ: bước duyệt trước việc tốn tiền hoặc không thể hoàn tác (tạo video, "
         "gửi email, thanh toán, đăng bài) phải có `paid: true` trong config của node duyệt và đưa câu tự trả lời, "
         "câu bỏ qua `[Skipped automatically ...]` và lúc hết giờ sang nhánh bỏ qua, không được duyệt.",
+        "- Sửa theo NGUYÊN NHÂN trong quy trình (vai trò, các bước, tiêu chuẩn duyệt, công cụ, model), không vá riêng "
+        "cho kịch bản thử: tiêu chí chất lượng yếu nào thì nêu rõ thay đổi nào nâng nó lên.",
         "- Sau khi sửa, nói rõ đã đổi gì và vì sao nó khắc phục từng lỗi.",
         "",
         "Thông tin bổ sung của tôi: ",

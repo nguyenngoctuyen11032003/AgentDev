@@ -3064,7 +3064,11 @@
         "tablet": "Tablet",
         "mobile": "Phone"
       },
-      "lines_truncated": "Showing the first {n} lines only. Download to see it all."
+      "lines_truncated": "Showing the first {n} lines only. Download to see it all.",
+      "download_zip": "Download (.zip)",
+      "download_zip_hint": "Download the whole project as a .zip (without node_modules, .git, .env)",
+      "collapse_all": "Collapse all",
+      "project_fallback": "Project"
     },
     "history": {
       "title": "Evaluation history",
@@ -3140,6 +3144,8 @@
       "older": "Older than {n} days",
       "orphans": "Only folders no longer linked to any evaluation",
       "orphans_count": "{n} folders",
+      "all": "Delete everything except running evaluations",
+      "all_hint": "{n} folders · {size}",
       "note": "Running evaluations and live previews are never touched. This cannot be undone.",
       "confirm": "Clean up",
       "cancel": "Cancel",
@@ -3199,7 +3205,74 @@
       "preview_job_invalid": "Invalid evaluation id.",
       "preview_internal_error": "Internal preview error."
     },
-    "workflows_load_failed": "Couldn't load workflows"
+    "workflows_load_failed": "Couldn't load workflows",
+    "quality": {
+      "title": "Quality by criterion",
+      "average": "average of {n} runs",
+      "score": "{n}/10",
+      "missing": "Requirements not met",
+      "fixes": "Judge suggests these workflow fixes",
+      "weak": "Weak criteria",
+      "dim": {
+        "requirements": "Matches the full request",
+        "correctness": "Correct / works",
+        "craft": "Professional quality",
+        "verification": "Verified",
+        "communication": "Clarity and language",
+        "effort_fit": "Depth for the task size"
+      },
+      "domain": {
+        "code": "Code",
+        "video": "Video",
+        "content": "Content",
+        "general": "General"
+      },
+      "scope": {
+        "small": "Small task",
+        "medium": "Medium task",
+        "large": "Large task"
+      }
+    },
+    "login": {
+      "title": "Login to try the app",
+      "page": "Login page",
+      "username": "Username",
+      "password": "Password",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copy_username": "Copy username",
+      "copy_password": "Copy password",
+      "copy_failed": "Could not copy; select the text and copy it by hand.",
+      "from_file": "from {file}",
+      "missing": "The app has a login but the workflow did not report a username/password to get in. Use \"Fix the workflow from these failures\" so the assistant adds a step that creates a demo account.",
+      "env_hint": "The app creates its account from environment variables: username {user} ({user_var}); set the password with {password_var} in the .env file, then run again.",
+      "env_hint_no_user": "The app creates its account from environment variables: set the password with {password_var} in the .env file, then run again.",
+      "copy_variable": "Copy variable name"
+    },
+    "accounts": {
+      "title": "Test accounts",
+      "none_tag": "None yet",
+      "add": "Add account",
+      "loading": "Loading accounts…",
+      "load_error": "Could not load the accounts",
+      "save_error": "Could not save the accounts",
+      "note": "Note",
+      "note_placeholder": "e.g. admin, sales staff",
+      "actions": "Actions",
+      "show": "Show password",
+      "hide": "Hide password",
+      "edit": "Edit",
+      "delete": "Delete",
+      "keep": "Save to the list",
+      "from_team": "Reported by the team",
+      "save": "Save",
+      "cancel": "Cancel",
+      "need_value": "Enter at least a username or a password.",
+      "delete_title": "Delete this account?",
+      "delete_message": "Account {name} will be removed from the list (nothing changes in the app).",
+      "empty_hint": "No accounts yet. Once you create one in the app (or know a sample account), press \"Add account\" to keep it and copy it quickly next time.",
+      "storage_note": "Stored on this machine only, outside the product folder and not in the .zip file."
+    }
   },
   "schema_desc_text": {
     "h11aw3kw": "This agent's job: its scope, working rules and what a good result looks like. The agent follows it on every task. The team lead reads the first line to decide whom to delegate to, so keep that line short and name the specialty.",

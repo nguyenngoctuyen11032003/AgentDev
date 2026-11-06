@@ -290,6 +290,21 @@ def test_cleanup_keeps_unrecorded_folders_of_a_running_job(env):
     assert res["deleted"] == 0 and in_progress.exists()
 
 
+def test_cleanup_all_deletes_everything_except_running(env):
+    # "Delete all" in the UI = older_than_days 0, orphans_only False: recent and referenced folders go too
+    recent_ref, _ = _run_dir(env, "lab_recent_ref")
+    recent_orphan, _ = _run_dir(env, "lab_recent_orphan")
+    live, _ = _run_dir(env, "lab_live")
+    for path in (recent_ref, recent_orphan, live):
+        _age(path, 0.01)
+    _store_job(env, JOB, [recent_ref])
+    job = _live_job(env, [live])
+    job.started_at = time.time()
+    res = env.client.post("/api/lab/storage/cleanup", json={"older_than_days": 0, "orphans_only": False}).json()
+    assert res["deleted"] == 2 and not recent_ref.exists() and not recent_orphan.exists()
+    assert live.exists()
+
+
 def test_works_without_preview_module(env, monkeypatch):
     monkeypatch.setitem(sys.modules, "agentdev.api.services.app_preview", None)  # import raises ImportError
     run, _ = _run_dir(env)

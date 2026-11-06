@@ -3064,7 +3064,11 @@
         "tablet": "平板",
         "mobile": "手机"
       },
-      "lines_truncated": "仅显示前 {n} 行。下载可查看全部。"
+      "lines_truncated": "仅显示前 {n} 行。下载可查看全部。",
+      "download_zip": "下载 (.zip)",
+      "download_zip_hint": "将整个项目下载为 .zip（不含 node_modules、.git、.env）",
+      "collapse_all": "全部折叠",
+      "project_fallback": "项目"
     },
     "history": {
       "title": "评估历史",
@@ -3140,6 +3144,8 @@
       "older": "超过 {n} 天",
       "orphans": "仅删除不再属于任何评测的文件夹",
       "orphans_count": "{n} 个文件夹",
+      "all": "全部删除（正在运行的评测除外）",
+      "all_hint": "{n} 个文件夹 · {size}",
       "note": "不会影响正在运行的评测或试运行。此操作无法撤销。",
       "confirm": "清理",
       "cancel": "取消",
@@ -3199,7 +3205,74 @@
       "preview_job_invalid": "评估编号无效。",
       "preview_internal_error": "预览内部错误。"
     },
-    "workflows_load_failed": "无法加载工作流列表"
+    "workflows_load_failed": "无法加载工作流列表",
+    "quality": {
+      "title": "按标准评估质量",
+      "average": "{n} 次运行的平均值",
+      "score": "{n}/10",
+      "missing": "未满足的要求",
+      "fixes": "评审建议的流程修改",
+      "weak": "较弱的标准",
+      "dim": {
+        "requirements": "符合并覆盖全部要求",
+        "correctness": "正确 / 可运行",
+        "craft": "专业质量",
+        "verification": "有验证",
+        "communication": "表达与语言",
+        "effort_fit": "深度与任务规模相称"
+      },
+      "domain": {
+        "code": "编程",
+        "video": "视频",
+        "content": "内容",
+        "general": "通用"
+      },
+      "scope": {
+        "small": "小任务",
+        "medium": "中等任务",
+        "large": "大任务"
+      }
+    },
+    "login": {
+      "title": "试用登录账号",
+      "page": "登录页面",
+      "username": "账号",
+      "password": "密码",
+      "copy": "复制",
+      "copied": "已复制",
+      "copy_username": "复制账号",
+      "copy_password": "复制密码",
+      "copy_failed": "无法复制，请选中文本后手动复制。",
+      "from_file": "来自 {file}",
+      "missing": "该应用需要登录，但工作流没有提供可用的账号/密码。请使用“根据这些错误修改工作流”，让助手添加创建演示账号的步骤。",
+      "env_hint": "应用通过环境变量创建账号：用户名 {user}（{user_var}），请在 .env 文件中用 {password_var} 设置密码后重新运行。",
+      "env_hint_no_user": "应用通过环境变量创建账号：请在 .env 文件中用 {password_var} 设置密码后重新运行。",
+      "copy_variable": "复制变量名"
+    },
+    "accounts": {
+      "title": "试用账号",
+      "none_tag": "暂无",
+      "add": "添加账号",
+      "loading": "正在加载账号…",
+      "load_error": "无法加载账号",
+      "save_error": "无法保存账号",
+      "note": "备注",
+      "note_placeholder": "例如：管理员、销售员",
+      "actions": "操作",
+      "show": "显示密码",
+      "hide": "隐藏密码",
+      "edit": "编辑",
+      "delete": "删除",
+      "keep": "保存到列表",
+      "from_team": "团队提供",
+      "save": "保存",
+      "cancel": "取消",
+      "need_value": "请至少输入用户名或密码。",
+      "delete_title": "删除此账号？",
+      "delete_message": "账号 {name} 将从列表中删除（应用内不会有任何变化）。",
+      "empty_hint": "暂无账号。在应用中创建账号（或已知示例账号）后，点击“添加账号”保存，下次可快速复制。",
+      "storage_note": "仅保存在本机，不在产品文件夹中，也不包含在 .zip 文件里。"
+    }
   },
   "schema_desc_text": {
     "h11aw3kw": "该智能体的职责：工作范围、工作规则以及怎样算好的结果。智能体在每个任务中都会遵循它。团队负责人读取第一行来决定把任务分派给谁，因此第一行要简短并写明专长。",

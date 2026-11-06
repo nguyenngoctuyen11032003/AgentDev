@@ -3351,7 +3351,11 @@
         "tablet": "Máy tính bảng",
         "mobile": "Điện thoại"
       },
-      "lines_truncated": "Chỉ hiện {n} dòng đầu tiên. Tải xuống để xem đủ."
+      "lines_truncated": "Chỉ hiện {n} dòng đầu tiên. Tải xuống để xem đủ.",
+      "download_zip": "Tải về (.zip)",
+      "download_zip_hint": "Tải cả dự án thành file .zip (không kèm node_modules, .git, .env)",
+      "collapse_all": "Thu gọn tất cả",
+      "project_fallback": "Dự án"
     },
     "history": {
       "title": "Lịch sử thử nghiệm",
@@ -3427,6 +3431,8 @@
       "older": "Cũ hơn {n} ngày",
       "orphans": "Chỉ thư mục không còn thuộc lượt kiểm định nào",
       "orphans_count": "{n} thư mục",
+      "all": "Xoá toàn bộ, trừ kiểm định đang chạy",
+      "all_hint": "{n} thư mục · {size}",
       "note": "Không đụng tới kiểm định đang chạy hoặc bản đang chạy thử. Không thể hoàn tác.",
       "confirm": "Dọn",
       "cancel": "Huỷ",
@@ -3486,7 +3492,74 @@
       "preview_job_invalid": "Mã kiểm định không hợp lệ.",
       "preview_internal_error": "Lỗi nội bộ khi chạy thử."
     },
-    "workflows_load_failed": "Không tải được danh sách quy trình"
+    "workflows_load_failed": "Không tải được danh sách quy trình",
+    "quality": {
+      "title": "Chất lượng theo tiêu chí",
+      "average": "trung bình {n} lượt",
+      "score": "{n}/10",
+      "missing": "Yêu cầu chưa đáp ứng",
+      "fixes": "Giám khảo đề xuất sửa quy trình",
+      "weak": "Tiêu chí yếu",
+      "dim": {
+        "requirements": "Khớp và đủ yêu cầu",
+        "correctness": "Đúng / chạy được",
+        "craft": "Chất lượng chuyên môn",
+        "verification": "Có kiểm chứng",
+        "communication": "Trình bày, ngôn ngữ",
+        "effort_fit": "Độ sâu so với quy mô"
+      },
+      "domain": {
+        "code": "Lập trình",
+        "video": "Video",
+        "content": "Nội dung",
+        "general": "Chung"
+      },
+      "scope": {
+        "small": "Việc nhỏ",
+        "medium": "Việc vừa",
+        "large": "Việc lớn"
+      }
+    },
+    "login": {
+      "title": "Tài khoản đăng nhập để xem thử",
+      "page": "Trang đăng nhập",
+      "username": "Tài khoản",
+      "password": "Mật khẩu",
+      "copy": "Chép",
+      "copied": "Đã chép",
+      "copy_username": "Chép tài khoản",
+      "copy_password": "Chép mật khẩu",
+      "copy_failed": "Không chép được, hãy bôi đen rồi chép tay.",
+      "from_file": "lấy từ {file}",
+      "missing": "Sản phẩm có đăng nhập nhưng quy trình không báo tài khoản/mật khẩu để vào xem. Bấm \"Chỉnh sửa quy trình theo lỗi này\" để trợ lý thêm bước tạo tài khoản demo.",
+      "env_hint": "App tạo tài khoản từ biến môi trường: tên đăng nhập {user} ({user_var}), mật khẩu đặt bằng biến {password_var} trong file .env rồi chạy lại.",
+      "env_hint_no_user": "App tạo tài khoản từ biến môi trường: đặt mật khẩu bằng biến {password_var} trong file .env rồi chạy lại.",
+      "copy_variable": "Chép tên biến"
+    },
+    "accounts": {
+      "title": "Tài khoản dùng thử",
+      "none_tag": "Chưa có",
+      "add": "Thêm tài khoản",
+      "loading": "Đang tải tài khoản…",
+      "load_error": "Không tải được tài khoản",
+      "save_error": "Không lưu được tài khoản",
+      "note": "Ghi chú",
+      "note_placeholder": "Ví dụ: quản trị, nhân viên bán hàng",
+      "actions": "Thao tác",
+      "show": "Hiện mật khẩu",
+      "hide": "Ẩn mật khẩu",
+      "edit": "Sửa",
+      "delete": "Xoá",
+      "keep": "Lưu vào danh sách",
+      "from_team": "Nhóm báo",
+      "save": "Lưu",
+      "cancel": "Huỷ",
+      "need_value": "Nhập ít nhất tên đăng nhập hoặc mật khẩu.",
+      "delete_title": "Xoá tài khoản này?",
+      "delete_message": "Tài khoản {name} sẽ bị xoá khỏi danh sách (không đổi gì trong app).",
+      "empty_hint": "Chưa có tài khoản nào. Khi bạn tạo được tài khoản trong app (hoặc biết tài khoản mẫu), bấm \"Thêm tài khoản\" để lưu lại và chép nhanh lần sau.",
+      "storage_note": "Chỉ lưu trên máy này, không nằm trong thư mục sản phẩm và không có trong file .zip."
+    }
   },
   "workflow_assistant": {
     "title": "Trợ lý quy trình",

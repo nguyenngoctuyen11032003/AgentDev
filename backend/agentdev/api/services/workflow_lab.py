@@ -41,6 +41,18 @@ from agentdev.api.services.lab_diagnosis import (
     regression_finding,
     run_budget,
 )
+from agentdev.api.services.lab_login import judge_fact, login_info
+from agentdev.api.services.lab_quality import (
+    REPLY_FORMAT,
+    core_gate_failed,
+    quality_fields,
+    quality_findings,
+    quality_profile,
+    rubric_text,
+    scope_budget,
+    task_domain,
+    verdict_reasons,
+)
 from agentdev.api.services.workflow_patterns.graph_analysis import (  # noqa: F401 - re-exported
     CRITICAL_PATH_AGENTS,
     CRITICAL_PATH_SECONDS,
@@ -416,6 +428,7 @@ class LabJob:
     # Status of step 1 (``static_check``) when the run started: a FAIL means the workflow is not ready.
     config_status: str = ""
     workflow_hash: str = ""  # sha256 of the workflow YAML text when the job started
+    domain_hint: str = ""  # workflow id + description: breaks a tie when the request alone does not say the kind of task
     store_dir: Optional[Path] = None  # where finished jobs live (to find the baseline run)
     status: str = "queued"  # queued | running | completed | cancelled | error
     results: List[Dict[str, Any]] = field(default_factory=list)
@@ -510,6 +523,13 @@ class LabJob:
             scenario = self.scenarios[run["scenario"]] if 0 <= run.get("scenario", -1) < len(self.scenarios) else None
             budget = run_budget(scenario.prompt if scenario else "", getattr(scenario, "max_seconds", None),
                                 getattr(scenario, "max_tokens", None))
+            # The judge's estimate of the request's size sets the budget unless the scenario gives its own.
+            sized = scope_budget(str((run.get("judge") or {}).get("scope") or ""))
+            if sized:
+                if not getattr(scenario, "max_seconds", None):
+                    budget["seconds"] = sized["seconds"]
+                if not getattr(scenario, "max_tokens", None):
+                    budget["tokens"] = sized["tokens"]
             run["budget_seconds"], run["budget_tokens"] = budget["seconds"], budget["tokens"]
             run["over_budget"] = over_budget(run, budget)
         judged = [r for r in done if r.get("status") in ("passed", "failed")]
@@ -554,6 +574,8 @@ class LabJob:
         config_failed = self.config_status == FAIL
         findings = diagnose_job(done, {i: sc.prompt for i, sc in enumerate(self.scenarios)},
                                 {i: sc.criteria for i, sc in enumerate(self.scenarios)})
+        findings += quality_findings(done)
+        quality = quality_profile(done)
         slow_runs = len([r for r in done if (r.get("seconds") or 0) > (r.get("budget_seconds") or SLOW_SECONDS)])
         verdict = None
         reasons: List[str] = []
@@ -581,6 +603,7 @@ class LabJob:
                 reasons.append("Mọi lượt đạt chỉ được chấm bằng kiểm tra cơ bản (không có giám khảo AI) nên chưa được xác minh.")
             if over and _strict_budget():
                 reasons.append(f"{over} lượt chạy vượt ngân sách thời gian/token.")
+            reasons += verdict_reasons(quality)
             verdict = "not_ready" if reasons else "ready"
             baseline = self._find_baseline()
             if baseline:
@@ -623,6 +646,8 @@ class LabJob:
             "basic_graded": len([r for r in done if (r.get("judge") or {}).get("judged_by") == "basic"]),
             "scenarios": per_scenario,
             "findings": findings,
+            # Average score per quality dimension over the AI-graded runs (None for old jobs / basic grading).
+            "quality": quality,
             "slow_runs": slow_runs,
             "slow_seconds": SLOW_SECONDS,
             "avg_seconds": round(sum(r.get("seconds", 0) or 0 for r in done) / len(done), 1) if done else None,
@@ -725,8 +750,10 @@ JUDGE_SYSTEM = (
     "Each run starts in an EMPTY project folder: when the request refers to an existing app whose code it does not "
     "include, a self-contained fix that says plainly the code was not found and labels its root cause as an "
     "assumption meets a root-cause/reproduction criterion; do not fail it for that alone. "
-    "Score 0-10 against the criteria; 7 or more only when every criterion is met. "
-    'Reply with JSON only: {"pass": true|false, "score": 0-10, "reason": "<one or two sentences, in the request\'s language>"}'
+    "Score 0-10 against the criteria AND the rubric (quality, not only completion); 7 or more only when every "
+    "criterion is met. Notes, reason, missing and fixes are written in the request's language; fixes say what the "
+    "workflow (its roles, steps, checks) should change, not how to patch this one answer. "
+    "Reply with JSON only: " + REPLY_FORMAT
 )
 
 
@@ -1185,8 +1212,7 @@ class JudgeUnparsable(RuntimeError):
     """The judge answered twice without a usable JSON verdict: the run stays unjudged."""
 
 
-JSON_REMINDER = ("\n\nNHẮC LẠI: chỉ trả về đúng MỘT đối tượng JSON, không thêm chữ nào khác: "
-                 '{"pass": true|false, "score": 0-10, "reason": "..."}')
+JSON_REMINDER = ("\n\nNHẮC LẠI: chỉ trả về đúng MỘT đối tượng JSON, không thêm chữ nào khác: " + REPLY_FORMAT)
 
 
 def _borderline(data: Dict[str, Any]) -> bool:
@@ -1263,15 +1289,18 @@ def _clip_windows(answer: str, start: int, end: int) -> List[Tuple[int, int]]:
     return out
 
 
-def _judge_prefix(prompt: str, criteria: str) -> str:
-    """The part of the judge message that is the same for every run of a scenario (request + criteria). It comes
-    first, after the fixed system prompt, so the account's prompt cache can reuse it across repeats; what
-    varies per run (questions, answer, files) follows."""
-    return f"## Request\n{prompt}\n\n## Acceptance criteria\n{criteria}\n\n"
+def _judge_prefix(prompt: str, criteria: str, domain: str = "") -> str:
+    """The part of the judge message that is the same for every run of a scenario (request + criteria + rubric).
+    It comes first, after the fixed system prompt, so the account's prompt cache can reuse it across repeats;
+    what varies per run (questions, answer, files, run facts) follows."""
+    domain = domain or task_domain(prompt)
+    return (f"## Request\n{prompt}\n\n## Acceptance criteria\n{criteria}\n\n"
+            f"## Rubric (kind of task: {domain})\n{rubric_text(domain)}\n\n")
 
 
 def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, str]],
-           account: Optional[JudgeAccount] = None, output_dir: Any = None, evidence: str = "") -> Dict[str, Any]:
+           account: Optional[JudgeAccount] = None, output_dir: Any = None, evidence: str = "",
+           domain: str = "", facts: str = "") -> Dict[str, Any]:
     """Grade with a signed-in account (``judged_by: "ai"``); without criteria, ``DEFAULT_CRITERIA`` apply.
     ``evidence`` (see ``build_evidence``) is what the run's tools really reported.
 
@@ -1283,7 +1312,8 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
     usage = {"tokens": 0, "cost_usd": 0.0, "calls": 0, "cost_known": False, "cost_partial": False}
     token = _JUDGE_USAGE.set(usage)
     try:
-        verdict = _judge_inner(prompt, criteria, answer, questions, account, output_dir, usage, evidence)
+        verdict = _judge_inner(prompt, criteria, answer, questions, account, output_dir, usage, evidence,
+                               domain or task_domain(prompt), facts)
     except Exception as exc:
         exc.judge_usage = dict(usage)  # type: ignore[attr-defined] - the calls made were still paid for
         raise
@@ -1296,13 +1326,15 @@ def _judge(prompt: str, criteria: str, answer: str, questions: List[Dict[str, st
 
 
 def _judge_inner(prompt: str, criteria: str, answer: str, questions: List[Dict[str, str]],
-                 account: Any, output_dir: Any, usage: Dict[str, Any], evidence: str = "") -> Dict[str, Any]:
+                 account: Any, output_dir: Any, usage: Dict[str, Any], evidence: str = "",
+                 domain: str = "", facts: str = "") -> Dict[str, Any]:
+    domain = domain or task_domain(prompt)
     skipped = list(dict.fromkeys(str(q.get("node")) for q in questions if q.get("answer") == "skipped"))
     asked = "\n".join(
         f"- {q['node']}: {q['question']} -> " + ("SKIPPED (refused automatically: paid or irreversible step)"
                                                if q.get("answer") == "skipped" else "approved automatically")
         for q in questions) or "(none)"
-    user = _judge_prefix(prompt, criteria) + (
+    user = _judge_prefix(prompt, criteria, domain) + (
         f"## Questions the workflow asked the user (answered automatically)\n{asked}\n\n"
     )
     if skipped:
@@ -1317,6 +1349,8 @@ def _judge_inner(prompt: str, criteria: str, answer: str, questions: List[Dict[s
         return {"pass": False, "score": 0, "verdict": "fail", "reason": "The run produced no answer and no files.",
                 "judged_by": "basic", "judge_model": ""}
     user += f"\n\n## Files produced by the run\n{manifest or '(no files were produced)'}"
+    if facts.strip():
+        user += f"\n\n## Run facts (measured by the Lab, for effort_fit)\n{facts.strip()[:600]}"
     evidence = _redact((evidence or "").strip()[:EVIDENCE_MAX_CHARS])
     if evidence:
         # Tool output is untrusted data: fenced, and it can never close its own fence.
@@ -1365,13 +1399,19 @@ def _judge_inner(prompt: str, criteria: str, answer: str, questions: List[Dict[s
             # Keep the first opinion: the UI can show that the score was looked at twice and what changed.
             escalated_from = {"score": data.get("score"), "reason": str(data.get("reason") or "")[:300], "model": model}
             data, model = second, strong
+    quality = quality_fields(data, domain)
+    # A run that misses the request or does not work fails even when the overall score was generous.
+    gate = core_gate_failed(quality["dimensions"])
     verdict = {
-        "pass": _rubric_pass(data),
+        "pass": _rubric_pass(data) and not gate,
         "score": data.get("score"),
         "reason": str(data.get("reason") or text[:300]),
         "judged_by": "ai",
         "judge_model": f"{conn.label} ({model})",
+        **quality,
     }
+    if gate:
+        verdict["core_gate"] = gate
     if escalated_from:
         verdict["escalated_from"] = escalated_from
     return verdict
@@ -1881,7 +1921,7 @@ class LabRunner:
                      config_status=data.get("config_status", ""), workflow_hash=data.get("workflow_hash", ""),
                      store_dir=self._dir(), results=keep, started_at=time.time() - elapsed,
                      rerun_of=str(data.get("rerun_of") or ""), rerun_scenarios=list(data.get("rerun_scenarios") or []),
-                     rerun_before=data.get("rerun_before"))
+                     rerun_before=data.get("rerun_before"), domain_hint=_domain_hint(yaml_path, data.get("workflow", "")))
         if judge is _judge:
             judge = functools.partial(_judge, account=JudgeAccount())
         with self._lock:
@@ -1907,7 +1947,7 @@ class LabRunner:
             workflow_hash = ""
         job = LabJob(id=uuid.uuid4().hex[:12], workflow=workflow, scenarios=scenarios, repeats=repeats,
                      config_status=config_status, workflow_hash=workflow_hash, store_dir=self._dir(),
-                     **(rerun or {}))
+                     domain_hint=_domain_hint(yaml_path, workflow), **(rerun or {}))
         if judge is _judge:
             judge = functools.partial(_judge, account=JudgeAccount())  # one judge account per job
         with self._lock:
@@ -2021,6 +2061,20 @@ class LabRunner:
         job.update_result(entry, **outcome)
         self._judge_entry(job, judge, entry)
 
+    @staticmethod
+    def _run_facts(entry: Dict[str, Any]) -> str:
+        """What the Lab measured for one run, for the judge's effort_fit dimension (and the app's login)."""
+        agents = entry.get("agents") or {}
+        members = ", ".join(f"{n} ×{c}" if c > 1 else str(n) for n, c in agents.items())
+        parts = [f"- time: {float(entry.get('seconds') or 0):.0f}s",
+                 f"- tokens: {int(entry.get('tokens') or 0):,}"]
+        if members:
+            parts.append(f"- agents run: {members}")
+        login = judge_fact(entry.get("login"))
+        if login:
+            parts.append(login)
+        return "\n".join(parts)
+
     def _judge_entry(self, job: LabJob, judge, entry: Dict[str, Any]) -> None:
         """Grade one finished run from what it stored (answer, questions, files); also used to re-judge."""
         index = int(entry.get("scenario", 0))
@@ -2034,7 +2088,19 @@ class LabRunner:
             evidence = build_evidence(entry)
             if evidence:
                 kwargs["evidence"] = evidence
+        if _accepts(judge, "domain"):
+            kwargs["domain"] = task_domain(scenario.prompt, job.domain_hint)
         answer = str(entry.get("answer") or "")
+        # An app behind a login is useless to the tester without its demo account: find it (answer, README, seed).
+        try:
+            login = login_info(answer, entry.get("output_dir"))
+        except Exception:  # noqa: BLE001 - a file scan problem must not stop the grading
+            login = None
+        # Always written: a re-judge after the output folder was cleaned must not keep a stale account.
+        if login or entry.get("login"):
+            job.update_result(entry, login=login)
+        if _accepts(judge, "facts"):
+            kwargs["facts"] = self._run_facts(entry)
         # Grading again (resume) replaces the verdict, not what the earlier attempts cost.
         before = entry.get("judge") if isinstance(entry.get("judge"), dict) else {}
         try:
@@ -2098,6 +2164,16 @@ def _with_earlier_spend(verdict: Dict[str, Any], before: Dict[str, Any]) -> Dict
     if flagged:
         out.update(_merge_cost_flags(flagged))
     return out
+
+
+def _domain_hint(yaml_path: Path, workflow: str) -> str:
+    """Workflow id + description (+ node descriptions): what kind of work this workflow does."""
+    try:
+        graph = (yaml.safe_load(Path(yaml_path).read_text(encoding="utf-8")) or {}).get("graph") or {}
+    except (OSError, yaml.YAMLError, AttributeError):
+        return workflow
+    nodes = " ".join(str(n.get("description") or "") for n in graph.get("nodes") or [] if isinstance(n, dict))
+    return f"{workflow} {graph.get('id', '')} {graph.get('description', '')} {nodes}"[:3000]
 
 
 def _accepts(func: Callable[..., Any], name: str) -> bool:
@@ -2199,7 +2275,7 @@ def get_lab_runner() -> LabRunner:
 GENERATE_SYSTEM = (
     "You design acceptance-test scenarios for ONE specific AI workflow (a team of agents). Reply with ONLY a JSON "
     "array, no prose and no code fence. Each item: {\"name\": short title, \"prompt\": the request a real user would "
-    "send to this workflow (concrete, with every detail the workflow needs), \"criteria\": 2-4 checkable pass "
+    "send to this workflow (concrete, with every detail the workflow needs), \"criteria\": 3-5 checkable pass "
     "criteria separated by semicolons}. "
     "Rules: (1) Read the workflow description, its members and its flow first; every scenario must be something "
     "this workflow is built to do, in its own domain. Never a generic task from another domain. "
@@ -2211,7 +2287,15 @@ GENERATE_SYSTEM = (
     "gates are approved automatically, but a step marked PAID is refused, so no scenario may depend on a paid "
     "step succeeding. (5) Each run starts in an EMPTY project folder: a scenario about changing or fixing an "
     "existing app must paste the relevant code (a short file of 10-40 lines) into the prompt. "
-    "(6) The scenarios must differ from each other."
+    "(6) The scenarios must differ from each other. "
+    "(7) Criteria check QUALITY, not only that something was delivered: every explicit requirement of the prompt "
+    "(counts, features, length, format, stack); and at least one craft criterion for the kind of work - for code: it "
+    "runs, has error handling and no TODO/stub, the answer shows the command that verified it; for video: scene list "
+    "with timings adding up to the requested duration, a hook in the first seconds, consistent visual prompts, "
+    "ready voice-over text; for writing: requested length/tone, sources for facts; for an app with a login: "
+    "the answer gives the login page and a working demo username and password. "
+    "(8) Include one LARGE request (several features or parts) so the test shows whether the workflow keeps quality "
+    "and finishes every part on big work."
 )
 
 

@@ -1,6 +1,6 @@
 import { test, expect } from './helpers/fixture.js'
 import { WORKFLOW_FILE } from './helpers/workflow.js'
-import { FIX_INFO, JOB, JOB_MIXED, JOB_NO_WORKFLOW, mockLabSpend, pickWorkflow, runJob } from './helpers/lab.js'
+import { F_SCENARIO, FIX_INFO, JOB, JOB_MIXED, JOB_NO_WORKFLOW, mockLabSpend, pickWorkflow, runJob } from './helpers/lab.js'
 
 // The real Lab judge and AI scenario writer spend model tokens, so evaluate/generate/jobs are mocked here.
 // The configuration check is free and runs against the real backend.
@@ -95,6 +95,51 @@ test('lab: findings are grouped by layer and the assistant fix appears with work
   await page.getByRole('button', { name: 'Chép báo cáo nền tảng' }).click()
   await expect(page.locator('.pf-actions')).toContainText('Đã chép báo cáo')
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('AttributeError: NoneType')
+})
+
+test('lab: quality per criterion shows for the job and inside a run', async ({ page }) => {
+  const dims = {
+    requirements: { score: 5, note: 'Thieu trang dang nhap' },
+    correctness: { score: 8, note: '' },
+    craft: { score: 4, note: 'Con TODO trong code' },
+    verification: { score: 7, note: '' },
+    communication: { score: 9, note: '' },
+    effort_fit: { score: 6, note: '' }
+  }
+  const run = {
+    ...JOB.results[0],
+    judge: { ...JOB.results[0].judge, dimensions: dims, domain: 'code', scope: 'large', missing: ['Thieu test'], fixes: ['Them node kiem thu'] },
+    login: { needs_login: true, login_url: 'http://localhost:3000/login', credentials: [{ username: 'admin', password: 'Admin@123', source: 'README.md' }] }
+  }
+  // One finding so runJob sees the diagnosis section; the run made a file, so opening it shows the product + login.
+  const job = {
+    ...JOB,
+    results: [run],
+    findings: [F_SCENARIO],
+    layers: { workflow: 0, platform: 0, environment: 0, scenario: 1 },
+    quality: { runs: 1, domain: 'code', scope: 'large', dimensions: { requirements: 5, correctness: 8, craft: 4, verification: 7, communication: 9, effort_fit: 6 }, weak: ['craft', 'requirements', 'effort_fit'], poor: ['craft'] }
+  }
+  await runJob(page, job)
+  await page.route(`**/api/lab/jobs/${JOB.id}/runs/*/files`, (route) => route.fulfill({ json: { available: true, files: [{ path: 'README.md', size: 20 }] } }))
+  await page.route(`**/api/lab/jobs/${JOB.id}/runs/*/file?*`, (route) => route.fulfill({ contentType: 'text/plain', body: '# Demo app' }))
+  const summary = page.locator('.job-quality')
+  await expect(summary).toContainText('Chất lượng theo tiêu chí')
+  await expect(summary).toContainText('Lập trình')
+  await expect(summary).toContainText('Việc lớn')
+  await expect(summary.locator('.quality-row.low')).toContainText('Chất lượng chuyên môn')
+  await page.locator('details.run').first().locator('summary').click()
+  const inRun = page.locator('details.run .quality')
+  await expect(inRun).toContainText('Con TODO trong code')
+  await expect(inRun).toContainText('Thieu test')
+  await expect(inRun).toContainText('Them node kiem thu')
+  const login = page.locator('details.run .login-box')
+  await expect(login).toContainText('Tài khoản đăng nhập để xem thử')
+  await expect(login).toContainText('admin')
+  await expect(login).toContainText('Admin@123')
+  await expect(login).toContainText('lấy từ README.md')
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await login.getByRole('button', { name: 'Chép mật khẩu' }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Admin@123')
 })
 
 test('lab: without workflow findings there is no assistant fix, only guidance', async ({ page }) => {

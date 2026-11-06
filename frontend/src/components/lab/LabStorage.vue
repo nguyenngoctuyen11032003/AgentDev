@@ -29,6 +29,13 @@
             <small>{{ tr('lab.storage.orphans_count', '{n} thư mục', { n: info?.orphan_dirs ?? 0 }) }}</small>
           </span>
         </label>
+        <label class="dl-option">
+          <input v-model="choice" type="radio" name="lab-cleanup" value="all" />
+          <span>
+            {{ tr('lab.storage.all', 'Xoá toàn bộ, trừ kiểm định đang chạy') }}
+            <small>{{ tr('lab.storage.all_hint', '{n} thư mục · {size}', { n: (info?.run_dirs ?? 0).toLocaleString(locale), size: bytes(info?.total_bytes ?? 0) }) }}</small>
+          </span>
+        </label>
       </fieldset>
       <p class="dl-note">{{ tr('lab.storage.note', 'Không đụng tới kiểm định đang chạy hoặc bản đang chạy thử. Không thể hoàn tác.') }}</p>
       <template #footer>
@@ -83,8 +90,10 @@ async function cleanup() {
   if (cleaning.value) return
   cleaning.value = true
   const orphansOnly = choice.value === 'orphans'
+  // 'all' = age 0 without the orphan filter; the server still skips running jobs and live previews
+  const olderThanDays = orphansOnly || choice.value === 'all' ? 0 : Number(choice.value)
   try {
-    const result = await labStorageCleanup({ olderThanDays: orphansOnly ? 0 : Number(choice.value), orphansOnly })
+    const result = await labStorageCleanup({ olderThanDays, orphansOnly })
     open.value = false
     if (result?.deleted) {
       toast.success(tr('lab.storage.done', 'Đã xoá {n} thư mục, giải phóng {size}', { n: result.deleted, size: bytes(result.freed_bytes) }))

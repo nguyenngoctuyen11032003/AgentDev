@@ -136,7 +136,8 @@ function tone(item) {
 .h-list { margin: 0; padding: 0 8px 8px; list-style: none; max-height: 320px; overflow-y: auto; }
 .h-item { position: relative; }
 .h-item .h-row { padding-right: 44px; }
-.h-del { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: none; color: var(--fg-muted); cursor: pointer; }
+.h-del { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--fg-muted); cursor: pointer; }
+.h-del svg { flex: none; width: 15px; height: 15px; }
 .h-del:hover { color: var(--danger); background: var(--surface-raised); }
 .h-del:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .h-row { display: grid; grid-template-columns: auto minmax(110px, auto) minmax(70px, auto) 1fr auto; align-items: center; gap: 12px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: none; font: inherit; font-size: 13px; text-align: left; color: var(--fg); cursor: pointer; }

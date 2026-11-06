@@ -414,6 +414,15 @@
               <div class="fill" :style="{ transform: `scaleX(${job.total ? job.done / job.total : 0})` }"></div>
             </div>
           </div>
+          <!-- Quality per rubric dimension (average of the AI-graded runs), not only the pass rate -->
+          <LabQualityScores
+            v-if="job.status === 'completed' && job.quality"
+            class="job-quality"
+            :dimensions="job.quality.dimensions"
+            :domain="job.quality.domain"
+            :scope="job.quality.scope"
+            :runs="job.quality.runs"
+          />
 
           <!-- What the runs made, with a direct way to open each: the first thing people look for in a past job -->
           <LabProducts
@@ -521,17 +530,29 @@
                   <strong v-if="r.judge.judged_by === 'ai'">{{ $t('lab.judge') }}<template v-if="r.judge.judge_model"> ({{ r.judge.judge_model }})</template>:</strong>
                   <strong v-else>{{ tr('lab.judged_basic', 'Chấm cơ bản') }}:</strong> {{ r.judge.reason }}
                 </p>
+                <LabQualityScores
+                  v-if="r.judge?.dimensions && Object.keys(r.judge.dimensions).length"
+                  :dimensions="r.judge.dimensions"
+                  :domain="r.judge.domain || ''"
+                  :scope="r.judge.scope || ''"
+                  :missing="r.judge.missing || []"
+                  :fixes="r.judge.fixes || []"
+                />
                 <p v-if="r.status === 'unjudged'" class="meta-line warn-text">{{ tr('lab.unjudged_run_note', 'Lượt này chạy xong nhưng chưa chấm được, nên không tính là đạt hay không đạt.') }}</p>
                 <p v-for="node in r.skipped_gates || []" :key="`gate-${node}`" class="meta-line warn-text">{{ tr('lab.skipped_gate', 'Cổng {node} bị bỏ qua (tốn phí), không phải đã duyệt', { node }) }}</p>
                 <p v-if="r.error" class="error">{{ r.error }}</p>
                 <button v-if="canFixRun(job, r)" type="button" class="btn secondary sm fix-btn" @click="fixWithAssistant(r)">
                   {{ tr('lab.fix_this_run', 'Chỉnh sửa theo lượt này') }}
                 </button>
+                <!-- Demo account of an app behind a login: inside "Sản phẩm" next to the preview; here only while
+                     the product is not shown (run still open/collapsed) -->
+                <LabLoginInfo v-if="!(openRuns.has(k) && r.status !== 'running')" :login="r.login || null" />
                 <!-- What the run produced (scripts, documents, a web app…): loaded only once the run is opened -->
                 <LabRunOutputs
                   v-if="openRuns.has(k) && r.status !== 'running'"
                   :job-id="job.id"
                   :run="k"
+                  :login="r.login || null"
                   :job-running="!!isRunning"
                   @deleted="storageRefresh++"
                 />
@@ -580,6 +601,9 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import LabRunOutputs from '@/components/lab/LabRunOutputs.vue'
 import LabStorage from '@/components/lab/LabStorage.vue'
 import LabHistory from '@/components/lab/LabHistory.vue'
+import LabQualityScores from '@/components/lab/LabQualityScores.vue'
+import LabLoginInfo from '@/components/lab/LabLoginInfo.vue'
+import { weakDimensions } from '@/components/lab/labQuality.js'
 import LabProducts from '@/components/lab/LabProducts.vue'
 import LabCleanupPrompt from '@/components/lab/LabCleanupPrompt.vue'
 import LabPlatformFix from '@/components/lab/LabPlatformFix.vue'
@@ -715,6 +739,11 @@ function buildFixMessage(runs) {
     lines.push(`- ${tr('lab.fix_request', 'Yêu cầu')}: ${sc.prompt || ''}`)
     if (sc.criteria?.trim()) lines.push(`- ${tr('lab.fix_criteria', 'Tiêu chí đạt')}: ${sc.criteria.trim()}`)
     if (r.judge?.reason) lines.push(`- ${tr('lab.fix_judge', 'Giám khảo nhận xét')}: ${r.judge.reason}`)
+    if (r.judge?.missing?.length) lines.push(`- ${t('lab.quality.missing')}: ${r.judge.missing.join('; ')}`)
+    const weak = weakDimensions(r.judge?.dimensions)
+    if (weak.length) lines.push(`- ${t('lab.quality.weak')}: ${weak.map((d) => `${t(`lab.quality.dim.${d.key}`)} ${d.score}/10`).join(', ')}`)
+    if (r.login?.needs_login && !r.login.credentials?.length) lines.push(`- ${t('lab.login.missing')}`)
+    if (r.judge?.fixes?.length) lines.push(`- ${t('lab.quality.fixes')}: ${r.judge.fixes.join(' | ')}`)
     if (r.error) lines.push(`- ${tr('lab.fix_error', 'Lỗi')}: ${String(r.error).slice(0, 500)}`)
     if (agents) lines.push(`- ${tr('lab.fix_agents', 'Agent đã chạy')}: ${agents}`)
     if (r.seconds) lines.push(`- ${tr('lab.kpi.time', 'Thời gian')}: ${Math.round(r.seconds)}s, ${t('lab.tokens_n', { n: (r.tokens || 0).toLocaleString() })}`)
@@ -1546,6 +1575,7 @@ onBeforeUnmount(() => {
 .pill { flex: none; font-size: 11px; font-weight: 650; padding: 2px 9px; border-radius: 999px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
 .run-body { padding: 2px 14px 14px 32px; }
 .judge, .meta-line { font-size: 13px; line-height: 1.6; margin: 10px 0 0; color: var(--fg-muted); }
+.job-quality { margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--border); }
 .judge strong, .meta-line strong { color: var(--fg); }
 .meta-line ul { margin: 4px 0 0; padding-left: 18px; }
 .answer { margin: 12px 0 0; padding: 14px 16px; border-radius: 10px; background: var(--tint); box-shadow: inset 0 0 0 1px var(--line); font-size: 13px; overflow-wrap: anywhere; }
