@@ -434,16 +434,42 @@
             </div>
           </dl>
 
-          <section v-if="job.status === 'completed' && (job.findings?.length || canFix)" class="diagnosis">
+          <!-- lab-rerun-compare: a rerun of the failed scenarios after a fix, compared with its source job -->
+          <LabRerunCompare
+            v-if="job.rerun_of && job.rerun_compare"
+            :compare="job.rerun_compare"
+            :source-id="job.rerun_of"
+            @open-source="openPastJob"
+          />
+
+          <section v-if="job.status === 'completed' && (findingGroups.length || canFix)" class="diagnosis">
             <h3 class="diag-title">{{ tr('lab.diag_title', 'Chẩn đoán tốc độ và chất lượng') }}</h3>
             <p v-if="job.slow_runs" class="warn-text">{{ tr('lab.slow_note', '{n} lượt chạy vượt ngân sách thời gian (trung bình {avg}s).', { n: job.slow_runs, s: job.slow_seconds, avg: job.avg_seconds }) }}</p>
-            <ul v-if="job.findings?.length" class="diag-list">
-              <li v-for="(f, fi) in job.findings" :key="fi" :class="f.severity">
-                <strong>{{ severityLabel(f.severity) }} · {{ scenarioLabel(f.scenario) }}</strong>
-                <span>{{ f.detail }}</span>
-                <span class="diag-fix">{{ f.fix }}</span>
-              </li>
-            </ul>
+            <p v-if="workflowUnchanged(job)" class="diag-unchanged" role="status">{{ $t('lab.layer.workflow_unchanged') }}</p>
+            <section v-for="g in findingGroups" :key="g.layer" :class="['diag-layer', `layer-${g.layer}`]" :aria-labelledby="`diag-layer-${g.layer}`">
+              <h4 :id="`diag-layer-${g.layer}`" class="diag-layer-title">
+                {{ $t(`lab.layer.${g.layer}.title`) }}
+                <span v-if="g.findings.length" class="diag-layer-count">{{ g.findings.length }}</span>
+              </h4>
+              <p class="diag-layer-hint">{{ $t(`lab.layer.${g.layer}.hint`) }}</p>
+              <ul v-if="g.findings.length" class="diag-list">
+                <li v-for="(f, fi) in g.findings" :key="fi" :class="f.severity">
+                  <strong>{{ severityLabel(f.severity) }} · {{ scenarioLabel(f.scenario) }}</strong>
+                  <span>{{ f.detail }}</span>
+                  <span class="diag-fix">{{ f.fix }}</span>
+                </li>
+              </ul>
+              <template v-if="g.layer === 'environment' && envHints.length">
+                <p class="diag-label">{{ $t('lab.env_hint.title') }}</p>
+                <ul class="diag-list env-hints">
+                  <li v-for="(h, hi) in envHints" :key="h.code || hi">
+                    <span>{{ h.detail }}</span>
+                    <span class="diag-fix">{{ h.fix }}</span>
+                  </li>
+                </ul>
+              </template>
+              <LabPlatformFix v-if="g.layer === 'platform' && job.platform_report" :job-id="job.id" :report="job.platform_report" />
+            </section>
             <template v-if="canFix">
               <label class="diag-label" for="lab-brief">{{ tr('lab.brief_label', 'Nội dung gửi cho trợ lý quy trình (có thể bổ sung)') }}</label>
               <textarea id="lab-brief" ref="briefEl" v-model="briefText" class="input brief" rows="8"></textarea>
@@ -489,7 +515,7 @@
                 <p v-if="r.status === 'unjudged'" class="meta-line warn-text">{{ tr('lab.unjudged_run_note', 'Lượt này chạy xong nhưng chưa chấm được, nên không tính là đạt hay không đạt.') }}</p>
                 <p v-for="node in r.skipped_gates || []" :key="`gate-${node}`" class="meta-line warn-text">{{ tr('lab.skipped_gate', 'Cổng {node} bị bỏ qua (tốn phí), không phải đã duyệt', { node }) }}</p>
                 <p v-if="r.error" class="error">{{ r.error }}</p>
-                <button v-if="['failed', 'error'].includes(r.status)" type="button" class="btn secondary sm fix-btn" @click="fixWithAssistant(r)">
+                <button v-if="['failed', 'error'].includes(r.status) && job.needs_workflow_fix !== false" type="button" class="btn secondary sm fix-btn" @click="fixWithAssistant(r)">
                   {{ tr('lab.fix_this_run', 'Chỉnh sửa theo lượt này') }}
                 </button>
                 <!-- What the run produced (scripts, documents, a web app…): loaded only once the run is opened -->
@@ -547,6 +573,9 @@ import LabStorage from '@/components/lab/LabStorage.vue'
 import LabHistory from '@/components/lab/LabHistory.vue'
 import LabProducts from '@/components/lab/LabProducts.vue'
 import LabCleanupPrompt from '@/components/lab/LabCleanupPrompt.vue'
+import LabPlatformFix from '@/components/lab/LabPlatformFix.vue'
+import LabRerunCompare from '@/components/lab/LabRerunCompare.vue'
+import { groupFindings, needsWorkflowFix, workflowUnchanged } from '@/utils/labLayers.js'
 import { productType } from '@/utils/labProducts.js'
 import { toast } from '@/utils/toast.js'
 import { MAX_SCENARIOS, PACK_IDS, buildPackScenarios, dedupeSamples, detectPack } from '@/utils/labSamples.js'
@@ -628,7 +657,17 @@ const historyJobs = ref([])
 const { setDraftSeed } = useWorkflowAssistant()
 const failedRuns = computed(() => (job.value?.results || []).filter((r) => ['failed', 'error'].includes(r.status)))
 // The server builds the brief (facts, slow nodes, diagnosis, requested changes) once the job is completed.
-const canFix = computed(() => !!job.value && job.value.status === 'completed' && !!job.value.fix_brief && !!job.value.workflow)
+// Only workflow findings ask for a workflow fix (`needs_workflow_fix`); old jobs without the flag keep their brief.
+const canFix = computed(() => !!job.value && job.value.status === 'completed' && needsWorkflowFix(job.value) && !!job.value.workflow)
+// Findings grouped by the layer that caused them; environment guidance / a platform report keep their group visible.
+const envHints = computed(() => (Array.isArray(job.value?.environment_hints) ? job.value.environment_hints : []))
+const findingGroups = computed(() => {
+  if (!job.value) return []
+  const keep = []
+  if (envHints.value.length) keep.push('environment')
+  if (job.value.platform_report) keep.push('platform')
+  return groupFindings(job.value.findings, keep)
+})
 const briefText = ref('')
 watch(() => job.value?.fix_brief, (text) => { briefText.value = text || '' }, { immediate: true })
 const briefCopied = ref(false)
@@ -679,7 +718,8 @@ function fixWithAssistant(run) {
   // Whole job: the edited brief (the user may have added details); one run: that run only.
   const text = run || !briefText.value ? buildFixMessage(runs) : briefText.value
   if (!text) return
-  setDraftSeed(text)
+  // The source job lets the assistant offer "re-run the failed scenarios" once the fix is applied.
+  setDraftSeed(text, { labJobId: job.value.id, workflow: job.value.workflow })
   const name = job.value.workflow.replace(/\.yaml$/, '')
   router.push({ path: `/workflows/${name}`, query: { assist: '1' } })
 }
@@ -934,8 +974,15 @@ watch(workflow, (name, previous) => {
   job.value = null
   submitted.value = []
   if (name) {
+    // A link that names a job (the assistant's "re-run failed scenarios": ?workflow=x&job=id) opens
+    // that job once; the job id then leaves the address bar.
+    const requestedJob = typeof route.query.job === 'string' ? route.query.job : ''
     // Keep the choice in the address bar and for the next visit
-    if (route.query.workflow !== name) router.replace({ query: { ...route.query, workflow: name } })
+    if (route.query.workflow !== name || requestedJob) {
+      const query = { ...route.query, workflow: name }
+      delete query.job
+      router.replace({ query })
+    }
     try {
       localStorage.setItem(LAST_WORKFLOW_KEY, name)
     } catch {
@@ -943,7 +990,8 @@ watch(workflow, (name, previous) => {
     }
     loadScenarios(name)
     runCheck()
-    restoreJob(name)
+    if (requestedJob) openPastJob(requestedJob)
+    else restoreJob(name)
   }
 })
 watch([scenarios, repeats], scheduleSave, { deep: true })
@@ -1226,6 +1274,14 @@ onBeforeUnmount(() => {
 .diag-list li { display: grid; gap: 2px; font-size: 13px; line-height: 1.5; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .diag-list li.fail { background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .diag-fix { color: var(--fg-muted); }
+.diag-unchanged { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; background: color-mix(in srgb, var(--success) 12%, transparent); }
+.diag-layer { margin: 10px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); }
+.diag-layer:first-of-type { border-top: 0; padding-top: 0; }
+.diag-layer-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13.5px; }
+.diag-layer-count { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--tint-2); font-size: 12px; text-align: center; }
+.diag-layer-hint { margin: 2px 0 0; font-size: 12.5px; color: var(--fg-muted); }
+.diag-layer .diag-list { margin: 8px 0 4px; }
+.env-hints li { background: color-mix(in srgb, var(--info) 10%, transparent); }
 .diag-label { display: block; margin: 8px 0 4px; font-size: 12.5px; font-weight: 600; }
 .brief { width: 100%; box-sizing: border-box; min-height: 120px; font-size: 13px; line-height: 1.5; resize: vertical; }
 .brief-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }

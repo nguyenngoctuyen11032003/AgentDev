@@ -255,3 +255,41 @@ def lint(data: Any) -> Tuple[List[str], List[dict]]:
     if triage_missing(data):
         notes.append("The first node is not a triage: small asks will run the whole team.")
     return notes, []
+
+
+PAID_GATE_REMOVED = "PAID_GATE_REMOVED"
+
+
+def _paid_gate_ids(graph: Graph) -> List[Any]:
+    return [nid for nid, node in graph.nodes.items()
+            if isinstance(node.get("config"), dict) and node["config"].get("paid") is True]
+
+
+def _reached_without_person(graph: Graph, gate: Any) -> set:
+    """Steps a paid gate's edges lead to when no person answers (timeout text, Lab auto-answers)."""
+    from agentdev.api.services.session_execution import NO_REPLY_TEXT
+    from agentdev.utils.human_prompt import AUTO_SKIP_PAID
+
+    return {e.get("to") for e in graph.edges if e.get("from") == gate
+            for text in (NO_REPLY_TEXT, AUTO_ANSWER, AUTO_SKIP_PAID) if edge_condition_matches(e.get("condition"), text)}
+
+
+def paid_gate_changes(old: Any, new: Any) -> List[Dict[str, Any]]:
+    """How an edit weakens the saved file's ``paid: true`` steps (top-level graph): ``removed`` (node gone),
+    ``unmarked`` (flag dropped) or ``silence_reaches`` (a timeout / automatic answer now leads to steps it did not
+    reach before). Reported as a warning: the user may really want it, but must see it before Apply."""
+    if not isinstance(old, dict):
+        return []
+    before, after = Graph.from_workflow(old), Graph.from_workflow(new)
+    still_paid = set(_paid_gate_ids(after))
+    items: List[Dict[str, Any]] = []
+    for gate in _paid_gate_ids(before):
+        if gate not in after.nodes:
+            items.append({"node": gate, "kind": "removed"})
+        elif gate not in still_paid:
+            items.append({"node": gate, "kind": "unmarked"})
+        else:
+            added = _reached_without_person(after, gate) - _reached_without_person(before, gate)
+            if added:
+                items.append({"node": gate, "kind": "silence_reaches", "to": sorted(map(str, added))})
+    return items

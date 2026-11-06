@@ -29,9 +29,13 @@ import yaml
 
 from agentdev.api.services.lab_diagnosis import (
     SLOW_SECONDS,
+    build_environment_hints,
     build_fix_brief,
+    build_platform_report,
+    classify_exception,
     compare_baseline,
     diagnose_job,
+    layer_counts,
     node_timeline,
     over_budget,
     regression_finding,
@@ -417,6 +421,11 @@ class LabJob:
     error: str = ""
     started_at: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
+    # Rerun of the failed scenarios of another job: its id, the source indices of the scenarios (in order) and
+    # the before-snapshot of those scenarios (see rerun_snapshot); stored with the job so a reload keeps them.
+    rerun_of: str = ""
+    rerun_scenarios: List[int] = field(default_factory=list)
+    rerun_before: Optional[Dict[str, Any]] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
     # Guards ``results`` (and the entries in it): the worker thread updates them while requests read them.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
@@ -472,6 +481,15 @@ class LabJob:
         data["resumable"] = (data["status"] in ("cancelled", "error") and data["judged"] < self.total) or (
             data["status"] == "completed" and bool(_rejudgeable(data["results"])))
         data["duration_seconds"] = round((self.finished_at or time.time()) - self.started_at, 1)
+        if self.rerun_of:
+            data["rerun_of"] = self.rerun_of
+            data["rerun_scenarios"] = list(self.rerun_scenarios)
+            data["rerun_before"] = copy.deepcopy(self.rerun_before)
+            data["rerun_compare"] = None
+            if data["status"] == "completed" and self.rerun_before is not None:
+                after = rerun_snapshot(data["results"])
+                data["rerun_compare"] = {"before": copy.deepcopy(self.rerun_before), "after": after,
+                                         "flags": compare_baseline(after, self.rerun_before)}
         return data
 
     def _build_dict(self) -> Dict[str, Any]:
@@ -529,7 +547,8 @@ class LabJob:
                 "unjudged": len(finished) - len(runs),
             })
         config_failed = self.config_status == FAIL
-        findings = diagnose_job(done, {i: sc.prompt for i, sc in enumerate(self.scenarios)})
+        findings = diagnose_job(done, {i: sc.prompt for i, sc in enumerate(self.scenarios)},
+                                {i: sc.criteria for i, sc in enumerate(self.scenarios)})
         slow_runs = len([r for r in done if (r.get("seconds") or 0) > (r.get("budget_seconds") or SLOW_SECONDS)])
         verdict = None
         reasons: List[str] = []
@@ -603,6 +622,13 @@ class LabJob:
             "slow_seconds": SLOW_SECONDS,
             "avg_seconds": round(sum(r.get("seconds", 0) or 0 for r in done) / len(done), 1) if done else None,
             "fix_brief": build_fix_brief(self.workflow, graded, self.scenarios, findings, pass_rate, PASS_THRESHOLD) if status == "completed" else "",
+            # Which layer each finding is about; only workflow findings make a fix brief. Platform findings become an
+            # evidence report for a developer (never a live code change), environment ones a hint for the user.
+            "layers": layer_counts(findings),
+            "needs_workflow_fix": status == "completed" and layer_counts(findings)["workflow"] > 0,
+            "platform_report": (build_platform_report(self.workflow, done, self.scenarios, findings, self.workflow_hash)
+                                if status == "completed" else ""),
+            "environment_hints": build_environment_hints(findings) if status == "completed" else [],
             "results": results,
             # "resumable" is set by to_dict (not cached): stopped before every run was graded, the rest can still
             # run under this job (LabRunner.resume); unjudged runs with an answer are only graded again on resume.
@@ -1027,6 +1053,9 @@ def _tool_evidence(executor: Any) -> List[Dict[str, Any]]:
             "command": _short(_redact(command), 160),
             "ok": details.get("success"),
             "exit_code": exit_code,
+            # Structured codes of a tool that could not run (TOOL_NOT_FOUND / TOOL_NOT_ALLOWED) or crashed
+            # (exception class name): the Lab tells a platform problem from the agent's own failed command by them.
+            **{k: str(details[k]) for k in ("error_code", "exception_type") if details.get(k)},
             "output": _redact("\n".join(line.strip()[:200] for line in result.splitlines()
                                         if _RESULT_LINE.search(line))[-600:]),
         })
@@ -1585,6 +1614,10 @@ def _session_output_dir(session: str) -> str:
         return ""
 
 
+class LabRunTimeoutError(RuntimeError):
+    """The Lab's own time limit stopped a run (usually a loop that never exits): error_kind "timeout"."""
+
+
 def _run_once_inner(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event, run_turn: Callable[..., Dict[str, Any]],
                     session: str, started: float, timed_out: threading.Event) -> Dict[str, Any]:
     from agentdev.api.services.conversation_turns import compose_follow_up_prompt, make_turn
@@ -1612,14 +1645,14 @@ def _run_once_inner(yaml_path: Path, scenario: Scenario, cancel_event: threading
             if time.time() > stop_at:  # the run ignores the cancel event (hung call): abandon its thread
                 if not timed_out.is_set():
                     raise RuntimeError("Run cancelled")
-                raise RuntimeError(message)
+                raise LabRunTimeoutError(message)
     if "error" in box:
         if timed_out.is_set():
-            raise RuntimeError(message)
+            raise LabRunTimeoutError(message)
         raise box["error"]
     result = box["result"]
     if timed_out.is_set():
-        raise RuntimeError(message)
+        raise LabRunTimeoutError(message)
     return result
 
 
@@ -1850,7 +1883,9 @@ class LabRunner:
         job = LabJob(id=data["id"], workflow=data.get("workflow", ""), scenarios=scenarios,
                      repeats=int(data.get("total") or 0) // max(1, len(scenarios)) or 1,
                      config_status=data.get("config_status", ""), workflow_hash=data.get("workflow_hash", ""),
-                     store_dir=self._dir(), results=keep, started_at=time.time() - elapsed)
+                     store_dir=self._dir(), results=keep, started_at=time.time() - elapsed,
+                     rerun_of=str(data.get("rerun_of") or ""), rerun_scenarios=list(data.get("rerun_scenarios") or []),
+                     rerun_before=data.get("rerun_before"))
         if judge is _judge:
             judge = functools.partial(_judge, account=JudgeAccount())
         with self._lock:
@@ -1868,13 +1903,15 @@ class LabRunner:
 
     def start(self, yaml_path: Path, workflow: str, scenarios: List[Scenario], repeats: int,
               run_once: Callable[..., Dict[str, Any]] = _run_once,
-              judge: Callable[..., Dict[str, Any]] = _judge, config_status: str = "") -> LabJob:
+              judge: Callable[..., Dict[str, Any]] = _judge, config_status: str = "",
+              rerun: Optional[Dict[str, Any]] = None) -> LabJob:
         try:
             workflow_hash = hashlib.sha256(Path(yaml_path).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
         except OSError:
             workflow_hash = ""
         job = LabJob(id=uuid.uuid4().hex[:12], workflow=workflow, scenarios=scenarios, repeats=repeats,
-                     config_status=config_status, workflow_hash=workflow_hash, store_dir=self._dir())
+                     config_status=config_status, workflow_hash=workflow_hash, store_dir=self._dir(),
+                     **(rerun or {}))
         if judge is _judge:
             judge = functools.partial(_judge, account=JudgeAccount())  # one judge account per job
         with self._lock:
@@ -1915,6 +1952,35 @@ class LabRunner:
             return job
         return self._load(job_id)
 
+    def rerun_failed(self, job_id: str, yaml_path: Path,
+                     run_once: Callable[..., Dict[str, Any]] = _run_once,
+                     judge: Callable[..., Dict[str, Any]] = _judge, config_status: str = "") -> LabJob:
+        """Start a new job with only the failed scenarios of a finished job (same repeats, current YAML).
+
+        Raises LookupError for an unknown job, LabError when it still runs, has no failed scenario or no stored
+        scenarios. Gates are answered by the Lab's usual auto-answer channel (paid gates stay refused)."""
+        source = self.get(job_id)
+        if source is None:
+            raise LookupError("Lab run not found")
+        data = source.to_dict()
+        if data.get("status") in ("queued", "running"):
+            raise LabError("lab_job_running", "This Lab run is still running.")
+        plan = rerun_failed_plan(data)
+        if not plan["scenarios"]:
+            raise LabError("nothing_to_rerun", "No failed scenario to run again.")
+        specs = data.get("scenarios") or []
+        if not all((specs[i].get("prompt") or "").strip() for i in plan["scenarios"]):
+            raise LabError("lab_legacy_job", "This Lab run came from an older version and has no stored scenarios: run it again.")
+        scenarios = [Scenario(prompt=specs[i].get("prompt", ""), criteria=specs[i].get("criteria", ""),
+                              name=specs[i].get("name", ""), max_seconds=specs[i].get("max_seconds"),
+                              max_tokens=specs[i].get("max_tokens")) for i in plan["scenarios"]]
+        chosen = set(plan["scenarios"])
+        before = rerun_snapshot([r for r in data.get("results") or [] if r.get("scenario") in chosen])
+        return self.start(yaml_path, data.get("workflow", ""), scenarios, _job_repeats(data), run_once=run_once,
+                          judge=judge, config_status=config_status,
+                          rerun={"rerun_of": data.get("id") or job_id, "rerun_scenarios": plan["scenarios"],
+                                 "rerun_before": before})
+
     def list_jobs(self, workflow: str, limit: int = 20) -> List[Dict[str, Any]]:
         with self._lock:
             live = frozenset(self._jobs)
@@ -1948,6 +2014,11 @@ class LabRunner:
                 return
             if getattr(exc, "lab_output_dir", ""):
                 extra["output_dir"] = exc.lab_output_dir
+            # Which layer failed is decided from the exception class, not from its text (lab_diagnosis).
+            extra["error_kind"] = classify_exception(exc)
+            evidence = getattr(exc, "lab_evidence", None)
+            if isinstance(evidence, list) and evidence:
+                extra["evidence"] = evidence[-EVIDENCE_MAX_TOOLS:]
             job.update_result(entry, status="error", error=str(exc)[:2000], **extra)
             self._save(job)
             return
@@ -2051,6 +2122,39 @@ def _avg_graded_run_cost(results: List[Dict[str, Any]]) -> Optional[float]:
              if r.get("status") in ("passed", "failed") and r.get("cost_known") is not False
              and not r.get("cost_partial")]
     return round(sum(costs) / len(costs), 6) if costs else None
+
+
+def _job_repeats(data: Dict[str, Any]) -> int:
+    return max(1, int(data.get("total") or 0) // max(1, len(data.get("scenarios") or [])))
+
+
+def rerun_failed_plan(data: Dict[str, Any]) -> Dict[str, Any]:
+    """What "rerun failed scenarios" of a job dict would run: the failed scenario indices (``passed < needed``),
+    the number of runs (same repeats) and a price estimate (average graded run + grading cost of those
+    scenarios in the source job x runs; None when no run of them was fully priced)."""
+    failed = [int(s.get("index", i)) for i, s in enumerate(data.get("scenarios") or [])
+              if (s.get("passed") or 0) < (s.get("needed") or 0)]
+    runs = len(failed) * _job_repeats(data)
+    chosen = set(failed)
+    avg = _avg_graded_run_cost([r for r in data.get("results") or [] if r.get("scenario") in chosen])
+    if not failed:
+        return {"scenarios": [], "runs": 0, "estimate_usd": 0.0, "cost_known": True}
+    return {"scenarios": failed, "runs": runs, "estimate_usd": round(avg * runs, 6) if avg is not None else None,
+            "cost_known": avg is not None}
+
+
+def rerun_snapshot(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """``{pass_rate, avg_seconds, cost_usd, done}`` of some runs, in the shape ``compare_baseline`` reads
+    (cost = run cost only, like the regression baseline; pass rate None when nothing was graded)."""
+    done = [r for r in results if r.get("status") in ("passed", "failed", "error", "unjudged")]
+    graded = [r for r in done if r.get("status") != "unjudged"]
+    passed = [r for r in graded if r.get("status") == "passed"]
+    return {
+        "pass_rate": round(len(passed) / len(graded), 3) if graded else None,
+        "avg_seconds": round(sum(r.get("seconds", 0) or 0 for r in done) / len(done), 1) if done else None,
+        "cost_usd": round(sum(float(r.get("cost_usd", 0.0) or 0.0) for r in done), 4),
+        "done": len(done),
+    }
 
 
 def list_stored_jobs(folder: Path, workflow: str, limit: int = 20,

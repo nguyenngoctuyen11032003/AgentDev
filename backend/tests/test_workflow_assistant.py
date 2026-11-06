@@ -1187,3 +1187,10 @@ def test_model_not_found_maps_to_model_unavailable(turn_env):
             _turn(call)
         assert info.value.code == "model_unavailable"
         assert "gemini-2.5" not in info.value.message and "C:\\" not in info.value.message
+
+
+def test_prompt_allows_no_fix_for_non_workflow_lab_failures():
+    # A Lab brief may blame the environment / platform / scenario: the assistant must not invent a workflow fix.
+    rule = prompt_mod.OVERRIDE
+    assert "no change" in rule
+    assert all(layer in rule for layer in ("environment", "platform", "scenario"))

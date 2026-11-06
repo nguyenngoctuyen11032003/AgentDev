@@ -157,7 +157,9 @@ def test_brief_shows_the_run_a_finding_is_about():
 
 
 def test_brief_survives_error_run_with_null_seconds():
-    run = {"scenario": 0, "repeat": 1, "status": "error", "error": "boom", "seconds": None}
+    # A workflow error (an unknown "boom" is a suspected platform bug and asks for no workflow fix).
+    run = {"scenario": 0, "repeat": 1, "status": "error", "error": "boom", "error_kind": "workflow_error",
+           "seconds": None}
     brief = build_fix_brief("wf", [run], [Scenario(prompt="x")], diagnose_run(run, "x"), 0.0, 0.8)
     assert "Tổng: 0s" in brief
 

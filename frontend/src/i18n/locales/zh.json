@@ -2277,6 +2277,105 @@
     "max_agent_turns": "智能体最大轮数"
   },
   "lab": {
+    "layer": {
+      "workflow": {
+        "title": "由工作流引起",
+        "hint": "使用工作流助手修复工作流（见下方按钮）。"
+      },
+      "environment": {
+        "title": "由环境引起（账号、限额、网络）",
+        "hint": "无需修改工作流：重新登录账号、等待调用限额恢复或检查网络后重新运行。"
+      },
+      "platform": {
+        "title": "疑似 AgentDev 缺陷",
+        "hint": "可能是 AgentDev 本身的问题，而非工作流。请复制报告交给开发者。"
+      },
+      "scenario": {
+        "title": "由场景或评审引起",
+        "hint": "检查场景的通过标准或重新运行：评审结果前后不一致。"
+      },
+      "workflow_unchanged": "工作流无需修改：下列发现并非由工作流引起。"
+    },
+    "env_hint": {
+      "title": "处理方法"
+    },
+    "platform_fix": {
+      "step": {
+        "create_branch": "从当前 HEAD 创建新的 git 分支 platform-fix/（评估编号）。",
+        "create_worktree": "在 AgentDev 目录旁创建新的 git 工作树目录（AgentDev 目录名）-platform-fix-（评估编号）。",
+        "write_brief": "在该工作树中写入 PLATFORM_FIX.md：平台报告、禁止修改的文件和必需的检查。",
+        "no_change": "不做其他任何事：正在运行的代码不变，不调用模型，不提交、推送、合并，也不创建 PR。"
+      },
+      "gate": {
+        "forbidden_untouched": "与 main 的差异中不包含任何禁止修改的文件",
+        "full_tests": "所有后端测试通过",
+        "invariant_tests": "不变量测试通过且未被修改",
+        "regression_test": "新增回归测试能复现该缺陷（修复前失败，修复后通过）",
+        "bench_engine": "引擎基准测试（模拟模型，免费）没有退化",
+        "lab_before_after": "在修复前后重新运行相同的实验室场景并比较结果",
+        "human_review": "由人工审阅差异后再合并；不会自动合并任何内容"
+      },
+      "kind": {
+        "gate": "审批关卡",
+        "paid": "付费步骤",
+        "silence": "沉默不等于批准",
+        "judge": "实验室评审",
+        "invariant_test": "不变量测试",
+        "self": "此功能本身"
+      },
+      "action": {
+        "created_branch": "已从 {head} 创建分支 {branch}",
+        "created_worktree": "已创建工作树 {path}",
+        "wrote_brief": "已写入 {path}",
+        "no_change": "未改变正在运行的代码，未调用模型，未提交、推送或合并"
+      },
+      "next": {
+        "open_worktree": "打开 {path} 并阅读 PLATFORM_FIX.md",
+        "fix_with_test": "先写一个失败的回归测试，再进行修复（不要改动禁止修改的文件）",
+        "run_gates": "运行说明文件中列出的所有必需检查",
+        "review_merge": "亲自审阅差异，只有同意时才合并",
+        "cleanup": "完成后清理：git worktree remove {path} 和 git branch -D {branch}"
+      },
+      "report_summary": "查看平台错误报告",
+      "copy": "复制平台报告",
+      "copied": "报告已复制",
+      "copy_failed": "无法自动复制。报告已在上方展开：请选中后手动复制。",
+      "request": "请求修复源代码…",
+      "dialog_title": "准备修复 AgentDev 源代码",
+      "intro": "此操作只会创建一个独立的 git 分支和工作树，并附上错误说明供开发者修复。不会合并任何内容，正在运行的应用也不会改变。",
+      "loading": "正在加载信息…",
+      "load_failed": "无法加载信息：{error}",
+      "load_failed_hint": "请确认 AgentDev 服务器正在运行，然后重试。",
+      "retry": "重试",
+      "steps_title": "将会发生什么",
+      "forbidden_title": "禁止修改的文件",
+      "gates_title": "需要你批准的步骤",
+      "none": "无",
+      "understand": "我已了解：只创建独立的分支和工作树，不合并，不改变正在运行的应用。",
+      "password_label": "源代码修复密码",
+      "password_hint": "必填。每次尝试后都会清空此字段。",
+      "confirm": "确认并准备",
+      "confirming": "正在准备…",
+      "cancel": "取消",
+      "close": "关闭",
+      "done_title": "修复分支已准备好",
+      "done_note": "没有合并任何内容，正在运行的应用也没有改变。合并前请先检查该分支。",
+      "branch": "分支",
+      "worktree": "工作树目录",
+      "brief_file": "说明文件",
+      "actions_title": "已完成",
+      "next_steps_title": "后续步骤",
+      "errors": {
+        "bad_password": "密码错误，还剩 {attempts_left} 次机会。没有任何改动，请重试。",
+        "too_many_attempts": "错误次数过多。请等待 {retry_after_s} 秒后再试。",
+        "already_prepared": "此评估已有修复分支 {branch}（位于 {worktree}）。请使用该分支，而不是新建。",
+        "password_misconfigured": "服务器上的源代码修复密码配置有误（AGENTDEV_SOURCE_FIX_PASSWORD_HASH）。请告知管理员。",
+        "git_unavailable": "无法使用 git（未安装或目录不是 git 仓库）。请复制报告交给开发者。",
+        "no_platform_report": "此评估没有平台错误，无需修复源代码。",
+        "disabled": "此服务器已关闭源代码修复功能。请复制报告交给开发者。",
+        "confirm_required": "继续之前请勾选确认框。"
+      }
+    },
     "title": "实验室",
     "kicker": "工作流验证",
     "how_it_works": "验证方式",
@@ -2595,6 +2694,50 @@
     "fix_outro": "我的补充信息：",
     "fix_request": "请求",
     "fix_this_run": "根据此次运行修改",
+    "rerun": {
+      "title": "仅重新运行失败的场景",
+      "intro": "修复已应用。重新运行上次评估中未通过的场景来验证（使用当前 YAML，重复次数相同）。",
+      "loading": "正在估算费用…",
+      "summary": "{scenarios} 个场景 · {runs} 次运行",
+      "cost": "预计约 {cost}",
+      "cost_unknown": "费用未知（上次评估未记录价格）",
+      "paid_note": "付费步骤（例如视频渲染）在实验室中永远不会被自动批准。",
+      "run": "运行 {runs} 次（约 {cost}）",
+      "run_unknown": "运行 {runs} 次",
+      "starting": "正在开始…",
+      "dismiss": "忽略",
+      "retry": "重试",
+      "open_lab": "打开实验室",
+      "empty": "没有需要重新运行的失败场景。",
+      "errors": {
+        "nothing_to_rerun": "此次评估没有可重新运行的失败场景。",
+        "confirm_required": "服务器需要确认后才能重新运行。",
+        "not_found": "找不到原评估。",
+        "network": "无法连接服务器。",
+        "failed": "无法重新运行。"
+      },
+      "hints": {
+        "nothing_to_rerun": "如需进一步检查，请打开实验室并开始新的评估。",
+        "confirm_required": "点击重试，然后再次点击运行按钮。",
+        "not_found": "它可能已被删除：请在实验室中开始新的评估。",
+        "network": "请确认后端正在运行，然后点击重试。",
+        "failed": "点击重试，或打开实验室查看详情。"
+      },
+      "compare": {
+        "title": "修复前后对比",
+        "note": "仅对比原评估中失败的场景。",
+        "source": "查看原评估",
+        "metric": "指标",
+        "before": "修复前",
+        "after": "修复后",
+        "pass_rate": "通过率",
+        "avg_seconds": "平均用时",
+        "cost_usd": "费用",
+        "cost_per_run": "每次运行费用",
+        "worse": "变差",
+        "empty": "暂无可对比的数据。"
+      }
+    },
     "fix_with_assistant": "根据这些错误修改工作流",
     "sev_fail": "错误",
     "sev_warn": "需要改进",
@@ -3236,6 +3379,7 @@
       "skills": "部分已启用的技能不在技能库中。",
       "code_execution": "部分智能体使用了运行代码或命令的工具，但服务器关闭了此权限，这些工具将无法运行。",
       "unreachable": "部分节点没有指向它的连线，也不属于任何团队，因此永远不会运行。",
+      "paid_gate_removed": "此更改移除或削弱了一个付费步骤：它可能在无人批准的情况下运行。请仅在确实需要时应用。",
       "other": "此项检查未通过，详情见下方。"
     },
     "history": "聊天记录",

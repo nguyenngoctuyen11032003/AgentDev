@@ -1602,7 +1602,7 @@ class AgentNodeExecutor(NodeExecutor):
                             tool_name,
                             False,
                             None,
-                            {"error": str(exc), "arguments": arguments},
+                            {"error": str(exc), "arguments": arguments, "exception_type": type(exc).__name__},
                             CallStage.AFTER,
                         )
                         tool_message = Message(
@@ -1636,7 +1636,7 @@ class AgentNodeExecutor(NodeExecutor):
                         tool_name,
                         False,
                         None,
-                        {"error": error_msg, "arguments": arguments},
+                        {"error": error_msg, "arguments": arguments, "error_code": "TOOL_NOT_ALLOWED"},
                         CallStage.AFTER,
                     )
                     tool_message = Message(
@@ -1668,7 +1668,7 @@ class AgentNodeExecutor(NodeExecutor):
                         tool_name,
                         False,
                         None,
-                        {"error": error_msg, "arguments": arguments},
+                        {"error": error_msg, "arguments": arguments, "error_code": "TOOL_NOT_FOUND"},
                         CallStage.AFTER,
                     )
                      tool_message = Message(
@@ -1742,7 +1742,7 @@ class AgentNodeExecutor(NodeExecutor):
                         tool_name,
                         False,
                         None,
-                        {"error": str(exc), "arguments": arguments},
+                        {"error": str(exc), "arguments": arguments, "exception_type": type(exc).__name__},
                         CallStage.AFTER,
                     )
                     tool_message = Message(
@@ -2044,7 +2044,7 @@ class AgentNodeExecutor(NodeExecutor):
             raise WorkflowCancelledError("Workflow execution cancelled") from exc
         except Exception as exc:
             self.log_manager.record_tool_call(
-                node.id, tool_name, False, None, {"error": str(exc), "arguments": arguments}, CallStage.AFTER
+                node.id, tool_name, False, None, {"error": str(exc), "arguments": arguments, "exception_type": type(exc).__name__}, CallStage.AFTER
             )
             events.append(
                 FunctionCallOutputEvent(

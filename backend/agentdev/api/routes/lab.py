@@ -15,6 +15,7 @@ from agentdev.api.services.workflow_lab import (
     LabError,
     Scenario,
     get_lab_runner,
+    rerun_failed_plan,
     static_check,
 )
 from agentdev.connections.security import require_local_origin
@@ -167,6 +168,42 @@ def resume(job_id: str):
     return job.to_dict()
 
 
+class RerunRequest(BaseModel):
+    confirm: bool = False
+
+
+@router.get("/jobs/{job_id}/rerun-failed/estimate")
+def rerun_failed_estimate(job_id: str):
+    """Which scenarios a rerun would run, how many runs and the estimated price (before any spend)."""
+    stored = get_lab_runner().get(job_id)
+    if stored is None:
+        raise _lab_http(404, "lab_job_not_found", "Lab run not found", {"job_id": job_id})
+    return rerun_failed_plan(stored.to_dict())
+
+
+@router.post("/jobs/{job_id}/rerun-failed", status_code=202)
+def rerun_failed(job_id: str, payload: RerunRequest):
+    """Run again only the failed scenarios of a finished job with the current workflow (explicit confirm)."""
+    if not payload.confirm:
+        raise _lab_http(400, "confirm_required", "Confirm the rerun (it spends tokens on your account).")
+    runner = get_lab_runner()
+    stored = runner.get(job_id)
+    if stored is None:
+        raise _lab_http(404, "lab_job_not_found", "Lab run not found", {"job_id": job_id})
+    _, path = _workflow_path(stored.to_dict().get("workflow", ""))
+    try:
+        config_status = static_check(path).get("status", "")
+    except Exception:  # noqa: BLE001 - advisory, as in /evaluate
+        config_status = ""
+    try:
+        job = runner.rerun_failed(job_id, path, config_status=config_status)
+    except LookupError as exc:
+        raise _lab_http(404, "lab_job_not_found", str(exc), {"job_id": job_id}) from exc
+    except LabError as exc:
+        raise _from_lab_error(exc) from exc
+    return job.to_dict()
+
+
 class GenerateRequest(BaseModel):
     yaml_file: str
     count: int = 4
@@ -285,3 +322,44 @@ def lab_storage_cleanup_workflow(payload: WorkflowCleanupRequest):
 @router.post("/storage/cleanup")
 def lab_storage_cleanup(payload: CleanupRequest):
     return lab_outputs.cleanup_storage(payload.older_than_days, payload.orphans_only)
+
+
+# --- Platform fix: a separate worktree + brief for a suspected AgentDev bug (docs/adr/0009-platform-fix-loop.md) ---
+
+
+class PlatformFixRequest(BaseModel):
+    password: str = Field("", max_length=1024)
+    confirm: bool = False
+
+
+@router.get("/platform-fix/info")
+def platform_fix_info():
+    """What pressing the platform-fix button does, the forbidden files and the checks required before merge."""
+    from agentdev.api.services import platform_fix
+
+    return platform_fix.info()
+
+
+@router.post("/jobs/{job_id}/platform-fix")
+def platform_fix_prepare(job_id: str, payload: PlatformFixRequest):
+    """Confirm + password, then create a new git worktree + branch with PLATFORM_FIX.md. Never edits this checkout."""
+    from agentdev.api.services import platform_fix
+
+    if not platform_fix.enabled():
+        raise _lab_http(403, "disabled", "The platform-fix feature is turned off (AGENTDEV_PLATFORM_FIX=0)")
+    if payload.confirm is not True:
+        raise _lab_http(400, "confirm_required", "Confirm explicitly before preparing a platform fix")
+    if not platform_fix.JOB_ID_RE.match(job_id):
+        raise HTTPException(status_code=404, detail="Lab run not found")
+    job = get_lab_runner().get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Lab run not found")
+    data = job.to_dict()
+    report = data.get("platform_report", "") or ""
+    if not str(report).strip():
+        raise _lab_http(409, "no_platform_report", "This Lab job has no platform report")
+    try:
+        platform_fix.check_password(payload.password, job_id)
+        return platform_fix.prepare(job_id, str(report), str(data.get("workflow") or ""))
+    except platform_fix.PlatformFixError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.http_detail()) from exc

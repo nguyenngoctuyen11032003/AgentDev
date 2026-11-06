@@ -273,3 +273,51 @@ def test_team_estimate_spreads_members_over_parallel_lanes():
     assert lead_seconds(1) == mid + 4 * mid  # one member at a time
     assert lead_seconds(4) == mid + mid  # all four at once: the slowest member
     assert lead_seconds(3) == mid + -(-4 * mid // 3)
+
+
+# --- paid gates an edit weakens (warning, never an error) ------------------------------------------------------
+
+def _paid_flow(paid=True, approve_any=("tạo video",), with_gate=True):
+    agent = {"provider": "anthropic", "name": "claude-haiku-5-5", "role": "r"}
+    nodes = [{"id": "Writer", "type": "agent", "description": "d", "config": dict(agent)},
+             {"id": "Video Renderer", "type": "agent", "description": "d", "config": dict(agent)},
+             {"id": "Render Skipped", "type": "agent", "description": "d", "config": dict(agent)}]
+    edges = [{"from": "Writer", "to": "Render Skipped"}]
+    if with_gate:
+        gate = {"description": "Render costs money: type 'tạo video' to render"}
+        if paid:
+            gate["paid"] = True
+        nodes.insert(1, {"id": "Render Approval", "type": "human", "description": "d", "config": gate})
+        cond = lambda kind, words: {"type": "keyword", "config": {kind: list(words), "case_sensitive": False}}
+        edges = [{"from": "Writer", "to": "Render Approval"},
+                 {"from": "Render Approval", "to": "Video Renderer", "condition": cond("any", approve_any)},
+                 {"from": "Render Approval", "to": "Render Skipped", "condition": cond("none", ("tạo video",))}]
+    return {"graph": {"id": "v", "description": "d", "start": ["Writer"], "end": ["Video Renderer", "Render Skipped"],
+                      "nodes": nodes, "edges": edges}}
+
+
+def test_paid_gate_changes_flag_unmarked_removed_and_silence_reaching_paid_step():
+    old = _paid_flow()
+    assert proposal_lint.paid_gate_changes(old, _paid_flow()) == []
+    assert proposal_lint.paid_gate_changes(old, _paid_flow(paid=False)) == [
+        {"node": "Render Approval", "kind": "unmarked"}]
+    assert proposal_lint.paid_gate_changes(old, _paid_flow(with_gate=False)) == [
+        {"node": "Render Approval", "kind": "removed"}]
+    # "Approved" (the automatic answer) / the no-reply text now take the paid branch.
+    weakened = proposal_lint.paid_gate_changes(old, _paid_flow(approve_any=("tạo video", "proceed")))
+    assert weakened == [{"node": "Render Approval", "kind": "silence_reaches", "to": ["Video Renderer"]}]
+    assert proposal_lint.paid_gate_changes(None, _paid_flow(paid=False)) == []  # a new file has nothing to weaken
+
+
+def test_edit_removing_paid_flag_is_a_warning_with_a_code(tmp_path, monkeypatch):
+    monkeypatch.setattr(wa, "YAML_DIR", str(tmp_path))
+    old = _paid_flow()
+    saved = yaml.safe_dump(old, allow_unicode=True, sort_keys=False)
+    new = yaml.safe_dump(_paid_flow(paid=False), allow_unicode=True, sort_keys=False)
+    proposal, errors = wa._check_proposal({"kind": "edit", "filename": "v.yaml", "yaml": new}, "v.yaml", saved, old,
+                                          ["bỏ cờ paid"])
+    assert errors == [] and proposal is not None
+    check = next(c for c in proposal["checks"]["checks"] if c["id"] == "paid_gate_removed")
+    assert check["status"] == "warn" and check["code"] == "PAID_GATE_REMOVED"
+    assert check["items"] == [{"node": "Render Approval", "kind": "unmarked"}]
+    assert proposal["checks"]["status"] in ("warn", "fail")

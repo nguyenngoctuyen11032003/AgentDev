@@ -521,6 +521,14 @@ def _check_proposal(raw: Any, workflow: Optional[str], saved_text: Optional[str]
     if danger is not None:
         report = {**report, "status": FAIL if report["status"] == FAIL else WARN,
                   "checks": report["checks"] + [danger]}
+    # A paid step (money / cannot be undone) the edit unmarks, deletes or opens to a timeout: warn, never block.
+    paid = proposal_lint.paid_gate_changes(old, data)
+    if paid:
+        detail = "; ".join(f"{i['node']}: {i['kind']}" + (f" -> {', '.join(i['to'])}" if i.get("to") else "")
+                           for i in paid)
+        report = {**report, "status": FAIL if report["status"] == FAIL else WARN,
+                  "checks": report["checks"] + [{"id": "paid_gate_removed", "code": proposal_lint.PAID_GATE_REMOVED,
+                                                 "status": WARN, "detail": detail, "items": paid}]}
     return {
         "kind": kind,
         "filename": filename,

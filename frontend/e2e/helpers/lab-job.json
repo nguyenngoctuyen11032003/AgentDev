@@ -56,5 +56,15 @@
  "duration_seconds": 10.9,
  "total_tokens": 4583,
  "cost_usd": 0.0347,
- "fix_brief": ""
+ "fix_brief": "",
+ "findings": [],
+ "layers": {
+  "workflow": 0,
+  "platform": 0,
+  "environment": 0,
+  "scenario": 0
+ },
+ "needs_workflow_fix": false,
+ "platform_report": "",
+ "environment_hints": []
 }

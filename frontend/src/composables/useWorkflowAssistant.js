@@ -182,8 +182,24 @@ const sessionLists = reactive(new Map())
 const lastApplied = ref(null)
 // Text another page (Lab) wants in the composer, ready to edit and send; the panel takes it once.
 const draftSeed = ref('')
-const setDraftSeed = (text) => {
+// Where the seed came from when the Lab sent it ("fix this job"): {labJobId, workflow}. The next
+// message sent in a thread of that workflow takes it, marking the thread as seeded from the Lab.
+const labFixSource = ref(null)
+// Set once a Lab-seeded thread's proposal was applied to that same workflow: the panel offers to
+// re-run only the job's failed scenarios. Undo, another workflow or a new seed clears it.
+const rerunOffer = ref(null)
+/**
+ * @param {string} text - composer text, never sent automatically
+ * @param {{labJobId?: string, workflow?: string}} [source] - the Lab job the text is about (optional)
+ */
+const setDraftSeed = (text, source = null) => {
   draftSeed.value = String(text || '')
+  const workflow = workflowKey(source?.workflow || '')
+  labFixSource.value = source?.labJobId && workflow ? { labJobId: String(source.labJobId), workflow } : null
+  rerunOffer.value = null
+}
+const clearRerunOffer = () => {
+  rerunOffer.value = null
 }
 
 watch(vendor, (value) => writeStored(VENDOR_STORAGE_KEY, value))
@@ -399,6 +415,7 @@ function setContext(mode, workflow) {
   const firstVisit = !activeByContext.has(key)
   const shown = ensureActive(key, name)
   context.value = { mode: nextMode, workflow: name }
+  if (rerunOffer.value && rerunOffer.value.workflow !== name) rerunOffer.value = null
   loadSessions(key).then(async (list) => {
     if (!firstVisit || !list.items.length) return
     // Only while untouched: the user has not started a new conversation there meanwhile.
@@ -436,6 +453,10 @@ async function send(text) {
   if (isRetry) thread.messages.pop()
   else thread.messages.push({ id: nextId(), role: 'user', content, at: Date.now() })
   thread.appliedSinceUserMessage = false
+  if (labFixSource.value && thread.workflow === labFixSource.value.workflow) {
+    thread.labSource = labFixSource.value
+    labFixSource.value = null
+  }
 
   const requestId = randomId()
   const usedVendor = vendor.value
@@ -656,9 +677,12 @@ async function applyProposal({ formOpen = false } = {}) {
 
   thread.status = 'applying'
   try {
-    return proposal.kind === 'create'
+    const result = proposal.kind === 'create'
       ? await applyCreate(thread, proposal)
       : await applyEdit(thread, proposal, formOpen)
+    const source = thread.labSource
+    if (result.ok && source && workflowKey(result.filename) === source.workflow) rerunOffer.value = { ...source }
+    return result
   } catch (error) {
     console.error('Failed to apply the assistant proposal:', error)
     return { ok: false, reason: 'failed', message: error?.message }
@@ -690,6 +714,8 @@ async function undoLast(workflow) {
   const restored = await updateYaml(applied.workflow, applied.oldYaml)
   if (!restored.success) return { ok: false, reason: 'failed', message: restored.message }
   lastApplied.value = null
+  // The fix the re-run would check is gone.
+  if (rerunOffer.value?.workflow === applied.workflow) rerunOffer.value = null
   reopenProposal(applied)
 
   if (applied.oldLayout) {
@@ -739,6 +765,9 @@ export function useWorkflowAssistant() {
     discardProposal,
     undoLast,
     draftSeed,
-    setDraftSeed
+    setDraftSeed,
+    labFixSource,
+    rerunOffer,
+    clearRerunOffer
   }
 }

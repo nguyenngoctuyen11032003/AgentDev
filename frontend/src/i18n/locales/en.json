@@ -2277,6 +2277,105 @@
     "max_agent_turns": "Max agent turns"
   },
   "lab": {
+    "layer": {
+      "workflow": {
+        "title": "Caused by the workflow",
+        "hint": "Fix the workflow with the workflow assistant (button below)."
+      },
+      "environment": {
+        "title": "Caused by the environment (account, limits, network)",
+        "hint": "No workflow change needed: sign in again, wait for the rate limit to reset or check the network, then rerun."
+      },
+      "platform": {
+        "title": "Suspected AgentDev bug",
+        "hint": "Likely a bug in AgentDev itself, not in the workflow. Copy the report for a developer."
+      },
+      "scenario": {
+        "title": "Caused by the scenario or the judge",
+        "hint": "Review the scenario pass criteria or rerun: the judge disagreed with itself."
+      },
+      "workflow_unchanged": "The workflow does not need changes: the findings below were not caused by it."
+    },
+    "env_hint": {
+      "title": "How to fix"
+    },
+    "platform_fix": {
+      "step": {
+        "create_branch": "Create a new git branch platform-fix/(job id) from the current HEAD.",
+        "create_worktree": "Create a new git worktree folder (AgentDev folder name)-platform-fix-(job id) next to the AgentDev folder.",
+        "write_brief": "Write PLATFORM_FIX.md in that worktree: the platform report, the forbidden files and the required checks.",
+        "no_change": "Nothing else: the running code is not changed, no model is run, nothing is committed, pushed, merged or opened as a PR."
+      },
+      "gate": {
+        "forbidden_untouched": "The diff against main lists none of the forbidden files",
+        "full_tests": "All backend tests pass",
+        "invariant_tests": "Invariant tests pass, unchanged",
+        "regression_test": "A new regression test reproduces the bug (red before the fix, green after)",
+        "bench_engine": "Engine bench (fake model, free) shows no regression",
+        "lab_before_after": "Re-run the same Lab scenarios before and after the fix and compare the results",
+        "human_review": "A human reviewer reads the diff and merges it; nothing is merged automatically"
+      },
+      "kind": {
+        "gate": "Approval gate",
+        "paid": "Paid step",
+        "silence": "Silence is not approval",
+        "judge": "Lab judge",
+        "invariant_test": "Invariant test",
+        "self": "This feature"
+      },
+      "action": {
+        "created_branch": "Created branch {branch} from {head}",
+        "created_worktree": "Created worktree {path}",
+        "wrote_brief": "Wrote {path}",
+        "no_change": "Did not change the running code, run a model, commit, push or merge"
+      },
+      "next": {
+        "open_worktree": "Open {path} and read PLATFORM_FIX.md",
+        "fix_with_test": "Write a failing regression test first, then the fix (not in the forbidden files)",
+        "run_gates": "Run every required check listed in the brief",
+        "review_merge": "Review the diff yourself and merge only if you agree",
+        "cleanup": "Clean up when done: git worktree remove {path} and git branch -D {branch}"
+      },
+      "report_summary": "View platform error report",
+      "copy": "Copy platform report",
+      "copied": "Report copied",
+      "copy_failed": "Could not copy automatically. The report is open above: select it and copy it by hand.",
+      "request": "Request source fix…",
+      "dialog_title": "Prepare an AgentDev source fix",
+      "intro": "This only creates a separate git branch and worktree with an error brief for a developer. Nothing is merged and the running app is not changed.",
+      "loading": "Loading details…",
+      "load_failed": "Could not load the details: {error}",
+      "load_failed_hint": "Check that the AgentDev server is running, then retry.",
+      "retry": "Retry",
+      "steps_title": "What will happen",
+      "forbidden_title": "Files that must not be changed",
+      "gates_title": "Steps that need your approval",
+      "none": "None",
+      "understand": "I understand: only a separate branch and worktree are created, nothing is merged, the running app is not changed.",
+      "password_label": "Source fix password",
+      "password_hint": "Required. The field is cleared after every attempt.",
+      "confirm": "Confirm and prepare",
+      "confirming": "Preparing…",
+      "cancel": "Cancel",
+      "close": "Close",
+      "done_title": "Fix branch prepared",
+      "done_note": "Nothing was merged and the running app was not changed. Review the branch before merging.",
+      "branch": "Branch",
+      "worktree": "Worktree folder",
+      "brief_file": "Brief file",
+      "actions_title": "Done",
+      "next_steps_title": "Next steps",
+      "errors": {
+        "bad_password": "Wrong password, {attempts_left} attempts left. Nothing was changed, please try again.",
+        "too_many_attempts": "Too many wrong attempts. Wait {retry_after_s} seconds, then try again.",
+        "already_prepared": "A fix branch {branch} already exists for this evaluation at {worktree}. Use it instead of creating a new one.",
+        "password_misconfigured": "The source-fix password on the server is misconfigured (AGENTDEV_SOURCE_FIX_PASSWORD_HASH). Tell the administrator.",
+        "git_unavailable": "git is not available (not installed or not a git repository). Copy the report for a developer instead.",
+        "no_platform_report": "This evaluation has no platform error, so no source fix is needed.",
+        "disabled": "Source fixes are turned off on this server. Copy the report for a developer instead.",
+        "confirm_required": "Tick the confirmation box before continuing."
+      }
+    },
     "title": "Lab",
     "kicker": "Workflow testing",
     "how_it_works": "How testing works",
@@ -2595,6 +2694,50 @@
     "fix_outro": "Extra details from me: ",
     "fix_request": "Request",
     "fix_this_run": "Fix based on this run",
+    "rerun": {
+      "title": "Re-run only the failed scenarios",
+      "intro": "The fix is applied. Check it by re-running the scenarios that failed in the previous evaluation (current YAML, same repeats).",
+      "loading": "Estimating the cost…",
+      "summary": "{scenarios} scenarios · {runs} runs",
+      "cost": "estimated ~{cost}",
+      "cost_unknown": "cost unknown (the previous evaluation recorded no price)",
+      "paid_note": "Paid steps (e.g. video render) are never approved automatically in the Lab.",
+      "run": "Run {runs} runs (~{cost})",
+      "run_unknown": "Run {runs} runs",
+      "starting": "Starting…",
+      "dismiss": "Dismiss",
+      "retry": "Retry",
+      "open_lab": "Open the Lab",
+      "empty": "No failed scenarios left to re-run.",
+      "errors": {
+        "nothing_to_rerun": "This evaluation has no failed scenarios to re-run.",
+        "confirm_required": "The server needs a confirmation before re-running.",
+        "not_found": "The source evaluation was not found.",
+        "network": "Could not reach the server.",
+        "failed": "Could not re-run."
+      },
+      "hints": {
+        "nothing_to_rerun": "Open the Lab and start a new evaluation if you want to check more.",
+        "confirm_required": "Click Retry, then click the run button again.",
+        "not_found": "It may have been deleted: start a new evaluation in the Lab.",
+        "network": "Check that the backend is running, then click Retry.",
+        "failed": "Click Retry, or open the Lab for details."
+      },
+      "compare": {
+        "title": "Before and after the fix",
+        "note": "Only the failed scenarios of the source evaluation are compared.",
+        "source": "View the source evaluation",
+        "metric": "Metric",
+        "before": "Before",
+        "after": "After",
+        "pass_rate": "Pass rate",
+        "avg_seconds": "Average time",
+        "cost_usd": "Cost",
+        "cost_per_run": "Cost per run",
+        "worse": "Worse",
+        "empty": "No numbers to compare yet."
+      }
+    },
     "fix_with_assistant": "Fix the workflow from these failures",
     "sev_fail": "Error",
     "sev_warn": "Needs improvement",
@@ -3236,6 +3379,7 @@
       "skills": "Some enabled skills are not in the skill library.",
       "code_execution": "Some agents use code or command tools, but the server has them turned off, so those tools will not run.",
       "unreachable": "Some nodes have no incoming edge and are in no team, so they will never run.",
+      "paid_gate_removed": "This change removes or weakens a paid step: it could run without a person approving it. Apply only if you really mean it.",
       "other": "This check did not pass. See the details below."
     },
     "history": "Chat history",

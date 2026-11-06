@@ -171,24 +171,164 @@ def _run_counts(run: Dict[str, Any]) -> Dict[str, int]:
     return counts
 
 
-def _error_finding(error: str) -> Dict[str, Any]:
-    if error.strip().lower().startswith("interrupted"):
-        return {"code": "interrupted", "severity": "warn", "detail": error[:400],
+# --- Layers: which part of the system a finding is about ---------------------------------------------------------
+# workflow: the YAML (roles, edges, loops, limits) - the workflow assistant fixes it.
+# environment: accounts, quotas, rate limits, network, the machine - the user fixes it; the workflow is fine.
+# platform: a suspected AgentDev bug (engine, executor, tools) - a developer fixes it on a branch, never live.
+# scenario: the Lab test itself (vague criteria, a judge that disagrees with itself) - the user reviews it.
+LAYERS = ("workflow", "platform", "environment", "scenario")
+
+# Structured error kind of a failed run (``run["error_kind"]``, set by the Lab from the exception class) -> layer.
+KIND_LAYER = {
+    "timeout": "workflow", "loop_limit": "workflow", "budget_limit": "workflow", "workflow_error": "workflow",
+    "quota": "environment", "cli": "environment", "provider_timeout": "environment", "model_call": "environment",
+    "network": "environment", "os_error": "environment",
+    "engine_exception": "platform", "unknown": "platform",
+    "interrupted": "environment",
+}
+
+# Built-in exception types that only come from a bug in Python code (AgentDev's), never from the model's work.
+PYTHON_BUG_TYPES = frozenset({
+    "AttributeError", "TypeError", "KeyError", "NameError", "ImportError", "ModuleNotFoundError", "IndexError",
+    "AssertionError", "NotImplementedError", "UnboundLocalError", "RecursionError", "ZeroDivisionError",
+})
+# Tool-call error codes the agent executor records when a tool cannot run at all (see agent_executor).
+PLATFORM_TOOL_CODES = frozenset({"TOOL_NOT_FOUND", "TOOL_NOT_ALLOWED"})
+
+
+def _chain(exc: BaseException, limit: int = 8) -> List[BaseException]:
+    out: List[BaseException] = []
+    current: Optional[BaseException] = exc
+    while current is not None and len(out) < limit and current not in out:
+        out.append(current)
+        current = current.__cause__ or current.__context__
+    return out
+
+
+def classify_exception(exc: BaseException) -> str:
+    """The ``error_kind`` of a run that raised ``exc``, from exception classes only (no message parsing)."""
+    from agentdev.runtime.node.agent.account_fallback import QuotaExceededError
+    from agentdev.runtime.node.agent.providers._cli_common import CliProviderError, CliTimeoutError
+    from agentdev.utils.exceptions import ConfigurationError, MACException, ValidationError, WorkflowExecutionError
+    from agentdev.utils.token_tracker import BudgetExceededError
+
+    chain = _chain(exc)
+    if type(exc).__name__ == "LabRunTimeoutError":
+        return "timeout"
+    if any(type(e).__module__ == "builtins" and type(e).__name__ in PYTHON_BUG_TYPES for e in chain):
+        return "engine_exception"
+    checks = (
+        ("quota", lambda e: isinstance(e, QuotaExceededError)),
+        ("budget_limit", lambda e: isinstance(e, BudgetExceededError)),
+        ("loop_limit", lambda e: isinstance(e, MACException) and (e.details or {}).get("kind") == "loop_limit"),
+        ("provider_timeout", lambda e: isinstance(e, CliTimeoutError)),
+        ("cli", lambda e: isinstance(e, CliProviderError)),
+        ("model_call", lambda e: isinstance(e, WorkflowExecutionError) and type(e).__name__ == "ModelCallError"),
+        ("workflow_error", lambda e: isinstance(e, (WorkflowExecutionError, ConfigurationError, ValidationError))),
+        ("network", lambda e: isinstance(e, ConnectionError)),
+        ("os_error", lambda e: isinstance(e, OSError)),
+    )
+    for kind, test in checks:
+        if any(test(e) for e in chain):
+            return kind
+    return "unknown"
+
+
+# Fallback for runs stored before the Lab recorded ``error_kind`` (old jobs): the error text is all there is.
+# ONE ordered table, first match wins. Keep it tight: "stopped after 3 retries: 429" is a provider error, and only
+# the Lab's own "Run stopped after N minutes/s without finishing" is a timeout.
+_TEXT_KINDS = (
+    (re.compile(r"^\s*interrupted", re.IGNORECASE), "interrupted"),
+    (re.compile(r"Vượt giới hạn|Run budget exceeded"), "budget_limit"),
+    (re.compile(r"^Run stopped after \d+(?: minutes|s) without finishing|probably looping"), "timeout"),
+    (re.compile(r"safety limit"), "loop_limit"),
+    (re.compile(r"usage limit|hit your .{0,20}limit|insufficient_quota|exceeded your current quota|out of credits",
+                re.IGNORECASE), "quota"),
+    (re.compile(r"\b429\b|rate.?limit|too many requests|overloaded|stopped after \d+ retries", re.IGNORECASE),
+     "model_call"),
+    (re.compile(r"not logged in|log ?in\b|unauthori[sz]ed|\b401\b|authenticat|CLI (?:is )?(?:missing|not found)",
+                re.IGNORECASE), "cli"),
+    (re.compile(r"connection (?:refused|reset|error|aborted)|getaddrinfo|ECONNRESET|network is unreachable",
+                re.IGNORECASE), "network"),
+    (re.compile(r"Traceback \(most recent call last\)|\b(?:" + "|".join(sorted(PYTHON_BUG_TYPES)) + r")\b"),
+     "engine_exception"),
+)
+
+
+def error_kind_of(run: Dict[str, Any]) -> str:
+    """The structured ``error_kind`` of a run, else the text fallback for old jobs; "" when the run has no error."""
+    kind = str(run.get("error_kind") or "")
+    error = str(run.get("error") or "")
+    if kind:
+        return kind if kind in KIND_LAYER else "unknown"
+    if not error:
+        return ""
+    for pattern, text_kind in _TEXT_KINDS:
+        if pattern.search(error):
+            return text_kind
+    return "unknown"
+
+
+_ENV_FIX = {
+    "quota": "Tài khoản đã hết hạn mức: chờ hạn mức làm mới hoặc đăng nhập tài khoản khác (Cài đặt > Tài khoản).",
+    "cli": "CLI chưa cài hoặc chưa đăng nhập: chạy `claude login` / `codex login` (hoặc đăng nhập lại ở Cài đặt > Tài khoản).",
+    "provider_timeout": "Nhà cung cấp model không trả lời kịp: kiểm tra mạng và trạng thái nhà cung cấp, rồi chạy lại.",
+    "model_call": ("Model không trả lời sau nhiều lần thử (thường là 429/quá tải): chờ hết giới hạn tốc độ rồi chạy "
+                   "lại, hoặc giảm số lượt chạy song song của Phòng thí nghiệm (AGENTDEV_LAB_WORKERS)."),
+    "network": "Mất kết nối mạng tới nhà cung cấp: kiểm tra mạng/proxy rồi chạy lại.",
+    "os_error": "Lỗi của máy (ổ đĩa đầy, quyền, file bị khoá): kiểm tra máy rồi chạy lại.",
+}
+_NOT_WORKFLOW = " Không sửa quy trình vì lỗi này."
+
+
+def _error_finding(error: str, kind: str = "") -> Dict[str, Any]:
+    kind = kind or error_kind_of({"error": error})
+    detail = error[:400]
+    if kind == "interrupted":
+        return {"code": "interrupted", "severity": "warn", "detail": detail, "layer": "environment",
+                "error_kind": kind,
                 "fix": "Máy chủ khởi động lại khi lượt này đang chạy; không phải lỗi của quy trình. Hãy chạy lại kiểm định."}
-    if "Vượt giới hạn" in error or "Run budget exceeded" in error:
-        return {"code": "budget_limit", "severity": "fail", "detail": error[:400],
+    if kind == "budget_limit":
+        return {"code": "budget_limit", "severity": "fail", "detail": detail, "layer": "workflow", "error_kind": kind,
                 "fix": ("Lượt chạy chạm giới hạn run_limits của quy trình: giảm vòng lặp và rút gọn node tốn nhiều nhất "
                         "được nêu; chỉ nâng giới hạn khi việc này thật sự lớn.")}
-    # Only the Lab's own time limit (or the engine's loop cap) is a loop; "stopped after 3 retries: 429" from a
-    # provider is an account/provider error, not a reason to add a loop_counter.
-    if "probably looping" in error or error.startswith("Run stopped after") or "safety limit" in error:
-        return {"code": "timeout", "severity": "fail", "detail": error[:400],
+    if kind in ("timeout", "loop_limit"):
+        return {"code": "timeout", "severity": "fail", "detail": detail, "layer": "workflow", "error_kind": kind,
                 "fix": ("Lượt chạy quá thời gian tối đa, thường do vòng lặp không thoát được: thêm node loop_counter ở "
                         "mọi vòng sửa/duyệt và bảo đảm các điều kiện duyệt chấp nhận cả câu tự trả lời của Phòng thí "
                         "nghiệm ([Automatic answer ...]), trừ bước tốn tiền hoặc không thể hoàn tác: ở đó câu tự trả "
                         "lời phải đi nhánh bỏ qua; nếu không có vòng lặp thì rút gọn các bước dài.")}
-    return {"code": "error", "severity": "fail", "detail": error[:400],
-            "fix": "Sửa nguyên nhân lỗi nêu trên (tài khoản, công cụ, cấu hình) rồi chạy lại."}
+    if kind == "workflow_error":
+        return {"code": "workflow_error", "severity": "fail", "detail": detail, "layer": "workflow", "error_kind": kind,
+                "fix": "Lỗi cấu hình/luồng của quy trình nêu trên: sửa node, cạnh hoặc điều kiện liên quan rồi chạy lại."}
+    layer = KIND_LAYER.get(kind, "platform")
+    if layer == "environment":
+        return {"code": "error", "severity": "fail", "detail": detail, "layer": layer, "error_kind": kind,
+                "fix": _ENV_FIX.get(kind, "Sửa lỗi tài khoản/máy nêu trên rồi chạy lại.") + _NOT_WORKFLOW}
+    return {"code": "platform_error", "severity": "fail", "detail": detail, "layer": "platform", "error_kind": kind,
+            "fix": ("Nghi lỗi nền tảng AgentDev (engine/executor/công cụ), không phải lỗi quy trình: chép báo cáo nền "
+                    "tảng gửi người phát triển để sửa trên nhánh riêng.")}
+
+
+def _tool_platform_finding(run: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """A tool that could not run at all (unknown tool, not granted) or crashed with a Python bug: platform layer.
+    A tool that ran and failed (exit code 1, file not found) is normal work and is not reported here."""
+    hits: List[str] = []
+    for item in run.get("evidence") or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("error_code") or "")
+        exc_type = str(item.get("exception_type") or "")
+        if code in PLATFORM_TOOL_CODES or exc_type in PYTHON_BUG_TYPES:
+            label = f"{item.get('node') or '?'}/{item.get('tool') or '?'} ({code or exc_type})"
+            if label not in hits:
+                hits.append(label)
+    if not hits:
+        return None
+    return {"code": "tool_error", "severity": "warn", "layer": "platform",
+            "detail": "Công cụ không chạy được: " + "; ".join(hits[:5]) + ".",
+            "fix": ("Nghi lỗi nền tảng: công cụ không tồn tại, không được cấp cho agent hoặc bị lỗi bên trong. Chép "
+                    "báo cáo nền tảng gửi người phát triển; chỉ sửa quy trình nếu vai trò yêu cầu một công cụ sai tên.")}
 
 
 def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
@@ -211,8 +351,14 @@ def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
     budget = _budget_of(run, prompt)
 
     error = str(run.get("error") or "")
+    error_layer = ""
     if error:
-        findings.append(_error_finding(error))
+        finding = _error_finding(error, error_kind_of(run))
+        error_layer = finding["layer"]
+        findings.append(finding)
+    tool_finding = _tool_platform_finding(run)
+    if tool_finding:
+        findings.append(tool_finding)
 
     if seconds > budget["seconds"]:
         slowest = nodes[0] if nodes else None
@@ -222,6 +368,8 @@ def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
             "kind": "time",
             "severity": "warn",
             "detail": f"Chạy mất {seconds:.0f}s (ngân sách {budget['seconds']}s){share}.",
+            # A run slowed down by retries (429) or a crash is not a slow workflow.
+            "layer": error_layer if error_layer in ("environment", "platform") else "workflow",
             "fix": ("Giảm thời gian: dùng model nhẹ hơn và effort thấp cho các node duyệt/lưu/tóm tắt, bỏ bớt node "
                     "không cần cho việc nhỏ, cho các nhánh độc lập chạy song song, giảm số vòng sửa."),
         })
@@ -265,11 +413,20 @@ def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
         })
 
     judge = run.get("judge") or {}
+    if status == "unjudged":
+        findings.append({
+            "code": "judge_unavailable", "severity": "warn", "layer": "environment",
+            "detail": "Giám khảo AI không chấm được lượt này (không gọi được tài khoản hoặc trả lời sai định dạng).",
+            "fix": "Đăng nhập/chờ hạn mức của một tài khoản rồi bấm Tiếp tục để chấm lại." + _NOT_WORKFLOW,
+        })
     if status == "failed" and judge.get("judged_by") == "basic":
         # The basic check fails only an empty answer or a model-call error; no AI judge was available.
         findings.append({
             "code": "no_answer",
             "severity": "fail",
+            # An empty final answer is the workflow's fault; an answer the basic check rejected (a model error
+            # text) while no AI judge could run is the accounts' fault.
+            "layer": "workflow" if not str(run.get("answer") or "").strip() else "environment",
             "detail": "Không nhận được câu trả lời dùng được (trống hoặc lỗi gọi model); chưa có giám khảo AI để chấm.",
             "fix": ("Kiểm tra tài khoản/model của các agent và bảo đảm node cuối luôn trả lời người dùng; đăng nhập "
                     "một tài khoản để giám khảo AI chấm được."),
@@ -299,18 +456,158 @@ def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
                 "detail": "Câu trả lời cuối là thông báo hệ thống bằng ngôn ngữ khác, không trả lời người dùng.",
                 "fix": "Node cuối (lưu trữ/kết thúc) chỉ chạy khi có việc để lưu và luôn trả lời bằng ngôn ngữ của người dùng.",
             })
+    for finding in findings:
+        finding.setdefault("layer", "workflow")
     return findings
 
 
-def diagnose_job(runs: List[Dict[str, Any]], prompts: Dict[int, str]) -> List[Dict[str, Any]]:
-    """Per-run findings, with the scenario index attached."""
+CRITERIA_MIN_CHARS = 20  # shorter criteria ("tốt", "đúng ý") leave the judge guessing
+CRITERIA_MIN_WORDS = 4
+
+
+def diagnose_job(runs: List[Dict[str, Any]], prompts: Dict[int, str],
+                 criteria: Optional[Dict[int, str]] = None) -> List[Dict[str, Any]]:
+    """Per-run findings, with the scenario index attached, then per-scenario findings of the test itself:
+    a judge that gave opposite verdicts to the repeats of one scenario (its failures move to the ``scenario``
+    layer: the failure may be the judge's) and, when ``criteria`` is given, missing or vague criteria."""
     out: List[Dict[str, Any]] = []
-    for run in runs:
-        if run.get("status") in ("running", None):
-            continue
+    finished = [r for r in runs if r.get("status") not in ("running", None)]
+    for run in finished:
         for finding in diagnose_run(run, prompts.get(run.get("scenario", -1), "")):
             out.append({**finding, "scenario": run.get("scenario"), "repeat": run.get("repeat")})
+    scenarios = sorted({r.get("scenario") for r in finished if isinstance(r.get("scenario"), int)})
+    for index in scenarios:
+        verdicts = {r.get("status") for r in finished if r.get("scenario") == index} & {"passed", "failed"}
+        if verdicts == {"passed", "failed"}:
+            for finding in out:
+                if finding.get("scenario") == index and finding["code"] in ("quality", "no_answer"):
+                    finding["layer"] = "scenario"
+            out.append({"code": "judge_flaky", "severity": "warn", "layer": "scenario", "scenario": index,
+                        "repeat": None,
+                        "detail": "Các lần chạy của cùng kịch bản được chấm trái nhau (lần đạt, lần trượt).",
+                        "fix": ("Làm rõ tiêu chí đạt (cụ thể, đo được) rồi chạy lại vài lần; nếu kết quả vẫn dao động, "
+                                "so câu trả lời của lượt đạt và lượt trượt trước khi sửa quy trình.")})
+        if criteria is None:
+            continue
+        text = str(criteria.get(index) or "").strip()
+        if not text:
+            out.append({"code": "criteria_missing", "severity": "warn", "layer": "scenario", "scenario": index,
+                        "repeat": None, "detail": "Kịch bản không có tiêu chí đạt; giám khảo phải tự đoán.",
+                        "fix": "Thêm tiêu chí đạt cụ thể (nội dung, ngôn ngữ, độ dài, file cần có) cho kịch bản."})
+        elif len(text) < CRITERIA_MIN_CHARS or len(text.split()) < CRITERIA_MIN_WORDS:
+            out.append({"code": "criteria_vague", "severity": "warn", "layer": "scenario", "scenario": index,
+                        "repeat": None, "detail": f"Tiêu chí đạt quá ngắn/mơ hồ: \"{text[:80]}\".",
+                        "fix": "Viết tiêu chí đo được (cần có gì, ngôn ngữ, độ dài) để giám khảo chấm ổn định."})
     return out
+
+
+def layer_of(finding: Dict[str, Any]) -> str:
+    """A finding's layer; findings built before layers existed are workflow findings."""
+    layer = finding.get("layer")
+    return layer if layer in LAYERS else "workflow"
+
+
+def _counted(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    # A run cut by a server restart says nothing about anything: it is never counted nor sent anywhere.
+    return [f for f in findings if f.get("code") != "interrupted"]
+
+
+def layer_counts(findings: List[Dict[str, Any]]) -> Dict[str, int]:
+    counts = {layer: 0 for layer in LAYERS}
+    for finding in _counted(findings):
+        counts[layer_of(finding)] += 1
+    return counts
+
+
+def build_environment_hints(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """What the user must fix outside the workflow (accounts, quotas, network), one entry per distinct problem."""
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for f in _counted(findings):
+        if layer_of(f) != "environment":
+            continue
+        key = (f["code"], f.get("error_kind") or f["detail"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"code": f["code"], "error_kind": f.get("error_kind", ""), "detail": f["detail"], "fix": f["fix"],
+                    "scenario": f.get("scenario")})
+    return out
+
+
+_SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|(?:Bearer|token)[ =:]+[A-Za-z0-9._-]{12,})", re.IGNORECASE)
+
+
+def _scrub(text: Any, limit: int) -> str:
+    return _SECRET.sub("[REDACTED]", str(text or ""))[:limit]
+
+
+def _scenario_of(scenarios: List[Any], run: Dict[str, Any]) -> Any:
+    index = run.get("scenario", 0)
+    index = index if isinstance(index, int) else 0
+    return scenarios[index] if 0 <= index < len(scenarios) else None
+
+
+def _scenario_name(scenario: Any, run: Dict[str, Any]) -> str:
+    index = run.get("scenario", 0)
+    return getattr(scenario, "name", "") or f"#{(index if isinstance(index, int) else 0) + 1}"
+
+
+def _run_key(item: Dict[str, Any]) -> tuple:
+    return (item.get("scenario"), item.get("repeat"))
+
+
+def build_platform_report(workflow: str, runs: List[Dict[str, Any]], scenarios: List[Any],
+                          findings: List[Dict[str, Any]], workflow_hash: str = "") -> str:
+    """Markdown evidence of suspected AgentDev bugs for a human or a developer agent (never sent to the workflow
+    assistant as something to fix): scenario, error, node/tool trace and how to reproduce. "" when none."""
+    platform = [f for f in _counted(findings) if layer_of(f) == "platform"]
+    if not platform:
+        return ""
+    keys = {_run_key(f) for f in platform}
+    lines = [
+        "# Báo cáo nghi lỗi nền tảng AgentDev",
+        "",
+        f"- Quy trình: `{workflow}`" + (f" (bản `{workflow_hash[:12]}`)" if workflow_hash else ""),
+        f"- Số chẩn đoán thuộc nền tảng: {len(platform)}",
+        "- Đây là lỗi của engine/executor/công cụ, không phải của quy trình: sửa trên nhánh riêng, có test hồi quy, "
+        "không sửa code đang chạy.",
+    ]
+    shown = 0
+    for run in runs:
+        if _run_key(run) not in keys or shown >= 5:
+            continue
+        shown += 1
+        scenario = _scenario_of(scenarios, run)
+        lines += ["", f"## Kịch bản: {_scenario_name(scenario, run)} (lần {run.get('repeat', 1)}) — {run.get('status')}"]
+        lines.append(f"- Yêu cầu gửi vào: {_scrub(getattr(scenario, 'prompt', ''), 500)}")
+        if run.get("error"):
+            lines.append(f"- Lỗi ({error_kind_of(run)}): {_scrub(run['error'], 1500)}")
+        trail = [str(item.get("node") or "?") for item in run.get("node_runs") or [] if isinstance(item, dict)]
+        if trail:
+            lines.append("- Node đã chạy (cũ → mới): " + " → ".join(trail[-12:]))
+        tools = [e for e in run.get("evidence") or [] if isinstance(e, dict)
+                 and (e.get("error_code") or e.get("exception_type") or e.get("ok") is False)]
+        for item in tools[-8:]:
+            extra = ", ".join(f"{k}={item[k]}" for k in ("error_code", "exception_type", "exit_code")
+                              if item.get(k) not in (None, ""))
+            lines.append(f"- Công cụ: {item.get('node') or '?'} / {item.get('tool') or '?'}"
+                         + (f" ({extra})" if extra else "")
+                         + (f": {_scrub(item.get('command'), 160)}" if item.get("command") else ""))
+        for f in platform:
+            if _run_key(f) == _run_key(run):
+                lines.append(f"- Chẩn đoán [{f['code']}]: {f['detail']}")
+    first = next((r for r in runs if _run_key(r) in keys), None)
+    name = _scenario_name(_scenario_of(scenarios, first), first) if first else "?"
+    lines += [
+        "",
+        "## Cách tái hiện",
+        f"1. Mở Phòng thí nghiệm, chọn quy trình `{workflow}`.",
+        f"2. Chạy kịch bản \"{name}\" (yêu cầu ở trên), 1 lần lặp.",
+        "3. Xem log của node/công cụ nêu trên; lỗi mong đợi là lỗi ghi ở trên.",
+        "4. Viết test hồi quy tái hiện lỗi (đỏ trước), sửa, rồi chạy lại kịch bản trước/sau.",
+    ]
+    return "\n".join(lines)
 
 
 def compare_baseline(current: Dict[str, Any], baseline: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -354,6 +651,7 @@ def regression_finding(flags: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {
         "code": "regression",
         "severity": "warn",
+        "layer": "workflow",
         "detail": "So với lần đạt trước: " + "; ".join(parts) + ".",
         "fix": "Xem lại những thay đổi gần đây của quy trình (vai trò, model, vòng lặp) và hoàn tác phần làm kém đi.",
     }
@@ -363,23 +661,27 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
                     pass_rate: float, threshold: float) -> str:
     """The message to send the workflow assistant: facts first, requested changes, constraints.
 
-    Empty when nothing needs fixing (all runs passed, none slow and no finding).
+    Only ``workflow`` findings ask for a fix; findings of the other layers are listed as "do not fix the workflow
+    for these" so the assistant does not invent a fix for an account error or an AgentDev bug. Empty when no
+    workflow finding exists (the job then carries ``platform_report`` / ``environment_hints`` instead).
     """
-    # A run cut by a server restart says nothing about the workflow: it is not a reason to ask for a fix.
-    findings = [f for f in findings if f.get("code") != "interrupted"]
-    problem_runs = [r for r in runs if r.get("status") in ("failed", "error")
-                    and not str(r.get("error") or "").strip().lower().startswith("interrupted")]
-    if not problem_runs and not findings:
+    findings = _counted(findings)
+    workflow_findings = [f for f in findings if layer_of(f) == "workflow"]
+    if not workflow_findings:
         return ""
+    others = {layer: [f for f in findings if layer_of(f) == layer] for layer in ("environment", "platform", "scenario")}
     lines = [
         f"Quy trình `{workflow}` vừa được kiểm định trong Phòng thí nghiệm. "
         f"Tỷ lệ đạt {pass_rate * 100:.0f}% (yêu cầu ≥ {threshold * 100:.0f}%). "
-        "Hãy tìm nguyên nhân gốc trong quy trình và đề xuất BẢN SỬA hoàn chỉnh (thẻ đề xuất để tôi bấm Áp dụng).",
+        "Hãy tìm nguyên nhân gốc trong quy trình và đề xuất BẢN SỬA hoàn chỉnh (thẻ đề xuất để tôi bấm Áp dụng) "
+        "cho các lỗi thuộc quy trình dưới đây; nếu thấy quy trình không cần sửa, hãy nói rõ vì sao.",
     ]
-    # Failed runs first, then the runs a finding is about (e.g. a passed but slow run), at most 5.
-    flagged = {(f.get("scenario"), f.get("repeat")) for f in findings if f.get("scenario") is not None}
-    selected = problem_runs + [r for r in runs if r not in problem_runs
-                               and (r.get("scenario"), r.get("repeat")) in flagged]
+    # Runs a workflow finding is about: failed ones first, then e.g. a passed but slow run, at most 5. A run whose
+    # only findings are environment/platform/scenario ones is not shown here.
+    flagged = {_run_key(f) for f in workflow_findings if f.get("scenario") is not None}
+    in_brief = [r for r in runs if _run_key(r) in flagged]
+    selected = ([r for r in in_brief if r.get("status") in ("failed", "error")]
+                + [r for r in in_brief if r.get("status") not in ("failed", "error")])
     for run in (selected or runs)[:5]:
         index = run.get("scenario", 0)
         index = index if isinstance(index, int) else 0
@@ -392,7 +694,7 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
         reason = (run.get("judge") or {}).get("reason")
         if reason:
             lines.append(f"- Giám khảo nhận xét: {reason}")
-        if run.get("error"):
+        if run.get("error") and KIND_LAYER.get(error_kind_of(run)) == "workflow":
             lines.append(f"- Lỗi: {str(run['error'])[:500]}")
         agents = ", ".join(f"{n} ×{c}" if c > 1 else n for n, c in (run.get("agents") or {}).items())
         if agents:
@@ -407,19 +709,27 @@ def build_fix_brief(workflow: str, runs: List[Dict[str, Any]], scenarios: List[A
         answer = " ".join(str(run.get("answer") or "").split())[:400]
         if answer:
             lines.append(f"- Câu trả lời nhận được: {answer}")
-    if findings:
-        lines += ["", "### Chẩn đoán tự động"]
-        seen = set()
-        for f in findings:
-            key = (f["code"], f["detail"])
-            if key in seen:
-                continue
-            seen.add(key)
-            lines.append(f"- [{f['code']}] {f['detail']} → Hướng sửa: {f['fix']}")
+    lines += ["", "### Chẩn đoán tự động (lỗi thuộc quy trình)"]
+    seen = set()
+    for f in workflow_findings:
+        key = (f["code"], f["detail"])
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"- [{f['code']}] {f['detail']} → Hướng sửa: {f['fix']}")
+    headings = {
+        "environment": "### Lỗi môi trường (không sửa quy trình)",
+        "platform": "### Nghi lỗi nền tảng (không sửa quy trình; đã có báo cáo nền tảng riêng)",
+        "scenario": "### Kịch bản/giám khảo cần xem lại (không sửa quy trình)",
+    }
+    for layer, heading in headings.items():
+        items = list({f["detail"]: f for f in others[layer]}.values())[:5]
+        if items:
+            lines += ["", heading] + [f"- [{f['code']}] {f['detail']}" for f in items]
     lines += [
         "",
         "### Yêu cầu khi sửa",
-        "- Chỉ sửa những gì cần để khắc phục các lỗi trên; giữ nguyên phần đang chạy tốt.",
+        "- Chỉ sửa những gì cần để khắc phục các lỗi thuộc quy trình ở trên; giữ nguyên phần đang chạy tốt.",
         "- Quy trình phải chạy NHANH: việc nhỏ trả lời trong vài chục giây, mọi vòng lặp có giới hạn, model nhẹ cho việc đơn giản.",
         "- Các bước duyệt của người phải chấp nhận cả câu tự trả lời `[Automatic answer ...]` của Phòng thí nghiệm "
         "(người thật vẫn chỉ cần gõ OK). Ngoại lệ: bước duyệt trước việc tốn tiền hoặc không thể hoàn tác (tạo video, "

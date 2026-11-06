@@ -1069,6 +1069,29 @@ export const labCancel = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId
 /** Re-run only the unfinished runs of a job that a server restart or a cancel stopped. */
 export const labResume = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST', body: '{}' })
 
+/** What re-running a job's failed scenarios would cost: -> {scenarios: [index], runs, estimate_usd|null, cost_known} */
+export const labRerunEstimate = (jobId) => labRequest(`/jobs/${encodeURIComponent(jobId)}/rerun-failed/estimate`)
+
+/**
+ * Starts a new job with only the failed scenarios of `jobId` (current YAML, same repeats, `rerun_of`).
+ * Sent only after the user's explicit click. -> the new job (202); 409 `nothing_to_rerun`.
+ */
+export const labRerunFailed = (jobId) =>
+  labRequest(`/jobs/${encodeURIComponent(jobId)}/rerun-failed`, { method: 'POST', body: JSON.stringify({ confirm: true }) })
+
+/** What preparing a source fix will do: -> {enabled, forbidden: [...], gates: [...], steps: [...]} */
+export const labPlatformFixInfo = () => labRequest('/platform-fix/info')
+
+/**
+ * Prepare (never apply) an AgentDev source fix for a job's platform findings: a separate git worktree +
+ * branch with PLATFORM_FIX.md. -> {branch, worktree, brief_file, actions, next_steps}
+ */
+export const labPlatformFix = (jobId, { password }) =>
+  labRequest(`/jobs/${encodeURIComponent(jobId)}/platform-fix`, {
+    method: 'POST',
+    body: JSON.stringify({ password, confirm: true })
+  })
+
 // --- What a run produced (files under storage/warehouse/lab_*), its app preview, and storage cleanup ---
 const labRunPath = (jobId, run) => `/jobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(run)}`
 const encodeRelPath = (path) => String(path || '').split('/').map(encodeURIComponent).join('/')

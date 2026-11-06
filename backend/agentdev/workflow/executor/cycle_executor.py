@@ -256,7 +256,8 @@ class CycleExecutor:
             raise WorkflowExecutionError(
                 f"Vòng lặp {sorted(cycle_nodes)} đã chạy {max_iterations} lần mà chưa thoát được "
                 f"(loop reached its {max_iterations}-iteration safety limit). Kiểm tra điều kiện thoát hoặc "
-                "thêm loop_counter. / Check the exit condition or add a loop_counter."
+                "thêm loop_counter. / Check the exit condition or add a loop_counter.",
+                details={"kind": "loop_limit"},
             )
         return set()
     def _detect_cycles_in_scope(

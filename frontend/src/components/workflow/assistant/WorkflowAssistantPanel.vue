@@ -233,6 +233,15 @@
         </li>
       </ol>
 
+      <!-- A Lab-sourced fix was applied to this workflow: offer to re-run only the failed scenarios -->
+      <LabRerunCard
+        v-if="showRerunOffer"
+        :key="rerunOffer.labJobId"
+        :offer="rerunOffer"
+        @dismiss="clearRerunOffer"
+        @started="clearRerunOffer"
+      />
+
       <div v-if="thread.status === 'sending'" class="waiting">
         <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
         <span class="waiting-text">{{ $t('workflow_assistant.thinking') }} <span class="elapsed">{{ elapsed }}s</span></span>
@@ -299,6 +308,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import ProposalCard from './ProposalCard.vue'
+import LabRerunCard from './LabRerunCard.vue'
 import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
 import { workflowKey } from '@/utils/workflowSync.js'
 
@@ -324,8 +334,12 @@ const {
   stop,
   newConversation,
   discardProposal,
-  draftSeed
+  draftSeed,
+  rerunOffer,
+  clearRerunOffer
 } = useWorkflowAssistant()
+// Only next to the workflow the fix was applied to.
+const showRerunOffer = computed(() => !!rerunOffer.value && rerunOffer.value.workflow === context.value.workflow)
 
 const CREATE_STARTER_KEYS = [
   'workflow_assistant.starter_team',

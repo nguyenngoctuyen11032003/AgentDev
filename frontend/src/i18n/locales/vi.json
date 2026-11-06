@@ -2564,6 +2564,105 @@
     "loading_editor": "Đang tải nội dung skill..."
   },
   "lab": {
+    "layer": {
+      "workflow": {
+        "title": "Do quy trình",
+        "hint": "Sửa quy trình bằng trợ lý quy trình (nút bên dưới)."
+      },
+      "environment": {
+        "title": "Do môi trường (tài khoản, giới hạn, mạng)",
+        "hint": "Không cần sửa quy trình: đăng nhập lại tài khoản, chờ hết giới hạn lượt gọi hoặc kiểm tra mạng rồi chạy lại."
+      },
+      "platform": {
+        "title": "Nghi lỗi của AgentDev",
+        "hint": "Có thể là lỗi của chính AgentDev, không phải của quy trình. Chép báo cáo gửi nhà phát triển."
+      },
+      "scenario": {
+        "title": "Do kịch bản hoặc giám khảo",
+        "hint": "Xem lại tiêu chí đạt của kịch bản hoặc chạy lại: giám khảo chấm không nhất quán."
+      },
+      "workflow_unchanged": "Quy trình không cần sửa: các phát hiện bên dưới không do quy trình gây ra."
+    },
+    "env_hint": {
+      "title": "Cách xử lý"
+    },
+    "platform_fix": {
+      "step": {
+        "create_branch": "Tạo nhánh git mới platform-fix/(mã lượt kiểm định) từ HEAD hiện tại.",
+        "create_worktree": "Tạo thư mục worktree git mới (tên thư mục AgentDev)-platform-fix-(mã lượt) nằm cạnh thư mục AgentDev.",
+        "write_brief": "Ghi PLATFORM_FIX.md vào worktree đó: báo cáo lỗi nền tảng, các tệp bị cấm sửa và các bước kiểm tra bắt buộc.",
+        "no_change": "Không làm gì khác: mã đang chạy không đổi, không gọi mô hình, không commit, push, gộp hay mở PR."
+      },
+      "gate": {
+        "forbidden_untouched": "Diff so với main không chứa tệp nào trong danh sách cấm sửa",
+        "full_tests": "Toàn bộ test backend đạt",
+        "invariant_tests": "Các test bất biến đạt và không bị sửa",
+        "regression_test": "Có test hồi quy mới tái hiện lỗi (đỏ trước khi sửa, xanh sau khi sửa)",
+        "bench_engine": "Bench engine (mô hình giả, miễn phí) không bị chậm đi",
+        "lab_before_after": "Chạy lại cùng các kịch bản Lab trước và sau khi sửa rồi so sánh kết quả",
+        "human_review": "Một người duyệt đọc diff rồi tự gộp; không có gì được gộp tự động"
+      },
+      "kind": {
+        "gate": "Cổng duyệt",
+        "paid": "Bước tốn phí",
+        "silence": "Im lặng không phải là duyệt",
+        "judge": "Giám khảo Lab",
+        "invariant_test": "Test bất biến",
+        "self": "Chính tính năng này"
+      },
+      "action": {
+        "created_branch": "Đã tạo nhánh {branch} từ {head}",
+        "created_worktree": "Đã tạo worktree {path}",
+        "wrote_brief": "Đã ghi {path}",
+        "no_change": "Không đổi mã đang chạy, không gọi mô hình, không commit, push hay gộp"
+      },
+      "next": {
+        "open_worktree": "Mở {path} và đọc PLATFORM_FIX.md",
+        "fix_with_test": "Viết test hồi quy thất bại trước, rồi mới sửa (không đụng các tệp bị cấm)",
+        "run_gates": "Chạy mọi bước kiểm tra bắt buộc ghi trong tệp mô tả",
+        "review_merge": "Tự xem lại diff và chỉ gộp khi bạn đồng ý",
+        "cleanup": "Xong thì dọn: git worktree remove {path} và git branch -D {branch}"
+      },
+      "report_summary": "Xem báo cáo lỗi nền tảng",
+      "copy": "Chép báo cáo nền tảng",
+      "copied": "Đã chép báo cáo",
+      "copy_failed": "Không chép tự động được. Báo cáo đã mở bên trên: hãy bôi đen rồi chép bằng tay.",
+      "request": "Yêu cầu sửa mã nguồn…",
+      "dialog_title": "Chuẩn bị sửa mã nguồn AgentDev",
+      "intro": "Thao tác này chỉ tạo một nhánh git và thư mục worktree riêng kèm mô tả lỗi để nhà phát triển sửa. Không gộp (merge) gì và ứng dụng đang chạy không thay đổi.",
+      "loading": "Đang tải thông tin…",
+      "load_failed": "Không tải được thông tin: {error}",
+      "load_failed_hint": "Kiểm tra máy chủ AgentDev đang chạy rồi thử lại.",
+      "retry": "Thử lại",
+      "steps_title": "Những gì sẽ xảy ra",
+      "forbidden_title": "Tệp không được phép sửa",
+      "gates_title": "Các bước cần bạn duyệt",
+      "none": "Không có",
+      "understand": "Tôi hiểu: chỉ tạo nhánh và worktree riêng, không gộp, không đổi ứng dụng đang chạy.",
+      "password_label": "Mật khẩu sửa mã nguồn",
+      "password_hint": "Bắt buộc. Mật khẩu được xóa khỏi ô sau mỗi lần thử.",
+      "confirm": "Xác nhận và chuẩn bị",
+      "confirming": "Đang chuẩn bị…",
+      "cancel": "Hủy",
+      "close": "Đóng",
+      "done_title": "Đã chuẩn bị nhánh sửa lỗi",
+      "done_note": "Chưa có gì được gộp (merge) và ứng dụng đang chạy không thay đổi. Hãy xem lại nhánh trước khi gộp.",
+      "branch": "Nhánh",
+      "worktree": "Thư mục worktree",
+      "brief_file": "Tệp mô tả",
+      "actions_title": "Đã làm",
+      "next_steps_title": "Bước tiếp theo",
+      "errors": {
+        "bad_password": "Sai mật khẩu, còn {attempts_left} lần thử. Chưa có gì thay đổi, hãy nhập lại.",
+        "too_many_attempts": "Nhập sai quá nhiều lần. Hãy chờ {retry_after_s} giây rồi thử lại.",
+        "already_prepared": "Lượt kiểm định này đã có nhánh sửa lỗi {branch} ở {worktree}. Hãy dùng nhánh đó thay vì tạo mới.",
+        "password_misconfigured": "Mật khẩu sửa mã nguồn trên máy chủ bị cấu hình sai (AGENTDEV_SOURCE_FIX_PASSWORD_HASH). Hãy báo người quản trị.",
+        "git_unavailable": "Không dùng được git (chưa cài hoặc thư mục không phải kho git). Hãy chép báo cáo gửi nhà phát triển.",
+        "no_platform_report": "Lượt kiểm định này không có lỗi nền tảng nên không cần sửa mã nguồn.",
+        "disabled": "Tính năng sửa mã nguồn đang tắt trên máy chủ này. Hãy chép báo cáo gửi nhà phát triển.",
+        "confirm_required": "Hãy tích ô xác nhận trước khi tiếp tục."
+      }
+    },
     "title": "Phòng thí nghiệm",
     "kicker": "Kiểm định quy trình",
     "how_it_works": "Cách kiểm định",
@@ -2882,6 +2981,50 @@
     "fix_outro": "Thông tin bổ sung của tôi: ",
     "fix_request": "Yêu cầu",
     "fix_this_run": "Chỉnh sửa theo lượt này",
+    "rerun": {
+      "title": "Chạy lại chỉ các kịch bản lỗi",
+      "intro": "Bản sửa đã được áp dụng. Kiểm tra lại bằng cách chạy lại các kịch bản chưa đạt của lần kiểm định trước (YAML hiện tại, cùng số lần lặp).",
+      "loading": "Đang ước tính chi phí…",
+      "summary": "{scenarios} kịch bản · {runs} lượt chạy",
+      "cost": "ước tính ~{cost}",
+      "cost_unknown": "chưa biết chi phí (lần trước không ghi giá)",
+      "paid_note": "Các bước tốn phí (ví dụ render video) không bao giờ được tự động duyệt khi chạy trong Phòng thí nghiệm.",
+      "run": "Chạy {runs} lượt (~{cost})",
+      "run_unknown": "Chạy {runs} lượt",
+      "starting": "Đang bắt đầu…",
+      "dismiss": "Bỏ qua",
+      "retry": "Thử lại",
+      "open_lab": "Mở Phòng thí nghiệm",
+      "empty": "Không còn kịch bản lỗi nào để chạy lại.",
+      "errors": {
+        "nothing_to_rerun": "Lần kiểm định này không có kịch bản lỗi nào để chạy lại.",
+        "confirm_required": "Máy chủ cần xác nhận trước khi chạy lại.",
+        "not_found": "Không tìm thấy lần kiểm định gốc.",
+        "network": "Không kết nối được máy chủ.",
+        "failed": "Không chạy lại được."
+      },
+      "hints": {
+        "nothing_to_rerun": "Mở Phòng thí nghiệm và chạy một lần kiểm định mới nếu muốn kiểm tra thêm.",
+        "confirm_required": "Bấm Thử lại rồi bấm nút chạy một lần nữa.",
+        "not_found": "Lần kiểm định có thể đã bị xóa: chạy kiểm định mới trong Phòng thí nghiệm.",
+        "network": "Kiểm tra backend đang chạy rồi bấm Thử lại.",
+        "failed": "Bấm Thử lại, hoặc mở Phòng thí nghiệm để xem chi tiết."
+      },
+      "compare": {
+        "title": "Trước và sau khi sửa",
+        "note": "Chỉ so các kịch bản lỗi của lần kiểm định gốc.",
+        "source": "Xem lần kiểm định gốc",
+        "metric": "Chỉ số",
+        "before": "Trước",
+        "after": "Sau",
+        "pass_rate": "Tỷ lệ đạt",
+        "avg_seconds": "Thời gian trung bình",
+        "cost_usd": "Chi phí",
+        "cost_per_run": "Chi phí mỗi lượt",
+        "worse": "Kém hơn",
+        "empty": "Chưa có số liệu để so sánh."
+      }
+    },
     "fix_with_assistant": "Chỉnh sửa quy trình theo lỗi này",
     "sev_fail": "Lỗi",
     "sev_warn": "Cần cải thiện",
@@ -3236,6 +3379,7 @@
       "skills": "Một số skill được bật nhưng không có trong thư viện skill.",
       "code_execution": "Một số agent dùng công cụ chạy mã hoặc lệnh, nhưng máy chủ đang tắt quyền này nên các công cụ đó sẽ không chạy.",
       "unreachable": "Một số nút không có liên kết tới và không thuộc nhóm nào, nên sẽ không bao giờ chạy.",
+      "paid_gate_removed": "Thay đổi này bỏ hoặc làm yếu một bước tốn tiền (paid): bước đó có thể chạy mà không cần người duyệt. Chỉ áp dụng nếu bạn thật sự muốn vậy.",
       "other": "Kiểm tra này chưa đạt. Xem chi tiết bên dưới."
     },
     "history": "Lịch sử trò chuyện",
