@@ -227,9 +227,20 @@ def test_short_description(text, limit, expected):
 
 def test_real_prompt_is_compact():
     # Baseline before the cut: 51,800 characters (verbatim skill 13.9k, full catalog descriptions 20.6k).
+    # 2026-11-06: the skill library grew from ~27 to 215 skills (video set); with descriptions the prompt
+    # reached 34.5k, so a large library lists names only (~26k). The limit follows the library, not the cut.
     prompt = build_system_prompt(current_yaml=None, current_name=None, pending_yaml=None,
                                  chat_vendor="anthropic", **load_context())
-    assert len(prompt) <= 25_500, len(prompt)
+    assert len(prompt) <= 26_500, len(prompt)
+
+
+def test_large_skill_library_lists_names_only():
+    skills = [(f"skill-{i:03d}", "Long description that should not be sent.", "video") for i in range(70)]
+    text = prompt_mod._skill_bullets(skills)
+    assert "skill-000" in text and "skill-069" in text
+    assert "Long description" not in text
+    small = prompt_mod._skill_bullets(skills[:3])
+    assert "Long description" in small
 
 
 def test_load_context(tmp_path, monkeypatch):

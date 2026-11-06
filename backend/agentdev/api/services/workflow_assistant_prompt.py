@@ -124,11 +124,27 @@ def _skill_bullets(skills: List[Tuple[str, ...]]) -> str:
     one short header per category, so a large library (200+ skills) is easy to scan."""
     if not skills or any(len(s) < 3 for s in skills):
         return _bullets([(s[0], short_description(s[1], SKILL_DESCRIPTION_CHARS)) for s in skills])
+    if len(skills) > SKILL_NAMES_ONLY_ABOVE:
+        return _skill_names(skills)
     order = {c: i for i, c in enumerate(CATEGORIES)}
     groups: Dict[str, List[Tuple[str, str]]] = {}
     for name, description, category in sorted(skills, key=lambda s: (order.get(s[2], len(order)), s[0])):
         groups.setdefault(category, []).append((name, short_description(description, SKILL_DESCRIPTION_CHARS)))
     return "\n".join(f"{category}:\n{_bullets(items)}" for category, items in groups.items())
+
+
+# A large library (the 188 video skills) would double the cached prompt with descriptions: past this many
+# skills only names are listed, one comma-separated line per category (the names say what each skill does).
+SKILL_NAMES_ONLY_ABOVE = 60
+
+
+def _skill_names(skills: List[Tuple[str, ...]]) -> str:
+    order = {c: i for i, c in enumerate(CATEGORIES)}
+    groups: Dict[str, List[str]] = {}
+    for name, _description, category in sorted(skills, key=lambda s: (order.get(s[2], len(order)), s[0])):
+        groups.setdefault(category, []).append(name)
+    return "(names only; each name says what the skill does)\n" + "\n".join(
+        f"- {category}: {', '.join(names)}" for category, names in groups.items())
 
 
 def _catalogs(skills: List[Tuple[str, ...]], tools: List[Tuple[str, str]], models: Dict[str, List[str]]) -> str:
