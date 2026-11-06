@@ -17,6 +17,38 @@ export function rerunErrorCode(error) {
   return 'failed'
 }
 
+// Retrying cannot help: nothing failed is left, or the job is too old to re-run (no stored scenarios).
+const NO_RETRY = new Set(['nothing_to_rerun', 'lab_legacy_job'])
+
+/** A rerun API error kept for display: the server code, the generic fallback code and the code's params. */
+export function rerunError(error) {
+  const code = error?.code || error?.error_code
+  const params = error?.params || error?.error_params
+  return {
+    code: typeof code === 'string' ? code : '',
+    fallback: rerunErrorCode(error),
+    params: params && typeof params === 'object' ? params : {}
+  }
+}
+
+/**
+ * Title + fix hint of a `rerunError`: the rerun text for the code when there is one, else the Lab's own
+ * `lab.errors.<code>` text (e.g. lab_legacy_job, lab_job_running), else the generic text of the fallback code.
+ */
+export function rerunErrorText(info, { t, te }) {
+  const { code, fallback, params } = info || {}
+  const has = (key) => !!code && te(key)
+  let title
+  if (has(`lab.rerun.errors.${code}`)) title = t(`lab.rerun.errors.${code}`)
+  else if (has(`lab.errors.${code}`)) title = t(`lab.errors.${code}`, params || {})
+  else title = t(`lab.rerun.errors.${fallback || 'failed'}`)
+  const hint = has(`lab.rerun.hints.${code}`) ? t(`lab.rerun.hints.${code}`) : t(`lab.rerun.hints.${fallback || 'failed'}`)
+  return { title, hint }
+}
+
+/** False when Retry cannot change the answer. */
+export const rerunCanRetry = (info) => !NO_RETRY.has(info?.code) && !NO_RETRY.has(info?.fallback)
+
 const num = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
 
 // Cost of one run when the side carries its number of finished runs (`done`), else null.

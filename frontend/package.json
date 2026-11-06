@@ -13,7 +13,7 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "perf": "playwright test e2e/perf.spec.js",
-    "e2e:axe": "playwright test e2e/axe.spec.js",
+    "e2e:axe": "playwright test e2e/axe.spec.js e2e/lab-layers-axe.spec.js",
     "e2e:visual": "playwright test e2e/visual.spec.js",
     "e2e:visual:update": "playwright test e2e/visual.spec.js --update-snapshots"
   },

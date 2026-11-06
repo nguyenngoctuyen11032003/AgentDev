@@ -50,6 +50,7 @@ from agentdev.api.services.workflow_patterns.graph_analysis import (  # noqa: F4
     edge_condition_matches,
     model_tier,
 )
+from agentdev.utils.redact import redact_secrets
 from agentdev.utils.code_execution import UNSAFE_CODE_EXECUTION_ENV
 from agentdev.utils.human_prompt import AUTO_ANSWER, AUTO_SKIP_PAID, AutoAnswerChannel
 
@@ -453,8 +454,12 @@ class LabJob:
         with self._baseline_lock:
             if self._baseline_loaded:
                 return self._baseline
-            for item in list_stored_jobs(self.store_dir or _lab_dir(), self.workflow, limit=50):
+            # A rerun covers only the failed scenarios: it is compared by rerun_compare with its source, not with
+            # a full job, and it is never the baseline of a full job (its averages are of another set of scenarios).
+            items = [] if self.rerun_of else list_stored_jobs(self.store_dir or _lab_dir(), self.workflow, limit=50)
+            for item in items:
                 if (item["id"] != self.id and item["status"] == "completed" and item["verdict"] == "ready"
+                        and not item.get("rerun_of")
                         and (item.get("finished_at") or 0) and (item.get("started_at") or 0) < self.started_at):
                     self._baseline = item
                     break
@@ -996,20 +1001,11 @@ _RESULT_LINE = re.compile(
     r"(\b\d+\s+(passed|failed|errors?|failing|passing|skipped)\b|\bFAILED\b|\bFAIL\b|\bPASS(ED)?\b|\bERROR\b|"
     r"Traceback|AssertionError|\bexit(ed)?\s*(code|status)?\s*[:=]?\s*-?\d+|Tests?:\s|✓|✗|✔|✘)", re.IGNORECASE)
 EVIDENCE_MAX_FAILURES = 3  # earlier failed tool results kept (the latest ones); each command's last result is kept
+
+
 # Secret-looking strings are masked before tool commands / output reach the stored run or the judge prompt.
-_SECRET_PATTERNS = (
-    re.compile(r"(\bAuthorization\s*:\s*)(?:Bearer|Basic|Token)?\s*[^\s'\"]+", re.IGNORECASE),
-    re.compile(r"(\bBearer\s+)[^\s'\"]+", re.IGNORECASE),
-    re.compile(r"()\bsk-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"(\b[\w-]*(?:api[_-]?key|token|secret|password|passwd)[\w-]*\s*[=:]\s*)[^\s'\"]+", re.IGNORECASE),
-)
-
-
 def _redact(text: Any) -> str:
-    out = str(text or "")
-    for pattern in _SECRET_PATTERNS:
-        out = pattern.sub(lambda m: m.group(1) + "[REDACTED]", out)
-    return out
+    return redact_secrets(text)
 
 
 def _short(value: Any, limit: int) -> str:
@@ -2137,6 +2133,9 @@ def rerun_failed_plan(data: Dict[str, Any]) -> Dict[str, Any]:
     runs = len(failed) * _job_repeats(data)
     chosen = set(failed)
     avg = _avg_graded_run_cost([r for r in data.get("results") or [] if r.get("scenario") in chosen])
+    if avg is None:
+        # Every run of those scenarios errored (429, timeout) and has no graded price: use the job's average.
+        avg = _avg_graded_run_cost(data.get("results") or [])
     if not failed:
         return {"scenarios": [], "runs": 0, "estimate_usd": 0.0, "cost_known": True}
     return {"scenarios": failed, "runs": runs, "estimate_usd": round(avg * runs, 6) if avg is not None else None,
@@ -2184,6 +2183,7 @@ def list_stored_jobs(folder: Path, workflow: str, limit: int = 20,
             "workflow_hash": data.get("workflow_hash", ""), "started_at": data.get("started_at") or 0,
             "finished_at": data.get("finished_at"),
             "avg_run_cost_usd": _avg_graded_run_cost(data.get("results") or []),
+            "rerun_of": data.get("rerun_of") or "",
         })
     rows.sort(key=lambda r: r["started_at"] or 0, reverse=True)
     return rows[:limit]

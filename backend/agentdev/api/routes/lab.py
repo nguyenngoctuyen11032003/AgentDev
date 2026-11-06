@@ -351,15 +351,101 @@ def platform_fix_prepare(job_id: str, payload: PlatformFixRequest):
         raise _lab_http(400, "confirm_required", "Confirm explicitly before preparing a platform fix")
     if not platform_fix.JOB_ID_RE.match(job_id):
         raise HTTPException(status_code=404, detail="Lab run not found")
-    job = get_lab_runner().get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Lab run not found")
-    data = job.to_dict()
-    report = data.get("platform_report", "") or ""
-    if not str(report).strip():
-        raise _lab_http(409, "no_platform_report", "This Lab job has no platform report")
     try:
+        # Password before any job lookup: without it, the answer must not tell which job ids exist.
         platform_fix.check_password(payload.password, job_id)
+        job = get_lab_runner().get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Lab run not found")
+        data = job.to_dict()
+        report = data.get("platform_report", "") or ""
+        if not str(report).strip():
+            raise _lab_http(409, "no_platform_report", "This Lab job has no platform report")
         return platform_fix.prepare(job_id, str(report), str(data.get("workflow") or ""))
     except platform_fix.PlatformFixError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.http_detail()) from exc
+
+
+# --- Finish a platform fix: verify, then commit + merge into main, or discard (docs/adr/0009-platform-fix-loop.md) ---
+
+
+class PlatformFixFinishRequest(BaseModel):
+    password: str = Field("", max_length=1024)
+    confirm: bool = False
+    message: Optional[str] = Field(None, max_length=5000)
+
+
+def _platform_fix_call(func, *args):
+    from agentdev.api.services import platform_fix
+
+    try:
+        return func(*args)
+    except platform_fix.PlatformFixError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.http_detail()) from exc
+
+
+def _platform_fix_guard(fix_id: str, payload: Optional[PlatformFixFinishRequest] = None) -> None:
+    """Order: feature on, explicit confirm, a valid id, then the password (same lockout as prepare)."""
+    from agentdev.api.services import platform_fix
+
+    if not platform_fix.enabled():
+        raise _lab_http(403, "disabled", "The platform-fix feature is turned off (AGENTDEV_PLATFORM_FIX=0)")
+    if payload is not None and payload.confirm is not True:
+        raise _lab_http(400, "confirm_required", "Confirm explicitly before finishing a platform fix")
+    if not platform_fix.JOB_ID_RE.match(fix_id):
+        raise _lab_http(404, "not_found", "Platform fix not found")
+    if payload is not None:
+        _platform_fix_call(platform_fix.check_password, payload.password, fix_id)
+
+
+@router.get("/platform-fixes")
+def platform_fixes_list():
+    """Every platform-fix worktree with its changes, last verify and merge blockers."""
+    from agentdev.api.services import platform_fix_finish
+
+    return _platform_fix_call(platform_fix_finish.list_fixes)
+
+
+@router.get("/platform-fixes/{fix_id}")
+def platform_fix_detail(fix_id: str):
+    from agentdev.api.services import platform_fix_finish
+
+    if not platform_fix_finish.JOB_ID_RE.match(fix_id):
+        raise _lab_http(404, "not_found", "Platform fix not found")
+    return _platform_fix_call(platform_fix_finish.get, fix_id)
+
+
+@router.post("/platform-fixes/{fix_id}/verify", status_code=202)
+def platform_fix_verify(fix_id: str):
+    """Start the verify gates in the background (one at a time per fix)."""
+    from agentdev.api.services import platform_fix_finish
+
+    _platform_fix_guard(fix_id)
+    return _platform_fix_call(platform_fix_finish.start_verify, fix_id)
+
+
+@router.post("/platform-fixes/{fix_id}/cancel")
+def platform_fix_cancel(fix_id: str):
+    from agentdev.api.services import platform_fix_finish
+
+    if not platform_fix_finish.JOB_ID_RE.match(fix_id):
+        raise _lab_http(404, "not_found", "Platform fix not found")
+    return _platform_fix_call(platform_fix_finish.cancel, fix_id)
+
+
+@router.post("/platform-fixes/{fix_id}/merge")
+def platform_fix_merge(fix_id: str, payload: PlatformFixFinishRequest):
+    """Confirm + password, then (if nothing blocks) commit the worktree, merge into main, remove it. Never pushes."""
+    from agentdev.api.services import platform_fix_finish
+
+    _platform_fix_guard(fix_id, payload)
+    return _platform_fix_call(platform_fix_finish.merge, fix_id, payload.message)
+
+
+@router.post("/platform-fixes/{fix_id}/discard")
+def platform_fix_discard(fix_id: str, payload: PlatformFixFinishRequest):
+    """Confirm + password, then remove the worktree and delete the branch without merging."""
+    from agentdev.api.services import platform_fix_finish
+
+    _platform_fix_guard(fix_id, payload)
+    return _platform_fix_call(platform_fix_finish.discard, fix_id)

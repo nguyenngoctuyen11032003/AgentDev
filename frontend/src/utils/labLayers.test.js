@@ -51,3 +51,28 @@ describe('labLayers', () => {
     expect(platformFixErrorCode(new Error('x'))).toBe('')
   })
 })
+
+describe('canFixRun', () => {
+  it('offers the per-run fix for a failed run of a job that is not completed yet', async () => {
+    const { canFixRun } = await import('./labLayers.js')
+    // The server sends needs_workflow_fix=false until the job is completed: that is not a verdict yet.
+    expect(canFixRun({ status: 'running', needs_workflow_fix: false }, { status: 'failed' })).toBe(true)
+    expect(canFixRun({ status: 'interrupted', needs_workflow_fix: false }, { status: 'error' })).toBe(true)
+    expect(canFixRun({ status: 'completed', needs_workflow_fix: false }, { status: 'failed' })).toBe(false)
+    expect(canFixRun({ status: 'completed', needs_workflow_fix: true }, { status: 'failed' })).toBe(true)
+    expect(canFixRun({ status: 'completed' }, { status: 'failed' })).toBe(true)
+    expect(canFixRun({ status: 'running' }, { status: 'passed' })).toBe(false)
+    expect(canFixRun(null, { status: 'failed' })).toBe(false)
+  })
+})
+
+describe('jobOfWorkflow', () => {
+  it('matches a job to the shown workflow whatever the .yaml/.yml suffix', async () => {
+    const { jobOfWorkflow } = await import('./labLayers.js')
+    expect(jobOfWorkflow({ workflow: 'a.yaml' }, 'a.yaml')).toBe(true)
+    expect(jobOfWorkflow({ workflow: 'a' }, 'a.yml')).toBe(true)
+    expect(jobOfWorkflow({ workflow: 'b.yaml' }, 'a.yaml')).toBe(false)
+    expect(jobOfWorkflow({}, 'a.yaml')).toBe(false)
+    expect(jobOfWorkflow(null, 'a.yaml')).toBe(false)
+  })
+})

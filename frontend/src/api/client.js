@@ -1092,6 +1092,35 @@ export const labPlatformFix = (jobId, { password }) =>
     body: JSON.stringify({ password, confirm: true })
   })
 
+// --- Finishing a platform fix: verify its worktree, then commit + merge into main, or discard. Nothing is pushed. ---
+const platformFixPath = (id) => `/platform-fixes/${encodeURIComponent(id)}`
+
+/** Every platform-fix worktree on this machine: -> {items: [{id, branch, verify, mergeable, blockers, ...}]} */
+export const labPlatformFixes = () => labRequest('/platform-fixes')
+
+/** One platform fix + `report` (short markdown, shown as plain text). */
+export const labPlatformFixDetail = (id) => labRequest(platformFixPath(id))
+
+/** Start the verify gates in the background. -> {verify} (202); 409 `verify_running`. */
+export const labPlatformFixVerify = (id) => labRequest(`${platformFixPath(id)}/verify`, { method: 'POST', body: '{}' })
+
+/** Stop a running verify. -> {verify}; 409 `verify_not_running`. */
+export const labPlatformFixCancelVerify = (id) => labRequest(`${platformFixPath(id)}/cancel`, { method: 'POST', body: '{}' })
+
+/**
+ * Commit the worktree, merge --no-ff into main, remove the worktree and delete the branch. Sent only after the
+ * user's explicit confirmation + password. -> {commit, merge_commit, files, actions, next_steps}
+ */
+export const labPlatformFixMerge = (id, { password, message = '' }) =>
+  labRequest(`${platformFixPath(id)}/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ password, confirm: true, ...(message ? { message } : {}) })
+  })
+
+/** Remove the worktree and delete the branch without merging (confirmation + password). -> {actions} */
+export const labPlatformFixDiscard = (id, { password }) =>
+  labRequest(`${platformFixPath(id)}/discard`, { method: 'POST', body: JSON.stringify({ password, confirm: true }) })
+
 // --- What a run produced (files under storage/warehouse/lab_*), its app preview, and storage cleanup ---
 const labRunPath = (jobId, run) => `/jobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(run)}`
 const encodeRelPath = (path) => String(path || '').split('/').map(encodeURIComponent).join('/')

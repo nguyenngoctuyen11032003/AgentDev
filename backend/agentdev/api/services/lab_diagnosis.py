@@ -13,6 +13,8 @@ import re
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
+from agentdev.utils.redact import redact_secrets
+
 # Time budget (seconds) of a greeting-like run; real requests get LONG_SECONDS. Override with AGENTDEV_LAB_SLOW_SECONDS.
 SLOW_SECONDS = int(os.environ.get("AGENTDEV_LAB_SLOW_SECONDS", "120"))
 # One node running this many times in a run is a loop worth reporting. A guarded review loop of 2 rounds
@@ -205,26 +207,47 @@ def _chain(exc: BaseException, limit: int = 8) -> List[BaseException]:
     return out
 
 
+def _causes(exc: BaseException, limit: int = 8) -> List[BaseException]:
+    """``exc`` and its explicit causes (``raise ... from``), without implicit ``__context__`` links."""
+    out: List[BaseException] = []
+    current: Optional[BaseException] = exc
+    while current is not None and len(out) < limit and current not in out:
+        out.append(current)
+        current = current.__cause__
+    return out
+
+
 def classify_exception(exc: BaseException) -> str:
     """The ``error_kind`` of a run that raised ``exc``, from exception classes only (no message parsing)."""
     from agentdev.runtime.node.agent.account_fallback import QuotaExceededError
     from agentdev.runtime.node.agent.providers._cli_common import CliProviderError, CliTimeoutError
+    from agentdev.connections.autobind import NoSignedInAccountError
+    from agentdev.connections.resolver import ConnectionResolutionError
+    from agentdev.entity.configs.base import ConfigError
     from agentdev.utils.exceptions import ConfigurationError, MACException, ValidationError, WorkflowExecutionError
     from agentdev.utils.token_tracker import BudgetExceededError
+    from agentdev.validation.check import DesignError
+    from yaml import YAMLError
 
     chain = _chain(exc)
     if type(exc).__name__ == "LabRunTimeoutError":
         return "timeout"
-    if any(type(e).__module__ == "builtins" and type(e).__name__ in PYTHON_BUG_TYPES for e in chain):
+    # A Python bug type only counts when it is the error or an explicit cause (``raise X from bug``): an error
+    # raised while handling an unrelated KeyError (implicit ``__context__``) is not that KeyError's fault.
+    if any(type(e).__module__ == "builtins" and type(e).__name__ in PYTHON_BUG_TYPES for e in _causes(exc)):
         return "engine_exception"
+    # Order matters: the specific cause (no account, a bad YAML) wins over the ModelCallError the agent executor
+    # wraps every failure of its node in, and that one wins over the generic WorkflowExecutionError.
+    config_errors = (ConfigurationError, ValidationError, DesignError, ConfigError, YAMLError)
     checks = (
         ("quota", lambda e: isinstance(e, QuotaExceededError)),
         ("budget_limit", lambda e: isinstance(e, BudgetExceededError)),
         ("loop_limit", lambda e: isinstance(e, MACException) and (e.details or {}).get("kind") == "loop_limit"),
         ("provider_timeout", lambda e: isinstance(e, CliTimeoutError)),
-        ("cli", lambda e: isinstance(e, CliProviderError)),
+        ("cli", lambda e: isinstance(e, (CliProviderError, NoSignedInAccountError, ConnectionResolutionError))),
+        ("workflow_error", lambda e: isinstance(e, config_errors)),
         ("model_call", lambda e: isinstance(e, WorkflowExecutionError) and type(e).__name__ == "ModelCallError"),
-        ("workflow_error", lambda e: isinstance(e, (WorkflowExecutionError, ConfigurationError, ValidationError))),
+        ("workflow_error", lambda e: isinstance(e, WorkflowExecutionError)),
         ("network", lambda e: isinstance(e, ConnectionError)),
         ("os_error", lambda e: isinstance(e, OSError)),
     )
@@ -313,6 +336,8 @@ def _error_finding(error: str, kind: str = "") -> Dict[str, Any]:
 def _tool_platform_finding(run: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """A tool that could not run at all (unknown tool, not granted) or crashed with a Python bug: platform layer.
     A tool that ran and failed (exit code 1, file not found) is normal work and is not reported here."""
+    if run.get("status") == "passed":
+        return None  # the agent recovered (a mistyped tool name, a retry): nothing to report
     hits: List[str] = []
     for item in run.get("evidence") or []:
         if not isinstance(item, dict):
@@ -463,6 +488,13 @@ def diagnose_run(run: Dict[str, Any], prompt: str = "") -> List[Dict[str, Any]]:
 
 CRITERIA_MIN_CHARS = 20  # shorter criteria ("tốt", "đúng ý") leave the judge guessing
 CRITERIA_MIN_WORDS = 4
+CRITERIA_MIN_CJK_CHARS = 8  # Chinese/Japanese criteria have no spaces: count characters instead of words
+
+
+def _vague(text: str) -> bool:
+    if not re.search(r"\s", text) and re.search(r"[぀-ヿ㐀-鿿]", text):
+        return len(text) < CRITERIA_MIN_CJK_CHARS
+    return len(text) < CRITERIA_MIN_CHARS or len(text.split()) < CRITERIA_MIN_WORDS
 
 
 def diagnose_job(runs: List[Dict[str, Any]], prompts: Dict[int, str],
@@ -477,24 +509,28 @@ def diagnose_job(runs: List[Dict[str, Any]], prompts: Dict[int, str],
             out.append({**finding, "scenario": run.get("scenario"), "repeat": run.get("repeat")})
     scenarios = sorted({r.get("scenario") for r in finished if isinstance(r.get("scenario"), int)})
     for index in scenarios:
-        verdicts = {r.get("status") for r in finished if r.get("scenario") == index} & {"passed", "failed"}
-        if verdicts == {"passed", "failed"}:
-            for finding in out:
-                if finding.get("scenario") == index and finding["code"] in ("quality", "no_answer"):
-                    finding["layer"] = "scenario"
+        mine = [r for r in finished if r.get("scenario") == index]
+        verdicts = {r.get("status") for r in mine} & {"passed", "failed"}
+        # Only AI verdicts can disagree with themselves: the basic check (empty answer) is deterministic. The
+        # failures keep their layer: a workflow that passes 1 run in 3 is unreliable and still needs a fix.
+        ai_only = all((r.get("judge") or {}).get("judged_by") == "ai" for r in mine
+                      if r.get("status") in ("passed", "failed"))
+        if verdicts == {"passed", "failed"} and ai_only:
             out.append({"code": "judge_flaky", "severity": "warn", "layer": "scenario", "scenario": index,
                         "repeat": None,
                         "detail": "Các lần chạy của cùng kịch bản được chấm trái nhau (lần đạt, lần trượt).",
                         "fix": ("Làm rõ tiêu chí đạt (cụ thể, đo được) rồi chạy lại vài lần; nếu kết quả vẫn dao động, "
                                 "so câu trả lời của lượt đạt và lượt trượt trước khi sửa quy trình.")})
-        if criteria is None:
+        # Criteria only matter where the scenario did not pass every run (a passing job needs no advice).
+        if criteria is None or all(r.get("status") == "passed" for r in mine):
             continue
         text = str(criteria.get(index) or "").strip()
         if not text:
             out.append({"code": "criteria_missing", "severity": "warn", "layer": "scenario", "scenario": index,
-                        "repeat": None, "detail": "Kịch bản không có tiêu chí đạt; giám khảo phải tự đoán.",
+                        "repeat": None,
+                        "detail": "Kịch bản không có tiêu chí đạt; giám khảo đã chấm theo tiêu chí mặc định.",
                         "fix": "Thêm tiêu chí đạt cụ thể (nội dung, ngôn ngữ, độ dài, file cần có) cho kịch bản."})
-        elif len(text) < CRITERIA_MIN_CHARS or len(text.split()) < CRITERIA_MIN_WORDS:
+        elif _vague(text):
             out.append({"code": "criteria_vague", "severity": "warn", "layer": "scenario", "scenario": index,
                         "repeat": None, "detail": f"Tiêu chí đạt quá ngắn/mơ hồ: \"{text[:80]}\".",
                         "fix": "Viết tiêu chí đo được (cần có gì, ngôn ngữ, độ dài) để giám khảo chấm ổn định."})
@@ -535,11 +571,10 @@ def build_environment_hints(findings: List[Dict[str, Any]]) -> List[Dict[str, An
     return out
 
 
-_SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|(?:Bearer|token)[ =:]+[A-Za-z0-9._-]{12,})", re.IGNORECASE)
-
-
 def _scrub(text: Any, limit: int) -> str:
-    return _SECRET.sub("[REDACTED]", str(text or ""))[:limit]
+    """One line, secrets masked: report fields come from a run (untrusted) and must not open a heading of their own
+    (a newline + ``## Rules`` in an error must stay inside its bullet)."""
+    return " ".join(redact_secrets(text).split())[:limit]
 
 
 def _scenario_of(scenarios: List[Any], run: Dict[str, Any]) -> Any:
@@ -565,6 +600,7 @@ def build_platform_report(workflow: str, runs: List[Dict[str, Any]], scenarios: 
     if not platform:
         return ""
     keys = {_run_key(f) for f in platform}
+    workflow = _scrub(workflow, 200)
     lines = [
         "# Báo cáo nghi lỗi nền tảng AgentDev",
         "",
@@ -579,26 +615,27 @@ def build_platform_report(workflow: str, runs: List[Dict[str, Any]], scenarios: 
             continue
         shown += 1
         scenario = _scenario_of(scenarios, run)
-        lines += ["", f"## Kịch bản: {_scenario_name(scenario, run)} (lần {run.get('repeat', 1)}) — {run.get('status')}"]
+        lines += ["", f"## Kịch bản: {_scrub(_scenario_name(scenario, run), 200)} (lần {run.get('repeat', 1)}) — "
+                      f"{_scrub(run.get('status'), 40)}"]
         lines.append(f"- Yêu cầu gửi vào: {_scrub(getattr(scenario, 'prompt', ''), 500)}")
         if run.get("error"):
             lines.append(f"- Lỗi ({error_kind_of(run)}): {_scrub(run['error'], 1500)}")
-        trail = [str(item.get("node") or "?") for item in run.get("node_runs") or [] if isinstance(item, dict)]
+        trail = [_scrub(item.get("node") or "?", 120) for item in run.get("node_runs") or [] if isinstance(item, dict)]
         if trail:
             lines.append("- Node đã chạy (cũ → mới): " + " → ".join(trail[-12:]))
         tools = [e for e in run.get("evidence") or [] if isinstance(e, dict)
                  and (e.get("error_code") or e.get("exception_type") or e.get("ok") is False)]
         for item in tools[-8:]:
-            extra = ", ".join(f"{k}={item[k]}" for k in ("error_code", "exception_type", "exit_code")
+            extra = ", ".join(f"{k}={_scrub(item[k], 80)}" for k in ("error_code", "exception_type", "exit_code")
                               if item.get(k) not in (None, ""))
-            lines.append(f"- Công cụ: {item.get('node') or '?'} / {item.get('tool') or '?'}"
+            lines.append(f"- Công cụ: {_scrub(item.get('node') or '?', 120)} / {_scrub(item.get('tool') or '?', 120)}"
                          + (f" ({extra})" if extra else "")
                          + (f": {_scrub(item.get('command'), 160)}" if item.get("command") else ""))
         for f in platform:
             if _run_key(f) == _run_key(run):
-                lines.append(f"- Chẩn đoán [{f['code']}]: {f['detail']}")
+                lines.append(f"- Chẩn đoán [{_scrub(f['code'], 60)}]: {_scrub(f['detail'], 1500)}")
     first = next((r for r in runs if _run_key(r) in keys), None)
-    name = _scenario_name(_scenario_of(scenarios, first), first) if first else "?"
+    name = _scrub(_scenario_name(_scenario_of(scenarios, first), first), 200) if first else "?"
     lines += [
         "",
         "## Cách tái hiện",

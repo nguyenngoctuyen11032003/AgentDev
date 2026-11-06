@@ -182,8 +182,10 @@ const sessionLists = reactive(new Map())
 const lastApplied = ref(null)
 // Text another page (Lab) wants in the composer, ready to edit and send; the panel takes it once.
 const draftSeed = ref('')
-// Where the seed came from when the Lab sent it ("fix this job"): {labJobId, workflow}. The next
-// message sent in a thread of that workflow takes it, marking the thread as seeded from the Lab.
+// Where the seed came from when the Lab sent it ("fix this job"): {labJobId, workflow, threadId?}. When
+// the panel puts the seed in the composer, the source is bound to the thread shown then (`threadId`);
+// the next message sent in that thread takes it, marking the thread as seeded from the Lab. A new
+// conversation or another opened session drops it.
 const labFixSource = ref(null)
 // Set once a Lab-seeded thread's proposal was applied to that same workflow: the panel offers to
 // re-run only the job's failed scenarios. Undo, another workflow or a new seed clears it.
@@ -199,6 +201,30 @@ const setDraftSeed = (text, source = null) => {
   rerunOffer.value = null
 }
 const clearRerunOffer = () => {
+  rerunOffer.value = null
+}
+/** The panel takes the seed into its composer: returns the text and binds the Lab source to the thread shown now. */
+const consumeDraftSeed = () => {
+  const text = draftSeed.value
+  draftSeed.value = ''
+  const thread = currentThread.value
+  if (labFixSource.value && !labFixSource.value.threadId) {
+    // Shown on another workflow (or nowhere): the source cannot belong to this conversation.
+    labFixSource.value = thread && thread.workflow === labFixSource.value.workflow
+      ? { ...labFixSource.value, threadId: thread.id }
+      : null
+  }
+  return text
+}
+// True while the paid "re-run failed scenarios" request is on its way: Undo is blocked meanwhile, so the
+// re-run never checks a restored YAML and its card is not unmounted with the request in flight.
+const rerunStarting = ref(false)
+const setRerunStarting = (value) => {
+  rerunStarting.value = !!value
+}
+// A new conversation or another saved session is not the one the Lab fix (or its applied proposal) is about.
+const dropLabFix = () => {
+  labFixSource.value = null
   rerunOffer.value = null
 }
 
@@ -374,6 +400,11 @@ function threadFromSession(data) {
 
 /** Shows a saved session (picked in the history list). */
 async function openSession(id) {
+  dropLabFix()
+  return showSession(id)
+}
+
+async function showSession(id) {
   const known = threads.get(id)
   if (known) {
     activeByContext.set(keyOfWorkflow(known.workflow), id)
@@ -420,8 +451,12 @@ function setContext(mode, workflow) {
     if (!firstVisit || !list.items.length) return
     // Only while untouched: the user has not started a new conversation there meanwhile.
     if (activeByContext.get(key) !== shown.id || shown.messages.length || shown.status !== 'idle') return
-    const opened = await openSession(list.items[0].id)
-    if (opened.ok && activeByContext.get(key) !== shown.id && !shown.messages.length) threads.delete(shown.id)
+    const opened = await showSession(list.items[0].id)
+    if (opened.ok && activeByContext.get(key) !== shown.id && !shown.messages.length) {
+      threads.delete(shown.id)
+      // The Lab seed taken into the empty thread now belongs to the resumed session shown in its place.
+      if (labFixSource.value?.threadId === shown.id) labFixSource.value = { ...labFixSource.value, threadId: activeByContext.get(key) }
+    }
   })
 }
 
@@ -453,8 +488,9 @@ async function send(text) {
   if (isRetry) thread.messages.pop()
   else thread.messages.push({ id: nextId(), role: 'user', content, at: Date.now() })
   thread.appliedSinceUserMessage = false
-  if (labFixSource.value && thread.workflow === labFixSource.value.workflow) {
-    thread.labSource = labFixSource.value
+  const source = labFixSource.value
+  if (source && thread.workflow === source.workflow && (!source.threadId || source.threadId === thread.id)) {
+    thread.labSource = { labJobId: source.labJobId, workflow: source.workflow }
     labFixSource.value = null
   }
 
@@ -556,6 +592,7 @@ function stop() {
 // still on its way lands there and is saved.
 function newConversation() {
   const thread = currentThread.value
+  dropLabFix()
   if (!thread.messages.length && thread.status === 'idle') return
   newThreadFor(contextKey(), context.value.workflow)
 }
@@ -696,12 +733,15 @@ async function applyProposal({ formOpen = false } = {}) {
  * without writing when the file changed after the apply, so later edits are never wiped.
  * @param {string} [workflow] - the workflow the Undo button belongs to; when the last apply wrote
  *   another workflow, nothing is undone (reason 'none').
- * @returns {Promise<{ok: boolean, reason?: 'none'|'stale'|'failed', filename?: string, message?: string}>}
+ *   reason 'busy': a re-run of the fix is being started; nothing is undone.
+ * @returns {Promise<{ok: boolean, reason?: 'none'|'busy'|'stale'|'failed', filename?: string, message?: string}>}
  */
 async function undoLast(workflow) {
   const applied = lastApplied.value
   if (!applied) return { ok: false, reason: 'none' }
   if (workflow && workflowKey(workflow) !== applied.workflow) return { ok: false, reason: 'none' }
+  // A paid re-run of this fix is being started: restoring the file now would make it run the old YAML.
+  if (rerunStarting.value) return { ok: false, reason: 'busy' }
 
   const current = await fetchYaml(applied.workflow)
   if (!current.success) return { ok: false, reason: 'failed', message: current.message }
@@ -766,8 +806,11 @@ export function useWorkflowAssistant() {
     undoLast,
     draftSeed,
     setDraftSeed,
+    consumeDraftSeed,
     labFixSource,
     rerunOffer,
-    clearRerunOffer
+    clearRerunOffer,
+    rerunStarting,
+    setRerunStarting
   }
 }

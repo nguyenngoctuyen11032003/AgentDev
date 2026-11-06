@@ -285,6 +285,10 @@ async function undoApply(name) {
   if (result.ok) {
     toast.success(t('workflow_assistant.undone'))
     if (normalizeName(result.filename) === selectedWorkflow.value) reloadKey.value += 1
+  } else if (result.reason === 'busy') {
+    // A paid re-run of this fix is starting: nothing was undone, offer Undo again once it has started.
+    toast.warning(t('workflow_assistant.undo_rerun_starting'))
+    showUndoToast(name)
   } else if (result.reason === 'stale') {
     toast.error(t('workflow_assistant.undo_stale'))
   } else if (result.reason === 'none') {

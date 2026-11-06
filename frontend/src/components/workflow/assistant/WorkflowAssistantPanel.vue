@@ -140,6 +140,7 @@
               :conflicted="!!m.conflicted"
               :applied="!!m.applied"
               :can-undo="!!m.applied && m.id === undoMessageId"
+              :undo-blocked="rerunStarting"
               :active="m.proposal === thread.pendingProposal"
               :earlier-turn="m.proposal === thread.pendingProposal && answeredSince(index)"
               :busy="thread.status !== 'idle'"
@@ -335,8 +336,10 @@ const {
   newConversation,
   discardProposal,
   draftSeed,
+  consumeDraftSeed,
   rerunOffer,
-  clearRerunOffer
+  clearRerunOffer,
+  rerunStarting
 } = useWorkflowAssistant()
 // Only next to the workflow the fix was applied to.
 const showRerunOffer = computed(() => !!rerunOffer.value && rerunOffer.value.workflow === context.value.workflow)
@@ -686,8 +689,8 @@ watch(
   draftSeed,
   (text) => {
     if (!text) return
-    draft.value = text
-    draftSeed.value = ''
+    // Taking it binds a Lab source to the conversation shown now (not to a later one).
+    draft.value = consumeDraftSeed()
     focusInput()
     nextTick(autosize)
   },

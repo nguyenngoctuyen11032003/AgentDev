@@ -322,6 +322,9 @@
 
         <LabHistory :workflow="workflow" :current-id="job?.id || ''" :refresh-key="storageRefresh + historyRefresh" @open="openPastJob" @loaded="historyJobs = $event" @deleted="onJobDeleted" />
 
+        <!-- AgentDev source fixes open on this machine (not tied to the job shown): verify, merge or discard -->
+        <LabPlatformFixes />
+
         <!-- Results -->
         <!-- Always in the DOM so assistive tech announces the changes (a live region created with its text is often skipped). -->
         <p class="sr-only" role="status" aria-live="polite">{{ srStatus }}</p>
@@ -468,7 +471,7 @@
                   </li>
                 </ul>
               </template>
-              <LabPlatformFix v-if="g.layer === 'platform' && job.platform_report" :job-id="job.id" :report="job.platform_report" />
+              <LabPlatformFix v-if="g.layer === 'platform' && job.platform_report" :key="job.id" :job-id="job.id" :report="job.platform_report" />
             </section>
             <template v-if="canFix">
               <label class="diag-label" for="lab-brief">{{ tr('lab.brief_label', 'Nội dung gửi cho trợ lý quy trình (có thể bổ sung)') }}</label>
@@ -515,7 +518,7 @@
                 <p v-if="r.status === 'unjudged'" class="meta-line warn-text">{{ tr('lab.unjudged_run_note', 'Lượt này chạy xong nhưng chưa chấm được, nên không tính là đạt hay không đạt.') }}</p>
                 <p v-for="node in r.skipped_gates || []" :key="`gate-${node}`" class="meta-line warn-text">{{ tr('lab.skipped_gate', 'Cổng {node} bị bỏ qua (tốn phí), không phải đã duyệt', { node }) }}</p>
                 <p v-if="r.error" class="error">{{ r.error }}</p>
-                <button v-if="['failed', 'error'].includes(r.status) && job.needs_workflow_fix !== false" type="button" class="btn secondary sm fix-btn" @click="fixWithAssistant(r)">
+                <button v-if="canFixRun(job, r)" type="button" class="btn secondary sm fix-btn" @click="fixWithAssistant(r)">
                   {{ tr('lab.fix_this_run', 'Chỉnh sửa theo lượt này') }}
                 </button>
                 <!-- What the run produced (scripts, documents, a web app…): loaded only once the run is opened -->
@@ -574,8 +577,10 @@ import LabHistory from '@/components/lab/LabHistory.vue'
 import LabProducts from '@/components/lab/LabProducts.vue'
 import LabCleanupPrompt from '@/components/lab/LabCleanupPrompt.vue'
 import LabPlatformFix from '@/components/lab/LabPlatformFix.vue'
+import LabPlatformFixes from '@/components/lab/LabPlatformFixes.vue'
 import LabRerunCompare from '@/components/lab/LabRerunCompare.vue'
-import { groupFindings, needsWorkflowFix, workflowUnchanged } from '@/utils/labLayers.js'
+import { canFixRun, groupFindings, jobOfWorkflow, needsWorkflowFix, workflowUnchanged } from '@/utils/labLayers.js'
+import { workflowKey } from '@/utils/workflowSync.js'
 import { productType } from '@/utils/labProducts.js'
 import { toast } from '@/utils/toast.js'
 import { MAX_SCENARIOS, PACK_IDS, buildPackScenarios, dedupeSamples, detectPack } from '@/utils/labSamples.js'
@@ -921,6 +926,12 @@ async function openPastJob(id) {
   try {
     const data = await labJob(id)
     if (unmounted || workflow.value !== name) return
+    // A link may name a job of another workflow: never show (or remember) it under this one.
+    if (!jobOfWorkflow(data, name)) {
+      toast.warning(t('lab.history.other_workflow', { name: workflowKey(data?.workflow) }))
+      if (!job.value) restoreJob(name)
+      return
+    }
     stopPolling()
     openRuns.value = new Set()
     submitted.value = (data.scenarios || []).map((s) => ({ name: s.name || '', prompt: s.prompt || '', criteria: s.criteria || '' }))
@@ -933,7 +944,10 @@ async function openPastJob(id) {
     await nextTick()
     revealResults()
   } catch (error) {
+    if (unmounted || workflow.value !== name) return
     toast.error(errText(error) || tr('lab.history.open_failed', 'Không mở được lần kiểm định này'))
+    // A deep link to a missing job falls back to the last job remembered for this workflow.
+    if (error?.status === 404 && !job.value) restoreJob(name)
   }
 }
 async function restoreJob(name) {

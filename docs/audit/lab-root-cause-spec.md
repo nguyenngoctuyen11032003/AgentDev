@@ -53,7 +53,7 @@ New endpoints (`/api/lab`):
   next_steps}`. 400 `confirm_required`, 403 `bad_password`, 429 `too_many_attempts`, 409 `no_platform_report` /
   `git_unavailable` / `already_prepared`. It only creates a separate git worktree + branch and writes
   `PLATFORM_FIX.md` there. It never edits the running checkout, never runs a model, never commits, pushes or
-  merges. Password: PBKDF2 hash (default = "AgentDev", override `AGENTDEV_SOURCE_FIX_PASSWORD_HASH`),
+  merges. Password: PBKDF2 hash (default chosen by the user, override with `AGENTDEV_SOURCE_FIX_PASSWORD_HASH`),
   constant-time compare, lock after 5 failures for 5 minutes, every attempt logged on `agentdev.platform_fix`.
 
 ## Plan (slices, each with red tests first)

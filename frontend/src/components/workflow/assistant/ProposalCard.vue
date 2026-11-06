@@ -105,7 +105,14 @@
       </button>
     </footer>
     <footer v-else-if="applied && canUndo" class="proposal-actions">
-      <button type="button" class="btn-ghost" @click="emit('undo')">
+      <button
+        type="button"
+        class="btn-ghost"
+        :aria-disabled="undoBlocked ? 'true' : undefined"
+        :title="undoBlocked ? $t('workflow_assistant.undo_rerun_starting') : undefined"
+        :aria-description="undoBlocked ? $t('workflow_assistant.undo_rerun_starting') : undefined"
+        @click="!undoBlocked && emit('undo')"
+      >
         {{ $t('workflow_assistant.undo') }}
       </button>
     </footer>
@@ -138,7 +145,9 @@ const props = defineProps({
   earlierTurn: { type: Boolean, default: false },
   applied: { type: Boolean, default: false },
   // This applied proposal is the one Undo would revert: the card offers Undo too.
-  canUndo: { type: Boolean, default: false }
+  canUndo: { type: Boolean, default: false },
+  // A re-run of this fix is being started: Undo waits until it has started.
+  undoBlocked: { type: Boolean, default: false }
 })
 const emit = defineEmits(['apply', 'discard', 'undo'])
 const { t, te } = useI18n()

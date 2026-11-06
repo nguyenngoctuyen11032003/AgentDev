@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
+from agentdev.utils.reserved_ports import PREVIEW_PORT_RANGE
+
 _LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}$")
 
@@ -52,10 +54,24 @@ def host_headers_ok(raw_values: list[str]) -> bool:
     return len(raw_values) <= 1 and host_allowed(raw_values[0] if raw_values else "")
 
 
+def is_preview_origin(origin: Optional[str]) -> bool:
+    """A loopback origin on a Lab/Run preview port: a page an agent built, never trusted to call the API."""
+    if not origin:
+        return False
+    try:
+        parsed = urlparse(origin)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (parsed.hostname or "").lower() in _LOOPBACK and port in PREVIEW_PORT_RANGE
+
+
 def origin_allowed(origin: Optional[str]) -> bool:
-    """True for no Origin, loopback origins and origins listed in CORS_ALLOW_ORIGINS."""
+    """True for no Origin, loopback origins (except preview ports) and origins listed in CORS_ALLOW_ORIGINS."""
     if not origin:
         return True
+    if is_preview_origin(origin):
+        return False
     if _host(origin) in _LOOPBACK:
         return True
     return origin.rstrip("/") in {o.rstrip("/") for o in _env_list("CORS_ALLOW_ORIGINS")}

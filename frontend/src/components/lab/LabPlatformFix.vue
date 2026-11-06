@@ -85,7 +85,7 @@
           <p v-else class="pf-hint">{{ t('lab.platform_fix.none') }}</p>
 
           <label class="pf-check">
-            <input v-model="understood" type="checkbox" required />
+            <input ref="understoodEl" v-model="understood" type="checkbox" required />
             <span>{{ t('lab.platform_fix.understand') }}</span>
           </label>
           <label class="pf-label" :for="passwordId">{{ t('lab.platform_fix.password_label') }}</label>
@@ -144,6 +144,7 @@ const passwordId = `pf-password-${useId()}`
 const reportEl = ref(null)
 const doneEl = ref(null)
 const passwordEl = ref(null)
+const understoodEl = ref(null)
 
 const copied = ref(false)
 const copyFailed = ref(false)
@@ -209,6 +210,11 @@ async function loadInfo() {
   } finally {
     if (alive) loading.value = false
   }
+  // The loading line is replaced by the form: start keyboard users at its first control.
+  if (alive && open.value && info.value?.enabled !== false && !loadError.value) {
+    await nextTick()
+    understoodEl.value?.focus()
+  }
 }
 
 function openDialog() {
@@ -233,22 +239,36 @@ async function confirm() {
   const secret = password.value
   // The password never stays in the page, whatever the outcome.
   password.value = ''
+  // The answer belongs to this job: dropped if another job is shown by the time it arrives.
+  const jobId = props.jobId
+  const stale = () => !alive || props.jobId !== jobId
   try {
-    const data = await labPlatformFix(props.jobId, { password: secret })
-    if (!alive) return
+    const data = await labPlatformFix(jobId, { password: secret })
+    if (stale()) return
     result.value = data || {}
     submitting.value = false
     // The form (and the focused button) is gone: keep focus inside the dialog so Esc / Tab still work.
     await nextTick()
     doneEl.value?.focus()
   } catch (error) {
-    if (!alive) return
+    if (stale()) return
     submitError.value = errorText(error)
     submitting.value = false
     await nextTick()
     passwordEl.value?.focus()
   }
 }
+
+// The parent keys this component by job, so it is remounted per job; should the job id still change in place,
+// nothing of the previous job's request stays on screen.
+watch(() => props.jobId, () => {
+  open.value = false
+  result.value = null
+  submitting.value = false
+  submitError.value = ''
+  copied.value = false
+  copyFailed.value = false
+})
 
 onBeforeUnmount(() => {
   alive = false
@@ -299,4 +319,13 @@ onBeforeUnmount(() => {
 .pf-facts dt { color: var(--fg-muted); }
 .pf-facts dd { margin: 0; min-width: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 720px) {
+  .pf-report summary { display: flex; align-items: center; min-height: 44px; }
+  .btn.sm { min-height: 44px; }
+  .pf-check { min-height: 44px; }
+}
+@media (max-width: 480px) {
+  .pf-facts { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .pf-facts dd { margin-bottom: 6px; }
+}
 </style>

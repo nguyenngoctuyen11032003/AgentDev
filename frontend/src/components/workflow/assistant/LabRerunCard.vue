@@ -5,9 +5,9 @@
 
     <p v-if="loading" class="rerun-status" role="status">{{ $t('lab.rerun.loading') }}</p>
 
-    <div v-else-if="errorCode" class="rerun-error" role="alert">
-      <p class="rerun-error-title">{{ $t(`lab.rerun.errors.${errorCode}`) }}</p>
-      <p class="rerun-hint">{{ $t(`lab.rerun.hints.${errorCode}`) }}</p>
+    <div v-else-if="errorInfo" class="rerun-error" role="alert">
+      <p class="rerun-error-title">{{ errorText.title }}</p>
+      <p class="rerun-hint">{{ errorText.hint }}</p>
       <div class="rerun-actions">
         <button v-if="canRetry" type="button" class="btn-ghost" @click="retry">{{ $t('lab.rerun.retry') }}</button>
         <RouterLink :to="labLink()" class="btn-ghost">{{ $t('lab.rerun.open_lab') }}</RouterLink>
@@ -19,14 +19,14 @@
       <p v-if="!runs" class="rerun-status">{{ $t('lab.rerun.empty') }}</p>
       <template v-else>
         <p class="rerun-summary">
-          {{ $t('lab.rerun.summary', { scenarios: scenarioCount, runs }) }} ·
+          {{ $t('lab.rerun.summary', { scenarios: $t('lab.rerun.scenario_count', { n: scenarioCount }, scenarioCount), runs: $t('lab.rerun.run_count', { n: runs }, runs) }) }} ·
           <span>{{ costKnown ? $t('lab.rerun.cost', { cost: costText }) : $t('lab.rerun.cost_unknown') }}</span>
         </p>
         <p class="rerun-note">{{ $t('lab.rerun.paid_note') }}</p>
       </template>
       <div class="rerun-actions">
         <button v-if="runs" type="button" class="btn-primary" :disabled="starting" @click="start">
-          {{ starting ? $t('lab.rerun.starting') : costKnown ? $t('lab.rerun.run', { runs, cost: costText }) : $t('lab.rerun.run_unknown', { runs }) }}
+          {{ starting ? $t('lab.rerun.starting') : costKnown ? $t('lab.rerun.run', { runs, cost: costText }, runs) : $t('lab.rerun.run_unknown', { runs }, runs) }}
         </button>
         <button type="button" class="btn-ghost" :disabled="starting" @click="emit('dismiss')">{{ $t('lab.rerun.dismiss') }}</button>
       </div>
@@ -37,10 +37,12 @@
 <script setup>
 // After a Lab-sourced fix was applied: re-run only the source job's failed scenarios. The cost
 // estimate is fetched first; nothing runs until the user clicks the run button.
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRouter } from 'vue-router'
 import { labRerunEstimate, labRerunFailed } from '@/api/client.js'
-import { formatRerunValue, rerunErrorCode } from '@/utils/labRerun.js'
+import { useWorkflowAssistant } from '@/composables/useWorkflowAssistant.js'
+import { formatRerunValue, rerunCanRetry, rerunError, rerunErrorText } from '@/utils/labRerun.js'
 
 const props = defineProps({
   // {labJobId, workflow}: the Lab job whose failed scenarios are re-run, and its workflow (no .yaml)
@@ -48,13 +50,17 @@ const props = defineProps({
 })
 const emit = defineEmits(['dismiss', 'started'])
 const router = useRouter()
+const { t, te } = useI18n()
+// Undo of the fix waits while the paid start request is on its way.
+const { setRerunStarting } = useWorkflowAssistant()
 
-const titleId = `lab-rerun-title-${Math.random().toString(36).slice(2, 9)}`
+const titleId = `lab-rerun-title-${useId()}`
 const loading = ref(false)
 const starting = ref(false)
 const estimate = ref(null)
-// Code of the last failure (estimate or start); Retry always fetches a fresh estimate first.
-const errorCode = ref('')
+// The last failure (estimate or start) as {code, fallback, params}; Retry always fetches a fresh estimate first.
+const errorInfo = ref(null)
+const errorText = computed(() => (errorInfo.value ? rerunErrorText(errorInfo.value, { t, te }) : { title: '', hint: '' }))
 let alive = true
 let token = 0
 
@@ -62,25 +68,26 @@ const runs = computed(() => Number(estimate.value?.runs) || 0)
 const scenarioCount = computed(() => (Array.isArray(estimate.value?.scenarios) ? estimate.value.scenarios.length : 0))
 const costKnown = computed(() => !!estimate.value?.cost_known && typeof estimate.value?.estimate_usd === 'number')
 const costText = computed(() => (costKnown.value ? formatRerunValue('cost_usd', estimate.value.estimate_usd) : ''))
-// Nothing to retry when the server said there is nothing failed left.
-const canRetry = computed(() => errorCode.value !== 'nothing_to_rerun')
+// No Retry when it cannot help (nothing failed is left, or a job too old to re-run).
+const canRetry = computed(() => !!errorInfo.value && rerunCanRetry(errorInfo.value))
 
 const labLink = (jobId) => ({
   path: '/lab',
-  query: { workflow: `${props.offer.workflow}.yaml`, ...(jobId ? { job: jobId } : {}) }
+  // The bare workflow key: the Lab matches it to its .yaml or .yml file.
+  query: { workflow: props.offer.workflow, ...(jobId ? { job: jobId } : {}) }
 })
 
 async function loadEstimate() {
   const mine = ++token
   loading.value = true
-  errorCode.value = ''
+  errorInfo.value = null
   estimate.value = null
   try {
     const data = await labRerunEstimate(props.offer.labJobId)
     if (!alive || mine !== token) return
     estimate.value = data && typeof data === 'object' ? data : { scenarios: [], runs: 0 }
   } catch (error) {
-    if (alive && mine === token) errorCode.value = rerunErrorCode(error)
+    if (alive && mine === token) errorInfo.value = rerunError(error)
   } finally {
     if (alive && mine === token) loading.value = false
   }
@@ -89,6 +96,7 @@ async function loadEstimate() {
 async function start() {
   if (starting.value || !runs.value) return
   starting.value = true
+  setRerunStarting(true)
   const jobId = props.offer.labJobId
   try {
     const created = await labRerunFailed(jobId)
@@ -96,8 +104,10 @@ async function start() {
     emit('started', created)
     router.push(labLink(created?.id))
   } catch (error) {
-    if (alive) errorCode.value = rerunErrorCode(error)
+    if (alive) errorInfo.value = rerunError(error)
   } finally {
+    // Always, even when the card is gone: Undo stays blocked only while the request is on its way.
+    setRerunStarting(false)
     if (alive) starting.value = false
   }
 }
@@ -146,7 +156,8 @@ onBeforeUnmount(() => {
 
 .rerun-error-title {
   font-weight: 600;
-  color: var(--danger);
+  /* Plain --danger is 4.48:1 on the tinted card in light theme: pull it toward the text color. */
+  color: color-mix(in srgb, var(--danger) 85%, var(--text-1));
 }
 
 .rerun-actions {
@@ -201,5 +212,14 @@ onBeforeUnmount(() => {
 .btn-primary:focus-visible {
   outline: 2px solid var(--accent-sky);
   outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .btn-ghost,
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
 }
 </style>

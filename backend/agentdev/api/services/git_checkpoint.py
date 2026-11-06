@@ -148,7 +148,9 @@ def _capture(root: Path, message: str) -> str:
         index = scratch / "index"
         real = _git_dir(root) / "index"
         if real.is_file():
-            shutil.copyfile(real, index)  # the stat cache makes `add -A` skip unchanged files
+            # The stat cache makes `add -A` skip unchanged files. copy2 keeps the index's mtime: git re-reads
+            # entries as new as the index ("racy git"), and a newer copy would hide a same-size edit made in that tick.
+            shutil.copy2(real, index)
         env = {"GIT_INDEX_FILE": str(index)}
         _git(root, "add", "-A", env=env, timeout=SNAPSHOT_TIMEOUT_S)
         tree = _text(_git(root, "write-tree", env=env)).strip()

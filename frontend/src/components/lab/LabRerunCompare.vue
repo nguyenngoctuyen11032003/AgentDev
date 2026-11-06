@@ -56,6 +56,9 @@ const rows = computed(() => rerunCompareRows(props.compare))
 .rc-table thead th { border-top: 0; font-size: 12px; font-weight: 600; color: var(--fg-muted); }
 .rc-table tbody th { font-weight: 500; }
 .rc-table tr.worse td:last-child { color: var(--danger); font-weight: 600; }
-.rc-flag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; font-size: 11.5px; background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.rc-flag { display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px solid currentColor; border-radius: 6px; font-size: 11.5px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 720px) {
+  .rc-link { display: inline-flex; align-items: center; min-height: 44px; }
+}
 </style>

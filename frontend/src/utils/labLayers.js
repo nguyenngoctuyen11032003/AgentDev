@@ -1,5 +1,6 @@
 // Lab findings grouped by the layer that caused them (workflow / environment / platform / scenario).
 // Only workflow findings ask the workflow assistant for a fix; the other layers get their own guidance.
+import { workflowKey } from './workflowSync.js'
 
 /** Display order: what the user can fix in the workflow first, then outside causes. */
 export const LAYER_ORDER = ['workflow', 'environment', 'platform', 'scenario']
@@ -29,3 +30,16 @@ export const workflowUnchanged = (job) =>
 
 /** Stable code of a platform-fix API error ("lab_bad_password" and "bad_password" both -> "bad_password"). */
 export const platformFixErrorCode = (error) => String(error?.code || error?.error_code || '').replace(/^lab_/, '')
+
+/**
+ * The per-run "fix this run" button: for a failed/error run, hidden only once the job is completed and the server
+ * says no workflow fix is needed (it sends `needs_workflow_fix=false` for every job that is not completed yet).
+ */
+export const canFixRun = (job, run) =>
+  !!job && ['failed', 'error'].includes(run?.status) && !(job.status === 'completed' && job.needs_workflow_fix === false)
+
+/** True when a Lab job was run on the given workflow (names compared without the .yaml/.yml suffix). */
+export const jobOfWorkflow = (job, workflow) => {
+  const own = workflowKey(job?.workflow)
+  return !!own && own === workflowKey(workflow)
+}

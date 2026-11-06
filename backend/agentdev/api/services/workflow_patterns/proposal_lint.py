@@ -261,8 +261,35 @@ PAID_GATE_REMOVED = "PAID_GATE_REMOVED"
 
 
 def _paid_gate_ids(graph: Graph) -> List[Any]:
+    """Paid gates: only a ``type: human`` node with ``config.paid: true`` makes a person approve the spend."""
     return [nid for nid, node in graph.nodes.items()
-            if isinstance(node.get("config"), dict) and node["config"].get("paid") is True]
+            if node.get("type") == "human" and isinstance(node.get("config"), dict)
+            and node["config"].get("paid") is True]
+
+
+def _ungated_reach(graph: Graph) -> set:
+    """Nodes a run can start from a start node without passing a paid human gate (``trigger: false`` edges only
+    carry data and never start a step, so they are skipped)."""
+    gates = set(_paid_gate_ids(graph))
+    start = graph.raw.get("start")
+    start = [start] if isinstance(start, str) else list(start or [])
+    triggering = [e for e in graph.edges if e.get("trigger") is not False
+                  and e.get("from") in graph.nodes and e.get("to") in graph.nodes]
+    if not start:  # no declared start: every node nothing triggers
+        targets = {e.get("to") for e in triggering}
+        start = [nid for nid in graph.nodes if nid not in targets]
+    adj: Dict[Any, List[Any]] = {}
+    for e in triggering:
+        adj.setdefault(e.get("from"), []).append(e.get("to"))
+    seen = {s for s in start if s in graph.nodes}
+    stack = [s for s in seen if s not in gates]
+    while stack:
+        for nxt in adj.get(stack.pop(), []):
+            if nxt not in seen:
+                seen.add(nxt)
+                if nxt not in gates:
+                    stack.append(nxt)
+    return seen
 
 
 def _reached_without_person(graph: Graph, gate: Any) -> set:
@@ -276,20 +303,31 @@ def _reached_without_person(graph: Graph, gate: Any) -> set:
 
 def paid_gate_changes(old: Any, new: Any) -> List[Dict[str, Any]]:
     """How an edit weakens the saved file's ``paid: true`` steps (top-level graph): ``removed`` (node gone),
-    ``unmarked`` (flag dropped) or ``silence_reaches`` (a timeout / automatic answer now leads to steps it did not
-    reach before). Reported as a warning: the user may really want it, but must see it before Apply."""
+    ``type_changed`` (no longer a human step), ``unmarked`` (flag dropped), ``silence_reaches`` (a timeout /
+    automatic answer now leads to steps it did not reach before) or ``bypassed`` (a step the gate guarded can now
+    start from a start node without passing any paid human gate). Reported as a warning: the user may really want
+    it, but must see it before Apply."""
     if not isinstance(old, dict):
         return []
     before, after = Graph.from_workflow(old), Graph.from_workflow(new)
     still_paid = set(_paid_gate_ids(after))
+    reach_before, reach_after = _ungated_reach(before), _ungated_reach(after)
     items: List[Dict[str, Any]] = []
     for gate in _paid_gate_ids(before):
         if gate not in after.nodes:
             items.append({"node": gate, "kind": "removed"})
+            continue
+        if after.nodes[gate].get("type") != "human":
+            items.append({"node": gate, "kind": "type_changed"})
         elif gate not in still_paid:
             items.append({"node": gate, "kind": "unmarked"})
         else:
             added = _reached_without_person(after, gate) - _reached_without_person(before, gate)
             if added:
                 items.append({"node": gate, "kind": "silence_reaches", "to": sorted(map(str, added))})
+            # Only while the gate still stands: a removed/retyped/unmarked gate is already reported above.
+            guarded = {e.get("to") for e in before.edges if e.get("from") == gate and e.get("to") != gate}
+            bypassed = (guarded & reach_after) - reach_before
+            if bypassed:
+                items.append({"node": gate, "kind": "bypassed", "to": sorted(map(str, bypassed))})
     return items

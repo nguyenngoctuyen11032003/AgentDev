@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatRerunValue, rerunCompareRows, rerunErrorCode } from './labRerun.js'
+import { formatRerunValue, rerunCanRetry, rerunCompareRows, rerunError, rerunErrorCode, rerunErrorText } from './labRerun.js'
 
 describe('rerunCompareRows', () => {
   it('lists the three metrics with got-worse flags', () => {
@@ -57,5 +57,43 @@ describe('rerunErrorCode', () => {
     expect(rerunErrorCode({ status: 404 })).toBe('not_found')
     expect(rerunErrorCode(new TypeError('Failed to fetch'))).toBe('network')
     expect(rerunErrorCode({ status: 500, code: 'boom' })).toBe('failed')
+  })
+})
+
+describe('rerunError / rerunErrorText', () => {
+  const keys = {
+    'lab.rerun.errors.failed': 'RERUN FAILED',
+    'lab.rerun.errors.not_found': 'RERUN NOT FOUND',
+    'lab.rerun.errors.nothing_to_rerun': 'NOTHING',
+    'lab.rerun.hints.failed': 'HINT FAILED',
+    'lab.rerun.hints.not_found': 'HINT NOT FOUND',
+    'lab.rerun.hints.nothing_to_rerun': 'HINT NOTHING',
+    'lab.rerun.hints.lab_legacy_job': 'HINT LEGACY',
+    'lab.errors.lab_legacy_job': 'LAB LEGACY',
+    'lab.errors.lab_job_running': 'LAB RUNNING',
+    'lab.errors.lab_workflow_not_found': 'LAB WF NOT FOUND',
+    'lab.errors.lab_job_not_found': 'LAB JOB {job_id}'
+  }
+  const te = (key) => key in keys
+  const t = (key, params = {}) => keys[key].replace(/\{(\w+)\}/g, (_, k) => params[k] ?? '')
+  const text = (error) => rerunErrorText(rerunError(error), { t, te })
+
+  it('uses the Lab text for server codes without a rerun text, never a wrong generic one', async () => {
+    expect(text({ status: 409, code: 'lab_legacy_job' }).title).toBe('LAB LEGACY')
+    expect(text({ status: 409, code: 'lab_legacy_job' }).hint).toBe('HINT LEGACY')
+    expect(text({ status: 409, code: 'lab_job_running' }).title).toBe('LAB RUNNING')
+    expect(text({ status: 409, code: 'lab_job_running' }).hint).toBe('HINT FAILED')
+    expect(text({ status: 404, code: 'lab_workflow_not_found' }).title).toBe('LAB WF NOT FOUND')
+    expect(text({ status: 404, code: 'lab_job_not_found', params: { job_id: 'j1' } }).title).toBe('LAB JOB j1')
+    expect(text({ status: 404, code: 'lab_job_not_found' }).hint).toBe('HINT NOT FOUND')
+    expect(text({ status: 409, code: 'nothing_to_rerun' })).toEqual({ title: 'NOTHING', hint: 'HINT NOTHING' })
+    expect(text({ status: 500, code: 'boom' })).toEqual({ title: 'RERUN FAILED', hint: 'HINT FAILED' })
+  })
+
+  it('hides Retry when retrying cannot help', () => {
+    expect(rerunCanRetry(rerunError({ status: 409, code: 'lab_legacy_job' }))).toBe(false)
+    expect(rerunCanRetry(rerunError({ status: 409, code: 'nothing_to_rerun' }))).toBe(false)
+    expect(rerunCanRetry(rerunError({ status: 409, code: 'lab_job_running' }))).toBe(true)
+    expect(rerunCanRetry(rerunError(new TypeError('Failed to fetch')))).toBe(true)
   })
 })

@@ -34,12 +34,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
+from agentdev.utils.reserved_ports import PREVIEW_PORT_RANGE
 from agentdev.utils.reserved_ports import RESERVED_PORTS as AGENTDEV_PORTS
 from agentdev.utils.reserved_ports import with_reserved_ports
 
 logger = logging.getLogger(__name__)
 
-PORT_RANGE = range(47100, 47200)
+PORT_RANGE = PREVIEW_PORT_RANGE
 RESERVED_PORTS = frozenset(AGENTDEV_PORTS)  # AgentDev's own frontend/backend ports
 MAX_CONCURRENT = 3
 IDLE_SECONDS = 30 * 60

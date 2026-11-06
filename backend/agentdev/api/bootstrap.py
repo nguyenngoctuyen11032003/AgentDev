@@ -62,6 +62,9 @@ def _stop_previews_on_shutdown(app: FastAPI) -> None:
             from agentdev.api.services.app_preview import shutdown_previews
 
             shutdown_previews()
+            from agentdev.api.services.platform_fix_finish import shutdown as shutdown_platform_fix_verifies
+
+            shutdown_platform_fix_verifies()  # running verifies end as cancelled, their trees are killed
             from agentdev.utils.process_registry import get_registry
 
             get_registry().kill_all()  # agent shell children must not outlive the server

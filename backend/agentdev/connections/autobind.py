@@ -18,6 +18,11 @@ from agentdev.connections.catalog import AUTH_CLI, get_vendor, is_account_auth, 
 from agentdev.connections.store import Connection, get_store
 from agentdev.entity.configs import ConfigError
 
+
+class NoSignedInAccountError(ConfigError):
+    """No signed-in account can run an agent of the workflow: the machine's accounts, not the workflow."""
+
+
 logger = logging.getLogger(__name__)
 
 # Provider names found in YAML -> the vendor whose account should run the node
@@ -148,7 +153,7 @@ def bind_default_connections(
                 return
             vendor = get_vendor(vendor_id)
             label = vendor.label if vendor else (provider or "a model provider")
-            raise ConfigError(
+            raise NoSignedInAccountError(
                 f"No signed-in account can run this agent: sign in to {label} on the Connections page "
                 "and pick the connection on the node.",
                 path,

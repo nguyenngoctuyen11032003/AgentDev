@@ -2032,11 +2032,11 @@
     "models_count": "{count} models",
     "models_more": "+{count} more",
     "logout_title": "Sign out of \"{name}\"?",
-        "confirm_logout_detail": "Nodes using this connection will stop working. Only the AgentDev record is removed; the CLI account on this machine stays signed in unless you tick the box below.",
+    "confirm_logout_detail": "Nodes using this connection will stop working. Only the AgentDev record is removed; the CLI account on this machine stays signed in unless you tick the box below.",
     "sign_out_cli_label": "Sign the CLI out machine-wide: affects terminals, Claude Code/Codex and open runs",
     "logged_out_cli": "Connection removed and the CLI on this machine signed out",
     "logout_cli_kept": "Connection removed. The CLI stays signed in because another connection of the same vendor still shares it.",
-    "logout_cli_failed":"Connection removed but the CLI could not be signed out. Run the CLI's sign-out command (for example claude auth logout) in a terminal.",
+    "logout_cli_failed": "Connection removed but the CLI could not be signed out. Run the CLI's sign-out command (for example claude auth logout) in a terminal.",
     "retry": "Retry",
     "load_failed_title": "Could not load connections",
     "load_failed_hint": "Check that the backend is running (port 6400), then press Retry.",
@@ -2376,6 +2376,165 @@
         "confirm_required": "Tick the confirmation box before continuing."
       }
     },
+    "platform_fixes": {
+      "title": "Open platform fixes",
+      "hint": "AgentDev source fixes in their own worktree on this machine. Verify again, then commit + merge into main or discard. Nothing is pushed.",
+      "loading": "Loading platform fixes…",
+      "load_failed": "Could not load the platform fixes: {error}",
+      "load_failed_hint": "Check that the AgentDev server is running, then press Retry.",
+      "retry": "Retry",
+      "refresh": "Refresh",
+      "head": "HEAD {sha}",
+      "ahead": "{n} commits ahead of {base}",
+      "dirty": "{n} uncommitted files",
+      "changed_files": "{n} changed files",
+      "no_changes": "No files changed yet.",
+      "forbidden_title": "Forbidden files changed",
+      "forbidden_badge": "forbidden",
+      "gates_title": "Verify steps",
+      "no_verify": "Not verified yet.",
+      "verify_state": {
+        "running": "Verifying…",
+        "passed": "Verify passed",
+        "failed": "Verify has failed steps",
+        "cancelled": "Verify cancelled"
+      },
+      "gate": {
+        "forbidden_untouched": "No forbidden file changed",
+        "backend_sync": "Install backend packages (uv sync)",
+        "backend_tests": "Backend tests (pytest)",
+        "frontend_install": "Install frontend packages (npm)",
+        "frontend_tests": "Frontend tests (vitest)",
+        "frontend_lint": "Frontend lint",
+        "frontend_build": "Frontend build",
+        "frontend_i18n": "Translations check vi/en/zh"
+      },
+      "gate_status": {
+        "pending": "pending",
+        "running": "running",
+        "passed": "passed",
+        "failed": "failed",
+        "timeout": "timed out",
+        "skipped": "skipped",
+        "cancelled": "cancelled"
+      },
+      "show_output": "Show command output",
+      "report_summary": "Short report",
+      "report_loading": "Loading the report…",
+      "report_failed": "Could not load the report: {error}",
+      "report_retry": "Reload the report",
+      "blockers_title": "Cannot merge yet because",
+      "ready": "Ready to merge: verify passed and nothing blocks it.",
+      "blocker_fix": "How to fix: {fix}",
+      "blockers": {
+        "verify_required": {
+          "text": "There is no passed verify for the current code.",
+          "fix": "Press “Verify again”; if a step fails, fix it in the worktree and verify again."
+        },
+        "verify_stale": {
+          "text": "The code changed after the last passed verify.",
+          "fix": "Press “Verify again” to check the new code."
+        },
+        "forbidden_touched": {
+          "text": "The fix changes forbidden files (marked in red above).",
+          "fix": "Revert those files in the worktree (git checkout main -- file). If the fix really needs them, stop and ask a reviewer."
+        },
+        "brief_committed": {
+          "text": "PLATFORM_FIX.md was committed to the branch.",
+          "fix": "Remove it from the branch (git rm --cached PLATFORM_FIX.md, then commit) and verify again."
+        },
+        "ai_attribution": {
+          "text": "A commit on the branch credits Claude/Anthropic as author or co-author.",
+          "fix": "Reword those commits in the worktree to drop the attribution, then verify again."
+        },
+        "main_dirty": {
+          "text": "The main AgentDev folder has uncommitted changes.",
+          "fix": "Commit or stash the pending changes in the main AgentDev folder."
+        },
+        "not_on_main": {
+          "text": "The main AgentDev folder is not on the main branch.",
+          "fix": "Switch the main folder back to main (git switch main)."
+        },
+        "nothing_to_merge": {
+          "text": "There is nothing to merge yet.",
+          "fix": "Change the code in the worktree first, or press “Discard fix” if it is no longer needed."
+        },
+        "unknown": {
+          "text": "Other reason ({code}).",
+          "fix": "Open the short report for details."
+        }
+      },
+      "verify": "Verify again",
+      "verify_starting": "Starting…",
+      "cancel_verify": "Cancel verify",
+      "cancelling": "Cancelling…",
+      "merge": "Commit + merge into main + clean up branch",
+      "discard": "Discard fix",
+      "announce": {
+        "passed": "Verify of {branch}: passed.",
+        "failed": "Verify of {branch}: some steps failed.",
+        "cancelled": "Verify of {branch} cancelled."
+      },
+      "dialog": {
+        "merge_title": "Commit + merge into main",
+        "discard_title": "Discard the platform fix",
+        "merge_intro": "Branch {branch} will be brought into main on this machine. Exactly:",
+        "merge_steps": {
+          "commit": "Commit the {n} pending changes in the worktree with your git author.",
+          "commit_none": "No uncommitted changes; the commits already on the branch are used.",
+          "merge": "Merge --no-ff branch {branch} into main.",
+          "remove_worktree": "Remove the worktree folder {path}.",
+          "delete_branch": "Delete branch {branch}."
+        },
+        "discard_intro": "The fix on branch {branch} will be dropped, nothing is merged. Exactly:",
+        "discard_steps": {
+          "remove_worktree": "Remove the worktree folder {path}, including uncommitted changes.",
+          "delete_branch": "Delete branch {branch} for good, including unmerged commits.",
+          "lost": "This cannot be undone."
+        },
+        "no_push": "Nothing is pushed to a remote.",
+        "restart": "After the merge, restart the AgentDev server to run the new code.",
+        "message_label": "Commit message (optional)",
+        "message_hint": "Leave empty to use the default message.",
+        "understand_merge": "I understand: commit, merge into main and clean up this branch.",
+        "understand_discard": "I understand: this fix is deleted for good.",
+        "password_label": "Source-fix password",
+        "password_hint": "The password is cleared from the page after every attempt.",
+        "confirm_merge": "Commit + merge",
+        "confirm_discard": "Discard fix",
+        "confirming": "Working…",
+        "cancel": "Cancel",
+        "close": "Close",
+        "merge_done": "Merged into main.",
+        "discard_done": "The fix was discarded.",
+        "files_title": "Files brought into main",
+        "actions_title": "Done",
+        "next_steps_title": "Next steps"
+      },
+      "action": {
+        "committed": "Committed {commit} on branch {branch}: {subject}",
+        "merged": "Merged {branch} into {into} ({commit}).",
+        "removed_worktree": "Removed worktree {path}.",
+        "deleted_branch": "Deleted branch {branch}.",
+        "cleanup_failed": "Could not remove folder {path}.",
+        "branch_kept": "Kept branch {branch}: git could not delete it."
+      },
+      "next": {
+        "restart_server": "Restart the AgentDev server to run the new code.",
+        "push_when_ready": "When ready, push {branch} to the remote yourself (AgentDev does not push).",
+        "manual_cleanup": "Clean up by hand: delete folder {path} and branch {branch} (git branch -D {branch})."
+      },
+      "errors": {
+        "verify_running": "This fix is being verified. Wait for it to finish or press “Cancel verify”.",
+        "verify_not_running": "No verify is running. The list was refreshed.",
+        "not_found": "This fix no longer exists (it may have been merged or discarded). The list was refreshed.",
+        "merge_conflict": "The branch conflicts with main in: {files}. Nothing was changed. Merge main into the worktree, resolve the conflicts, then verify again.",
+        "merge_failed": "git merge failed, nothing was changed: {stderr}",
+        "commit_failed": "git commit failed, nothing was changed: {stderr}",
+        "blocked": "Cannot merge yet: {reason} How to fix: {fix}",
+        "blocked_items": "Concerned: {items}"
+      }
+    },
     "title": "Lab",
     "kicker": "Workflow testing",
     "how_it_works": "How testing works",
@@ -2698,12 +2857,14 @@
       "title": "Re-run only the failed scenarios",
       "intro": "The fix is applied. Check it by re-running the scenarios that failed in the previous evaluation (current YAML, same repeats).",
       "loading": "Estimating the cost…",
-      "summary": "{scenarios} scenarios · {runs} runs",
+      "summary": "{scenarios} · {runs}",
+      "scenario_count": "{n} scenario | {n} scenarios",
+      "run_count": "{n} run | {n} runs",
       "cost": "estimated ~{cost}",
       "cost_unknown": "cost unknown (the previous evaluation recorded no price)",
       "paid_note": "Paid steps (e.g. video render) are never approved automatically in the Lab.",
-      "run": "Run {runs} runs (~{cost})",
-      "run_unknown": "Run {runs} runs",
+      "run": "Run {runs} run (~{cost}) | Run {runs} runs (~{cost})",
+      "run_unknown": "Run {runs} run | Run {runs} runs",
       "starting": "Starting…",
       "dismiss": "Dismiss",
       "retry": "Retry",
@@ -2721,7 +2882,10 @@
         "confirm_required": "Click Retry, then click the run button again.",
         "not_found": "It may have been deleted: start a new evaluation in the Lab.",
         "network": "Check that the backend is running, then click Retry.",
-        "failed": "Click Retry, or open the Lab for details."
+        "failed": "Click Retry, or open the Lab for details.",
+        "lab_legacy_job": "Open the Lab and start a new evaluation of this workflow.",
+        "lab_job_running": "Wait until that evaluation finishes (or stop it in the Lab), then click Retry.",
+        "lab_workflow_not_found": "Open the Lab and pick the workflow again."
       },
       "compare": {
         "title": "Before and after the fix",
@@ -2851,7 +3015,8 @@
       "open": "View",
       "ready": "Ready",
       "not_ready": "Not ready",
-      "open_failed": "Could not open this evaluation"
+      "open_failed": "Could not open this evaluation",
+      "other_workflow": "The evaluation in this link belongs to another workflow ({name}), so it is not opened here."
     },
     "products": {
       "title": "Products of this evaluation",
@@ -2942,9 +3107,8 @@
       "lab_site_no_index": "No index.html to open.",
       "lab_job_running": "The evaluation is still running; wait for it to finish.",
       "lab_yaml_required": "No workflow selected, or the file name is not valid.",
-      "lab_yaml_invalid": "The workflow file name is not valid.",
-      "lab_job_delete_failed": "The evaluation record could not be deleted (file locked?). Nothing was removed; try again.",
       "lab_yaml_invalid": "The workflow file is invalid or unreadable. Open it in the Workflow tab, fix the YAML and score again.",
+      "lab_job_delete_failed": "The evaluation record could not be deleted (file locked?). Nothing was removed; try again.",
       "lab_workflow_not_found": "This workflow was not found. Pick it again from the list.",
       "lab_no_scenarios": "Add at least one test scenario with a prompt.",
       "lab_too_many_scenarios": "Too many scenarios in one run. Remove some and run again.",
@@ -3307,6 +3471,7 @@
     "undone": "Change undone",
     "undo_failed": "Could not undo the change.",
     "undo_stale": "Cannot undo: the workflow was edited after the change was applied.",
+    "undo_rerun_starting": "The failed scenarios are being re-run: wait until it has started, then undo.",
     "conflict": "The workflow was changed somewhere else. Nothing was saved; ask the assistant to redo it on the latest version.",
     "close_form_first": "Close the open node or edge form first, then apply.",
     "apply_failed": "Could not save the proposal.",

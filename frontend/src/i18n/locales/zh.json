@@ -2032,11 +2032,11 @@
     "models_count": "{count} 个模型",
     "models_more": "另外 {count} 个",
     "logout_title": "退出“{name}”？",
-        "confirm_logout_detail": "使用此连接的节点将停止工作。仅删除 AgentDev 中的记录；除非勾选下方选项，本机的 CLI 账户仍保持登录。",
+    "confirm_logout_detail": "使用此连接的节点将停止工作。仅删除 AgentDev 中的记录；除非勾选下方选项，本机的 CLI 账户仍保持登录。",
     "sign_out_cli_label": "在整台机器上退出 CLI：会影响终端、Claude Code/Codex 以及正在运行的任务",
     "logged_out_cli": "已删除连接并退出本机 CLI",
     "logout_cli_kept": "连接已删除。CLI 仍保持登录，因为同一供应商的其他连接仍在共用它。",
-    "logout_cli_failed":"连接已删除，但无法退出 CLI。请在终端运行 CLI 的退出命令（例如 claude auth logout）。",
+    "logout_cli_failed": "连接已删除，但无法退出 CLI。请在终端运行 CLI 的退出命令（例如 claude auth logout）。",
     "retry": "重试",
     "load_failed_title": "无法加载连接列表",
     "load_failed_hint": "请检查后端是否在运行（端口 6400），然后点击重试。",
@@ -2376,6 +2376,165 @@
         "confirm_required": "继续之前请勾选确认框。"
       }
     },
+    "platform_fixes": {
+      "title": "未完成的平台修复",
+      "hint": "本机独立 worktree 中的 AgentDev 源码修复。重新检查后，提交并合并到 main，或放弃。不会推送任何内容。",
+      "loading": "正在加载平台修复…",
+      "load_failed": "无法加载平台修复列表：{error}",
+      "load_failed_hint": "请确认 AgentDev 服务器仍在运行，然后点击重试。",
+      "retry": "重试",
+      "refresh": "刷新",
+      "head": "HEAD {sha}",
+      "ahead": "领先 {base} {n} 个提交",
+      "dirty": "{n} 个未提交文件",
+      "changed_files": "{n} 个已更改文件",
+      "no_changes": "尚无文件更改。",
+      "forbidden_title": "被修改的禁止文件",
+      "forbidden_badge": "禁止文件",
+      "gates_title": "检查步骤",
+      "no_verify": "尚未检查。",
+      "verify_state": {
+        "running": "正在检查…",
+        "passed": "检查通过",
+        "failed": "检查有失败步骤",
+        "cancelled": "检查已取消"
+      },
+      "gate": {
+        "forbidden_untouched": "未修改禁止文件",
+        "backend_sync": "安装后端依赖 (uv sync)",
+        "backend_tests": "后端测试 (pytest)",
+        "frontend_install": "安装前端依赖 (npm)",
+        "frontend_tests": "前端测试 (vitest)",
+        "frontend_lint": "前端 lint",
+        "frontend_build": "前端构建",
+        "frontend_i18n": "翻译检查 vi/en/zh"
+      },
+      "gate_status": {
+        "pending": "等待",
+        "running": "运行中",
+        "passed": "通过",
+        "failed": "失败",
+        "timeout": "超时",
+        "skipped": "跳过",
+        "cancelled": "已取消"
+      },
+      "show_output": "查看命令输出",
+      "report_summary": "简短报告",
+      "report_loading": "正在加载报告…",
+      "report_failed": "无法加载报告：{error}",
+      "report_retry": "重新加载报告",
+      "blockers_title": "暂时无法合并，原因",
+      "ready": "可以合并：检查通过且没有阻碍。",
+      "blocker_fix": "处理方法：{fix}",
+      "blockers": {
+        "verify_required": {
+          "text": "当前代码还没有通过的检查。",
+          "fix": "点击“重新检查”；如有失败步骤，在 worktree 中修复后再检查。"
+        },
+        "verify_stale": {
+          "text": "上次检查通过后代码又有更改。",
+          "fix": "点击“重新检查”以检查新代码。"
+        },
+        "forbidden_touched": {
+          "text": "修复改动了禁止文件（上方红色标记）。",
+          "fix": "在 worktree 中还原这些文件 (git checkout main -- 文件名)。如确需修改，请停下并询问审核人。"
+        },
+        "brief_committed": {
+          "text": "PLATFORM_FIX.md 已被提交到分支。",
+          "fix": "将其移出分支 (git rm --cached PLATFORM_FIX.md 后提交)，然后重新检查。"
+        },
+        "ai_attribution": {
+          "text": "分支上有提交将 Claude/Anthropic 署名为作者或共同作者。",
+          "fix": "在 worktree 中改写 (reword) 这些提交以去掉署名，然后重新检查。"
+        },
+        "main_dirty": {
+          "text": "AgentDev 主目录有未提交的更改。",
+          "fix": "提交或 stash 主目录中未完成的更改。"
+        },
+        "not_on_main": {
+          "text": "AgentDev 主目录不在 main 分支。",
+          "fix": "将主目录切回 main (git switch main)。"
+        },
+        "nothing_to_merge": {
+          "text": "还没有可合并的更改。",
+          "fix": "先在 worktree 中修改代码；如不再需要，点击“放弃修复”。"
+        },
+        "unknown": {
+          "text": "其他原因 ({code})。",
+          "fix": "打开简短报告查看详情。"
+        }
+      },
+      "verify": "重新检查",
+      "verify_starting": "正在开始…",
+      "cancel_verify": "取消检查",
+      "cancelling": "正在取消…",
+      "merge": "提交 + 合并到 main + 清理分支",
+      "discard": "放弃修复",
+      "announce": {
+        "passed": "{branch} 检查：通过。",
+        "failed": "{branch} 检查：有失败步骤。",
+        "cancelled": "已取消 {branch} 的检查。"
+      },
+      "dialog": {
+        "merge_title": "提交 + 合并到 main",
+        "discard_title": "放弃平台修复",
+        "merge_intro": "分支 {branch} 将在本机合并到 main。具体：",
+        "merge_steps": {
+          "commit": "以你的 git 作者身份提交 worktree 中的 {n} 个更改。",
+          "commit_none": "没有未提交的更改；使用分支上已有的提交。",
+          "merge": "以 --no-ff 将分支 {branch} 合并到 main。",
+          "remove_worktree": "删除 worktree 目录 {path}。",
+          "delete_branch": "删除分支 {branch}。"
+        },
+        "discard_intro": "分支 {branch} 上的修复将被放弃，不会合并。具体：",
+        "discard_steps": {
+          "remove_worktree": "删除 worktree 目录 {path}，包括未提交的更改。",
+          "delete_branch": "彻底删除分支 {branch}，包括未合并的提交。",
+          "lost": "此操作无法撤销。"
+        },
+        "no_push": "不会推送到任何远程仓库。",
+        "restart": "合并后请重启 AgentDev 服务器以运行新代码。",
+        "message_label": "提交信息（可选）",
+        "message_hint": "留空则使用默认信息。",
+        "understand_merge": "我已了解：提交、合并到 main 并清理此分支。",
+        "understand_discard": "我已了解：此修复将被永久删除。",
+        "password_label": "源码修复密码",
+        "password_hint": "每次尝试后密码都会从页面清除。",
+        "confirm_merge": "提交 + 合并",
+        "confirm_discard": "放弃修复",
+        "confirming": "正在执行…",
+        "cancel": "取消",
+        "close": "关闭",
+        "merge_done": "已合并到 main。",
+        "discard_done": "已放弃修复。",
+        "files_title": "合并到 main 的文件",
+        "actions_title": "已完成",
+        "next_steps_title": "下一步"
+      },
+      "action": {
+        "committed": "已在分支 {branch} 上提交 {commit}：{subject}",
+        "merged": "已将 {branch} 合并到 {into} ({commit})。",
+        "removed_worktree": "已删除 worktree {path}。",
+        "deleted_branch": "已删除分支 {branch}。",
+        "cleanup_failed": "无法删除目录 {path}。",
+        "branch_kept": "保留了分支 {branch}：git 无法删除。"
+      },
+      "next": {
+        "restart_server": "重启 AgentDev 服务器以运行新代码。",
+        "push_when_ready": "准备好后，请自行将 {branch} 推送到远程（AgentDev 不会推送）。",
+        "manual_cleanup": "手动清理：删除目录 {path} 和分支 {branch} (git branch -D {branch})。"
+      },
+      "errors": {
+        "verify_running": "此修复正在检查中。请等待完成或点击“取消检查”。",
+        "verify_not_running": "没有正在运行的检查。列表已刷新。",
+        "not_found": "此修复已不存在（可能已合并或放弃）。列表已刷新。",
+        "merge_conflict": "分支与 main 在以下文件冲突：{files}。未做任何更改。请将 main 合并到 worktree、解决冲突后重新检查。",
+        "merge_failed": "git merge 失败，未做任何更改：{stderr}",
+        "commit_failed": "git commit 失败，未做任何更改：{stderr}",
+        "blocked": "暂时无法合并：{reason} 处理方法：{fix}",
+        "blocked_items": "涉及：{items}"
+      }
+    },
     "title": "实验室",
     "kicker": "工作流验证",
     "how_it_works": "验证方式",
@@ -2698,7 +2857,9 @@
       "title": "仅重新运行失败的场景",
       "intro": "修复已应用。重新运行上次评估中未通过的场景来验证（使用当前 YAML，重复次数相同）。",
       "loading": "正在估算费用…",
-      "summary": "{scenarios} 个场景 · {runs} 次运行",
+      "summary": "{scenarios} · {runs}",
+      "scenario_count": "{n} 个场景",
+      "run_count": "{n} 次运行",
       "cost": "预计约 {cost}",
       "cost_unknown": "费用未知（上次评估未记录价格）",
       "paid_note": "付费步骤（例如视频渲染）在实验室中永远不会被自动批准。",
@@ -2721,7 +2882,10 @@
         "confirm_required": "点击重试，然后再次点击运行按钮。",
         "not_found": "它可能已被删除：请在实验室中开始新的评估。",
         "network": "请确认后端正在运行，然后点击重试。",
-        "failed": "点击重试，或打开实验室查看详情。"
+        "failed": "点击重试，或打开实验室查看详情。",
+        "lab_legacy_job": "请打开实验室，为此工作流开始新的评估。",
+        "lab_job_running": "请等待该评估完成（或在实验室中停止它），然后点击重试。",
+        "lab_workflow_not_found": "请打开实验室并重新选择工作流。"
       },
       "compare": {
         "title": "修复前后对比",
@@ -2851,7 +3015,8 @@
       "open": "查看",
       "ready": "通过",
       "not_ready": "未通过",
-      "open_failed": "无法打开此次评估"
+      "open_failed": "无法打开此次评估",
+      "other_workflow": "链接中的评估属于另一个工作流（{name}），因此不在此处打开。"
     },
     "products": {
       "title": "本次评估的产物",
@@ -2942,9 +3107,8 @@
       "lab_site_no_index": "没有可打开的 index.html。",
       "lab_job_running": "评估仍在运行，请等待完成。",
       "lab_yaml_required": "未选择工作流，或文件名无效。",
-      "lab_yaml_invalid": "工作流文件名无效。",
-      "lab_job_delete_failed": "无法删除评估记录（文件被占用？）。未删除任何内容，请重试。",
       "lab_yaml_invalid": "工作流文件无效或无法读取。请在工作流页修复 YAML 后重新评分。",
+      "lab_job_delete_failed": "无法删除评估记录（文件被占用？）。未删除任何内容，请重试。",
       "lab_workflow_not_found": "找不到该工作流，请从列表中重新选择。",
       "lab_no_scenarios": "请至少添加一个有内容的测试场景。",
       "lab_too_many_scenarios": "单次运行的场景过多，请减少后重试。",
@@ -3307,6 +3471,7 @@
     "undone": "已撤销修改",
     "undo_failed": "无法撤销修改。",
     "undo_stale": "无法撤销：应用之后工作流又被修改过。",
+    "undo_rerun_starting": "正在开始重新运行失败的场景：请等它开始后再撤销。",
     "conflict": "工作流已在别处被修改。未保存任何内容；请让助手在最新版本上重做。",
     "close_form_first": "请先关闭打开的节点或连线表单，再应用。",
     "apply_failed": "无法保存该方案。",

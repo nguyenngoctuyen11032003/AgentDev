@@ -56,3 +56,29 @@ test('lab: a rerun job shows the before/after table with the worse metric marked
   await compare.getByRole('button', { name: 'Xem lần kiểm định gốc' }).click()
   await expect(page.locator('.rerun-compare')).toHaveCount(0)
 })
+
+test('lab: a ?job= link to a job of another workflow is not opened or remembered here', async ({ page }) => {
+  const OTHER = { ...SOURCE, id: 'e2elabother03', workflow: 'zz_some_other_flow.yaml' }
+  await page.route(`**/api/lab/jobs/${OTHER.id}`, (route) => route.fulfill({ json: OTHER }))
+  await page.goto(`/lab?workflow=${WORKFLOW_FILE}&job=${OTHER.id}`)
+
+  await expect(page.locator('.toast--warning')).toContainText('zz_some_other_flow')
+  await expect(page).not.toHaveURL(/[?&]job=/)
+  await expect(page.locator('section.results')).toHaveCount(0)
+  const remembered = await page.evaluate((name) => sessionStorage.getItem(`agentdev.lab.job.${name}`), WORKFLOW_FILE)
+  expect(remembered).toBeNull()
+})
+
+test('lab: a ?job= link to a missing job says so and falls back to the remembered job', async ({ page, guard }) => {
+  guard.allow(/api\/lab\/jobs\/e2elabgone04|Failed to load resource/)
+  await mockJobs(page)
+  await page.route('**/api/lab/jobs/e2elabgone04', (route) =>
+    route.fulfill({ status: 404, json: { detail: { code: 'lab_job_not_found', params: { job_id: 'e2elabgone04' } } } }))
+  await page.addInitScript(([name, id]) => {
+    sessionStorage.setItem(`agentdev.lab.job.${name}`, JSON.stringify({ id, submitted: [] }))
+  }, [WORKFLOW_FILE, SOURCE.id])
+  await page.goto(`/lab?workflow=${WORKFLOW_FILE}&job=e2elabgone04`)
+
+  await expect(page.locator('.toast--error')).toContainText('e2elabgone04')
+  await expect(page.locator('section.results')).toBeVisible()
+})

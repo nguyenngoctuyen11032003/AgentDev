@@ -11,6 +11,7 @@ import os
 import logging
 from urllib.parse import unquote_plus
 
+from agentdev.connections.security import is_preview_origin
 from agentdev.utils.structured_logger import get_server_logger
 
 
@@ -108,6 +109,10 @@ async def security_middleware(request: Request, call_next: Callable):
     Rejections are *returned* as responses: an ``HTTPException`` raised inside
     an HTTP middleware bypasses FastAPI's exception handlers and surfaces as 500.
     """
+    # Lab/Run previews (model-written pages on loopback preview ports) never reach the API, whatever the method:
+    # this runs before CORS, so even a preflight gets no CORS headers.
+    if is_preview_origin(request.headers.get("origin")):
+        return JSONResponse(status_code=403, content={"detail": "Requests from a preview page are not allowed"})
     # Validate content type for JSON endpoints
     if request.url.path.startswith("/api/") and request.method in ["POST", "PUT", "PATCH"]:
         content_type = request.headers.get("content-type", "").lower()
@@ -146,6 +151,13 @@ async def rate_limit_middleware(request: Request, call_next: Callable):
     return response
 
 
+class _NoPreviewCORSMiddleware(CORSMiddleware):
+    """CORS that never allows a Lab/Run preview origin, even though it matches the loopback regex."""
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        return not is_preview_origin(origin) and super().is_allowed_origin(origin)
+
+
 def add_cors_middleware(app: FastAPI) -> None:
     """Configure and attach CORS middleware."""
     # Dev defaults; override via CORS_ALLOW_ORIGINS (comma-separated)
@@ -159,11 +171,11 @@ def add_cors_middleware(app: FastAPI) -> None:
         origin_regex = None
     else:
         origins = default_origins
-        # Helpful in dev: allow localhost/127.0.0.1 on any port
+        # Helpful in dev: allow localhost/127.0.0.1 on any port (except preview ports, see _NoPreviewCORSMiddleware)
         origin_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
     app.add_middleware(
-        CORSMiddleware,
+        _NoPreviewCORSMiddleware,
         allow_origins=origins,
         allow_origin_regex=origin_regex,
         allow_credentials=True,

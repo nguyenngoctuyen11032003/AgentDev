@@ -1,6 +1,8 @@
 """Lab: rerun only the failed scenarios of a finished job (cost estimate first, then a before/after compare)."""
 
+import json
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -29,8 +31,18 @@ def _judge(passing):
 
 
 def _wait(job):
+    """Until the job finished AND its final state is on disk: the runner flips ``status`` before the last save,
+    so a reload right after the in-memory flip could read the previous save (flaky under load)."""
     deadline = time.monotonic() + 10
     while job.status in ("queued", "running") and time.monotonic() < deadline:
+        time.sleep(0.02)
+    stored = Path(job.store_dir) / f"{job.id}.json" if job.store_dir else None
+    while stored is not None and time.monotonic() < deadline:
+        try:
+            if json.loads(stored.read_text(encoding="utf-8")).get("status") == job.status:
+                break
+        except (OSError, ValueError):
+            pass
         time.sleep(0.02)
     return job.to_dict()
 
@@ -146,3 +158,41 @@ def test_rerun_info_survives_reload(env, monkeypatch):
     assert reloaded["rerun_compare"]["before"]["pass_rate"] == 0.0
     assert reloaded["rerun_compare"]["after"]["pass_rate"] == 1.0
     assert reloaded["rerun_compare"]["flags"] == {}
+
+
+def test_rerun_is_not_compared_to_the_full_job_baseline_nor_becomes_one(env):
+    # A ready full job (a fast, b slow), then a source job where b fails, then a rerun of b that passes.
+    times = {"a": 5.0, "b": 60.0}
+
+    def run_once(yaml_path, scenario, cancel):
+        return {"answer": "ok", "questions": [], "seconds": times[scenario.prompt], "tokens": 5,
+                "cost_usd": 0.01, "cost_known": True}
+
+    scenarios = [Scenario("a", "Một câu trả lời rõ ràng đúng ý", "A"), Scenario("b", "Một câu trả lời rõ ràng đúng ý", "B")]
+    ready = env.runner.start(env.wf, "wf.yaml", scenarios, 1, run_once=run_once, judge=_judge({"a", "b"}))
+    assert _wait(ready)["verdict"] == "ready"
+    source = env.runner.start(env.wf, "wf.yaml", scenarios, 1, run_once=run_once, judge=_judge({"a"}))
+    _wait(source)
+    rerun = env.runner.rerun_failed(source.id, env.wf, run_once=run_once, judge=_judge({"a", "b"}))
+    data = _wait(rerun)
+    assert data["rerun_of"] == source.id
+    assert not data["regression"] and data["baseline"] is None
+    assert "regression" not in {f["code"] for f in data["findings"]}
+    assert not data["needs_workflow_fix"] and data["fix_brief"] == ""
+    # The next full job compares against the full ready job, never against the (partial) rerun.
+    nxt = env.runner.start(env.wf, "wf.yaml", scenarios, 1, run_once=run_once, judge=_judge({"a", "b"}))
+    assert _wait(nxt)["baseline"]["id"] == ready.id
+
+
+def test_estimate_falls_back_to_the_job_average_when_failed_runs_all_errored(env):
+    def run_once(yaml_path, scenario, cancel):
+        if scenario.prompt == "b":
+            raise RuntimeError("429 Too Many Requests")
+        return {"answer": "ok", "questions": [], "seconds": 1, "tokens": 5, "cost_usd": 0.01, "cost_known": True}
+
+    job = env.runner.start(env.wf, "wf.yaml", [Scenario("a", "ca"), Scenario("b", "cb")], 1,
+                           run_once=run_once, judge=_judge({"a"}))
+    _wait(job)
+    body = env.client.get(f"/api/lab/jobs/{job.id}/rerun-failed/estimate").json()
+    assert body["scenarios"] == [1] and body["runs"] == 1
+    assert body["estimate_usd"] == pytest.approx(0.012) and body["cost_known"] is True

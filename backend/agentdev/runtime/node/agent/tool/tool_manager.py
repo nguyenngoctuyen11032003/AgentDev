@@ -27,6 +27,25 @@ from agentdev.utils.function_manager import FUNCTION_CALLING_DIR, FunctionManage
 
 logger = logging.getLogger(__name__)
 
+
+class ToolArgumentError(ValueError):
+    """The model called a function tool with arguments its signature does not accept (a model mistake, so the
+    Lab does not mistake it for a TypeError bug inside AgentDev)."""
+
+
+def bind_tool_arguments(func: Any, call_args: Dict[str, Any]) -> None:
+    """Raise ToolArgumentError when ``call_args`` do not fit ``func``'s signature; callables without an
+    inspectable signature are not checked."""
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return
+    try:
+        signature.bind(**call_args)
+    except TypeError as exc:
+        raise ToolArgumentError(str(exc)) from None
+
+
 DEFAULT_MCP_HTTP_TIMEOUT = 10.0
 
 
@@ -260,6 +279,7 @@ class ToolManager:
             and self._function_accepts_context(func)
         ):
             call_args["_context"] = tool_context
+        bind_tool_arguments(func, call_args)
         return func(**call_args)
 
     def _function_accepts_context(self, func: Any) -> bool:

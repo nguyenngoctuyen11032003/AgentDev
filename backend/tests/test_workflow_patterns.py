@@ -1,6 +1,7 @@
 """Vetted workflow patterns, their picker, and the deterministic pre-card fixes and lint."""
 
 import json
+from pathlib import Path
 
 import pytest
 import yaml
@@ -307,6 +308,45 @@ def test_paid_gate_changes_flag_unmarked_removed_and_silence_reaching_paid_step(
     weakened = proposal_lint.paid_gate_changes(old, _paid_flow(approve_any=("tạo video", "proceed")))
     assert weakened == [{"node": "Render Approval", "kind": "silence_reaches", "to": ["Video Renderer"]}]
     assert proposal_lint.paid_gate_changes(None, _paid_flow(paid=False)) == []  # a new file has nothing to weaken
+
+
+VIDEO_YAML = Path(__file__).resolve().parents[2] / "workspace" / "workflows" / "phong_san_xuat_video.yaml"
+
+
+def _video():
+    return yaml.safe_load(VIDEO_YAML.read_text(encoding="utf-8"))
+
+
+def test_paid_gate_bypass_edits_on_the_video_workflow_are_flagged():
+    old = _video()
+    assert proposal_lint.paid_gate_changes(old, _video()) == []  # unchanged (incl. its trigger:false data edges)
+    # 1. a new edge from the gate's predecessor straight to the paid step
+    new = _video()
+    new["graph"]["edges"].append({"from": "Intake", "to": "Video Renderer"})
+    assert {"node": "Render Approval", "kind": "bypassed", "to": ["Video Renderer"]} in \
+        proposal_lint.paid_gate_changes(old, new)
+    # 2. every edge into the gate now points at the paid step
+    new = _video()
+    for edge in new["graph"]["edges"]:
+        if edge["to"] == "Render Approval":
+            edge["to"] = "Video Renderer"
+    assert {"node": "Render Approval", "kind": "bypassed", "to": ["Video Renderer"]} in \
+        proposal_lint.paid_gate_changes(old, new)
+    # 3. the gate stops being a person (human -> passthrough) but keeps `paid: true`
+    new = _video()
+    for node in new["graph"]["nodes"]:
+        if node["id"] == "Render Approval":
+            node["type"], node["config"] = "passthrough", {"paid": True}
+    assert {"node": "Render Approval", "kind": "type_changed"} in proposal_lint.paid_gate_changes(old, new)
+
+
+def test_paid_flag_on_a_non_human_node_is_not_a_gate():
+    old = _paid_flow()
+    for node in old["graph"]["nodes"]:
+        if node["id"] == "Video Renderer":
+            node["config"]["paid"] = True
+    new = _paid_flow()  # the agent loses its (meaningless) paid flag: no paid gate was weakened
+    assert proposal_lint.paid_gate_changes(old, new) == []
 
 
 def test_edit_removing_paid_flag_is_a_warning_with_a_code(tmp_path, monkeypatch):

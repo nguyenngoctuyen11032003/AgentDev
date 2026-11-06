@@ -35,4 +35,22 @@ describe('Lab screen structure', () => {
     expect(read('../components/lab/LabHistory.vue')).toContain('labDeleteJob')
     expect(read('../api/client.js')).toMatch(/export const labDeleteJob/)
   })
+
+  it('remounts the platform fix per job and drops a confirm answer for a job no longer shown', () => {
+    expect(lab).toMatch(/<LabPlatformFix[^>]*:key="job\.id"/)
+    const fix = read('../components/lab/LabPlatformFix.vue')
+    expect(fix).toMatch(/const jobId = props\.jobId/)
+    expect(fix).toMatch(/props\.jobId !== jobId/)
+  })
+
+  it('hides the per-run fix only for a completed job the server says needs no workflow fix', () => {
+    expect(lab).toContain('canFixRun(job, r)')
+    expect(lab).not.toMatch(/job\.needs_workflow_fix !== false" type="button" class="btn secondary sm fix-btn"/)
+  })
+
+  it('a ?job= link opens only a job of the shown workflow', () => {
+    expect(lab).toMatch(/jobOfWorkflow\(data, name\)/)
+    expect(lab).toContain('lab.history.other_workflow')
+  })
 })
+

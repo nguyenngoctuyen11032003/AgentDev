@@ -2470,11 +2470,11 @@
     "models_count": "{count} model",
     "models_more": "+{count} model khác",
     "logout_title": "Đăng xuất \"{name}\"?",
-        "confirm_logout_detail": "Các nút đang dùng kết nối này sẽ ngừng hoạt động. Chỉ bản ghi trong AgentDev bị xóa; tài khoản CLI trên máy vẫn giữ đăng nhập trừ khi bạn tick ô bên dưới.",
+    "confirm_logout_detail": "Các nút đang dùng kết nối này sẽ ngừng hoạt động. Chỉ bản ghi trong AgentDev bị xóa; tài khoản CLI trên máy vẫn giữ đăng nhập trừ khi bạn tick ô bên dưới.",
     "sign_out_cli_label": "Đăng xuất CLI trên toàn máy: ảnh hưởng terminal, Claude Code/Codex và các lần chạy đang mở",
     "logged_out_cli": "Đã xóa kết nối và đăng xuất CLI trên máy",
     "logout_cli_kept": "Đã xóa kết nối. CLI vẫn đăng nhập vì còn kết nối khác cùng nhà cung cấp đang dùng chung.",
-    "logout_cli_failed":"Đã xóa kết nối nhưng không đăng xuất được CLI. Hãy chạy lệnh đăng xuất của CLI (ví dụ claude auth logout) trong terminal.",
+    "logout_cli_failed": "Đã xóa kết nối nhưng không đăng xuất được CLI. Hãy chạy lệnh đăng xuất của CLI (ví dụ claude auth logout) trong terminal.",
     "retry": "Thử lại",
     "load_failed_title": "Không tải được danh sách kết nối",
     "load_failed_hint": "Kiểm tra backend đang chạy (cổng 6400) rồi bấm Thử lại.",
@@ -2661,6 +2661,165 @@
         "no_platform_report": "Lượt kiểm định này không có lỗi nền tảng nên không cần sửa mã nguồn.",
         "disabled": "Tính năng sửa mã nguồn đang tắt trên máy chủ này. Hãy chép báo cáo gửi nhà phát triển.",
         "confirm_required": "Hãy tích ô xác nhận trước khi tiếp tục."
+      }
+    },
+    "platform_fixes": {
+      "title": "Bản sửa nền tảng đang mở",
+      "hint": "Bản sửa mã nguồn AgentDev nằm trong worktree riêng trên máy này. Kiểm tra lại, rồi commit + merge vào main hoặc bỏ đi. Không có gì được push.",
+      "loading": "Đang tải các bản sửa nền tảng…",
+      "load_failed": "Không tải được danh sách bản sửa nền tảng: {error}",
+      "load_failed_hint": "Kiểm tra máy chủ AgentDev còn chạy rồi bấm Thử lại.",
+      "retry": "Thử lại",
+      "refresh": "Làm mới",
+      "head": "HEAD {sha}",
+      "ahead": "{n} commit trước {base}",
+      "dirty": "{n} tệp chưa commit",
+      "changed_files": "{n} tệp đã đổi",
+      "no_changes": "Chưa có tệp nào đổi.",
+      "forbidden_title": "Tệp cấm bị sửa",
+      "forbidden_badge": "tệp cấm",
+      "gates_title": "Các bước kiểm tra",
+      "no_verify": "Chưa kiểm tra lần nào.",
+      "verify_state": {
+        "running": "Đang kiểm tra…",
+        "passed": "Kiểm tra đạt",
+        "failed": "Kiểm tra có bước lỗi",
+        "cancelled": "Đã huỷ kiểm tra"
+      },
+      "gate": {
+        "forbidden_untouched": "Không sửa tệp cấm",
+        "backend_sync": "Cài thư viện backend (uv sync)",
+        "backend_tests": "Test backend (pytest)",
+        "frontend_install": "Cài thư viện frontend (npm)",
+        "frontend_tests": "Test frontend (vitest)",
+        "frontend_lint": "Lint frontend",
+        "frontend_build": "Build frontend",
+        "frontend_i18n": "Kiểm tra bản dịch vi/en/zh"
+      },
+      "gate_status": {
+        "pending": "chờ",
+        "running": "đang chạy",
+        "passed": "đạt",
+        "failed": "lỗi",
+        "timeout": "quá giờ",
+        "skipped": "bỏ qua",
+        "cancelled": "đã huỷ"
+      },
+      "show_output": "Xem kết quả lệnh",
+      "report_summary": "Báo cáo ngắn",
+      "report_loading": "Đang tải báo cáo…",
+      "report_failed": "Không tải được báo cáo: {error}",
+      "report_retry": "Tải lại báo cáo",
+      "blockers_title": "Chưa merge được vì",
+      "ready": "Sẵn sàng merge: kiểm tra đạt và không có gì chặn.",
+      "blocker_fix": "Cách xử lý: {fix}",
+      "blockers": {
+        "verify_required": {
+          "text": "Chưa có lần kiểm tra đạt cho code hiện tại.",
+          "fix": "Bấm “Kiểm tra lại”; nếu có bước lỗi, sửa trong worktree rồi kiểm tra lại."
+        },
+        "verify_stale": {
+          "text": "Code đã đổi sau lần kiểm tra đạt cuối.",
+          "fix": "Bấm “Kiểm tra lại” để kiểm tra code mới."
+        },
+        "forbidden_touched": {
+          "text": "Bản sửa đổi tệp cấm (tô đỏ ở trên).",
+          "fix": "Hoàn tác các tệp đó trong worktree (git checkout main -- tên tệp). Nếu bản sửa thật sự cần đổi chúng, dừng lại và hỏi người duyệt."
+        },
+        "brief_committed": {
+          "text": "PLATFORM_FIX.md đã bị commit vào nhánh.",
+          "fix": "Bỏ tệp khỏi nhánh (git rm --cached PLATFORM_FIX.md rồi commit), sau đó kiểm tra lại."
+        },
+        "ai_attribution": {
+          "text": "Có commit trên nhánh ghi Claude/Anthropic là tác giả hoặc đồng tác giả.",
+          "fix": "Sửa lại (reword) các commit đó trong worktree để bỏ dòng ghi tên, rồi kiểm tra lại."
+        },
+        "main_dirty": {
+          "text": "Thư mục AgentDev chính có thay đổi chưa commit.",
+          "fix": "Commit hoặc stash các thay đổi đang dở ở thư mục AgentDev chính."
+        },
+        "not_on_main": {
+          "text": "Thư mục AgentDev chính không ở nhánh main.",
+          "fix": "Chuyển thư mục chính về main (git switch main)."
+        },
+        "nothing_to_merge": {
+          "text": "Chưa có thay đổi nào để merge.",
+          "fix": "Sửa code trong worktree trước, hoặc bấm “Bỏ bản sửa” nếu không cần nữa."
+        },
+        "unknown": {
+          "text": "Lý do khác ({code}).",
+          "fix": "Mở báo cáo ngắn để xem chi tiết."
+        }
+      },
+      "verify": "Kiểm tra lại",
+      "verify_starting": "Đang bắt đầu…",
+      "cancel_verify": "Huỷ kiểm tra",
+      "cancelling": "Đang huỷ…",
+      "merge": "Commit + merge vào main + dọn nhánh",
+      "discard": "Bỏ bản sửa",
+      "announce": {
+        "passed": "Kiểm tra {branch}: đạt.",
+        "failed": "Kiểm tra {branch}: có bước lỗi.",
+        "cancelled": "Đã huỷ kiểm tra {branch}."
+      },
+      "dialog": {
+        "merge_title": "Commit + merge vào main",
+        "discard_title": "Bỏ bản sửa nền tảng",
+        "merge_intro": "Nhánh {branch} sẽ được đưa vào main trên máy này. Cụ thể:",
+        "merge_steps": {
+          "commit": "Commit {n} thay đổi đang có trong worktree bằng tên tác giả git của bạn.",
+          "commit_none": "Không có thay đổi chưa commit; dùng các commit sẵn có trên nhánh.",
+          "merge": "Merge --no-ff nhánh {branch} vào main.",
+          "remove_worktree": "Xoá thư mục worktree {path}.",
+          "delete_branch": "Xoá nhánh {branch}."
+        },
+        "discard_intro": "Bản sửa trên nhánh {branch} sẽ bị bỏ, không merge gì. Cụ thể:",
+        "discard_steps": {
+          "remove_worktree": "Xoá thư mục worktree {path}, kể cả thay đổi chưa commit.",
+          "delete_branch": "Xoá hẳn nhánh {branch}, kể cả commit chưa merge.",
+          "lost": "Không hoàn tác được."
+        },
+        "no_push": "Không push gì lên remote.",
+        "restart": "Sau khi merge, khởi động lại máy chủ AgentDev để chạy code mới.",
+        "message_label": "Thông điệp commit (không bắt buộc)",
+        "message_hint": "Để trống thì dùng thông điệp mặc định.",
+        "understand_merge": "Tôi hiểu: commit, merge vào main và dọn nhánh này.",
+        "understand_discard": "Tôi hiểu: bản sửa này bị xoá vĩnh viễn.",
+        "password_label": "Mật khẩu sửa mã nguồn",
+        "password_hint": "Mật khẩu được xoá khỏi trang sau mỗi lần thử.",
+        "confirm_merge": "Commit + merge",
+        "confirm_discard": "Bỏ bản sửa",
+        "confirming": "Đang thực hiện…",
+        "cancel": "Huỷ",
+        "close": "Đóng",
+        "merge_done": "Đã merge vào main.",
+        "discard_done": "Đã bỏ bản sửa.",
+        "files_title": "Tệp đã đưa vào main",
+        "actions_title": "Đã làm",
+        "next_steps_title": "Việc tiếp theo"
+      },
+      "action": {
+        "committed": "Đã commit {commit} trên nhánh {branch}: {subject}",
+        "merged": "Đã merge {branch} vào {into} ({commit}).",
+        "removed_worktree": "Đã xoá worktree {path}.",
+        "deleted_branch": "Đã xoá nhánh {branch}.",
+        "cleanup_failed": "Không xoá được thư mục {path}.",
+        "branch_kept": "Giữ lại nhánh {branch} vì git không xoá được."
+      },
+      "next": {
+        "restart_server": "Khởi động lại máy chủ AgentDev để chạy code mới.",
+        "push_when_ready": "Khi sẵn sàng, tự push nhánh {branch} lên remote (AgentDev không push).",
+        "manual_cleanup": "Dọn bằng tay: xoá thư mục {path} và nhánh {branch} (git branch -D {branch})."
+      },
+      "errors": {
+        "verify_running": "Bản sửa này đang được kiểm tra. Hãy chờ xong hoặc bấm “Huỷ kiểm tra”.",
+        "verify_not_running": "Không có lần kiểm tra nào đang chạy. Danh sách đã được làm mới.",
+        "not_found": "Không còn bản sửa này (có thể đã được merge hoặc bỏ). Danh sách đã được làm mới.",
+        "merge_conflict": "Nhánh xung đột với main ở: {files}. Chưa có gì thay đổi. Hãy merge main vào worktree, sửa xung đột, rồi kiểm tra lại.",
+        "merge_failed": "git merge lỗi nên chưa có gì thay đổi: {stderr}",
+        "commit_failed": "git commit lỗi nên chưa có gì thay đổi: {stderr}",
+        "blocked": "Chưa merge được: {reason} Cách xử lý: {fix}",
+        "blocked_items": "Liên quan: {items}"
       }
     },
     "title": "Phòng thí nghiệm",
@@ -2985,7 +3144,9 @@
       "title": "Chạy lại chỉ các kịch bản lỗi",
       "intro": "Bản sửa đã được áp dụng. Kiểm tra lại bằng cách chạy lại các kịch bản chưa đạt của lần kiểm định trước (YAML hiện tại, cùng số lần lặp).",
       "loading": "Đang ước tính chi phí…",
-      "summary": "{scenarios} kịch bản · {runs} lượt chạy",
+      "summary": "{scenarios} · {runs}",
+      "scenario_count": "{n} kịch bản",
+      "run_count": "{n} lượt chạy",
       "cost": "ước tính ~{cost}",
       "cost_unknown": "chưa biết chi phí (lần trước không ghi giá)",
       "paid_note": "Các bước tốn phí (ví dụ render video) không bao giờ được tự động duyệt khi chạy trong Phòng thí nghiệm.",
@@ -3008,7 +3169,10 @@
         "confirm_required": "Bấm Thử lại rồi bấm nút chạy một lần nữa.",
         "not_found": "Lần kiểm định có thể đã bị xóa: chạy kiểm định mới trong Phòng thí nghiệm.",
         "network": "Kiểm tra backend đang chạy rồi bấm Thử lại.",
-        "failed": "Bấm Thử lại, hoặc mở Phòng thí nghiệm để xem chi tiết."
+        "failed": "Bấm Thử lại, hoặc mở Phòng thí nghiệm để xem chi tiết.",
+        "lab_legacy_job": "Mở Phòng thí nghiệm và chạy một lần kiểm định mới cho quy trình này.",
+        "lab_job_running": "Đợi lần kiểm định chạy xong (hoặc dừng nó trong Phòng thí nghiệm) rồi bấm Thử lại.",
+        "lab_workflow_not_found": "Mở Phòng thí nghiệm và chọn lại quy trình."
       },
       "compare": {
         "title": "Trước và sau khi sửa",
@@ -3138,7 +3302,8 @@
       "open": "Xem",
       "ready": "Đạt",
       "not_ready": "Chưa đạt",
-      "open_failed": "Không mở được lần kiểm định này"
+      "open_failed": "Không mở được lần kiểm định này",
+      "other_workflow": "Lần kiểm định trong liên kết thuộc quy trình khác ({name}), nên không mở ở đây."
     },
     "products": {
       "title": "Sản phẩm của lần kiểm định",
@@ -3229,9 +3394,8 @@
       "lab_site_no_index": "Không có trang index.html để mở.",
       "lab_job_running": "Lượt kiểm định đang chạy, hãy chờ xong.",
       "lab_yaml_required": "Chưa chọn quy trình hoặc tên tệp không hợp lệ.",
-      "lab_yaml_invalid": "Tên tệp quy trình không hợp lệ.",
-      "lab_job_delete_failed": "Không xóa được bản ghi lượt kiểm định (tệp đang bị khóa?). Chưa có gì bị xóa, hãy thử lại.",
       "lab_yaml_invalid": "Tệp quy trình không hợp lệ hoặc không đọc được. Mở quy trình trong tab Quy trình, sửa lỗi YAML rồi chấm lại.",
+      "lab_job_delete_failed": "Không xóa được bản ghi lượt kiểm định (tệp đang bị khóa?). Chưa có gì bị xóa, hãy thử lại.",
       "lab_workflow_not_found": "Không tìm thấy quy trình này. Hãy chọn lại ở danh sách.",
       "lab_no_scenarios": "Hãy thêm ít nhất một kịch bản kiểm thử có nội dung.",
       "lab_too_many_scenarios": "Quá nhiều kịch bản trong một lượt. Hãy bớt đi rồi chạy lại.",
@@ -3307,6 +3471,7 @@
     "undone": "Đã hoàn tác thay đổi",
     "undo_failed": "Không hoàn tác được thay đổi.",
     "undo_stale": "Không hoàn tác được vì quy trình đã được sửa sau khi áp dụng.",
+    "undo_rerun_starting": "Đang bắt đầu chạy lại các kịch bản lỗi: đợi nó bắt đầu rồi mới hoàn tác.",
     "conflict": "Quy trình đã bị sửa ở nơi khác. Chưa lưu gì cả; hãy nhờ trợ lý làm lại trên bản mới nhất.",
     "close_form_first": "Hãy đóng biểu mẫu sửa nút hoặc liên kết đang mở rồi mới áp dụng.",
     "apply_failed": "Không áp dụng được bản đề xuất.",
