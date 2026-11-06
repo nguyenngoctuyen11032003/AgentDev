@@ -1,0 +1,211 @@
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-110536.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-110536.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifwrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-110736.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-110736.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:04:24.705120] [ERROR] Node Tech Lead - Event EventType.TOOL_CALL - Tool call read_file_segment for node Tech Lead Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/core/text.py', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:04:24.706153] [ERROR] Node Tech Lead - Event EventType.TOOL_CALL - Tool call read_file_segment for node Tech Lead Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_text.py', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:05:19.249073] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'true', 'max_depth': '3', 'include_hidden': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:05:19.250581] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call search_in_files for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_value', 'use_regex': 'false', 'case_sensitive': 'true', 'include_hidden': 'true', 'before_context': '0', 'after_context': '0', 'max_results': '500'}, 'stage': 'after'} 
+[2026-11-06T11:07:06.475095] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': 'Path is outside workspace', 'arguments': {'path': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-6t4yll8o', 'recursive': 'true', 'max_depth': '3', 'include_hidden': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:07:06.476099] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/core/norm.py', 'start_line': '1', 'line_count': '20', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:07:06.476099] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call search_in_files for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_value', 'use_regex': 'false', 'include_hidden': 'true', 'max_results': '500', 'before_context': '0', 'after_context': '0'}, 'stage': 'after'} 
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:07:36
+- total cost: $0.0309
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 78.74 | 13 | 129818/7591 | 0.008625 (True) | - | - | red -> green |
+| b_ok | False | True | 17.14 | 2 | 46808/2081 | 0.002229 (True) | - | - | green -> green |
+| c_ok | False | True | 149.43 | 16 | 235677/20322 | 0.020022 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": false, "no_test_removed": true}
+- c_ok: {"old_name_gone": false, "new_name_in_all_user_files": false, "behaviour_unchanged": true, "no_test_removed": true, "old_name_left_in": false}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-111424.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-111424.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:13:12.100688] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call search_in_files for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_value', 'use_regex': 'false', 'case_sensitive': 'true', 'include_hidden': 'true', 'max_results': '1000', 'before_context': '0', 'after_context': '0'}, 'stage': 'after'} 
+[2026-11-06T11:13:12.101680] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'true', 'max_depth': '3', 'include_hidden': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:13:27.769236] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'false', 'include_hidden': 'true', 'limit': '300'}, 'stage': 'after'} 
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:14:24
+- total cost: $0.035
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 114.87 | 13 | 152882/8648 | 0.009706 (True) | - | - | red -> green |
+| b_ok | True | True | 102.37 | 13 | 179163/11400 | 0.012042 (True) | - | - | green -> green |
+| c_ok | False | True | 88.99 | 6 | 218846/13409 | 0.013212 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": false, "new_name_in_all_user_files": false, "behaviour_unchanged": true, "no_test_removed": true, "old_name_left_in": false}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-112317.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-112317.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:17:39.448143] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'true', 'max_depth': '3'}, 'stage': 'after'} 
+[2026-11-06T11:17:39.449143] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/core/text.py', 'start_line': '1', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:17:39.450144] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_text.py', 'start_line': '1', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:18:07.008502] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/core/text.py', 'start_line': '1', 'line_count': '200'}, 'stage': 'after'} 
+[2026-11-06T11:18:07.009502] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_text.py', 'start_line': '1', 'line_count': '200'}, 'stage': 'after'} 
+[2026-11-06T11:18:17.229296] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call search_in_files for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': '.', 'globs': '["pkg/core/text.py", "tests/test_core_text.py"]', 'use_regex': 'true', 'before_context': '0', 'after_context': '0', 'max_results': '500'}, 'stage': 'after'} Duration: 0.0009982585906982422
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:20:31.094445] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call search_in_files for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_value', 'use_regex': 'false', 'case_sensitive': 'true', 'include_hidden': 'true', 'before_context': '0', 'after_context': '0', 'max_results': '500'}, 'stage': 'after'} 
+[2026-11-06T11:22:30.137424] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call read_file_segment for node QA Verifier Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/core/norm.py', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:22:30.137929] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call read_file_segment for node QA Verifier Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_norm.py', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:22:41.340919] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call read_file_segment for node QA Verifier Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/core/norm.py', 'start_line': '1', 'line_count': '200'}, 'stage': 'after'} 
+[2026-11-06T11:22:41.341932] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call read_file_segment for node QA Verifier Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_norm.py', 'start_line': '1', 'line_count': '200'}, 'stage': 'after'} 
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:23:17
+- total cost: $0.0636
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 123.56 | 20 | 221396/15543 | 0.016399 (True) | - | - | red -> green |
+| b_ok | False | True | 76.43 | 8 | 150123/10789 | 0.011024 (True) | - | - | green -> green |
+| c_ok | True | True | 240.33 | 22 | 466210/34846 | 0.036189 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": false, "no_test_removed": true}
+- c_ok: {"old_name_gone": true, "new_name_in_all_user_files": true, "behaviour_unchanged": true, "no_test_removed": true}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-113120.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-113120.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:24:10.007661] [ERROR] Node Code Scout - Event EventType.TOOL_CALL - Tool call read_file_segment for node Code Scout Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_mathx.py', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:28:14.494419] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'true', 'max_depth': '2', 'include_hidden': 'true', 'limit': '300'}, 'stage': 'after'} 
+[2026-11-06T11:28:14.495481] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call search_in_files for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_value', 'use_regex': 'false', 'include_hidden': 'true', 'max_results': '500', 'before_context': '0', 'after_context': '0'}, 'stage': 'after'} 
+[2026-11-06T11:28:42.301111] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/core/norm.py', 'line_count': '40', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:28:42.302112] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_norm.py', 'line_count': '40', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:28:42.302112] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/sub00/m15.py', 'line_count': '40', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:30:44.281705] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call search_in_files for node QA Verifier Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_number', 'include_hidden': 'true', 'before_context': '0', 'after_context': '0'}, 'stage': 'after'} 
+[2026-11-06T11:30:44.281705] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call read_file_segment for node QA Verifier Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/core/norm.py', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:30:44.281705] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call read_file_segment for node QA Verifier Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_norm.py', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:31:20
+- total cost: $0.0596
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 106.57 | 18 | 247215/15724 | 0.016968 (True) | - | - | red -> green |
+| b_ok | True | True | 93.79 | 10 | 329022/13913 | 0.014583 (True) | - | - | green -> green |
+| c_ok | True | True | 203.87 | 19 | 385925/27946 | 0.028007 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": true, "new_name_in_all_user_files": true, "behaviour_unchanged": true, "no_test_removed": true}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-114116.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-114116.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:31:56.699976] [ERROR] Node Code Scout - Event EventType.TOOL_CALL - Tool call read_file_segment for node Code Scout Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_mathx.py', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:31:58.487992] [ERROR] Node Repro Analyst - Event EventType.TOOL_CALL - Tool call list_directory for node Repro Analyst Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'true', 'max_depth': '2'}, 'stage': 'after'} 
+[2026-11-06T11:31:58.488991] [ERROR] Node Repro Analyst - Event EventType.TOOL_CALL - Tool call read_file_segment for node Repro Analyst Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_mathx.py', 'line_count': '200', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:32:31.509370] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'pkg/core/mathx.py', 'start_line': '1', 'line_count': '40', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:32:31.510385] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'true', 'max_depth': '3'}, 'stage': 'after'} 
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:36:27.103575] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call save_file for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'save_file', 'success': False, 'result_size': 0, 'error': 'Path is outside workspace', 'arguments': {'path': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\claude\\e08682974cfb6700\\e4be38bd-1050-4de5-88e0-33509317d836\\scratchpad\\rename_normalize.py', 'content': "import pathlib\nimport re\n\nroot = pathlib.Path('.')\npat = re.compile(r'\\bnormalize_value\\b')\nchanged = []\nfor p in root.rglob('*'):\n    if '.git' in p.parts or not p.is_file():\n        continue\n    try:\n        data = p.read_bytes().decode('utf-8')\n    except UnicodeDecodeError:\n        continue\n    ... [+260 chars]", 'encoding': 'utf-8', 'mode': 'overwrite'}, 'stage': 'after'} Duration: 0.0020029544830322266
+[2026-11-06T11:38:26.416128] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': 'Path is outside workspace', 'arguments': {'path': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-6o4mzmsd', 'recursive': True, 'max_depth': 4, 'include_hidden': True}, 'stage': 'after'} 
+[2026-11-06T11:38:26.417136] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': 'Path is outside session directory', 'arguments': {'path': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-6o4mzmsd\\tests\\test_core_norm.py', 'start_line': 1, 'line_count': 60, 'inline_line_numbers': True}, 'stage': 'after'} 
+[2026-11-06T11:38:33.410438] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call run_shell_command for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'run_shell_command', 'success': False, 'result_size': 0, 'error': 'cwd must stay inside the project workspace', 'arguments': {'command': 'cmd /c "dir /a /s /b"', 'cwd': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-6o4mzmsd', 'timeout': 120}, 'stage': 'after'} Duration: 0.0019948482513427734
+[2026-11-06T11:38:33.412435] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call run_shell_command for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'run_shell_command', 'success': False, 'result_size': 0, 'error': 'cwd must stay inside the project workspace', 'arguments': {'command': 'cmd /c "findstr /s /n /i /p /c:normalize_value *.*"', 'cwd': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-6o4mzmsd', 'timeout': 120}, 'stage': 'after'} Duration: 0.0009944438934326172
+[2026-11-06T11:38:33.415436] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call run_shell_command for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'run_shell_command', 'success': False, 'result_size': 0, 'error': 'cwd must stay inside the project workspace', 'arguments': {'command': 'cmd /c "type tests\\test_core_norm.py"', 'cwd': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-6o4mzmsd', 'timeout': 60}, 'stage': 'after'} Duration: 0.003000974655151367
+[2026-11-06T11:39:01.481598] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'true', 'include_hidden': 'true', 'max_depth': '4'}, 'stage': 'after'} 
+[2026-11-06T11:39:01.481598] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_norm.py', 'start_line': '1', 'line_count': '20', 'inline_line_numbers': 'true'}, 'stage': 'after'} 
+[2026-11-06T11:39:01.481598] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call search_in_files for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_value', 'use_regex': 'false', 'include_hidden': 'true', 'max_results': '500', 'before_context': '0', 'after_context': '0'}, 'stage': 'after'} 
+[2026-11-06T11:39:40.075325] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call apply_text_edits for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'apply_text_edits', 'success': False, 'result_size': 0, 'error': 'expected_old does not match lines 3-3; the file changed or the line numbers are wrong. Re-read the file (read_file_segment) or use edit_file.', 'arguments': {'path': 'tests/test_core_norm.py', 'start_line': '3', 'end_line': '3', 'replacement': 'def test_normalize_number():', 'expected_old': 'def test_normalize_value():'}, 'stage': 'after'} Duration: 0.005000591278076172
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:41:16
+- total cost: $0.0758
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | False | True | 132.87 | 17 | 307648/19545 | 0.019767 (True) | - | - | red -> red |
+| b_ok | True | True | 64.06 | 10 | 128495/8224 | 0.008324 (True) | - | - | green -> green |
+| c_ok | True | True | 335.49 | 37 | 691925/46179 | 0.047728 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": false, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": true, "new_name_in_all_user_files": true, "behaviour_unchanged": true, "no_test_removed": true}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-114804.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\on\bench-projects-20261106-114804.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:45:25.836043] [ERROR] Node Code Scout - Event EventType.TOOL_CALL - Tool call search_in_files for node Code Scout Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_value', 'use_regex': 'false', 'globs': '["**/*"]', 'before_context': '0', 'after_context': '0', 'max_results': '1000'}, 'stage': 'after'} 
+[2026-11-06T11:45:25.837058] [ERROR] Node Code Scout - Event EventType.TOOL_CALL - Tool call search_in_files for node Code Scout Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_number', 'use_regex': 'false', 'globs': '["**/*"]', 'before_context': '0', 'after_context': '0', 'max_results': '1000'}, 'stage': 'after'} 
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:48:04
+- total cost: $0.0434
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 87.26 | 12 | 144025/7956 | 0.008973 (True) | - | - | red -> green |
+| b_ok | True | True | 86.74 | 14 | 156247/11117 | 0.011216 (True) | - | - | green -> green |
+| c_ok | True | True | 168.02 | 18 | 281718/21357 | 0.023218 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": true, "new_name_in_all_user_files": true, "behaviour_unchanged": true, "no_test_removed": true}
+

@@ -1,0 +1,69 @@
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\rescue\bench-projects-20261106-115359.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\rescue\bench-projects-20261106-115359.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:50:21.768742] [ERROR] Node Tech Lead - Event EventType.TOOL_CALL - Tool call delegate_parallel for node Tech Lead Details: {'tool_result': None, 'tool_name': 'delegate_parallel', 'success': False, 'result_size': 0, 'error': 'tasks must be a list of at least 2 {member, task} items; use delegate_task for a single task.', 'arguments': {'tasks': '[{"member": "Code Scout", "task": "Scope: small\\nWorkspace: C:\\\\Users\\\\TUYEN\\\\AppData\\\\Local\\\\Temp\\\\agentdev-cli-snyf66me (read-only, do not edit anything).\\nSymptom: test tests/test_core_mathx.py::test_clamp_above fails.\\nExpected: the test passes; the function it exercises behaves as the test requ... [+1288 chars]'}, 'stage': 'after'} 
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:53:00.479612] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call search_in_files for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_value', 'use_regex': 'false', 'include_hidden': 'true', 'max_results': '1000', 'before_context': '0', 'after_context': '0'}, 'stage': 'after'} Duration: 0.0020110607147216797
+[2026-11-06T11:53:00.481614] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'true', 'max_depth': '6', 'include_hidden': 'true', 'limit': '1000'}, 'stage': 'after'} Duration: 0.002002239227294922
+[2026-11-06T11:53:27.591917] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call list_directory for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'list_directory', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'path': '.', 'recursive': 'true', 'max_depth': '4', 'limit': '2000'}, 'stage': 'after'} Duration: 0.0029997825622558594
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:53:59
+- total cost: $0.0247
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | False | True | 25.62 | 2 | 52041/4297 | 0.003724 (True) | - | - | red -> red |
+| b_ok | True | True | 83.22 | 13 | 172290/9855 | 0.010657 (True) | - | - | green -> green |
+| c_ok | False | True | 73.52 | 9 | 142973/9952 | 0.010295 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": false, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": false, "new_name_in_all_user_files": false, "behaviour_unchanged": true, "no_test_removed": true, "old_name_left_in": false}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\rescue\bench-projects-20261106-120128.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\rescue\bench-projects-20261106-120128.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:54:29.058534] [ERROR] Node Tech Lead - Event EventType.TOOL_CALL - Tool call delegate_parallel for node Tech Lead Details: {'tool_result': None, 'tool_name': 'delegate_parallel', 'success': False, 'result_size': 0, 'error': 'tasks must be a list of at least 2 {member, task} items; use delegate_task for a single task.', 'arguments': {'tasks': '[{"member": "Code Scout", "task": "Scope: small\\nGoal: locate the root cause of the failing test tests/test_core_mathx.py::test_clamp_above. Read-only, do not edit anything.\\nProject root: C:\\\\Users\\\\TUYEN\\\\AppData\\\\Local\\\\Temp\\\\agentdev-cli-wzabgb4a (not a git repo). Start with the test file, then ... [+1540 chars]'}, 'stage': 'after'} 
+[2026-11-06T11:54:29.058534] [ERROR] Node Tech Lead - Event EventType.TOOL_CALL - Tool call delegate_parallel for node Tech Lead Details: {'tool_result': None, 'tool_name': 'delegate_parallel', 'success': False, 'result_size': 0, 'error': 'tasks must be a list of at least 2 {member, task} items; use delegate_task for a single task.', 'arguments': {'tasks': '[{"member": "Code Scout", "task": "Scope: small\\nGoal: locate the root cause of the failing test tests/test_core_mathx.py::test_clamp_above. Read-only, do not edit anything.\\nProject root: C:\\\\Users\\\\TUYEN\\\\AppData\\\\Local\\\\Temp\\\\agentdev-cli-wzabgb4a (not a git repo). Start with the test file, then ... [+1505 chars]'}, 'stage': 'after'} 
+[2026-11-06T11:54:41.920630] [ERROR] Node Tech Lead - Event EventType.TOOL_CALL - Tool call delegate_parallel for node Tech Lead Details: {'tool_result': None, 'tool_name': 'delegate_parallel', 'success': False, 'result_size': 0, 'error': 'tasks must be a list of at least 2 {member, task} items; use delegate_task for a single task.', 'arguments': {'tasks': '[{"member": "Code Scout", "task": "Scope: small\\nGoal: locate the root cause of the failing test tests/test_core_mathx.py::test_clamp_above. Read-only, do not edit anything.\\nProject root: C:\\\\Users\\\\TUYEN\\\\AppData\\\\Local\\\\Temp\\\\agentdev-cli-wzabgb4a (not a git repo). Start with the test file, then ... [+1505 chars]'}, 'stage': 'after'} 
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:58:03.190908] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call save_file for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'save_file', 'success': False, 'result_size': 0, 'error': 'Path is outside workspace', 'arguments': {'path': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\claude\\1b913f7120f2a663\\f9d5adc0-2c4f-4059-8c90-1f8d740846d5\\scratchpad\\rename_normalize.py', 'encoding': 'utf-8', 'mode': 'overwrite', 'content': "import os, re\nroot = os.getcwd()\nassert os.path.exists(os.path.join(root, 'pkg', 'core', 'norm.py')), 'wrong cwd: ' + root\npat = re.compile(r'\\bnormalize_value\\b')\nchanged = []\ntotal = 0\nfor dp, dn, fn in os.walk(root):\n    dn[:] = [d for d in dn if d not in ('.git', '__pycache__', '.pytest_cache')]... [+587 chars]"}, 'stage': 'after'} Duration: 0.0030014514923095703
+[2026-11-06T11:59:08.880856] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call search_in_files for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'search_in_files', 'success': False, 'result_size': 0, 'error': "'<=' not supported between instances of 'str' and 'int'", 'arguments': {'pattern': 'normalize_value', 'use_regex': 'false', 'include_hidden': 'true', 'max_results': '500', 'before_context': '0', 'after_context': '0'}, 'stage': 'after'} Duration: 0.0030019283294677734
+[2026-11-06T11:59:08.884362] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_norm.py', 'start_line': '1', 'line_count': '20', 'inline_line_numbers': 'true', 'include_line_offsets': 'true'}, 'stage': 'after'} Duration: 0.0025081634521484375
+[2026-11-06T11:59:43.493073] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call apply_text_edits for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'apply_text_edits', 'success': False, 'result_size': 0, 'error': 'expected_old does not match lines 3-3; the file changed or the line numbers are wrong. Re-read the file (read_file_segment) or use edit_file.', 'arguments': {'path': 'tests/test_core_norm.py', 'start_line': '3', 'end_line': '3', 'replacement': 'def test_normalize_number():', 'expected_old': 'def test_normalize_value():'}, 'stage': 'after'} Duration: 0.004982709884643555
+[2026-11-06T11:59:43.501117] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call run_shell_command for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'run_shell_command', 'success': False, 'result_size': 0, 'error': 'cwd must stay inside the project workspace', 'arguments': {'command': 'python -B -c "import pathlib;p=pathlib.Path(\'tests/test_core_norm.py\');s=p.read_bytes().decode(\'utf-8\');o=\'def test_normalize_value():\';assert s.count(o)==1;p.write_bytes(s.replace(o,\'def test_normalize_number():\').encode(\'utf-8\'));print(\'ok\')"', 'cwd': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-x83sbf1x', 'timeout': '60'}, 'stage': 'after'} Duration: 0.002039194107055664
+[2026-11-06T11:59:52.315906] [ERROR] Node Bug Fixer - Event EventType.TOOL_CALL - Tool call read_file_segment for node Bug Fixer Details: {'tool_result': None, 'tool_name': 'read_file_segment', 'success': False, 'result_size': 0, 'error': "'<' not supported between instances of 'str' and 'int'", 'arguments': {'path': 'tests/test_core_norm.py', 'start_line': '1', 'line_count': '10', 'inline_line_numbers': 'true', 'include_line_offsets': 'true'}, 'stage': 'after'} Duration: 0.0020008087158203125
+[2026-11-06T12:00:35.554852] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call run_shell_command for node QA Verifier Details: {'tool_result': None, 'tool_name': 'run_shell_command', 'success': False, 'result_size': 0, 'error': 'cwd must stay inside the project workspace', 'arguments': {'command': "Get-ChildItem -Recurse -File | Select-String -SimpleMatch -Pattern 'normalize_value' | Measure-Object | Select-Object -ExpandProperty Count; Write-Output '--- norm.py ---'; Select-String -Path pkg/core/norm.py -Pattern 'normalize_number' -SimpleMatch | ForEach-Object { $_.Line }; Write-Output '--- t... [+352 chars]", 'cwd': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-x83sbf1x', 'timeout': 300}, 'stage': 'after'} Duration: 0.005001544952392578
+[2026-11-06T12:00:35.556851] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call run_shell_command for node QA Verifier Details: {'tool_result': None, 'tool_name': 'run_shell_command', 'success': False, 'result_size': 0, 'error': 'cwd must stay inside the project workspace', 'arguments': {'command': 'python -B -m pytest -q -p no:cacheprovider; Write-Output "EXIT=$LASTEXITCODE"', 'cwd': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-x83sbf1x', 'timeout': 600}, 'stage': 'after'} Duration: 0.0019979476928710938
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T12:01:28
+- total cost: $0.0548
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | False | True | 36.69 | 3 | 92544/7011 | 0.006054 (True) | - | - | red -> red |
+| b_ok | True | True | 110.81 | 12 | 451175/15655 | 0.017142 (True) | - | - | green -> green |
+| c_ok | True | True | 240.61 | 23 | 501132/32425 | 0.031585 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": false, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": true, "new_name_in_all_user_files": true, "behaviour_unchanged": true, "no_test_removed": true}
+

@@ -1,0 +1,190 @@
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-105841.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-105841.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T10:58:41
+- total cost: $0.0352
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | False | True | 63.65 | 8 | 126927/8984 | 0.012268 (True) | - | - | red -> red |
+| b_ok | True | True | 95.37 | 14 | 157131/10567 | 0.012259 (True) | - | - | green -> green |
+| c_ok | False | True | 71.67 | 8 | 127693/9530 | 0.010673 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": false, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": false, "new_name_in_all_user_files": false, "behaviour_unchanged": true, "no_test_removed": true, "old_name_left_in": false}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-111201.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-111201.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:12:01
+- total cost: $0.0483
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 70.9 | 11 | 130676/7318 | 0.008549 (True) | - | - | red -> green |
+| b_ok | False | True | 49.78 | 6 | 82606/6501 | 0.007172 (True) | - | - | green -> green |
+| c_ok | True | True | 379.92 | 25 | 536665/27461 | 0.032549 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": false, "no_test_removed": true}
+- c_ok: {"old_name_gone": true, "new_name_in_all_user_files": true, "behaviour_unchanged": true, "no_test_removed": true}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-111933.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-111933.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:19:33
+- total cost: $0.0505
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | False | True | 86.77 | 13 | 164856/11758 | 0.013603 (True) | - | - | red -> red |
+| b_ok | True | True | 97.66 | 12 | 179395/12210 | 0.013183 (True) | - | - | green -> green |
+| c_ok | True | True | 160.5 | 18 | 251916/21054 | 0.023703 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": false, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": true, "new_name_in_all_user_files": true, "behaviour_unchanged": true, "no_test_removed": true}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-112438.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-112438.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:24:38
+- total cost: $0.03
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 105.9 | 15 | 189687/11119 | 0.012828 (True) | - | - | red -> green |
+| b_ok | False | True | 48.21 | 5 | 99565/6513 | 0.007239 (True) | - | - | green -> green |
+| c_ok | False | True | 62.74 | 6 | 121913/9591 | 0.009907 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": false, "no_test_removed": true}
+- c_ok: {"old_name_gone": false, "new_name_in_all_user_files": false, "behaviour_unchanged": true, "no_test_removed": true, "old_name_left_in": false}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-113123.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-113123.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:31:23
+- total cost: $0.0531
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 126.79 | 20 | 273808/17376 | 0.019353 (True) | - | - | red -> green |
+| b_ok | True | True | 79.9 | 11 | 162605/10889 | 0.011327 (True) | - | - | green -> green |
+| c_ok | True | True | 122.93 | 11 | 218441/22713 | 0.022408 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": true, "new_name_in_all_user_files": true, "behaviour_unchanged": true, "no_test_removed": true}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-113637.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-113637.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+[2026-11-06T11:33:05.769516] [ERROR] Node QA Verifier - Event EventType.TOOL_CALL - Tool call run_shell_command for node QA Verifier Details: {'tool_result': None, 'tool_name': 'run_shell_command', 'success': False, 'result_size': 0, 'error': 'cwd must stay inside the project workspace', 'arguments': {'command': "Test-Path tests/test_core_mathx.py; Test-Path pkg/core/mathx.py; Select-String -Path pkg/core/mathx.py -Pattern 'hi'; python -m pytest tests/test_core_mathx.py -q", 'cwd': 'C:\\Users\\TUYEN\\AppData\\Local\\Temp\\agentdev-cli-xmh2v0xr'}, 'stage': 'after'} Duration: 0.0020384788513183594
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:36:37
+- total cost: $0.0361
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 111.1 | 18 | 194762/15879 | 0.016054 (True) | - | - | red -> green |
+| b_ok | True | True | 82.92 | 11 | 167127/11475 | 0.012002 (True) | - | - | green -> green |
+| c_ok | False | True | 54.87 | 7 | 93163/7340 | 0.008029 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": false, "new_name_in_all_user_files": false, "behaviour_unchanged": true, "no_test_removed": true, "old_name_left_in": false}
+
+D:\Code\Tuyen\AgentDev\backend\.venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.5) doesn't match a supported version!
+  warnings.warn(
+Workflow OK.
+Workflow OK.
+Workflow OK.
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-114525.json
+wrote D:\Code\Tuyen\AgentDev\docs\audit\ab-flags\off\bench-projects-20261106-114525.md
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+layers: [['Tech Lead', 'Code Scout', 'Repro Analyst', 'Bug Fixer', 'QA Verifier']]
+# Project benchmark (real)
+
+- workflow: `bugfix_team`; model: `claude-haiku-5-5`; generated: 2026-11-06T11:45:25
+- total cost: $0.0488
+
+| run | ok | clean | sec | calls | tokens in/out | cost $ (known) | outside scope | corrupted | tests |
+|---|---|---|---|---|---|---|---|---|---|
+| a_ok | True | True | 99.13 | 16 | 214466/13143 | 0.015293 (True) | - | - | red -> green |
+| b_ok | True | True | 65.65 | 11 | 136948/7294 | 0.00788 (True) | - | - | green -> green |
+| c_ok | False | True | 297.42 | 18 | 336581/22956 | 0.025609 (True) | - | - | green -> green |
+
+Acceptance checks:
+
+- a_ok: {"hidden_clamp_test": true, "no_test_removed": true}
+- b_ok: {"hidden_feature_test": true, "no_test_removed": true}
+- c_ok: {"old_name_gone": false, "new_name_in_all_user_files": false, "behaviour_unchanged": true, "no_test_removed": true, "old_name_left_in": false}
+

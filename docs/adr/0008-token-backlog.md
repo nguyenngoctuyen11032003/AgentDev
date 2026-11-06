@@ -1,6 +1,6 @@
 # 0008. Token backlog: max_tokens, member protocol in the system prompt, skill catalog
 
-Status: accepted as opt-in, flag stays OFF by default (2026-11-06): the real A/B (n=4) was inconclusive; see final.md section 11
+Status: accepted as opt-in, flag stays OFF by default (2026-11-06): section 12 bundle A/B (n=21 per arm) did not clear the cost and new-failure-class rule; no per-flag measurement
 
 ## A6-1 skill catalog
 Already fixed in round 2 (`token-savings-round2.md`: 695 -> 435 chars per call). Nothing left to do.

@@ -181,3 +181,46 @@ Cách làm: (1) locale `en` chỉ là dự phòng, không tải lúc khởi đ�
 | `/lab?tab=batch` | 803,8 KB | 662,1 KB | 285,0 | 237,2 | 91,6 -> 92,2 | 180 -> 196 ms |
 
 Kết quả: mọi route dưới 700 KB JS thô trừ `/launch` (925 KB, giảm 24%). `/launch` còn: LaunchView 234, vi 176, vue-flow 160, markdown-it 107, vue 104, i18n 53, yaml 39 KB; hết đường lui an toàn vì vue-flow store (`useVueFlow`) nằm trong script 6k dòng, markdown-it được gọi đồng bộ trong chat, OfficeView phải gắn từ đầu để nhận sự kiện. Việc kế tiếp nếu cần: tách đồ thị ra component riêng, hoặc tách locale theo namespace. LCP dao động theo máy (workflow 476-824 ms trong cả lịch sử), không thấy hồi quy rõ. Kiểm tra: `npm test` 167 pass, lint sạch, build ok, check-i18n ok, e2e `--grep-invert perf` 151 pass / 1 skipped (gồm 48 ảnh chụp thị giác, không đổi ảnh nào), `e2e:axe` 32 pass.
+
+## 12. A/B gói cờ engine (n = 7 mỗi nhánh x 3 nhiệm vụ) và quyết định mặc định
+
+Thiết lập: `bugfix_team`, Haiku, nhiệm vụ a, b, c, mỗi nhánh 7 vòng x 3 = 21 lượt, hai luồng OFF/ON chạy song song cùng lúc (cùng điều kiện máy). OFF = cả 5 cờ `=0`; ON = cả 5 cờ `=1` (`PARALLEL_READS`, `STRUCTURED_REPORT`, `CLI_MAX_OUTPUT`, `MEMBER_PROTOCOL_SYSTEM`, `NATIVE_TOOL_RESCUE`); `VERIFY_GATE=0` cả hai. Không có cổng trả phí. Dữ liệu thô và script: `docs/audit/ab-flags/{off,on,rescue}/`, `off.log`, `on.log`, `rescue.log`, `run_arm.sh`, `run_rescue.sh`. Dùng n = 7 (42 lượt) để chừa 6 lượt cho bisect trong trần 48 lượt.
+
+| Chỉ số (TB mỗi lượt) | OFF (n = 21) | ON (n = 21) | Chênh |
+|---|---|---|---|
+| Thành công | 13/21 (62%) | 16/21 (76%) | +3 lượt (chưa có ý nghĩa thống kê) |
+| a (bug) / b (tính năng) / c (đổi tên) | 5/7, 5/7, 3/7 | 6/7, 5/7, 5/7 | |
+| Thời gian | 111 s | 124 s | +12% |
+| Lời gọi model | 12,6 | 14,6 | +16% |
+| Token vào / ra | 189k / 12,9k | 246k / 16,4k | +30% / +27% |
+| Chi phí / lượt | 0,0144 USD | 0,0172 USD | +19% |
+| Chi phí / lượt thành công | 0,0232 USD | 0,0226 USD | -3% |
+| Tổng chi phí | 0,302 USD | 0,361 USD | |
+| Lead chạy một mình | 0 | 1 | |
+
+Phân loại 8 lượt hỏng của OFF và 5 của ON (đọc `lead_final`, `nodes_run`, acceptance; mọi lượt hỏng đều không sửa file nào, không file hỏng, không ngoài phạm vi):
+
+| Nhóm nguyên nhân | OFF | ON | Ghi chú |
+|---|---|---|---|
+| Thành viên gọi tool native, CLI trả "No such tool available" (không sửa được gì) | 7 | 0 | đúng lỗi mà `NATIVE_TOOL_RESCUE` nhắm tới |
+| Nhầm đường dẫn dự án (nhiều thư mục tạm, lead hỏi lại người dùng/ngừng) | 1 | 2 | |
+| Tool file trả `'<' not supported between instances of 'str' and 'int'` (đối số số bị truyền kiểu chuỗi) | 0 | 2 (lead ghi rõ) | **lớp lỗi mới**; log ON có 39 lần lỗi này, OFF 0 lần |
+| Bug Fixer không ghi được file sau 3 lần (a) | 0 | 1 | nhiều khả năng cùng lớp tool trên, chưa chứng minh |
+| Lead chạy một mình | 0 | (1, thuộc nhóm tool ở trên: lead không đọc được file) | |
+
+Bisect (6 lượt cuối, đủ trần 48): chỉ `NATIVE_TOOL_RESCUE=1`, các cờ khác 0, 2 vòng a,b,c (`docs/audit/ab-flags/rescue/`): thành công 3/6 (a 0/2, b 2/2, c 1/2), 0,079 USD. Cả hai lượt a hỏng là "lead chạy một mình" vì `delegate_parallel` bị từ chối ("tasks must be a list of at least 2", 4 lần trong log), và lỗi `'<' not supported ... 'str' and 'int'` xuất hiện 6 lần trong log. Vậy cả hai lớp lỗi mới đều đi cùng `NATIVE_TOOL_RESCUE`: tool call chuyển từ native không được ép kiểu/đối chiếu schema như đường JSON thường. Không có lượt riêng cho `PARALLEL_READS` (hết trần), nên không có bằng chứng thực cho từng cờ còn lại.
+
+Quy tắc quyết định: bật mặc định chỉ khi ON thành công >= OFF, chi phí/thời gian TB không tệ hơn 15%, và không có lớp lỗi mới. Gói ON đạt điều kiện đầu (16 >= 13) nhưng trượt hai điều kiện sau (chi phí/lượt +19%, thời gian +12% sát ngưỡng, và có lớp lỗi mới là sai kiểu đối số). Trung thực: phần lớn lợi ích thành công của ON đến từ việc bỏ lỗi "No such tool" của OFF, chi phí tăng vì lead và thành viên thực sự làm việc (chi phí/lượt thành công không tăng).
+
+| Cờ | Quyết định | Lý do |
+|---|---|---|
+| `AGENTDEV_NATIVE_TOOL_RESCUE` | **giữ TẮT** | giảm lỗi "No such tool" (7 -> 0) nhưng sinh lỗi đối số sai kiểu và `delegate_parallel` bị từ chối khi chạy riêng (3/6). Cần ép kiểu đối số và kiểm schema cho tool call chuyển từ native trước, rồi A/B lại |
+| `AGENTDEV_PARALLEL_READS` | giữ TẮT | không đo riêng được; chỉ có bằng chứng test + model giả |
+| `AGENTDEV_STRUCTURED_REPORT` | giữ TẮT | không đo riêng được |
+| `AGENTDEV_MEMBER_PROTOCOL_SYSTEM` | giữ TẮT | không đo riêng được |
+| `AGENTDEV_CLI_MAX_OUTPUT` | giữ TẮT | không đo riêng được; không có ảnh hưởng tới thành công trong A/B |
+| `AGENTDEV_VERIFY_GATE` | giữ TẮT | mục 7: kém hơn |
+
+Không đổi mặc định nào trong code, không đổi test. Hướng tiếp: (1) sửa ép kiểu đối số số (`"1"` -> 1) cho tool native rescue + test đỏ trước, kiểm lại `delegate_parallel` từ native; (2) A/B lại với `NATIVE_TOOL_RESCUE` riêng, rồi `PARALLEL_READS` riêng, n >= 10 mỗi nhánh; (3) nhầm đường dẫn dự án (nhiều thư mục tạm trong phiên bench) là một lớp lỗi riêng cần điều tra.
+
+Chi tiêu thật mục 12: 48 lượt, 0,742 USD (0,302 OFF + 0,361 ON + 0,079 bisect), toàn bộ cost đã biết. Cộng dồn cả vòng (so với 46 lượt / khoảng 0,9 USD trước đó): 94 lượt, khoảng 1,64 USD. Dưới trần 48 lượt / 1,5 USD của đợt này, vượt trần tích lũy cũ vì chúng là hai trần khác nhau.

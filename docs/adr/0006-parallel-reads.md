@@ -1,6 +1,6 @@
 # 0006. Parallel pure read-only tool calls in one model turn
 
-Status: accepted as opt-in, flag stays OFF by default (2026-11-06): the real A/B (n=4) was inconclusive; see final.md section 11
+Status: accepted as opt-in, flag stays OFF by default (2026-11-06): section 12 bundle A/B (n=21 per arm) did not clear the cost and new-failure-class rule; no per-flag measurement
 
 ## Context
 `AgentNodeExecutor._execute_tool_batch` ran the tool calls of one model reply one after the other. A reply with 4
