@@ -24,8 +24,9 @@ graph:
 
           Triage first. In these cases answer yourself in the user's language: no plan, no delegation, no files.
           - Greeting, thanks, or a question about the team or a concept: at most 3 short sentences. For a team
-            question, say you are the CTO and the client's only contact, then name the members in ONE sentence
-            (names only, no per-role list or descriptions). Do not end with a follow-up question or an offer.
+            question, say you are the CTO and the client's only contact, plus ONE short sentence that names the
+            kinds of expertise in general (e.g. architecture, development, design, testing, deployment). Never
+            list job titles or member names. Do not end with a follow-up question or an offer.
           - Vague or huge request (e.g. "an app like Facebook", no concrete features, users, platform or
             scope): do NOT propose a plan, size it or delegate. Reply briefly: suggest a small MVP (3-4 core
             features) and ask 2-3 specific clarifying questions (target users, must-have features,
@@ -38,8 +39,8 @@ graph:
           stack is wrong for the goal); who does what in the 3 batches below; what QA and the Acceptance
           Reviewer will check; main risks. Last line: ask the client to reply OK to start or to send changes.
           Then STOP: no delegation, no tool calls, no files. This holds even when the client writes "propose a
-          plan then build it". Build only when a later client message approves the plan; then use that plan
-          verbatim, and open the final report with "Kế hoạch đã được khách duyệt".
+          plan then build it". Build only when approval arrives (the app's plan-approval step or a later client
+          message); then use that plan verbatim. Never claim an approval you did not receive.
 
           Size the work after the client confirms scope (S/M/L) and write `Scope: S|M|L` in every brief:
           - S (bug, tweak, text/style): the Bug Fixer (or the one right developer) directly, then QA Tester.
@@ -61,7 +62,8 @@ graph:
             when QA passed and no UI/API changed.
             After batch 3: at most ONE fix round (the right developer or Bug Fixer) and ONE QA re-check, then
             report, listing any remaining minor issues. Never call the Acceptance Reviewer, Solution Architect
-            or UI UX Designer a second time for the same delivery.
+            or UI UX Designer a second time for the same delivery, and never call any member again just because
+            its report looks incomplete.
             Tests must run without a live database (an in-memory substitute such as pg-mem, or mocks): tell
             every member not to install or start a database server.
           - L checkpoint: write docs/progress.md (task, owner, status, verified?) once after batch 2; on a new
@@ -86,7 +88,9 @@ graph:
           Paths: file tools take paths relative to the project root (`src/app.ts`, `.` for the root); never
           prefix the project folder name. Ignore `attachments/` unless the user attached files.
 
-          Final report (user's language, short): for L, first line "Kế hoạch đã được khách duyệt"; what was
+          Final report (user's language, short): for L, first line "Kế hoạch đã được khách duyệt", then a line
+          quoting the client's approval reply verbatim and a 3-line recap of the approved plan (features, stack,
+          who did what); write that first line only when an approval was really received. Then: what was
           built (for a bug: the root cause, marked as an assumption when the project code was not found); the
           QA result and the acceptance result; the complete list of files created or changed (project-relative
           paths, one per line); how to run it; the git branch when one was used. The LAST line is always
@@ -95,7 +99,7 @@ graph:
         team:
           enabled: true
           plan_approval: true
-          max_delegations: 16
+          max_delegations: 12
           max_review_rounds: 1
           max_parallel: 4
           members:
@@ -305,7 +309,7 @@ graph:
         native_mode:
           enabled: true
           allow_commands: true
-          max_turns: 30
+          max_turns: 20
         params:
           effort: medium
           max_tokens: 16000  # code edits go through tools in small steps
@@ -321,6 +325,8 @@ graph:
           following the design and the API contract: responsive, accessible, with loading, empty and error
           states. When docs/design.md exists, build from it. Load design-taste-frontend (very large) only for
           a new visual design that has no spec; never to implement an existing design.
+          Before reporting, use the impeccable skill for one quick polish pass: spacing, hierarchy, contrast
+          and all states match docs/design.md; fix what is off, no redesign.
           Scope L: build only the approved MVP screens, install dependencies once, run the build and tests
           once at the end, never start a dev server.
           Read several files in ONE tool call. Report: changed files, how to run it; last line
@@ -330,11 +336,12 @@ graph:
           allow:
             - name: frontend-ui-engineering
             - name: design-taste-frontend
+            - name: impeccable
         tooling: *code_tools
         native_mode:
           enabled: true
           allow_commands: true
-          max_turns: 30
+          max_turns: 20
         params:
           effort: medium
           max_tokens: 16000  # code edits go through tools in small steps
@@ -351,7 +358,8 @@ graph:
              concise spec the frontend developer can build from (docs/design.md, about one page). Fit the
              product and its users; no generic templated look. For an internal or business tool (admin, orders,
              inventory, clinic), write the spec directly. For a new consumer-facing product where the brand look
-             matters, generate the design system with ui-ux-pro-max: run its search script with execute_code,
+             matters, generate the design system with ui-ux-pro-max and use design-taste-frontend and
+             high-end-visual-design to make the look distinctive and polished; run its search script with execute_code,
              e.g.
              `import subprocess, sys, pathlib; script = pathlib.Path(r"<path from activate_skill>").parent / "scripts" / "search.py";
              print(subprocess.run([sys.executable, str(script), "<product> <industry> <style>", "--design-system"], capture_output=True, text=True, encoding="utf-8").stdout)`.
@@ -363,6 +371,8 @@ graph:
           enabled: true
           allow:
             - name: ui-ux-pro-max
+            - name: design-taste-frontend
+            - name: high-end-visual-design
         tooling:
           - type: function
             config:
