@@ -77,3 +77,63 @@ test('settings/skills: load error shows a toast and the page leaves the loading 
   await expect(page.locator('.skeleton')).toHaveCount(0)
   await expect(page.locator('.toast, [role="alert"], [role="status"]').filter({ hasText: /skill|boom/i }).first()).toBeVisible()
 })
+
+test('settings/skills: categories group the library, filter it and set a skill category', async ({ page }) => {
+  const state = await mockSkills(page, [
+    { name: 'remotion-render', description: 'Render MP4', category: 'video', category_source: 'auto' },
+    { name: 'heygen-avatar', description: 'Avatar video', category: 'video', category_source: 'auto' },
+    { name: 'kling-prompting', description: 'Prompt Kling', category: 'video', category_source: 'auto' },
+    { name: 'ffmpeg', description: 'Cut clips', category: 'video', category_source: 'auto' },
+    { name: 'moviepy', description: 'Edit in Python', category: 'video', category_source: 'auto' },
+    { name: 'systematic-debugging', description: 'When a test fails', category: 'dev', category_source: 'auto' }
+  ])
+  await page.goto('/settings/skills')
+
+  // "All": one section per category, long ones show a preview and a "see all" button
+  await expect(page.getByRole('heading', { name: /Video/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Lập trình/ })).toBeVisible()
+  await expect(page.locator('.skill-card')).toHaveCount(5) // 4 video (preview) + 1 dev
+  await page.getByRole('button', { name: 'Xem cả 5' }).click()
+
+  // one category: every skill in it, remembered in the URL
+  await expect(page).toHaveURL(/cat=video/)
+  await expect(page.getByRole('button', { name: /Video/, pressed: true })).toBeVisible()
+  await expect(page.locator('.skill-card')).toHaveCount(5)
+  await expect(page.locator('.skill-card', { hasText: 'systematic-debugging' })).toHaveCount(0)
+
+  // the editor shows the guessed category and sends a new one only when changed
+  await page.getByRole('button', { name: 'Sửa: ffmpeg' }).click()
+  const dialog = page.getByRole('dialog')
+  const select = dialog.getByRole('combobox', { name: 'Loại' })
+  await expect(select.locator('option:checked')).toHaveText('Tự động (Video)')
+  await select.selectOption('dev')
+  const put = page.waitForRequest((r) => r.method() === 'PUT')
+  await dialog.getByRole('button', { name: 'Lưu skill' }).click()
+  expect((await put).postDataJSON().category).toBe('dev')
+  expect(state.calls).toContain('PUT /ffmpeg')
+
+  // back to every category
+  await page.getByRole('button', { name: /Tất cả/ }).click()
+  await expect(page).not.toHaveURL(/cat=/)
+})
+
+test('settings/skills: a card shows the plain-language guide and opens a detail view', async ({ page }) => {
+  const guide = { purpose: 'Tạo video người dẫn chuyện', when: 'cần video có người nói', benefit: 'Video tự nhiên', requires: 'API key HeyGen', paid: true }
+  await mockSkills(page, [{ name: 'heygen-video', description: 'Presenter videos', category: 'video', category_source: 'manual', guide }])
+  await page.goto('/settings/skills')
+  const card = page.locator('.skill-card', { hasText: 'heygen-video' })
+  await expect(card).toContainText('Tạo video người dẫn chuyện')
+  await expect(card).toContainText('Trả phí')
+
+  // Vietnamese words find the skill
+  await page.getByRole('searchbox').fill('người dẫn')
+  await expect(page.locator('.skill-card')).toHaveCount(1)
+
+  await card.click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Dùng để')
+  await expect(dialog).toContainText('API key HeyGen')
+  await expect(dialog).toContainText('Presenter videos')
+  await dialog.getByRole('button', { name: 'Sửa' }).click()
+  await expect(page.getByRole('dialog').getByPlaceholder(/Node.js, ffmpeg/)).toHaveValue('API key HeyGen')
+})

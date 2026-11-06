@@ -238,12 +238,12 @@ def test_load_context(tmp_path, monkeypatch):
     (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
     monkeypatch.setattr(prompt_mod, "YAML_DIR", tmp_path)
     monkeypatch.setattr(prompt_mod.skill_library, "list_skills", lambda: [
-        {"name": "good", "description": "ok", "valid": True},
+        {"name": "good", "description": "ok", "valid": True, "category": "video"},
         {"name": "broken", "description": "", "valid": False},
     ])
     context = load_context()
     assert context["existing_files"] == ["a_flow.yaml", "b_flow.yaml"]
-    assert context["skills"] == [("good", "ok")]
+    assert context["skills"] == [("good", "ok", "video")]
     assert "save_file" in dict(context["tools"])
     assert "claude-opus-5-5" in context["models"]["anthropic"]
     assert set(context["models"]) == {"anthropic", "openai", "gemini"}
@@ -1194,3 +1194,15 @@ def test_prompt_allows_no_fix_for_non_workflow_lab_failures():
     rule = prompt_mod.OVERRIDE
     assert "no change" in rule
     assert all(layer in rule for layer in ("environment", "platform", "scenario"))
+
+
+def test_skill_catalog_is_grouped_by_category():
+    from agentdev.api.services import workflow_assistant_prompt as prompt_mod
+
+    text = prompt_mod._skill_bullets([
+        ("systematic-debugging", "Use when a test fails.", "dev"),
+        ("remotion-render", "Render a video.", "video"),
+    ])
+    assert text.index("video:") < text.index("- `remotion-render`") < text.index("dev:") < text.index("- `systematic-debugging`")
+    # Old (name, description) pairs still render as a flat list.
+    assert prompt_mod._skill_bullets([("a-skill", "Does a.")]) == "- `a-skill`: Does a."

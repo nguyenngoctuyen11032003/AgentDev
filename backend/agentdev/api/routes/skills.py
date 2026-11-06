@@ -1,6 +1,6 @@
 """Shared skill library API: list, create (paste / .md upload), edit, delete, import."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -23,6 +23,10 @@ class SkillSaveRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     overwrite: bool = False
+    category: Optional[str] = Field(None, description="A category id, 'auto' to guess it, or omit to keep")
+    guide: Optional[Dict[str, Any]] = Field(
+        None, description="{purpose, when, benefit, requires, paid} shown to people; {} removes it; omit to keep"
+    )
 
 
 class SkillImportRequest(BaseModel):
@@ -47,7 +51,7 @@ def _disk_error(exc: OSError) -> HTTPException:
 
 @router.get("")
 def list_skills():
-    return {"skills": skill_library.list_skills()}
+    return {"skills": skill_library.list_skills(), "categories": list(skill_library.CATEGORIES)}
 
 
 @router.get("/import-source")
@@ -79,7 +83,8 @@ def get_skill(name: str):
 def create_skill(payload: SkillSaveRequest):
     try:
         return skill_library.save_skill(
-            payload.content, name=payload.name, description=payload.description, overwrite=payload.overwrite
+            payload.content, name=payload.name, description=payload.description, overwrite=payload.overwrite,
+            category=payload.category, guide=payload.guide,
         )
     except ValidationError as exc:
         raise _bad_request(exc) from exc
@@ -93,7 +98,8 @@ def create_skill(payload: SkillSaveRequest):
 def update_skill(name: str, payload: SkillSaveRequest):
     try:
         return skill_library.save_skill(
-            payload.content, name=payload.name, description=payload.description, rename_from=name
+            payload.content, name=payload.name, description=payload.description, rename_from=name,
+            category=payload.category, guide=payload.guide,
         )
     except ValidationError as exc:
         raise _bad_request(exc) from exc

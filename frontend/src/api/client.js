@@ -1030,13 +1030,15 @@ export const fetchSkills = async () => (await skillsRequest('')).skills || []
 
 export const fetchSkill = (name) => skillsRequest(`/${encodeURIComponent(name)}`)
 
-export const createSkill = ({ content, name = null, description = null, overwrite = false }) =>
-  skillsRequest('', { method: 'POST', body: JSON.stringify({ content, name, description, overwrite }) })
+// category: a category id, 'auto' (guess from name/description), or null to keep what the file says.
+// guide: { purpose, when, benefit, requires, paid } for people; {} removes it; null keeps it.
+export const createSkill = ({ content, name = null, description = null, overwrite = false, category = null, guide = null }) =>
+  skillsRequest('', { method: 'POST', body: JSON.stringify({ content, name, description, overwrite, category, guide }) })
 
-export const updateSkill = (originalName, { content, name = null, description = null }) =>
+export const updateSkill = (originalName, { content, name = null, description = null, category = null, guide = null }) =>
   skillsRequest(`/${encodeURIComponent(originalName)}`, {
     method: 'PUT',
-    body: JSON.stringify({ content, name, description })
+    body: JSON.stringify({ content, name, description, category, guide })
   })
 
 export const deleteSkill = (name) => skillsRequest(`/${encodeURIComponent(name)}`, { method: 'DELETE' })

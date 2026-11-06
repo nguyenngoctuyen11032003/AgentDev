@@ -16,6 +16,7 @@ from typing import Iterable, List, Optional
 
 import yaml
 
+from agentdev.api.services.skill_categories import CATEGORIES, categorize
 from agentdev.paths import SKILLS_ROOT
 from agentdev.runtime.node.agent.skills.manager import SkillValidationError, parse_skill_file
 from agentdev.utils.exceptions import ValidationError
@@ -23,7 +24,15 @@ from agentdev.utils.workspace_paths import is_link, iter_tree_without_links
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 MAX_SKILL_MD_BYTES = 256 * 1024
-MAX_IMPORT_DIR_BYTES = 5 * 1024 * 1024
+# Public video skills ship tens of MB of example media (hyperframes-animation ~39 MB); the cap only stops a
+# wrong folder (a whole repo) from being copied.
+MAX_IMPORT_DIR_BYTES_DEFAULT = 64 * 1024 * 1024
+MAX_IMPORT_DIR_BYTES = MAX_IMPORT_DIR_BYTES_DEFAULT
+AUTO_CATEGORY = "auto"
+# Human-facing notes kept in ``metadata.guide``: what the skill is for, when to pick it, what it brings,
+# what it needs and whether it costs money. Agents never see them (only name + description reach prompts).
+GUIDE_TEXT_FIELDS = ("purpose", "when", "benefit", "requires")
+MAX_GUIDE_FIELD_CHARS = 400
 SKIPPED_IMPORT_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv"}
 DEFAULT_IMPORT_SOURCE = Path.home() / ".claude" / "skills"
 
@@ -35,6 +44,9 @@ class SkillEntry:
     valid: bool
     error: Optional[str]
     extra_files: int
+    category: str = "other"
+    category_source: str = "auto"
+    guide: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {
@@ -43,6 +55,9 @@ class SkillEntry:
             "valid": self.valid,
             "error": self.error,
             "extra_files": self.extra_files,
+            "category": self.category,
+            "category_source": self.category_source,
+            "guide": self.guide,
         }
 
 
@@ -82,11 +97,80 @@ def _split_frontmatter(text: str) -> tuple[Optional[dict], str]:
     raise ValidationError("Frontmatter opened with '---' but never closed")
 
 
-def build_skill_markdown(content: str, name: Optional[str] = None, description: Optional[str] = None) -> tuple[str, str]:
+def _apply_category(meta: dict, category: Optional[str]) -> None:
+    """Set ``metadata.category`` (a known category) or remove it (``auto``); None leaves it as written."""
+    if category is None:
+        return
+    category = category.strip().lower()
+    if category != AUTO_CATEGORY and category not in CATEGORIES:
+        raise ValidationError(f"Unknown category '{category}'. Use one of: {', '.join(CATEGORIES)} or auto")
+    metadata = meta.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        raise ValidationError("Frontmatter 'metadata' must be a mapping to hold a category")
+    metadata = dict(metadata or {})
+    meta.pop("category", None)  # one place only: metadata.category
+    if category == AUTO_CATEGORY:
+        metadata.pop("category", None)
+    else:
+        metadata["category"] = category
+    if metadata:
+        meta["metadata"] = metadata
+    else:
+        meta.pop("metadata", None)
+
+
+def _read_guide(frontmatter: Optional[dict]) -> Optional[dict]:
+    """``metadata.guide`` as {purpose, when, benefit, requires, paid}; None when absent or empty."""
+    metadata = (frontmatter or {}).get("metadata")
+    raw = metadata.get("guide") if isinstance(metadata, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    guide = {key: " ".join(str(raw.get(key) or "").split()) for key in GUIDE_TEXT_FIELDS}
+    guide["paid"] = raw.get("paid") is True
+    return guide if any(guide[k] for k in GUIDE_TEXT_FIELDS) or guide["paid"] else None
+
+
+def _apply_guide(meta: dict, guide: Optional[dict]) -> None:
+    """Store ``guide`` in ``metadata.guide``; an empty dict removes it; None leaves it as written."""
+    if guide is None:
+        return
+    if not isinstance(guide, dict):
+        raise ValidationError("Skill guide must be an object")
+    clean = {}
+    for key in GUIDE_TEXT_FIELDS:
+        value = " ".join(str(guide.get(key) or "").split())
+        if len(value) > MAX_GUIDE_FIELD_CHARS:
+            raise ValidationError(f"Guide field '{key}' is longer than {MAX_GUIDE_FIELD_CHARS} characters")
+        if value:
+            clean[key] = value
+    if guide.get("paid") is True:
+        clean["paid"] = True
+    metadata = meta.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        raise ValidationError("Frontmatter 'metadata' must be a mapping to hold a guide")
+    metadata = dict(metadata or {})
+    if clean:
+        metadata["guide"] = clean
+    else:
+        metadata.pop("guide", None)
+    if metadata:
+        meta["metadata"] = metadata
+    else:
+        meta.pop("metadata", None)
+
+
+def build_skill_markdown(
+    content: str,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    category: Optional[str] = None,
+    guide: Optional[dict] = None,
+) -> tuple[str, str]:
     """Normalise pasted text into a valid SKILL.md. Returns (name, markdown).
 
     - Text with frontmatter: its ``name``/``description`` are used; explicit arguments override.
     - Plain text (no frontmatter): ``name`` and ``description`` are required and a frontmatter is added.
+    - ``category``: a known category is stored as ``metadata.category``; ``auto`` removes it.
     """
     if not isinstance(content, str) or not content.strip():
         raise ValidationError("Skill content is empty")
@@ -111,6 +195,8 @@ def build_skill_markdown(content: str, name: Optional[str] = None, description: 
         )
     meta["name"] = final_name
     meta["description"] = " ".join(raw_desc.split())
+    _apply_category(meta, category)
+    _apply_guide(meta, guide)
 
     if not body.strip():
         raise ValidationError("Skill has no instructions after the frontmatter")
@@ -134,9 +220,14 @@ def _refuse_link(path: Path) -> None:
 def _entry_for(skill_dir: Path) -> SkillEntry:
     try:
         meta = parse_skill_file(skill_dir / "SKILL.md")
-        return SkillEntry(meta.name, meta.description, True, None, _count_extra_files(skill_dir))
+        category, source = categorize(meta.name, meta.description, meta.frontmatter)
+        return SkillEntry(
+            meta.name, meta.description, True, None, _count_extra_files(skill_dir), category, source,
+            _read_guide(dict(meta.frontmatter)),
+        )
     except (SkillValidationError, OSError, UnicodeDecodeError) as exc:
-        return SkillEntry(skill_dir.name, "", False, str(exc), 0)
+        category, source = categorize(skill_dir.name, "", None)
+        return SkillEntry(skill_dir.name, "", False, str(exc), 0, category, source)
 
 
 def _iter_skill_dirs(root: Path) -> Iterable[Path]:
@@ -172,8 +263,10 @@ def save_skill(
     description: Optional[str] = None,
     overwrite: bool = False,
     rename_from: Optional[str] = None,
+    category: Optional[str] = None,
+    guide: Optional[dict] = None,
 ) -> dict:
-    final_name, markdown = build_skill_markdown(content, name, description)
+    final_name, markdown = build_skill_markdown(content, name, description, category, guide)
     root = _root()
     target = root / final_name
 

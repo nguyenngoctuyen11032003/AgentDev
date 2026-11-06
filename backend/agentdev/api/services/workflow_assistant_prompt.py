@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from agentdev.api.services import skill_library
+from agentdev.api.services.skill_categories import CATEGORIES
 from agentdev.api.settings import YAML_DIR
 from agentdev.connections import catalog
 from agentdev.api.services.workflow_patterns import pattern_fragment, pick_pattern
@@ -118,13 +119,25 @@ def short_description(text: Optional[str], limit: int) -> str:
     return cut + "…"
 
 
-def _catalogs(skills: List[Tuple[str, str]], tools: List[Tuple[str, str]], models: Dict[str, List[str]]) -> str:
+def _skill_bullets(skills: List[Tuple[str, ...]]) -> str:
+    """Skills as bullets; when entries carry a category (name, description, category) they are grouped under
+    one short header per category, so a large library (200+ skills) is easy to scan."""
+    if not skills or any(len(s) < 3 for s in skills):
+        return _bullets([(s[0], short_description(s[1], SKILL_DESCRIPTION_CHARS)) for s in skills])
+    order = {c: i for i, c in enumerate(CATEGORIES)}
+    groups: Dict[str, List[Tuple[str, str]]] = {}
+    for name, description, category in sorted(skills, key=lambda s: (order.get(s[2], len(order)), s[0])):
+        groups.setdefault(category, []).append((name, short_description(description, SKILL_DESCRIPTION_CHARS)))
+    return "\n".join(f"{category}:\n{_bullets(items)}" for category, items in groups.items())
+
+
+def _catalogs(skills: List[Tuple[str, ...]], tools: List[Tuple[str, str]], models: Dict[str, List[str]]) -> str:
     model_lines = "\n".join(f"- `{vendor}`: {', '.join(f'`{m}`' for m in names)}" for vendor, names in models.items())
     return (
         "## Catalogs (use only these names)\n\n"
         "### Models (`provider`: `name` values)\n" + (model_lines or "- (none)") + "\n\n"
         "### Skills (for `skills.allow`)\n"
-        + _bullets([(n, short_description(d, SKILL_DESCRIPTION_CHARS)) for n, d in skills]) + "\n\n"
+        + _skill_bullets(skills) + "\n\n"
         "### Tools (for `tooling[].config.tools`)\n"
         + _bullets([(n, short_description(d, TOOL_DESCRIPTION_CHARS)) for n, d in tools])
     )
@@ -299,7 +312,11 @@ def load_context() -> dict:
 
     root = Path(YAML_DIR)
     existing_files = sorted(p.name for p in root.glob("*.yaml") if p.is_file()) if root.is_dir() else []
-    skills = [(s["name"], _first_line(s.get("description"))) for s in skill_library.list_skills() if s.get("valid")]
+    skills = [
+        (s["name"], _first_line(s.get("description")), s.get("category") or "other")
+        for s in skill_library.list_skills()
+        if s.get("valid")
+    ]
     tools = [(name, _first_line(meta.description)) for name, meta in get_function_catalog().list_metadata().items()]
     models = {
         vendor: list(info.models)

@@ -64,7 +64,12 @@ def parse_skill_file(skill_file: str | Path) -> SkillMetadata:
         )
 
     allowed_tools = _parse_optional_str_list(frontmatter.get("allowed-tools"), path, "allowed-tools")
-    compatibility = _parse_optional_mapping(frontmatter.get("compatibility"), path, "compatibility")
+    raw_compatibility = frontmatter.get("compatibility")
+    if isinstance(raw_compatibility, str):
+        # Agent Skills spec: compatibility is free text ("Requires ffmpeg and network access").
+        compatibility = {"text": raw_compatibility.strip()} if raw_compatibility.strip() else {}
+    else:
+        compatibility = _parse_optional_mapping(raw_compatibility, path, "compatibility")
 
     return SkillMetadata(
         name=name,

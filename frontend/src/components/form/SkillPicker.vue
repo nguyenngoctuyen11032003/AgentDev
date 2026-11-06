@@ -7,15 +7,20 @@
       <a href="/settings/skills" target="_blank" rel="noopener" class="picker-link">{{ $t('skills.picker_manage') }}</a>
     </div>
 
-    <input
-      v-if="library.length > 6"
-      v-model="query"
-      type="search"
-      class="picker-search"
-      :placeholder="$t('skills.search_placeholder')"
-      :aria-label="$t('skills.search_placeholder')"
-      :disabled="disabled"
-    />
+    <div v-if="library.length > 6" class="picker-filter">
+      <input
+        v-model="query"
+        type="search"
+        class="picker-search"
+        :placeholder="$t('skills.search_placeholder')"
+        :aria-label="$t('skills.search_placeholder')"
+        :disabled="disabled"
+      />
+      <select v-if="usedCategories.length > 1" v-model="category" class="picker-search picker-cat" :aria-label="$t('skills.category_label')" :disabled="disabled">
+        <option value="all">{{ $t('skills.categories.all') }} ({{ counts.all }})</option>
+        <option v-for="id in usedCategories" :key="id" :value="id">{{ $t(`skills.categories.${id}`) }} ({{ counts[id] }})</option>
+      </select>
+    </div>
 
     <div v-if="error" class="picker-error" role="alert">
       <p>{{ $t('skills.load_error_title') }}: {{ error }}</p>
@@ -37,7 +42,7 @@
           />
           <span class="item-text">
             <span class="item-name">{{ skill.name }}</span>
-            <span class="item-desc">{{ skill.missing ? $t('skills.missing') : skill.description }}</span>
+            <span class="item-desc">{{ skill.missing ? $t('skills.missing') : skill.guide?.purpose || skill.description }}</span>
           </span>
         </label>
       </li>
@@ -49,6 +54,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { fetchSkills } from '@/api/client'
 import { createLatest } from '@/utils/latestOnly'
+import { CATEGORY_IDS, countByCategory, filterSkills } from '@/utils/skillCategories'
 import { buildOptions, selectedNames, toggledValue } from './skillPickerLogic'
 
 const props = defineProps({
@@ -68,9 +74,12 @@ const latest = createLatest()
 const selected = computed(() => selectedNames(props.modelValue, library.value))
 const options = computed(() => buildOptions(props.modelValue, library.value))
 
+const category = ref('all')
+const counts = computed(() => countByCategory(options.value))
+const usedCategories = computed(() => CATEGORY_IDS.filter((id) => counts.value[id] > 0))
+
 const visible = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  const list = q ? options.value.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(q)) : options.value
+  const list = filterSkills(options.value, { query: query.value, category: category.value })
   // Ticked first, so the agent's current kit is visible at a glance.
   return [...list].sort((a, b) => Number(selected.value.includes(b.name)) - Number(selected.value.includes(a.name)))
 })
@@ -119,6 +128,9 @@ onUnmounted(() => {
   padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line-4);
   background: var(--surface-2); color: var(--text-1); font-size: 13px;
 }
+.picker-filter { display: flex; gap: 8px; flex-wrap: wrap; }
+.picker-filter .picker-search { flex: 1; min-width: 160px; }
+.picker-filter .picker-cat { flex: 0 1 auto; min-width: 150px; }
 .picker-list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; border: 1px solid var(--line-4); border-radius: 10px; }
 .picker-list li + li { border-top: 1px solid var(--line-4); }
 .picker-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; cursor: pointer; }

@@ -18,6 +18,24 @@
       </div>
     </header>
 
+    <nav v-if="!loading && !loadError && skills.length" class="cat-bar" :aria-label="$t('skills.categories_nav')">
+      <button
+        v-for="cat in categoryTabs"
+        :key="cat.id"
+        type="button"
+        class="cat-chip"
+        :class="{ active: category === cat.id }"
+        :style="cat.hue == null ? null : { '--hue': cat.hue }"
+        :aria-pressed="category === cat.id"
+        @click="selectCategory(cat.id)"
+      >
+        <!-- eslint-disable-next-line vue/no-v-html -- static icon markup from skillCategories.js -->
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="cat.icon"></svg>
+        <span class="cat-label">{{ $t(`skills.categories.${cat.id}`) }}</span>
+        <span class="cat-count">{{ counts[cat.id] }}</span>
+      </button>
+    </nav>
+
     <div class="toolbar">
       <label class="search">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
@@ -29,7 +47,7 @@
         />
       </label>
       <span class="count" aria-live="polite">
-        <template v-if="query.trim()">{{ $t('skills.count_filtered', { shown: filtered.length, count: skills.length }) }}</template>
+        <template v-if="query.trim() || category !== 'all'">{{ $t('skills.count_filtered', { shown: filtered.length, count: skills.length }) }}</template>
         <template v-else>{{ $t('skills.count', { count: skills.length }) }}</template>
       </span>
     </div>
@@ -60,41 +78,111 @@
     </div>
 
     <template v-else>
-      <ul v-if="filtered.length" class="skill-grid">
-        <li v-for="skill in filtered" :key="skill.name" class="skill-card" :class="{ invalid: !skill.valid }" @click="openEditor(skill.name)">
-          <div class="skill-head">
-            <span class="skill-mark" :style="{ '--hue': hueOf(skill.name) }" aria-hidden="true">{{ initialsOf(skill.name) }}</span>
-            <span class="skill-name" :title="skill.name">{{ skill.name }}</span>
-            <span class="skill-actions" @click.stop>
-              <button
-                type="button"
-                class="icon-btn"
-                :title="$t('skills.edit')"
-                :aria-label="`${$t('skills.edit')}: ${skill.name}`"
-                @click="openEditor(skill.name)"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
-              </button>
-              <button
-                type="button"
-                class="icon-btn danger"
-                :title="$t('skills.delete')"
-                :aria-label="`${$t('skills.delete')}: ${skill.name}`"
-                @click="remove(skill.name)"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
-              </button>
-            </span>
-          </div>
-          <p class="skill-desc">{{ skill.valid ? skill.description : skill.error }}</p>
-          <div v-if="!skill.valid || skill.extra_files" class="skill-foot">
-            <span v-if="!skill.valid" class="badge danger">{{ $t('skills.invalid') }}</span>
-            <span v-if="skill.extra_files" class="badge">{{ $t('skills.extra_files', { count: skill.extra_files }) }}</span>
-          </div>
-        </li>
-      </ul>
-      <p v-else class="no-match">{{ $t('skills.no_match') }}</p>
+      <section
+        v-for="section in sections"
+        :key="section.id"
+        class="cat-section"
+        :aria-labelledby="section.header ? `skill-cat-${section.id}` : null"
+      >
+        <header v-if="section.header" class="cat-head">
+          <span class="cat-tile" :class="{ neutral: section.meta.hue == null }" :style="section.meta.hue == null ? null : { '--hue': section.meta.hue }" aria-hidden="true">
+            <!-- eslint-disable-next-line vue/no-v-html -- static icon markup from skillCategories.js -->
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="section.meta.icon"></svg>
+          </span>
+          <span class="cat-head-text">
+            <h2 :id="`skill-cat-${section.id}`" class="cat-title">
+              {{ $t(`skills.categories.${section.id}`) }}
+              <span class="cat-title-count">{{ section.skills.length }}</span>
+            </h2>
+            <span class="cat-desc">{{ $t(`skills.category_desc.${section.id}`) }}</span>
+          </span>
+          <button
+            v-if="section.skills.length > section.shown.length"
+            type="button"
+            class="btn ghost cat-more"
+            @click="selectCategory(section.id)"
+          >
+            {{ $t('skills.show_all_in', { count: section.skills.length }) }}
+          </button>
+        </header>
+        <ul class="skill-grid">
+          <li v-for="skill in section.shown" :key="skill.name" class="skill-card" :class="{ invalid: !skill.valid }" @click="openDetail(skill)">
+            <div class="skill-head">
+              <span class="skill-mark" :style="{ '--hue': hueOf(skill.name) }" aria-hidden="true">{{ initialsOf(skill.name) }}</span>
+              <button type="button" class="skill-name" :title="skill.name" @click.stop="openDetail(skill)">{{ skill.name }}</button>
+              <span class="skill-actions" @click.stop>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  :title="$t('skills.edit')"
+                  :aria-label="`${$t('skills.edit')}: ${skill.name}`"
+                  @click="openEditor(skill.name)"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn danger"
+                  :title="$t('skills.delete')"
+                  :aria-label="`${$t('skills.delete')}: ${skill.name}`"
+                  @click="remove(skill.name)"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+                </button>
+              </span>
+            </div>
+            <p class="skill-desc" :class="{ guided: skill.valid && skill.guide?.purpose }">{{ skill.valid ? skill.guide?.purpose || skill.description : skill.error }}</p>
+            <p v-if="skill.valid && skill.guide?.when" class="skill-when"><span>{{ $t('skills.guide_when') }}</span> {{ skill.guide.when }}</p>
+            <div v-if="!skill.valid || skill.extra_files || skill.guide?.paid" class="skill-foot">
+              <span v-if="!skill.valid" class="badge danger">{{ $t('skills.invalid') }}</span>
+              <span v-if="skill.guide?.paid" class="badge paid">{{ $t('skills.paid') }}</span>
+              <span v-if="skill.extra_files" class="badge">{{ $t('skills.extra_files', { count: skill.extra_files }) }}</span>
+            </div>
+          </li>
+        </ul>
+      </section>
+      <div v-if="!filtered.length" class="no-match">
+        <p>{{ query.trim() ? $t('skills.no_match') : $t('skills.category_empty') }}</p>
+        <button v-if="category !== 'all'" type="button" class="btn ghost" @click="selectCategory('all')">{{ $t('skills.show_all_categories') }}</button>
+      </div>
     </template>
+
+    <!-- Detail: what the skill is for, in the user's words -->
+    <BaseDialog v-model="detail.open" :title="detail.skill?.name || ''" width="640px">
+      <div v-if="detail.skill" class="detail">
+        <div class="detail-tags">
+          <span class="cat-pill" :style="detailMeta.hue == null ? null : { '--hue': detailMeta.hue }">
+            <!-- eslint-disable-next-line vue/no-v-html -- static icon markup from skillCategories.js -->
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="detailMeta.icon"></svg>
+            {{ $t(`skills.categories.${categoryOf(detail.skill)}`) }}
+          </span>
+          <span v-if="detail.skill.guide?.paid" class="badge paid">{{ $t('skills.paid') }}</span>
+          <span v-if="detail.skill.extra_files" class="badge">{{ $t('skills.extra_files', { count: detail.skill.extra_files }) }}</span>
+          <span v-if="!detail.skill.valid" class="badge danger">{{ $t('skills.invalid') }}</span>
+        </div>
+
+        <p v-if="!detail.skill.valid" class="error">{{ detail.skill.error }}</p>
+
+        <dl v-if="hasGuideText(detail.skill.guide)" class="guide">
+          <template v-for="key in GUIDE_KEYS" :key="key">
+            <div v-if="detail.skill.guide[key]" class="guide-row" :class="key">
+              <dt>{{ $t(`skills.guide_${key}`) }}</dt>
+              <dd>{{ detail.skill.guide[key] }}</dd>
+            </div>
+          </template>
+        </dl>
+        <p v-else-if="detail.skill.valid" class="guide-missing">{{ $t('skills.guide_missing') }}</p>
+
+        <div v-if="detail.skill.description" class="agent-desc">
+          <span class="agent-desc-label">{{ $t('skills.agent_description') }}</span>
+          <p>{{ detail.skill.description }}</p>
+        </div>
+      </div>
+      <template #footer>
+        <button type="button" class="btn ghost danger-text" @click="removeFromDetail">{{ $t('skills.delete') }}</button>
+        <button type="button" class="btn primary" @click="editFromDetail">{{ $t('skills.edit') }}</button>
+      </template>
+    </BaseDialog>
 
     <!-- Add / edit -->
     <BaseDialog v-model="editor.open" :title="editorTitle" width="760px">
@@ -108,6 +196,15 @@
         <label class="field grow">
           <span>{{ $t('skills.description_label') }}</span>
           <input v-model.trim="editor.description" type="text" :placeholder="$t('skills.description_placeholder')" />
+        </label>
+        <label class="field">
+          <span>{{ $t('skills.category_label') }}</span>
+          <select v-model="editor.category" class="select">
+            <option value="auto">
+              {{ editor.guess ? $t('skills.category_auto_guess', { name: $t(`skills.categories.${editor.guess}`) }) : $t('skills.category_auto') }}
+            </option>
+            <option v-for="id in CATEGORY_IDS" :key="id" :value="id">{{ $t(`skills.categories.${id}`) }}</option>
+          </select>
         </label>
       </div>
 
@@ -129,6 +226,19 @@
           @drop.prevent="dropFile"
         ></textarea>
       </div>
+
+      <fieldset class="guide-fields">
+        <legend>{{ $t('skills.guide_title') }}</legend>
+        <p class="dialog-hint">{{ $t('skills.guide_hint') }}</p>
+        <label v-for="key in GUIDE_KEYS" :key="key" class="field">
+          <span>{{ $t(`skills.guide_${key}`) }}</span>
+          <input v-model="editor.guide[key]" type="text" maxlength="400" :placeholder="$t(`skills.guide_${key}_placeholder`)" />
+        </label>
+        <label class="check">
+          <input v-model="editor.guide.paid" type="checkbox" />
+          {{ $t('skills.guide_paid') }}
+        </label>
+      </fieldset>
 
       <p v-if="editor.loading" class="loading-note" role="status"><span class="spinner" aria-hidden="true"></span>{{ $t('skills.loading_editor') }}</p>
       <p v-if="editor.error" class="error" role="alert">{{ editor.error }}</p>
@@ -155,6 +265,22 @@
       <p v-else-if="importer.error" class="error" role="alert">{{ importer.error }}</p>
       <p v-else-if="!importer.items.length" class="dialog-hint">{{ $t('skills.import_none') }}</p>
 
+      <div v-if="importer.items.length > 8" class="import-filter">
+        <input
+          v-model="importer.query"
+          type="search"
+          class="input import-search"
+          :placeholder="$t('skills.search_placeholder')"
+          :aria-label="$t('skills.search_placeholder')"
+        />
+        <select v-model="importer.category" class="select import-cat" :aria-label="$t('skills.category_label')">
+          <option value="all">{{ $t('skills.categories.all') }} ({{ importCounts.all }})</option>
+          <template v-for="id in CATEGORY_IDS" :key="id">
+            <option v-if="importCounts[id]" :value="id">{{ $t(`skills.categories.${id}`) }} ({{ importCounts[id] }})</option>
+          </template>
+        </select>
+      </div>
+
       <div v-if="importer.items.length" class="import-bar">
         <label class="check">
           <input type="checkbox" :checked="allSelected" @change="toggleAll($event.target.checked)" />
@@ -167,10 +293,11 @@
       </div>
 
       <ul class="import-list">
-        <li v-for="item in importer.items" :key="item.name">
+        <li v-for="item in importVisible" :key="item.name">
           <label class="check" :class="{ disabled: !item.valid }">
             <input v-model="importer.selected" type="checkbox" :value="item.name" :disabled="!item.valid" />
             <span class="import-name">{{ item.name }}</span>
+            <span class="badge">{{ $t(`skills.categories.${categoryOf(item)}`) }}</span>
             <span v-if="item.imported" class="badge">{{ $t('skills.already_imported') }}</span>
             <span v-if="!item.valid" class="badge danger">{{ $t('skills.invalid') }}</span>
           </label>
@@ -195,8 +322,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import {
   createSkill,
   deleteSkill,
@@ -210,13 +338,61 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import { confirmDialog } from '@/utils/confirm'
 import { toast } from '@/utils/toast'
 import { createLatest } from '@/utils/latestOnly'
+import {
+  CATEGORY_IDS,
+  SKILL_CATEGORIES,
+  categoryMeta,
+  categoryOf,
+  countByCategory,
+  filterSkills,
+  groupByCategory
+} from '@/utils/skillCategories'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 
 const skills = ref([])
 const loading = ref(true)
 const query = ref('')
 const fileInput = ref(null)
+
+// ---- categories: the selected one lives in ?cat= so a link or reload keeps it ----
+const PREVIEW_PER_CATEGORY = 4
+const readCategory = (value) => (CATEGORY_IDS.includes(value) ? value : 'all')
+const category = ref(readCategory(route.query.cat))
+watch(() => route.query.cat, (value) => { category.value = readCategory(value) })
+
+function selectCategory(id) {
+  category.value = id
+  const next = { ...route.query }
+  if (id === 'all') delete next.cat
+  else next.cat = id
+  router.replace({ query: next }).catch(() => {})
+}
+
+const counts = computed(() => countByCategory(skills.value))
+// "All" first, then only the categories that have skills (the chosen one stays visible even when empty).
+const categoryTabs = computed(() => [
+  { id: 'all', hue: null, icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' },
+  ...SKILL_CATEGORIES.filter((c) => counts.value[c.id] > 0 || c.id === category.value)
+])
+
+// "All" without a search: one section per category with a short preview; a search or one category: every match.
+const sections = computed(() => {
+  if (category.value !== 'all') {
+    return filtered.value.length
+      ? [{ id: category.value, header: false, meta: categoryMeta(category.value), skills: filtered.value, shown: filtered.value }]
+      : []
+  }
+  const limit = query.value.trim() ? Infinity : PREVIEW_PER_CATEGORY
+  return groupByCategory(filtered.value).map((g) => ({
+    ...g,
+    header: true,
+    meta: categoryMeta(g.id),
+    shown: g.skills.slice(0, limit)
+  }))
+})
 
 // Stable colour + initials per skill so cards are easy to tell apart at a glance
 const hueOf = (name) => {
@@ -229,11 +405,7 @@ const initialsOf = (name) => {
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase()
 }
 
-const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return skills.value
-  return skills.value.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(q))
-})
+const filtered = computed(() => filterSkills(skills.value, { query: query.value, category: category.value }))
 
 const loadError = ref('')
 const listLatest = createLatest()
@@ -251,12 +423,38 @@ async function load() {
   }
 }
 
+// ---- detail ----
+// Human-facing guide fields, in display order (labels: skills.guide_<key>)
+const GUIDE_KEYS = ['purpose', 'when', 'benefit', 'requires']
+const emptyGuide = () => ({ purpose: '', when: '', benefit: '', requires: '', paid: false })
+const hasGuideText = (guide) => !!guide && GUIDE_KEYS.some((k) => guide[k])
+
+const detail = reactive({ open: false, skill: null })
+const detailMeta = computed(() => categoryMeta(categoryOf(detail.skill)))
+
+function openDetail(skill) {
+  Object.assign(detail, { open: true, skill })
+}
+
+function editFromDetail() {
+  const name = detail.skill?.name
+  detail.open = false
+  if (name) openEditor(name)
+}
+
+async function removeFromDetail() {
+  const name = detail.skill?.name
+  if (!name) return
+  if (await remove(name)) detail.open = false
+}
+
 // ---- add / edit ----
-const editor = reactive({ open: false, original: null, name: '', description: '', content: '', error: '', saving: false, loading: false })
+// category: 'auto' or a category id; guess: the auto category the library computed (shown in the "Auto" option)
+const editor = reactive({ open: false, original: null, name: '', description: '', category: 'auto', guess: '', guide: emptyGuide(), content: '', error: '', saving: false, loading: false })
 const editorLatest = createLatest()
 // Form values as last loaded; when the content has frontmatter, unchanged form fields are not sent so
 // edits made directly in the frontmatter are not overridden.
-const baseline = { name: '', description: '' }
+const baseline = { name: '', description: '', category: 'auto', guide: JSON.stringify(emptyGuide()) }
 const editorTitle = computed(() => (editor.original ? t('skills.edit_title', { name: editor.original }) : t('skills.add_title')))
 
 // Pull name/description out of pasted frontmatter so the form shows what will be saved.
@@ -274,8 +472,10 @@ function readFrontmatter(text) {
 
 async function openEditor(name = null) {
   const ticket = editorLatest.begin()
-  Object.assign(editor, { open: true, original: name, name: name || '', description: '', content: '', error: '', saving: false, loading: !!name })
-  Object.assign(baseline, { name: editor.name, description: '' })
+  // A new skill added while one category is open goes into that category.
+  const preset = !name && category.value !== 'all' ? category.value : 'auto'
+  Object.assign(editor, { open: true, original: name, name: name || '', description: '', category: preset, guess: '', guide: emptyGuide(), content: '', error: '', saving: false, loading: !!name })
+  Object.assign(baseline, { name: editor.name, description: '', category: 'auto', guide: JSON.stringify(emptyGuide()) })
   if (!name) return
   try {
     const skill = await fetchSkill(name)
@@ -283,6 +483,11 @@ async function openEditor(name = null) {
     editor.content = skill.content
     editor.description = skill.description
     baseline.description = skill.description
+    const manual = skill.category_source === 'manual'
+    editor.category = baseline.category = manual ? skill.category : 'auto'
+    editor.guess = manual ? '' : skill.category || ''
+    editor.guide = { ...emptyGuide(), ...(skill.guide || {}) }
+    baseline.guide = JSON.stringify(editor.guide)
   } catch (error) {
     if (editorLatest.isCurrent(ticket)) editor.error = error.message
   } finally {
@@ -343,7 +548,15 @@ async function save() {
   editor.saving = true
   const hasFrontmatter = FRONTMATTER_START.test(editor.content)
   const field = (key) => (hasFrontmatter && editor[key] === baseline[key] ? null : editor[key] || null)
-  const payload = { content: editor.content, name: field('name'), description: field('description') }
+  // Category is sent only when changed, so a category written by hand in the frontmatter is kept.
+  const payload = {
+    content: editor.content,
+    name: field('name'),
+    description: field('description'),
+    category: editor.category !== baseline.category ? editor.category : null,
+    // Sent only when edited; all-empty means "remove the guide"
+    guide: JSON.stringify(editor.guide) !== baseline.guide ? { ...editor.guide } : null
+  }
   try {
     if (editor.original) {
       await updateSkill(editor.original, payload)
@@ -378,23 +591,30 @@ async function remove(name) {
     confirmText: t('skills.delete'),
     tone: 'danger'
   })
-  if (!ok) return
+  if (!ok) return false
   try {
     await deleteSkill(name)
     toast.success(t('skills.deleted', { name }))
     await load()
+    return true
   } catch (error) {
     toast.error(error.message)
+    return false
   }
 }
 
 // ---- import ----
-const importer = reactive({ open: false, source: '', items: [], selected: [], overwrite: false, loading: false, saving: false, error: '' })
-const importable = computed(() => importer.items.filter((i) => i.valid))
-const allSelected = computed(() => importable.value.length > 0 && importer.selected.length === importable.value.length)
+const importer = reactive({ open: false, source: '', items: [], selected: [], overwrite: false, loading: false, saving: false, error: '', query: '', category: 'all' })
+const importCounts = computed(() => countByCategory(importer.items))
+const importVisible = computed(() => filterSkills(importer.items, { query: importer.query, category: importer.category }))
+// "Select all" acts on what the filter shows; ticks on hidden items are kept.
+const importable = computed(() => importVisible.value.filter((i) => i.valid))
+const allSelected = computed(() => importable.value.length > 0 && importable.value.every((i) => importer.selected.includes(i.name)))
 
 function toggleAll(checked) {
-  importer.selected = checked ? importable.value.map((i) => i.name) : []
+  const shown = new Set(importable.value.map((i) => i.name))
+  const others = importer.selected.filter((n) => !shown.has(n))
+  importer.selected = checked ? [...others, ...shown] : others
 }
 
 let importLoadSeq = 0
@@ -418,7 +638,7 @@ async function loadSource() {
 }
 
 function openImport() {
-  Object.assign(importer, { open: true, items: [], selected: [], overwrite: false, error: '' })
+  Object.assign(importer, { open: true, items: [], selected: [], overwrite: false, error: '', query: '', category: 'all' })
   loadSource()
 }
 
@@ -468,6 +688,45 @@ onMounted(load)
 .icon-btn:focus-visible, .search:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .link { background: none; border: none; border-radius: var(--radius-sm); color: var(--accent); cursor: pointer; font-size: 12.5px; font-weight: 600; min-height: 40px; padding: 0 4px; margin-left: auto; }
 
+/* ---- category bar: one chip per non-empty category, tinted by the category hue ---- */
+.cat-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+.cat-chip {
+  --hue: 210;
+  display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 8px 0 11px;
+  border: 0; border-radius: 999px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  transition: color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.cat-chip svg { flex: none; color: hsl(var(--hue) 65% 68%); }
+:root[data-theme='light'] .cat-chip svg { color: hsl(var(--hue) 60% 38%); }
+.cat-chip:hover { color: var(--fg); box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.2); }
+.cat-chip.active {
+  color: var(--text-strong);
+  background: hsl(var(--hue) 55% 50% / 0.14);
+  box-shadow: inset 0 0 0 1.5px hsl(var(--hue) 60% 58% / 0.7);
+}
+.cat-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.cat-count {
+  min-width: 22px; padding: 1px 6px; border-radius: 999px; text-align: center;
+  background: rgb(var(--ink) / 0.07); color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.cat-chip.active .cat-count { background: hsl(var(--hue) 55% 50% / 0.22); color: var(--text-strong); }
+
+/* ---- category sections (the "All" view) ---- */
+.cat-section + .cat-section { margin-top: 30px; }
+.cat-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.cat-tile {
+  display: grid; flex: none; place-items: center; width: 36px; height: 36px; border-radius: 10px;
+  color: hsl(var(--hue) 65% 72%); background: hsl(var(--hue) 50% 50% / 0.15);
+}
+:root[data-theme='light'] .cat-tile { color: hsl(var(--hue) 60% 34%); background: hsl(var(--hue) 60% 50% / 0.12); }
+.cat-tile.neutral { color: var(--muted); background: rgb(var(--ink) / 0.07); }
+.cat-head-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.cat-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-strong); }
+.cat-title-count { font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cat-desc { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-more { flex: none; }
+
 /* ---- toolbar ---- */
 .toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .search {
@@ -504,7 +763,47 @@ onMounted(load)
 .icon-btn.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .skill-desc { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .skill-foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
-.no-match { margin: 0; padding: 32px 4px; text-align: center; color: var(--muted); font-size: 14px; }
+.skill-desc.guided { color: var(--fg); -webkit-line-clamp: 2; line-clamp: 2; }
+.skill-when {
+  margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.skill-when span { font-weight: 650; color: var(--accent); }
+button.skill-name { padding: 0; border: 0; background: none; text-align: left; cursor: pointer; border-radius: 4px; }
+button.skill-name:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.badge.paid { background: color-mix(in srgb, var(--warning, #d97706) 16%, transparent); color: var(--warning, #b45309); }
+
+/* ---- detail dialog ---- */
+.detail { display: flex; flex-direction: column; gap: 16px; }
+.detail-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cat-pill {
+  --hue: 210;
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 650; color: hsl(var(--hue) 65% 72%); background: hsl(var(--hue) 50% 50% / 0.15);
+}
+:root[data-theme='light'] .cat-pill { color: hsl(var(--hue) 60% 32%); background: hsl(var(--hue) 60% 50% / 0.12); }
+.guide { display: flex; flex-direction: column; gap: 10px; margin: 0; }
+.guide-row {
+  display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; padding: 12px 14px;
+  border-radius: 12px; background: rgb(var(--ink) / 0.04); box-shadow: inset 3px 0 0 var(--row-accent, var(--accent));
+}
+.guide-row.when { --row-accent: hsl(160 55% 45%); }
+.guide-row.benefit { --row-accent: hsl(45 85% 50%); }
+.guide-row.requires { --row-accent: hsl(285 45% 60%); }
+.guide-row dt { font-size: 12.5px; font-weight: 700; color: var(--text-strong); }
+.guide-row dd { margin: 0; font-size: 14px; line-height: 1.6; color: var(--fg); }
+.guide-missing { margin: 0; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--border-strong); font-size: 13.5px; color: var(--muted); }
+.agent-desc { padding-top: 12px; border-top: 1px solid var(--line); }
+.agent-desc-label { font-size: 12px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.agent-desc p { margin: 6px 0 0; font-size: 13px; line-height: 1.6; color: var(--muted); }
+.danger-text { color: var(--danger); margin-right: auto; }
+
+/* ---- editor: guide fields ---- */
+.guide-fields { display: flex; flex-direction: column; gap: 10px; margin: 16px 0 0; padding: 14px 16px 12px; border: 1px solid var(--border-strong); border-radius: 12px; }
+.guide-fields legend { padding: 0 6px; font-size: 13px; font-weight: 650; color: var(--text-strong); }
+.guide-fields .dialog-hint { margin: 0; }
+.no-match { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 0; padding: 32px 4px; text-align: center; color: var(--muted); font-size: 14px; }
+.no-match p { margin: 0; }
 
 .badge { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: rgb(var(--ink) / 0.06); color: var(--muted); }
 .badge.danger { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
@@ -529,6 +828,9 @@ onMounted(load)
 .field textarea { font-family: ui-monospace, 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.5; resize: vertical; }
 .error { color: var(--danger); font-size: 13px; margin: 10px 0 0; }
 
+.import-filter { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.import-search { flex: 1; min-width: 200px; }
+.import-cat { width: auto; min-width: 180px; }
 .import-bar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--border-strong); }
 .import-list { list-style: none; margin: 0; padding: 0; max-height: calc(46 * var(--vh)); overflow: auto; }
 .import-list li { padding: 8px 2px; border-bottom: 1px solid var(--border-strong); }
@@ -544,6 +846,10 @@ onMounted(load)
   .skill-grid { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 520px) {
+  .guide-row { grid-template-columns: 1fr; gap: 4px; }
+}
+
 @media (max-width: 720px) {
   .skills-view { padding-bottom: 56px; }
   .hero-title { font-size: 27px; }
@@ -552,6 +858,10 @@ onMounted(load)
 @media (max-width: 600px) {
   .toolbar { flex-wrap: wrap; }
   .search { flex-basis: 100%; }
+  /* one swipeable row instead of four wrapped rows of chips */
+  .cat-bar { flex-wrap: nowrap; overflow-x: auto; margin-inline: -16px; padding: 2px 16px 6px; scrollbar-width: none; }
+  .cat-bar::-webkit-scrollbar { display: none; }
+  .cat-desc { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

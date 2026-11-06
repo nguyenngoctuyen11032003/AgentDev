@@ -309,3 +309,95 @@ def test_save_is_atomic_write(client, library, monkeypatch):
     assert res.status_code >= 400
     assert (library / "cto-management" / "SKILL.md").read_text(encoding="utf-8") == before
     assert [p.name for p in (library / "cto-management").iterdir()] == ["SKILL.md"]
+
+
+# ---------------------------------------------------------------- categories + Agent Skills spec
+
+
+def test_string_compatibility_is_valid(client, library):
+    # Agent Skills spec: `compatibility` is a free-text string. 84 skills from public packs use it that way and
+    # were shown as broken ("compatibility must be a mapping").
+    text = SKILL_MD.replace("description:", "compatibility: Requires ffmpeg and network access\ndescription:")
+    (library / "cto-management").mkdir()
+    (library / "cto-management" / "SKILL.md").write_text(text, encoding="utf-8")
+    entry = client.get("/api/skills").json()["skills"][0]
+    assert entry["valid"], entry["error"]
+    meta = skill_manager.parse_skill_file(library / "cto-management" / "SKILL.md")
+    assert meta.compatibility == {"text": "Requires ffmpeg and network access"}
+
+
+def test_list_has_auto_category():
+    from agentdev.api.services.skill_categories import guess_category
+
+    assert guess_category("remotion-render", "Render a Remotion composition to MP4") == "video"
+    assert guess_category("elevenlabs", "Text to speech voices") == "audio"
+    assert guess_category("gsap-timeline", "Sequence animations") == "motion"
+    assert guess_category("systematic-debugging", "Use when a test fails") == "dev"
+    assert guess_category("brainstorming", "Explore ideas before creative work") == "workflow"
+    assert guess_category("zzz", "nothing known") == "other"
+
+
+def test_category_is_listed_and_can_be_set_and_reset(client, library):
+    client.post("/api/skills", json={"content": SKILL_MD})
+    entry = client.get("/api/skills").json()["skills"][0]
+    assert entry["category"] == "workflow" and entry["category_source"] == "auto"
+
+    saved = client.put("/api/skills/cto-management", json={"content": SKILL_MD, "category": "video"}).json()
+    assert saved["category"] == "video" and saved["category_source"] == "manual"
+    text = (library / "cto-management" / "SKILL.md").read_text(encoding="utf-8")
+    assert "metadata:" in text and "category: video" in text
+
+    # Other metadata keys survive; "auto" removes only the category.
+    content = saved["content"].replace("metadata:\n", "metadata:\n  owner: team\n")
+    reset = client.put("/api/skills/cto-management", json={"content": content, "category": "auto"}).json()
+    assert reset["category_source"] == "auto"
+    text = (library / "cto-management" / "SKILL.md").read_text(encoding="utf-8")
+    assert "category:" not in text and "owner: team" in text
+
+
+def test_unknown_category_rejected(client):
+    res = client.post("/api/skills", json={"content": SKILL_MD, "category": "cooking"})
+    assert res.status_code == 400
+
+
+def test_import_allows_skills_with_large_examples(client, library, tmp_path, monkeypatch):
+    # Public video skills ship 30-40 MB of example media; the 5 MB cap refused them.
+    monkeypatch.setattr(skill_library, "MAX_IMPORT_DIR_BYTES", 10)
+    src = tmp_path / "src" / "big-skill"
+    src.mkdir(parents=True)
+    (src / "SKILL.md").write_text(SKILL_MD.replace("cto-management", "big-skill"), encoding="utf-8")
+    (src / "clip.mp4").write_bytes(b"x" * 100)
+    res = client.post("/api/skills/import", json={"names": ["big-skill"], "source": str(tmp_path / "src")}).json()
+    assert res["failed"] and "MB" in res["failed"][0]["error"]  # the cap still exists and is configurable
+    assert skill_library.MAX_IMPORT_DIR_BYTES_DEFAULT >= 64 * 1024 * 1024
+
+
+def test_guide_is_saved_listed_and_cleared(client, library):
+    client.post("/api/skills", json={"content": SKILL_MD})
+    guide = {
+        "purpose": "Chia việc kỹ thuật cho đội.",
+        "when": "Có yêu cầu lớn cần chia nhỏ.",
+        "benefit": "Kế hoạch rõ ràng, giao đúng người.",
+        "requires": "",
+        "paid": False,
+    }
+    saved = client.put("/api/skills/cto-management", json={"content": SKILL_MD, "guide": guide, "category": "workflow"}).json()
+    assert saved["guide"]["purpose"] == guide["purpose"] and saved["guide"]["paid"] is False
+    assert saved["category"] == "workflow"
+    listed = client.get("/api/skills").json()["skills"][0]
+    assert listed["guide"]["when"] == guide["when"]
+    text = (library / "cto-management" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Chia việc kỹ thuật" in text  # unicode kept readable
+
+    # Saving the content again without `guide` keeps it; an empty guide removes it.
+    kept = client.put("/api/skills/cto-management", json={"content": saved["content"]}).json()
+    assert kept["guide"]["benefit"] == guide["benefit"]
+    cleared = client.put("/api/skills/cto-management", json={"content": saved["content"], "guide": {}}).json()
+    assert cleared["guide"] is None
+    assert cleared["category"] == "workflow"  # other metadata untouched
+
+
+def test_paid_guide_shown_without_text(client, library):
+    client.post("/api/skills", json={"content": SKILL_MD, "guide": {"paid": True, "requires": "API key HeyGen"}})
+    entry = client.get("/api/skills").json()["skills"][0]
+    assert entry["guide"] == {"purpose": "", "when": "", "benefit": "", "requires": "API key HeyGen", "paid": True}
