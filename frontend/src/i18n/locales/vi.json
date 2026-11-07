@@ -3482,6 +3482,7 @@
       "preview_install_timeout": "Cài thư viện quá {seconds} giây nên đã dừng.",
       "preview_install_failed": "Cài thư viện thất bại (mã {exit_code}).",
       "preview_process_exited": "Tiến trình {process} đã thoát (mã {exit_code}).",
+      "preview_server_down": "Server API (cổng {port}) đã ngừng trả lời nên giao diện không gọi được API (đăng nhập, dữ liệu). Xem log rồi bấm Chạy thử lại.",
       "preview_ready_timeout": "Ứng dụng không phản hồi ở cổng {port} sau {seconds} giây.",
       "preview_port_taken": "Cổng {port} đang bị chương trình khác dùng.",
       "preview_dir_missing": "Thư mục sản phẩm không còn tồn tại.",

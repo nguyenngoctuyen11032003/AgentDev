@@ -138,3 +138,33 @@ def test_login_url_scan_is_fast_on_long_url_runs():
     _URL.findall("http://localhost/" * 6000)
     assert time.monotonic() - started < 1.0
     assert _URL.findall("Mở http://localhost:3000/admin/login để vào") == ["http://localhost:3000/admin/login"]
+
+
+# Regression: README listed accounts as "- Role: `email` / `password`" under a "Đăng nhập demo" heading, and the
+# seed read the password as ``process.env.SEED_DEMO_PASSWORD || 'Demo@123'``; the Lab showed "no account".
+@pytest.mark.parametrize("text,user,password", [
+    ("- Manager: `manager@demo.local` / `Demo@123`", "manager@demo.local", "Demo@123"),
+    ("**Tài khoản demo (seed):** manager@demo.local / Demo@123 (quản lý)", "manager@demo.local", "Demo@123"),
+    ("## Đăng nhập demo\n\n- Quản lý: `boss` / `Boss#1`", "boss", "Boss#1"),
+])
+def test_role_list_accounts(text, user, password):
+    found = find_credentials(text)
+    assert found and (found[0]["username"], found[0]["password"]) == (user, password)
+
+
+def test_slash_pairs_outside_a_login_section_are_not_accounts():
+    assert find_credentials("## Cài đặt\n- Dùng: `npm` / `yarn`\n- Cổng: 3000 / 3001") == []
+
+
+def test_env_default_password_with_readme_accounts(tmp_path):
+    (tmp_path / "server").mkdir()
+    (tmp_path / "server" / "seed.js").write_text(
+        "const demoPassword = () => process.env.SEED_DEMO_PASSWORD || 'Demo@123';\nbcrypt.hashSync(demoPassword())",
+        encoding="utf-8")
+    (tmp_path / "README.md").write_text(
+        "## Đăng nhập demo\n\nMở http://localhost:3000/login:\n\n- Manager: `manager@demo.local` / `Demo@123`\n"
+        "- Staff: `staff@demo.local` / `Demo@123`\n", encoding="utf-8")
+    info = login_info("Xong.", tmp_path)
+    assert [(c["username"], c["password"]) for c in info["credentials"]] == [
+        ("manager@demo.local", "Demo@123"), ("staff@demo.local", "Demo@123")]
+    assert "env" not in info

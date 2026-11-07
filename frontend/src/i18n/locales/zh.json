@@ -3195,6 +3195,7 @@
       "preview_install_timeout": "安装依赖超过 {seconds} 秒，已停止。",
       "preview_install_failed": "安装依赖失败（退出码 {exit_code}）。",
       "preview_process_exited": "进程 {process} 已退出（代码 {exit_code}）。",
+      "preview_server_down": "API 服务器（端口 {port}）已停止响应，界面无法调用 API（登录、数据）。请查看日志后重新点击试运行。",
       "preview_ready_timeout": "应用在 {seconds} 秒后仍未在端口 {port} 响应。",
       "preview_port_taken": "端口 {port} 已被其他程序占用。",
       "preview_dir_missing": "输出文件夹已不存在。",

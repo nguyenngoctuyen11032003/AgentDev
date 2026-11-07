@@ -49,6 +49,15 @@ _PAIR_REV = re.compile(_PASS_KEY + _SEP + _VALUE + r".{0,80}?" + _USER_KEY + _SE
 # "tài khoản admin / admin123", "login: admin/secret"
 _SLASH = re.compile(r"(?:tài\s*khoản|account|login|đăng\s*nhập|credentials?)[^\n/]{0,30}?[:\s]\s*[`'\"*]*"
                     r"([\w.@+-]{2,80})[`'\"*]*\s*/\s*[`'\"*]*([^\s`'\"*/,;|]{2,80})", re.IGNORECASE)
+# "manager@demo.local / Demo@123": an e-mail login followed by its password, anywhere on a line.
+_Q = r"[`'\"*]*"
+_SLASH_PASS = r"\s*/\s*" + _Q + r"([^\s`'\"*/,;|]{2,80})"
+_EMAIL_SLASH = re.compile(_Q + r"([\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63})+)" + _Q + _SLASH_PASS)
+# "- Manager: `boss` / `Boss#1`" -- only inside a section whose heading is about logging in / demo accounts.
+_ROLE_SLASH = re.compile(r"^[\s>*|-]*[^:/\n]{1,30}:[*_]*\s*" + _Q + r"([\w.@+-]{2,80})" + _Q + _SLASH_PASS)
+_HEADING = re.compile(r"^\s*#{1,6}\s+(.*)$")
+_LOGIN_HEADING = re.compile(r"đăng\s*nhập|login|sign\s*-?in|tài\s*khoản|account|credential|demo|登录|账号|帐号",
+                            re.IGNORECASE)
 _USER_LINE = re.compile(r"^[\s>*#|-]*" + _USER_KEY + r"[*_\s]*" + _SEP + _VALUE, re.IGNORECASE)
 _PASS_LINE = re.compile(r"^[\s>*#|-]*" + _PASS_KEY + r"[*_\s]*" + _SEP + _VALUE, re.IGNORECASE)
 _PLACEHOLDER = re.compile(r"^(<.*>|\.\.\.|…|xxx+|\*+|your[_-]?\w*|example|\$\{.*\}|none|null|n/a|-)$", re.IGNORECASE)
@@ -142,7 +151,17 @@ def find_credentials(text: str, source: str = "answer") -> List[Dict[str, str]]:
     """Demo accounts written in ``text``: same-line pairs, "account x / y", and a user line followed by a password
     line (within 2 lines). Placeholders ("<password>", "your_password") are ignored."""
     found: List[Tuple[str, str]] = []
+    login_section = False
     for line in (text or "").splitlines():
+        heading = _HEADING.match(line)
+        if heading:
+            login_section = bool(_LOGIN_HEADING.search(heading.group(1)))
+            continue
+        if login_section:
+            for match in _ROLE_SLASH.finditer(line):
+                found.append((match.group(1), match.group(2)))
+        for match in _EMAIL_SLASH.finditer(line):
+            found.append((match.group(1), match.group(2)))
         for match in _PAIR.finditer(line):
             found.append((match.group(1), match.group(2)))
         for match in _PAIR_REV.finditer(line):

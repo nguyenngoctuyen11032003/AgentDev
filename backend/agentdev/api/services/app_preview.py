@@ -46,6 +46,8 @@ MAX_CONCURRENT = 3
 IDLE_SECONDS = 30 * 60
 READY_TIMEOUT = 90.0
 INSTALL_TIMEOUT = 300.0
+WATCH_INTERVAL = 1.0  # seconds between health checks of a running preview
+SERVER_DOWN_CHECKS = 5  # consecutive failed checks of the API port before the preview is an error
 LOG_LINES = 500
 LOG_TAIL_LINES = 60
 
@@ -870,7 +872,8 @@ class PreviewManager:
                 return
         if not self._wait_ready(preview, ports["port"]):
             return
-        if server is not None and not port_accepts(ports["server_port"]):
+        server_seen = server is not None and port_accepts(ports["server_port"])
+        if server is not None and not server_seen:
             preview.add_log(f"[agentdev] Server chưa nghe ở cổng {ports['server_port']} (có thể nó dùng cổng cố định).")
         preview.url = f"http://localhost:{ports['port']}/"
         preview.frameable = frame_allowed(preview.url)
@@ -879,10 +882,29 @@ class PreviewManager:
                             "đúng chuẩn bảo mật): mở nó trong tab mới.")
         preview.status = "running"
         preview.add_log(f"[agentdev] Sẵn sàng: {preview.url}")
-        while not preview.stop_event.wait(1.0):
+        self._watch_running(preview, ports.get("server_port"), server_seen)
+
+    def _watch_running(self, preview: Preview, server_port: Optional[int], server_seen: bool) -> None:
+        """Until stopped: a child that exits, or an API port that stops answering, is an error.
+
+        A watcher (``node --watch``, nodemon) outlives the server it runs, so a live process is not enough: once
+        the server port has answered, SERVER_DOWN_CHECKS failed checks in a row mean the API is gone (every call
+        from the UI fails) and the tester must see that instead of "running"."""
+        misses = 0
+        while not preview.stop_event.wait(WATCH_INTERVAL):
             dead = self._dead_process(preview)
             if dead:
                 raise dead
+            if not server_port:
+                continue
+            if port_accepts(server_port):
+                server_seen, misses = True, 0
+            elif server_seen:
+                misses += 1
+                if misses >= SERVER_DOWN_CHECKS:
+                    raise PreviewError(f"Server API (cổng {server_port}) đã ngừng trả lời nên giao diện không gọi "
+                                       "được API (đăng nhập, dữ liệu). Xem log rồi bấm Chạy thử lại.",
+                                       code="preview_server_down", params={"port": server_port})
 
     def _wait_ready(self, preview: Preview, port: int) -> bool:
         """Wait until OUR app answers on ``port``. False when the preview was stopped meanwhile.

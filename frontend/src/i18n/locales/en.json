@@ -3195,6 +3195,7 @@
       "preview_install_timeout": "Installing dependencies took over {seconds}s and was stopped.",
       "preview_install_failed": "Installing dependencies failed (exit code {exit_code}).",
       "preview_process_exited": "Process {process} exited (code {exit_code}).",
+      "preview_server_down": "The API server (port {port}) stopped responding, so the UI cannot call the API (login, data). Check the log, then press Run again.",
       "preview_ready_timeout": "The app did not respond on port {port} after {seconds}s.",
       "preview_port_taken": "Port {port} is used by another program.",
       "preview_dir_missing": "The output folder no longer exists.",

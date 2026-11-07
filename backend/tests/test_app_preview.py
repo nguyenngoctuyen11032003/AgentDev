@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -542,3 +543,35 @@ def test_env_file_not_written_into_a_users_project(tmp_path, monkeypatch):
     preview = type("P", (), {"add_log": lambda self, line: logs.append(line)})()
     app_preview._seed_env_file(preview, project)
     assert not (project / ".env").exists() and logs
+
+
+def test_server_that_stops_listening_while_its_process_lives_is_an_error(warehouse, monkeypatch):
+    """Regression: ``node --watch`` keeps running after the API server inside it crashed, so the preview kept
+    saying "running" while every login hit ECONNREFUSED. A server port that stops answering is an error."""
+    sock, port = _foreign_listener()
+    proc = _sleeper()
+    monkeypatch.setattr(ap, "WATCH_INTERVAL", 0.05)
+    preview = ap.Preview(key=("j", "w"), root=warehouse, kind="node", status="running")
+    preview.procs.append(("server", proc))
+    try:
+        sock.close()  # the server inside the watcher died; the watcher itself lives on
+        with pytest.raises(ap.PreviewError) as err:
+            ap.PreviewManager()._watch_running(preview, port, server_seen=True)
+        assert err.value.code == "preview_server_down" and err.value.params == {"port": port}
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_watch_ignores_a_server_port_that_never_answered(warehouse, monkeypatch):
+    port = ap.allocate_port()
+    proc = _sleeper()
+    monkeypatch.setattr(ap, "WATCH_INTERVAL", 0.05)
+    preview = ap.Preview(key=("j", "n"), root=warehouse, kind="node", status="running")
+    preview.procs.append(("server", proc))
+    threading.Timer(0.6, preview.stop_event.set).start()
+    try:
+        ap.PreviewManager()._watch_running(preview, port, server_seen=False)  # returns on stop, no error
+    finally:
+        proc.kill()
+        proc.wait()
