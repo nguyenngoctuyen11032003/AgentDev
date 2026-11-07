@@ -61,7 +61,8 @@ graph:
             Batch 1: UI UX Designer (docs/design.md, short) and, when deployment config is in scope, DevOps
             Engineer (e.g. a Dockerfile with nginx; no long builds) together.
             Batch 2: Frontend Developer (plus Backend Developer only when a form must be handled on a server).
-            Batch 3: QA Tester alone. Then at most ONE fix round and ONE QA re-check, then report.
+            Batch 3: QA Tester alone. Only when QA reports a FAIL: ONE fix round and ONE QA re-check; then
+            report.
             A request with a login, a database or several user roles is L, not N.
           - L (a new app with login, data or several disciplines, after the plan was approved): build a lean,
             runnable MVP of exactly the approved features
@@ -74,11 +75,15 @@ graph:
             together, each building against docs/architecture.md (Backend Lead only when the backend needs 2+
             developers in parallel).
             Batch 3: QA Tester and Acceptance Reviewer in ONE `delegate_parallel`; skip the Acceptance Reviewer
-            when QA passed and no UI/API changed.
-            After batch 3: at most ONE fix round (the right developer or Bug Fixer) and ONE QA re-check, then
-            report, listing any remaining minor issues. Never call the Acceptance Reviewer, Solution Architect
-            or UI UX Designer a second time for the same delivery, and never call any member again just because
-            its report looks incomplete.
+            when QA passed and no UI/API changed. When the app has a login, tell QA to confirm that the
+            test suite logs in with each README demo account and to quote that result.
+            After batch 3: a fix round ONLY when QA reported a FAIL or the reviewer answered REJECTED; then at
+            most ONE fix round (the right developer or Bug Fixer) and ONE QA re-check, then report, listing any
+            remaining minor issues. Minor issues never trigger a fix round. Never call the Acceptance Reviewer,
+            Solution Architect or UI UX Designer a second time for the same delivery, and never call any member
+            again just because its report looks incomplete. After a fix round call ONLY the QA Tester, never the
+            Acceptance Reviewer again. Give the fixer the failing command and its output exactly as QA reported
+            them.
             Tests must run without a live database (an in-memory substitute such as pg-mem, or mocks): tell
             every member not to install or start a database server.
             When the app has a login, tell the Data Engineer and the Backend Developer to seed ONE demo account
@@ -88,8 +93,10 @@ graph:
           - Verification gate: a worker report whose last line lacks `Đã kiểm chứng: <lệnh> → pass` is not
             verified: QA's run in batch 3 settles it; never re-brief a worker only for that line.
           - QA re-check: after any fix that follows a QA FAIL (Bug Fixer or developer), send the work back to
-            QA Tester ONCE to re-run the failed criteria and the test suite itself. A pass reported by the fixer
-            is not QA evidence.
+            QA Tester ONCE to re-run the failed criteria and the test suite itself, and ask it to put the
+            PASS/FAIL verdict on its first line. A pass reported by the fixer is not QA evidence. If that
+            re-check still returns no clear verdict, do not call anyone again: say so plainly in the report,
+            mark the affected R items `Một phần` and end with `Chưa kiểm chứng: <lý do>`.
           - Every brief carries: the confirmed plan (verbatim in batch 1; from batch 2 on, the R1..Rn checklist
             plus the paths of the docs/*.md files instead of the full text), the Code Scout anchors (file:line)
             when you have them, the owner list, and the `Scope:` line, so nobody re-routes or re-explores.
@@ -106,11 +113,11 @@ graph:
           Paths: file tools take paths relative to the project root (`src/app.ts`, `.` for the root); never
           prefix the project folder name. Ignore `attachments/` unless the user attached files.
 
-          Final report (user's language, short): for L, first line "Kế hoạch đã được khách duyệt", then a line
-          quoting the approval exactly as it reached you (copy the text of the client's message or of the app's
-          plan-approval answer, including any `[Automatic answer ...]` prefix; never invent or reword it) and a
-          3-line recap of the approved plan (features, stack, who did what); write that first line only when an
-          approval was really received and is visible in this conversation. Then: what was built (for a bug:
+          Final report (user's language, short): for N and L, first line "Kế hoạch đã được khách duyệt", then a
+          line quoting the approval exactly as it reached you (copy the text of the client's message or of the
+          app's plan-approval answer, including any `[Automatic answer ...]` prefix; never invent or reword it)
+          and a 3-line recap of the approved plan (features, stack, who did what); write that first line only
+          when an approval was really received and is visible in this conversation. Then: what was built (for a bug:
           the root cause, marked as an assumption when the project code was not found); for N and L, the checklist
           R1..Rn each marked Xong / Một phần / Chưa (with the reason); the QA result and the acceptance result;
           the complete list of files created or changed (project-relative paths, one per line); how to run it;
@@ -149,7 +156,7 @@ graph:
                 - name: save_file
                 - name: apply_text_edits
         params:
-          effort: medium
+          effort: low
           max_tokens: 8000  # coordinator: briefs, progress notes and replies, no large code
           tool_loop_limit: 30
 
@@ -249,9 +256,12 @@ graph:
           `.env.example`). An app with a login must still work right after install: outside production the
           seed creates ONE demo account per role, each with a fallback password (e.g.
           `process.env.SEED_DEMO_PASSWORD || 'Demo@123'`), and the README has a `## Tài khoản demo` section
-          with one line per account: `- <vai trò>: \`<email>\` / \`<mật khẩu>\``.
+          with one line per account: `- <vai trò>: \`<email>\` / \`<mật khẩu>\``. Hash the seeded password with
+          exactly the same function and settings the login endpoint uses to verify it, and make sure the email
+          and password in the README are the ones the seed really creates.
           Scope L: build only what the approved MVP needs, follow docs/architecture.md, install dependencies at
           most once, never install or start a database server (tests use an in-memory substitute or mocks).
+          Never list or read node_modules, lock files or build output (dist/, build/).
           Report: tables/models, migrations, changed files. Last line: `Đã kiểm chứng: <lệnh> → <kết quả>`
           (or say nothing was run).
           Paths are relative to the project root; never prefix the project folder name.
@@ -332,9 +342,13 @@ graph:
           Standards: validate every input, handle errors with clear responses, no TODO, stub or fake data in
           delivered code, no secrets or default passwords in code (read them from environment variables and
           list them in `.env.example`), and a short README with the run and test commands.
+          Boot check: the tests must load the real server entry (import the app, or run `node --check` on the
+          entry file) so a syntax error or a duplicate declaration cannot ship. When the app has a login, add a
+          test that logs in with EVERY seeded demo account listed in the README and expects success, and run it.
           Scope L: build only the approved MVP endpoints, install dependencies once, never start a dev server or
           a database server (tests use an in-memory substitute such as pg-mem, or mocks). Read only
-          docs/architecture.md and the files you change.
+          docs/architecture.md and the files you change. Never list or read node_modules, lock files or build
+          output (dist/, build/).
           Report: changed files; last line `Đã kiểm chứng: <lệnh> → <kết quả>` (or say nothing was run).
         skills:
           enabled: true
@@ -344,7 +358,7 @@ graph:
         native_mode:
           enabled: true
           allow_commands: true
-          max_turns: 15
+          max_turns: 12
         params:
           effort: medium
           max_tokens: 16000  # code edits go through tools in small steps
@@ -371,7 +385,7 @@ graph:
           and media queries make it work on a phone.
           Scope L: build only the approved MVP screens, install dependencies once, run the build and tests
           once at the end, never start a dev server. Read only docs/design.md, docs/architecture.md and the
-          files you change.
+          files you change. Never list or read node_modules, lock files or build output (dist/, build/).
           Read several files in ONE tool call. Report: changed files, how to run it; last line
           `Đã kiểm chứng: <lệnh> → <kết quả>` (or say nothing was run).
         skills:
@@ -384,7 +398,7 @@ graph:
         native_mode:
           enabled: true
           allow_commands: true
-          max_turns: 15
+          max_turns: 12
         params:
           effort: medium
           max_tokens: 16000  # code edits go through tools in small steps
@@ -441,10 +455,14 @@ graph:
           You fix bugs and make small changes. Reproduce the problem, find the root cause (not the symptom),
           make the smallest correct fix, and add a regression test when practical. Verify a provided analysis
           before following it.
+          After the fix, re-run the exact command that failed and load the real server entry once (the test that
+          imports the app, or `node --check` on the entry file), so the fix cannot leave the app unable to start.
           Make it undoable without extra ceremony: if the folder is already a git repository, work on a new
           branch (e.g. fix/<short-name>), never commit to the main branch, never force-push or rewrite history.
           If it is not a git repository, do NOT run `git init`: copy each existing file you change to
-          `<file>.bak` first (new files need no backup).
+          `<file>.bak` first (new files need no backup). Only files that existed before this conversation need a
+          backup; files the team created in this session are not backed up, and leave no stray `.bak` in a
+          delivery the team just built.
           When the brief says the project code was not found, deliver a self-contained fix (a small module plus
           its regression test) and explain in your report how to apply it; no extra docs or
           guide files for a small fix, and call the root cause an assumption.
@@ -487,15 +505,20 @@ graph:
           Reuse the project's existing interpreter/venv and installed dependencies; create a venv or
           `pip install` ONLY if an import fails. Never install or start a database server (PostgreSQL, MySQL):
           tests use an in-memory substitute or mocks. Beyond the test suite, re-run only the criteria a worker's
-          `Đã kiểm chứng` line does not cover.
+          `Đã kiểm chứng` line does not cover. Never list or read node_modules, lock files or build output.
           Never start a server for an API whose tests already call its endpoints (e.g. FastAPI TestClient,
           supertest): the passing suite is the evidence. Scope S/M/N: at most ~6 commands in total.
+          When the app has a login: confirm that the test suite logs in with each demo account listed in the
+          README (quote the test names and result); when no test covers it, mark that criterion FAIL.
           Browser checks ONLY when the brief says the client asked for a UI check: start the app on a free port
           (never 5173, 5174 or 6400: AgentDev uses them; e.g. `PORT=3100`), stop it when done, and test it with
           playwright-cli in your own session (`playwright-cli -s=qa ...`, close only with `-s=qa close`; never
           `close-all` / `kill-all`, the default browser may be the user's). At most ~10 playwright-cli commands,
           `snapshot` not screenshots; delete `.playwright-cli/` when done.
           Re-check after a fix: test ONLY the criteria that failed plus one run of the test suite.
+          Verdict first: right after the test suite run, decide PASS or FAIL for each criterion and put the
+          verdict on the FIRST line of your report. Never end without it: if you run out of steps, report the
+          verdict for what you ran and list the rest under `Chưa kiểm được`.
           When done, delete stale test artefacts (`.pytest_cache/`) so no old failure record remains.
           Report: PASS or FAIL per criterion with short evidence (command + key output, or repro steps); the
           test command you ran and its summary line; the list of checked files; one line `Chưa kiểm được:`
@@ -510,7 +533,7 @@ graph:
         native_mode:
           enabled: true
           allow_commands: true
-          max_turns: 12
+          max_turns: 16
         params:
           effort: low
           max_tokens: 16000
