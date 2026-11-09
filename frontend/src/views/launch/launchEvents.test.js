@@ -7,6 +7,7 @@ import {
   userMessageRole,
   resumedSessionPlan,
   humanInputPrompt,
+  gateInfo,
   artifactFile,
   logAlert,
   infoLogKind,
@@ -160,6 +161,25 @@ describe('human input', () => {
   it('has no agent bubble when the user spoke last', () => {
     const prompt = humanInputPrompt([agent('A'), user('B')], { input: 'A' })
     expect(prompt).toMatchObject({ lastAgentBubble: null, repeatsLast: false, fullMessage: 'A' })
+  })
+})
+
+describe('gateInfo (human_input_required)', () => {
+  it('marks a paid approval gate', () => {
+    expect(gateInfo({ node_type: 'human', paid: true })).toEqual({ isGate: true, paid: true })
+  })
+
+  it('a plain gate is not paid', () => {
+    expect(gateInfo({ node_type: 'human', paid: false })).toEqual({ isGate: true, paid: false })
+  })
+
+  it('a lead question is neither a gate nor paid, whatever the flag says', () => {
+    expect(gateInfo({ node_type: 'agent', paid: true })).toEqual({ isGate: false, paid: false })
+  })
+
+  it('an older server without the fields: an ordinary question', () => {
+    expect(gateInfo({ node_id: 'Gate' })).toEqual({ isGate: false, paid: false })
+    expect(gateInfo(undefined)).toEqual({ isGate: false, paid: false })
   })
 })
 

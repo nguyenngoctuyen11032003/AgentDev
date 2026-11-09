@@ -11,6 +11,7 @@ from agentdev.api.services.prompt_channel import WebPromptChannel
 from agentdev.api.services.session_execution import NO_REPLY_TEXT
 from agentdev.api.services.workflow_patterns.graph_analysis import Graph
 from agentdev.utils.run_mode import RUN_MODE_AUTO_ANSWER, RUN_MODES, answers_automatically
+from agentdev.utils.human_prompt import AUTO_SKIP_PAID
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -38,7 +39,8 @@ def test_prompt_channel_waits_for_the_person_at_a_paid_gate(mode):
     channel._notify_human_prompt = lambda *a, **k: None
     result = channel.request(node_id="Gate", task="ok?", inputs="x", metadata={"node_type": "human", "paid": True})
     assert waited, "the paid gate must wait for the person"
-    assert result.text == NO_REPLY_TEXT and RUN_MODE_AUTO_ANSWER not in result.text
+    # Timed out at a paid gate: the paid refusal, never "proceed" and never the auto-approval
+    assert result.text == AUTO_SKIP_PAID and RUN_MODE_AUTO_ANSWER not in result.text
     assert not any(m.get("type") == "auto_answered" for m in sent)
 
 

@@ -18,7 +18,7 @@ test('run fake workflow: approve the gate, soft-failing step is shown as failed,
   await page.locator('.composer-send').click()
 
   // The gate asks the person; the run is paused there.
-  await expect(page.getByText('Approval đang hỏi bạn').first()).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText('Chờ bạn duyệt: Approval').first()).toBeVisible({ timeout: 90_000 })
   await expect(page.locator('.chat-header-status')).not.toContainText('Hoàn tất')
   expect(new URL(page.url()).searchParams.get('session')).toBeTruthy()
 

@@ -605,11 +605,19 @@
                 </button>
               </Transition>
               <!-- The lead waits on you: its question stays in view right above the box -->
-              <div v-if="pendingQuestion" class="question-card" role="status">
+              <div
+                v-if="pendingQuestion"
+                class="question-card"
+                :class="{ 'is-gate': pendingQuestion.isGate, 'is-paid': pendingQuestion.paid }"
+                role="status"
+              >
                 <div class="question-card-head">
                   <span class="question-card-dot" aria-hidden="true"></span>
-                  {{ pendingQuestion.name ? $t('launch.question_card.asking', { name: pendingQuestion.name }) : $t('launch.question_card.asking_any') }}
+                  <span class="question-card-title">{{ questionCardTitle }}</span>
+                  <span v-if="pendingQuestion.paid" class="question-card-badge">{{ $t('launch.question_card.paid_badge') }}</span>
                 </div>
+                <!-- A gate in front of a paid or irreversible step: say so before the person answers -->
+                <p v-if="pendingQuestion.paid" class="question-card-paid">{{ $t('launch.question_card.paid_note') }}</p>
                 <div
                   v-if="pendingQuestion.text"
                   class="question-card-text"
@@ -619,6 +627,7 @@
                   v-if="pendingQuestion.isLong"
                   type="button"
                   class="question-card-toggle"
+                  :aria-expanded="isQuestionExpanded"
                   @click="isQuestionExpanded = !isQuestionExpanded"
                 >
                   {{ isQuestionExpanded ? $t('components.collapsible_message.show_less') : $t('components.collapsible_message.show_more') }}
@@ -1151,6 +1160,7 @@ import {
   userMessageRole,
   resumedSessionPlan,
   humanInputPrompt,
+  gateInfo,
   artifactFile,
   logAlert,
   infoLogKind,
@@ -2976,11 +2986,13 @@ const composerPlaceholder = computed(() => {
 // The question the run is waiting on (the latest one an agent asked), pinned above the composer
 // The message holding the open question (set when the run asks; see human_input_required)
 const askedMessage = shallowRef(null)
+// What the open question is: a workflow approval gate, and whether it guards a paid step (see gateInfo)
+const openGate = shallowRef({ isGate: false, paid: false })
 const questionView = (message) => {
   const text = String(message.text || '').trim()
   // Clamped to three lines; longer ones get a "show more"
   const isLong = text.length > 180 || text.split('\n').length > 3
-  return { name: getDisplayName(message), text, isLong }
+  return { name: getDisplayName(message), text, isLong, ...openGate.value }
 }
 const pendingQuestion = computed(() => {
   if (!isWaitingForInput.value) return null
@@ -2993,7 +3005,15 @@ const pendingQuestion = computed(() => {
     if (message.type === 'dialogue' && message.isRight) break
     if (message.isQuestion) return questionView(message)
   }
-  return { name: '', text: '', isLong: false }
+  return { name: '', text: '', isLong: false, ...openGate.value }
+})
+const questionCardTitle = computed(() => {
+  const question = pendingQuestion.value
+  if (!question) return ''
+  if (question.isGate) {
+    return question.name ? t('launch.question_card.gate', { name: question.name }) : t('launch.question_card.gate_any')
+  }
+  return question.name ? t('launch.question_card.asking', { name: question.name }) : t('launch.question_card.asking_any')
 })
 const isQuestionExpanded = ref(false)
 watch(pendingQuestion, (question, previous) => {
@@ -5709,6 +5729,7 @@ const processMessage = async (msg) => {
     const askedAt = at || lastLogAt || Date.now()
     let question = null
     askedMessage.value = null
+    openGate.value = gateInfo(msg.data)
     if (repeatsLast && !fullMessage) {
       // Nothing new to say: the reply on screen is the question
       settleNodeTurn(askingNode, null, askedAt)

@@ -8,7 +8,7 @@ from agentdev.api.services.attachment_service import AttachmentService
 from agentdev.api.services.session_execution import SessionExecutionController
 from agentdev.utils.attachments import AttachmentStore
 from agentdev.utils.exceptions import TimeoutError
-from agentdev.utils.human_prompt import PromptChannel, PromptResult
+from agentdev.utils.human_prompt import AUTO_SKIP_PAID, PromptChannel, PromptResult
 from agentdev.utils.run_mode import DEFAULT_RUN_MODE, RUN_MODE_AUTO_ANSWER, answers_automatically, normalize_run_mode
 from agentdev.utils.structured_logger import get_server_logger
 
@@ -74,7 +74,7 @@ class WebPromptChannel(PromptChannel):
             payload,
         )
 
-        self._notify_human_prompt(node_id, preview, task)
+        self._notify_human_prompt(node_id, preview, task, metadata)
 
         try:
             human_response = self.session_controller.wait_for_human_input(self.session_id)
@@ -88,6 +88,11 @@ class WebPromptChannel(PromptChannel):
         if isinstance(human_response, dict) and human_response.get("timed_out"):
             # The run moves on without an answer: close the question in the UI instead of leaving it open
             self._send({"type": "human_input_timeout", "data": {"node_id": node_id}})
+            meta = metadata or {}
+            if str(meta.get("node_type") or "") == "human" and meta.get("paid"):
+                # Silence is never approval, least of all at a paid gate: answer with the paid refusal, which
+                # every edge out of a paid gate treats as "do not start the paid step" (see function_manager).
+                human_response = {**human_response, "text": AUTO_SKIP_PAID}
         response_text, attachment_ids = self._extract_response(human_response)
         blocks = self._build_blocks(response_text, attachment_ids)
         metadata_out = {
@@ -121,13 +126,20 @@ class WebPromptChannel(PromptChannel):
             blocks.append(MessageBlock.text_block(""))
         return blocks
 
-    def _notify_human_prompt(self, node_id: str, preview: str, task: str) -> None:
+    def _notify_human_prompt(
+        self, node_id: str, preview: str, task: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        meta = metadata or {}
+        node_type = str(meta.get("node_type") or "")
         self._send({
             "type": "human_input_required",
             "data": {
                 "node_id": node_id,
                 "input": preview,
                 "task_description": task,
+                # The chat marks an approval gate, and a paid one (costs money / cannot be undone) clearly
+                "node_type": node_type,
+                "paid": node_type == "human" and bool(meta.get("paid")),
             },
         })
 

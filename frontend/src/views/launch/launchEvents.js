@@ -92,6 +92,17 @@ export const humanInputPrompt = (messages, data, localizeInput = (text) => text)
   return { lastAgentBubble, repeatsLast, fullMessage }
 }
 
+/**
+ * What kind of question a `human_input_required` event opens: an approval gate of the workflow
+ * (a Human node), and whether the step after it costs money or cannot be undone (`paid: true`).
+ * A lead's question is never a paid gate.
+ * @param {object} data the event's data (node_type, paid)
+ */
+export const gateInfo = (data) => {
+  const isGate = data?.node_type === 'human'
+  return { isGate, paid: isGate && data?.paid === true }
+}
+
 /** One file of an `artifact_created` event, with its defaults filled in. */
 export const artifactFile = (event, fallbackSender) => {
   const fileName = event?.file_name || 'artifact'

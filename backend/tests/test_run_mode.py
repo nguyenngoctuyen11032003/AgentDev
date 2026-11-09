@@ -136,3 +136,45 @@ def test_auto_mode_skips_the_plan_step(lead_workflow):  # noqa: F811
     ScriptedProvider.scripts = {"CTO": ["Xong."], "Backend Dev": [], "Tester": []}
     _run_in_mode(lead_workflow(plan_approval=True), "Làm web bán hàng mới", "auto")
     assert SUBMIT_PLAN_TOOL not in ScriptedProvider.seen["CTO"][0]["tools"]
+
+
+def test_gate_event_tells_the_chat_it_is_a_paid_gate(tmp_path, monkeypatch):
+    # The Run screen must mark a paid gate before the person answers: the event carries the flag
+    channel, controller, sockets, _ = _channel(tmp_path, "manual")
+    monkeypatch.setattr(controller, "wait_for_human_input", lambda sid, **kw: {"text": "no"})
+    channel.request(node_id="Render Approval", task="Tạo video?", metadata={"node_type": "human", "paid": True})
+    data = sockets.sent[0]["data"]
+    assert sockets.sent[0]["type"] == "human_input_required"
+    assert data["node_type"] == "human" and data["paid"] is True
+
+
+def test_lead_question_event_is_not_a_paid_gate(tmp_path, monkeypatch):
+    channel, controller, sockets, _ = _channel(tmp_path, "manual")
+    monkeypatch.setattr(controller, "wait_for_human_input", lambda sid, **kw: {"text": "React"})
+    channel.request(node_id="CTO", task="Which stack?", metadata={"node_type": "agent", "kind": "lead_question"})
+    data = sockets.sent[0]["data"]
+    assert data["node_type"] == "agent" and data["paid"] is False
+
+
+def test_paid_gate_timeout_is_a_refusal_not_proceed(tmp_path, monkeypatch):
+    # Silence is never approval: a paid gate that times out must get the paid refusal, so even an unconditional
+    # edge out of it does not start the paid step (function_manager blocks on AUTO_SKIP_PAID).
+    from agentdev.api.services.session_execution import NO_REPLY_TEXT
+    from agentdev.utils.human_prompt import AUTO_SKIP_PAID
+
+    channel, controller, sockets, _ = _channel(tmp_path, "manual")
+    monkeypatch.setattr(controller, "wait_for_human_input",
+                        lambda sid, **kw: {"text": NO_REPLY_TEXT, "attachments": [], "timed_out": True})
+    result = channel.request(node_id="Render Approval", task="Tạo video?", metadata={"node_type": "human", "paid": True})
+    assert AUTO_SKIP_PAID in result.text and "Proceed" not in result.text
+    assert sockets.sent[-1]["type"] == "human_input_timeout"
+
+
+def test_free_gate_timeout_keeps_the_no_reply_text(tmp_path, monkeypatch):
+    from agentdev.api.services.session_execution import NO_REPLY_TEXT
+
+    channel, controller, sockets, _ = _channel(tmp_path, "manual")
+    monkeypatch.setattr(controller, "wait_for_human_input",
+                        lambda sid, **kw: {"text": NO_REPLY_TEXT, "attachments": [], "timed_out": True})
+    result = channel.request(node_id="Review", task="OK?", metadata={"node_type": "human"})
+    assert result.text == NO_REPLY_TEXT

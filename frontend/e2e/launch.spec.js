@@ -15,7 +15,7 @@ async function startRun(page, text = 'chạy thử e2e') {
   await page.goto(`/launch?workflow=${WORKFLOW_FILE}`)
   await composer(page).fill(text)
   await send(page).click()
-  await expect(page.getByText('Approval đang hỏi bạn').first()).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText('Chờ bạn duyệt: Approval').first()).toBeVisible({ timeout: 90_000 })
 }
 
 test('launch: a fresh page shows the workflow and no run yet', async ({ page }) => {

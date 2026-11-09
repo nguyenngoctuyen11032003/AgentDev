@@ -18,7 +18,7 @@ async function openProducts(page) {
   await page.goto(`/launch?workflow=${WORKFLOW_FILE}`)
   await page.getByLabel('Nhập tin nhắn').fill('git changes e2e')
   await page.locator('.composer-send:not(.is-stop)').last().click()
-  await expect(page.getByText('Approval đang hỏi bạn').first()).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText('Chờ bạn duyệt: Approval').first()).toBeVisible({ timeout: 90_000 })
   await page.getByRole('tab', { name: /Sản phẩm/ }).click()
 }
 
