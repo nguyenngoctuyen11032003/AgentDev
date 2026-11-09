@@ -7,11 +7,11 @@ graph:
   log_level: INFO
   is_majority_voting: false
   start: [Intake]
-  end: [Archivist, Chat Reply, Quick Writer, Production Stopped, Video Renderer, Render Skipped]
+  end: [Final Reply, Chat Reply, Quick Writer, Production Stopped]
   nodes:
     - id: Intake
       type: agent
-      description: 'Phân loại tin nhắn, trả lời lời chào hoặc câu hỏi, chuyển tập phim cho Biên kịch và việc lẻ cho Biên kịch nhanh'
+      description: 'Phân loại tin nhắn, trả lời lời chào hoặc câu hỏi, hỏi lại khi tập thiếu ý tưởng hoặc sai độ dài, chuyển tập phim cho Biên kịch và việc lẻ cho Biên kịch nhanh'
       config:
         provider: anthropic
         name: claude-sonnet-5-5
@@ -26,6 +26,14 @@ graph:
              ideas or openings, a standalone script, a storyboard or shot list, or any script with a stated
              length under 2 minutes (e.g. 30 or 60 seconds). This holds even if it says kịch bản/script.
              Your first line is exactly TASK, then the user's message unchanged on the following lines. Nothing else.
+          1b. A request to make a NEW episode (write or produce it) that gives no story idea or main events (e.g.
+             only "làm tập 47 đi"), or that states a length outside 2-5 minutes (e.g. 40 minutes), or that asks to
+             skip the approvals: do NOT start with EPISODE, TASK or RENDER and do NOT invent a story. In at most 5
+             short sentences, in the user's language: ask for the main idea or events of that episode; say every
+             episode is 2-5 minutes, so offer to shorten it or split it into several episodes; say the script and
+             the production package are always approved by the person and that the real video with Google Veo is a
+             separate paid step that needs its own confirmation, so none of this can be skipped. Change notes for
+             an existing episode and requests that only ask for the video of an existing episode do not fall here.
           2. An idea for an episode of the series, or change notes for an episode: it explicitly mentions an
              episode/tập (e.g. tập 24), the series/bộ phim, a series character, or an episode script you sent.
              Your first line is exactly EPISODE, then the user's message unchanged on the following lines. Nothing else.
@@ -34,8 +42,8 @@ graph:
              unchanged on the following lines. Nothing else. The studio renders an approved episode's production
              package with Google Veo after the user agrees to the cost.
           3b. Something the studio cannot do (upload to a platform, edit real footage, render a video that is not
-             a series episode): do NOT start with EPISODE, TASK or RENDER. In 2-3 short sentences, in the user's
-             language, say what cannot be done and offer what can: an episode's script, production package
+             a series episode): do NOT start with EPISODE, TASK or RENDER. In 2-3 short sentences, in the
+             user's language, say what cannot be done and offer what can: an episode's script, production package
              (shots, image/video prompts, voice lines, SRT subtitles, title/thumbnail) and, for an episode, a
              rendered video with Google Veo (paid on the user's Google account).
           4. Anything else (greeting, thanks, a question about the studio): do NOT start with EPISODE or TASK;
@@ -45,6 +53,7 @@ graph:
         params:
           effort: low
           max_tokens: 1000
+      mascot: 5
     - id: Quick Writer
       type: agent
       description: 'Biên kịch nhanh, làm việc lẻ (ý tưởng, kịch bản quảng cáo, storyboard) và trả lời bạn ngay'
@@ -95,6 +104,8 @@ graph:
             series/tom_tat/tap_<N>.md instead and keep the ending it describes exactly. Then
             series/ho_so_nhan_vat.md.
           - A new episode N: series/ho_so_nhan_vat.md, series/tong_quan.md and series/tom_tat/tap_<N-1>.md.
+            If the previous summary does not exist, write from the user's idea and the bible only, never invent a
+            different story, and add one line at the very end starting Giả định: saying so.
           - Review notes from Biên tập kịch bản, or the user's notes at the script approval step: do not read any
             file again; revise the latest SCRIPT already in your context (read files as above only if it is not
             there).
@@ -141,7 +152,7 @@ graph:
       mascot: 13
     - id: Chat Reply
       type: passthrough
-      description: 'Gửi thẳng cho bạn câu trả lời trò chuyện (lời chào, câu hỏi)'
+      description: 'Gửi thẳng cho bạn câu trả lời trò chuyện (lời chào, câu hỏi, câu hỏi làm rõ)'
       config: {}
     - id: Script Reviewer
       type: agent
@@ -176,6 +187,7 @@ graph:
           enabled: true
           allow:
             - name: video-script
+            - name: character-passport
     - id: Script Guard
       type: loop_counter
       description: Dừng vòng sửa kịch bản sau 2 lần
@@ -197,7 +209,9 @@ graph:
           You are the visual director. From the approved episode script (already in your input, do not look for
           it) and the character bible (read series/ho_so_nhan_vat.md once with read_file_segment), build the
           visual production package for photorealistic video:
-          1. Shot list: shot number, duration in seconds, framing, camera movement, location, lighting.
+          1. Shot list: shot number, duration in seconds, framing, camera movement, location, lighting. Every
+             shot lasts 4-8 seconds, because the video is rendered with Google Veo in clips of that length: split
+             a longer moment into several shots.
           2. Per shot: an image prompt and a video/motion prompt in English, each under 40 words. Refer to
              characters ONLY by their short tag from the bible (e.g. [LINH-v1]); never repeat the full appearance
              per shot. Never create or rewrite series/ho_so_nhan_vat.md. If a character has no tag yet, append one
@@ -227,6 +241,7 @@ graph:
             - name: varg-consistent-characters
             - name: varg-video-prompting
             - name: video-design
+            - name: visual-style
     - id: Voice & Subtitles
       type: agent
       description: Soạn lời thoại theo nhân vật, phụ đề có mốc thời gian, nhạc và hiệu ứng âm thanh
@@ -265,7 +280,8 @@ graph:
           From the approved script (episode number inside it) write 3 catchy title options, a 2-line
           description with hashtags, and one image prompt in English for a thumbnail (refer to characters by
           their tag from series/ho_so_nhan_vat.md, e.g. [LINH-v1]). Save to series/tap_<number>/tieu_de_thumbnail.md
-          and reply with only the path and the recommended title, in the user's language.
+          with save_file. If the save fails, call create_folder for series/tap_<number> and retry the same save
+          once. Reply with only the path and the recommended title, in the user's language.
         params:
           effort: low
           max_tokens: 4000
@@ -291,10 +307,14 @@ graph:
         name: claude-haiku-5-5
         role: |-
           You check the visual package (series/tap_<number>/goi_san_xuat.md) against the approved script and
-          the character bible in ONE pass: every scene covered, durations add up to 2-5 minutes, characters
-          referred to by their bible tag, prompts clear enough for an image/video generator. Also skim
+          the character bible in ONE pass: every scene covered, durations add up to 2-5 minutes, every shot
+          lasts 4-8 seconds (the Google Veo clip length), characters referred to by their bible tag, prompts
+          clear enough for an image/video generator. Also skim
           loi_thoai_phu_de.md and tieu_de_thumbnail.md in the same folder: dialogue matches the script, subtitle
           timing fits the shot durations, thumbnail uses the bible tag.
+          Do the arithmetic from the file, not by guessing: add up the shot durations and report one line
+          "Kiểm tra: N shot, tổng X giây, ngắn nhất a giây, dài nhất b giây: đạt/không đạt" (in the user's
+          language). Not passing means a shot outside 4-8 seconds or a total outside 120-300 seconds.
           Read each of these files at most once with read_file_segment; the script is already in your input,
           do not look for it.
           Fix minor issues yourself with ONE round of apply_text_edits patches (no regeneration), then report.
@@ -339,7 +359,7 @@ graph:
         content: Đã dừng sau 3 vòng sửa, tập chưa được lưu. Các file trong series/tap_<số>/ vẫn giữ nguyên bản mới nhất. Gửi ghi chú mới để làm tiếp từ bản này.
     - id: Archivist
       type: agent
-      description: 'Lưu kịch bản và tóm tắt tập vào hồ sơ bộ phim, gửi bạn bản kịch bản cuối kèm đối chiếu yêu cầu'
+      description: 'Lưu kịch bản và tóm tắt tập vào hồ sơ bộ phim, báo cáo ngắn kèm đối chiếu yêu cầu'
       config:
         provider: anthropic
         name: claude-haiku-5-5
@@ -358,29 +378,36 @@ graph:
              open threads).
           3. Only if a character changed or a new one appeared: read series/ho_so_nhan_vat.md once and update it
              with one apply_text_edits call.
-          Call create_folder only when a save fails because the folder is missing, then retry that save once.
-          A file counts as saved only when its save_file call succeeded. An error such as No such tool available
-          is a failure of that one call, not proof that tools are missing: name the file that failed. Never say
-          that no file was saved when a save succeeded.
+          If a save_file call fails, retry that same call once right away (call create_folder first when the
+          error says the folder is missing). Only when the retry also fails does the file count as failed.
+          After the saves, call list_directory once on series/tap_<number> and once on series/tom_tat. Report
+          every file from this listing, not from one tool error: a file that is in the listing counts as saved
+          even if an earlier call reported an error; say a file is missing only when it is not in the listing.
+          An error such as No such tool available is a failure of that one call, not proof that tools are
+          missing: name the file that failed. Never say that no file was saved when the listing shows it.
           You only run after the whole pipeline has finished, so the path below is a fact: state it as done and
           never say that a step did not run.
-          Then reply to the user:
+          Then reply to the user, short, and always with the real episode number in every path (never write
+          <số> or <number>):
           1. Two to five short lines answering THEIR request: for each point they asked (what to change, what to
              keep, length), say in one line how the final script handles it, checked against the script.
              Mention only the user's own points, not review notes.
           2. One line on the path it took: Biên kịch viết/sửa, Biên tập kịch bản duyệt (tối đa 2 vòng sửa tự
              động), bạn duyệt kịch bản, gói sản xuất qua QA, bạn duyệt gói. Then copy the editor's check lines
              as they are; if the 2 rounds were used up instead, say so and that you approved the latest version.
-          3. One short line per file you saved (and one line per failed save).
-          4. The full final script (without the SCRIPT line), then one line saying the next episode is ready to start.
+          3. One short line per file in the listing of series/tap_<number> and series/tom_tat that belongs to
+             this episode, with the full path (and one line per file that failed and is not in the listing).
+          4. A summary of the final script of at most 100 words (scene count, estimated total length, hook,
+             ending). Do not reprint the full script: it is saved in kich_ban.md.
         params:
           effort: low
-          tool_loop_limit: 6
+          tool_loop_limit: 8
         tooling:
           - type: function
             config:
               tools:
                 - name: read_file_segment
+                - name: list_directory
                 - name: create_folder
                 - name: save_file
                 - name: apply_text_edits
@@ -418,12 +445,47 @@ graph:
             config:
               tools:
                 - name: render_episode_video
-    - id: Render Skipped
-      type: literal
-      description: Báo đã bỏ qua bước tạo video
+    - id: Final Reply
+      type: agent
+      description: 'Câu trả lời cuối cho bạn, nêu file thật đã lưu, số shot, tổng thời lượng, tiêu đề và trạng thái video'
       config:
-        role: assistant
-        content: 'Đã bỏ qua bước tạo video. Gói sản xuất (kịch bản, danh sách cảnh, câu lệnh tạo hình/video, lời thoại và phụ đề) vẫn ở series/tap_<số>/ để bạn dán vào công cụ tạo video. Khi muốn tạo video, nhắn "tạo video tập <số>".'
+        role: |-
+          LANGUAGE: reply in Vietnamese unless the user's request is clearly written in another language.
+          You write the final message of the run. Your input holds some of: the save report of the Lưu trữ
+          (files saved, summary of the script), the render report of Video Renderer, or the person's answer
+          that declined the paid video.
+          1. If a save report is in your input, take the episode number from it. First call list_directory once
+             on series/tap_<number> and once on series/tom_tat. The listing is the truth about which files
+             exist: trust it over the save report, and mark a file as saved when it is in the listing even if
+             the save report says it failed; say not found only when it is not in the listing. Then read, each
+             at most once with read_file_segment, series/tap_<number>/goi_san_xuat.md and
+             series/tap_<number>/tieu_de_thumbnail.md (only if they are in the listing).
+             From goi_san_xuat.md count the shots and add up their durations yourself (total seconds, shortest,
+             longest). Never invent a number: if a file cannot be read, say which one in one line.
+          2. Reply in at most 14 short lines, always with the real episode number in paths (never <số>):
+             - what was made for the episode, and the real paths of kich_ban.md, goi_san_xuat.md,
+               loi_thoai_phu_de.md, tieu_de_thumbnail.md and the summary file, each marked as saved or not found
+               (from the directory listing);
+             - one check line: "Kiểm tra: N shot, tổng X giây (Y phút), mỗi shot a-b giây: đạt/không đạt";
+             - the 3 title options and the recommended one, plus that a thumbnail prompt and a description with
+               hashtags are in tieu_de_thumbnail.md (only if you read that file);
+             - the video: if a Video Renderer report is in your input, repeat its status, video path, shots and
+               failures exactly; otherwise say in one line that the real video was not created and that the
+               person can send "tạo video tập <number>" to render it with Google Veo (paid).
+          Never say a video exists unless the Video Renderer report has a video path. If no save report is in
+          your input (a render-only request), skip points 1 and the file lines and only report the video status.
+        provider: anthropic
+        name: claude-haiku-5-5
+        params:
+          effort: low
+          max_tokens: 2000
+          tool_loop_limit: 5
+        tooling:
+          - type: function
+            config:
+              tools:
+                - name: list_directory
+                - name: read_file_segment
   edges:
     - {from: Intake, to: Writer, keep_message: true, condition: {type: keyword, config: {regex: ['^\s*EPISODE\b'], case_sensitive: true}}}
     - from: Intake
@@ -497,8 +559,10 @@ graph:
     - {from: Final Approval, to: Archivist, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
     # Video costs money: only an explicit "tạo video" renders it. The Lab's automatic answer, a timeout or any
     # other reply skips it, and the production package stays as it is.
-    - {from: Video Approval, to: Render Approval, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
-    - {from: Final Approval, to: Render Approval, condition: {type: keyword, config: {regex: ['^\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer)'], case_sensitive: false}}}
+    - {from: Archivist, to: Render Approval}
+    - {from: Archivist, to: Final Reply, trigger: false, clear_context: true}
     - {from: Render Approval, to: Video Renderer, condition: {type: keyword, config: {regex: ['^\s*((ok|có|co|đồng ý|dong y)\W*)?(tạo|tao)\s+video\b'], case_sensitive: false}}}
-    - {from: Render Approval, to: Render Skipped, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|có|co|đồng ý|dong y)\W*)?(tạo|tao)\s+video\b)'], case_sensitive: false}}}
+    - {from: Render Approval, to: Final Reply, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|có|co|đồng ý|dong y)\W*)?(tạo|tao)\s+video\b)'], case_sensitive: false}}}
+    - from: Video Renderer
+      to: Final Reply
     - {from: Final Approval, to: Production Stopped, condition: {type: keyword, config: {regex: ['^(?!\s*((ok|oke|okay|duyệt|duyet|đã duyệt|đồng ý|dong y)(\W+(nhé|nhe|nha|rồi|roi|luôn|ạ|tiếp tục|tiếp))*\W*$|\[Automatic answer))'], case_sensitive: false}}}
