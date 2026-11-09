@@ -3430,7 +3430,7 @@
       "empty": "Chưa có kết quả thử nghiệm nào trên máy",
       "cleanup": "Dọn kết quả cũ",
       "dialog_title": "Dọn kết quả thử nghiệm cũ",
-      "dialog_intro": "File mà các lượt thử nghiệm tạo ra (kịch bản, tài liệu, ảnh, mã nguồn…) được lưu trong thư mục storage/warehouse. Sau mỗi lần kiểm định, AgentDev tự xoá thư mục sản phẩm cũ hơn 14 ngày (điểm và lịch sử vẫn giữ; đổi số ngày bằng biến AGENTDEV_LAB_OUTPUT_RETENTION_DAYS, 0 = giữ mãi). Dùng mục này để dọn sớm hơn.",
+      "dialog_intro": "File mà các lượt thử nghiệm tạo ra (kịch bản, tài liệu, ảnh, mã nguồn…) được lưu trong thư mục {path} (mỗi lượt một thư mục, code ở gốc, file nội bộ trong .agentdev). Sau mỗi lần kiểm định, AgentDev tự xoá thư mục sản phẩm cũ hơn 14 ngày (điểm và lịch sử vẫn giữ; đổi số ngày bằng biến AGENTDEV_LAB_OUTPUT_RETENTION_DAYS, 0 = giữ mãi). Dùng mục này để dọn sớm hơn.",
       "option_label": "Xoá những gì",
       "older": "Cũ hơn {n} ngày",
       "orphans": "Chỉ thư mục không còn thuộc lượt kiểm định nào",

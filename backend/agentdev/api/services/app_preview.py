@@ -1020,8 +1020,14 @@ def _allowed_root() -> Path:
 def _check_root(root: Path, allowed_root: Optional[Path] = None) -> None:
     if not root.is_dir():
         raise PreviewError("Không tìm thấy thư mục kết quả của lượt chạy này.", 404, "preview_dir_missing")
-    allowed = Path(allowed_root).resolve() if allowed_root is not None else _allowed_root()
-    if not root.is_relative_to(allowed):
+    if allowed_root is not None:
+        allowed = [Path(allowed_root).resolve()]
+    else:
+        # the warehouse (older runs) and AgentDev_lab (Lab runs since project folders)
+        from agentdev.utils.project_folders import lab_root
+
+        allowed = [_allowed_root(), lab_root().resolve()]
+    if not any(root.is_relative_to(base) for base in allowed):
         raise PreviewError("Thư mục kết quả nằm ngoài kho lưu trữ, không chạy thử.", 403, "preview_dir_outside")
 
 

@@ -19,7 +19,12 @@ from agentdev.api.services import lab_outputs
 
 NAME_MAX = 60
 # Folder names that say nothing about the project (AgentDev's own workspace folders).
-_GENERIC_DIRS = re.compile(r"^(code_workspace|workspace|session_.*|lab_.*|output|outputs|src|app)$", re.IGNORECASE)
+# Folder names that say nothing about the product: the run's own folder (older ``session_*`` / ``lab_*``, and a Lab
+# run since project folders, ``<workflow>-<date>-<time>-<id>``) and the usual source folders.
+_GENERIC_DIRS = re.compile(
+    r"^(code_workspace|workspace|session_.*|lab_.*|.+-\d{8}-\d{6}-[0-9a-f]{6}(-\d+)?|output|outputs|src|app)$",
+    re.IGNORECASE,
+)
 # package.json names a scaffold leaves behind.
 _GENERIC_PACKAGES = re.compile(r"^(@[\w-]+/)?(app|my-app|vite-project|client|server|frontend|backend|web|api|root|"
                                r"project|demo|test)$", re.IGNORECASE)

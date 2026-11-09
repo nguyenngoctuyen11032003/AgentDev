@@ -59,8 +59,7 @@ def _plan(workflow: str, keep_job: str) -> dict[str, Any]:
 
     targets: list[Path] = []
     for folder in lo._lab_dirs():
-        match = lo._SESSION_NAME.match(folder.name)
-        if not match or match["stem"] != stem:
+        if not lo.is_run_of_workflow(folder.name, stem):
             continue
         key = lo.session_key(folder.name)
         if key in keep or lo._has_live_preview(folder):

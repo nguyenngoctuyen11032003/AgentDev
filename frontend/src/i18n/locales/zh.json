@@ -3143,7 +3143,7 @@
       "empty": "本机还没有实验结果",
       "cleanup": "清理旧结果",
       "dialog_title": "清理旧的实验结果",
-      "dialog_intro": "实验运行生成的文件（脚本、文档、图片、源代码…）保存在 storage/warehouse 中。每次评测后，AgentDev 会自动删除超过 14 天的产出文件夹（评分和历史保留；可用 AGENTDEV_LAB_OUTPUT_RETENTION_DAYS 修改天数，0 = 永久保留）。可在此提前清理。",
+      "dialog_intro": "实验运行生成的文件（脚本、文档、图片、源代码…）保存在 {path} 中（每次运行一个文件夹，代码在根目录，AgentDev 自身文件在 .agentdev 中）。每次评测后，AgentDev 会自动删除超过 14 天的产出文件夹（评分和历史保留；可用 AGENTDEV_LAB_OUTPUT_RETENTION_DAYS 修改天数，0 = 永久保留）。可在此提前清理。",
       "option_label": "删除哪些",
       "older": "超过 {n} 天",
       "orphans": "仅删除不再属于任何评测的文件夹",

@@ -345,7 +345,7 @@ def test_auto_prune_zero_keeps_everything(env, monkeypatch):
     assert old_run.exists()
 
 
-def test_failed_run_keeps_its_output_folder(env, monkeypatch):
+def _failing_run(env, monkeypatch):
     from agentdev.runtime import sdk
 
     monkeypatch.setattr(sdk, "OUTPUT_ROOT", env.warehouse)
@@ -357,8 +357,47 @@ def test_failed_run_keeps_its_output_folder(env, monkeypatch):
     with pytest.raises(RuntimeError) as info:
         workflow_lab._run_once(Path("wf.yaml"), Scenario(name="s", prompt="p", criteria="c"),
                                __import__("threading").Event(), run_turn=failing_turn)
-    folder = Path(info.value.lab_output_dir)
+    return Path(info.value.lab_output_dir)
+
+
+def test_failed_run_keeps_its_output_folder(env, monkeypatch):
+    # Lab runs are saved as <PROJECTS_DIR>/AgentDev_lab/<workflow>-<time>-<id>, code at the root
+    folder = _failing_run(env, monkeypatch)
+    assert folder.parent == (env.tmp / "AgentDev" / "AgentDev_lab").resolve()
+    assert folder.name.startswith("wf-") and folder.is_dir() and (folder / ".agentdev").is_dir()
+    assert lab_outputs.checked_run_dir(str(folder)) == folder
+    assert folder in lab_outputs._lab_dirs()
+
+
+def test_failed_run_falls_back_to_the_warehouse_when_the_lab_folder_cannot_be_made(env, monkeypatch):
+    blocker = env.tmp / "file-not-dir"
+    blocker.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(paths, "PROJECTS_DIR", blocker / "AgentDev")
+    folder = _failing_run(env, monkeypatch)
     assert folder.parent == env.warehouse and folder.name.startswith("lab_wf_") and folder.is_dir()
+
+
+def test_lab_run_folder_is_listed_deleted_and_counted(env):
+    run = lab_outputs.lab_projects_root() / "wf-20261109-101400-abcdef"
+    (run / ".agentdev").mkdir(parents=True)
+    (run / "index.html").write_text("<h1>hi</h1>", encoding="utf-8")
+    (run / ".agentdev" / "execution_logs.json").write_text("{}", encoding="utf-8")
+    _store_job(env, JOB, [run])
+    listing = env.client.get(f"/api/lab/jobs/{JOB}/runs/0/files").json()
+    assert [f["path"] for f in listing["files"]] == ["index.html"]  # AgentDev's own files stay out of the list
+    stats = lab_outputs.storage_stats()
+    assert stats["run_dirs"] == 1 and stats["orphan_dirs"] == 0
+    assert lab_outputs.delete_run_outputs(JOB, 0)["deleted"] is True
+    assert not run.exists()
+
+
+def test_a_folder_outside_lab_and_warehouse_is_never_a_run_dir(env):
+    elsewhere = env.tmp / "elsewhere" / "wf-1"
+    elsewhere.mkdir(parents=True)
+    nested = lab_outputs.lab_projects_root() / "wf-1" / "deeper"
+    nested.mkdir(parents=True)
+    assert lab_outputs.checked_run_dir(str(elsewhere)) is None
+    assert lab_outputs.checked_run_dir(str(nested)) is None  # only direct children of AgentDev_lab
 
 
 def _job_with_ids(env, entries):
@@ -484,3 +523,16 @@ def test_remove_tree_deletes_paths_longer_than_260_chars(tmp_path):
     freed = lab_outputs._remove_tree(target)
     assert not target.exists()
     assert freed >= 100
+
+
+def test_workflow_cleanup_covers_lab_run_folders(env):
+    from agentdev.api.services import lab_cleanup
+
+    root = lab_outputs.lab_projects_root()
+    for name in ("phong-san-xuat-video-20261101-100000-aaaaaa", "other-flow-20261101-100000-bbbbbb"):
+        (root / name / ".agentdev").mkdir(parents=True)
+        (root / name / "a.txt").write_text("x", encoding="utf-8")
+    plan = lab_cleanup._plan("phong_san_xuat_video.yaml", "")
+    assert [p.name for p in plan["targets"]] == ["phong-san-xuat-video-20261101-100000-aaaaaa"]
+    assert lab_cleanup.cleanup("phong_san_xuat_video.yaml", "")["deleted"] == 1
+    assert (root / "other-flow-20261101-100000-bbbbbb").is_dir()

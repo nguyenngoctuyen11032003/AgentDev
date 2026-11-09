@@ -1157,7 +1157,7 @@ export const labPlatformFixMerge = (id, { password, message = '' }) =>
 export const labPlatformFixDiscard = (id, { password }) =>
   labRequest(`${platformFixPath(id)}/discard`, { method: 'POST', body: JSON.stringify({ password, confirm: true }) })
 
-// --- What a run produced (files under storage/warehouse/lab_*), its app preview, and storage cleanup ---
+// --- What a run produced (files under AgentDev/AgentDev_lab/<run>, older runs storage/warehouse/lab_*), its app preview, and storage cleanup ---
 const labRunPath = (jobId, run) => `/jobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(run)}`
 const encodeRelPath = (path) => String(path || '').split('/').map(encodeURIComponent).join('/')
 

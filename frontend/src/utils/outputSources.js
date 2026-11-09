@@ -37,7 +37,7 @@ export function previewSandbox(url, pageOrigin) {
   return `${SANDBOX_BASE} allow-same-origin allow-modals allow-downloads`
 }
 
-/** One run of a Lab job (storage/warehouse/lab_*); `run` is its run_id (position for older jobs). */
+/** One run of a Lab job (AgentDev/AgentDev_lab/<run>; older runs storage/warehouse/lab_*); `run` is its run_id (position for older jobs). */
 export function labOutputSource(jobId, run) {
   return {
     key: `lab:${jobId}:${run}`,

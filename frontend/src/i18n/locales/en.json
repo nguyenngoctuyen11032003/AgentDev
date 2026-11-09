@@ -3143,7 +3143,7 @@
       "empty": "No lab results on this machine yet",
       "cleanup": "Clean up old results",
       "dialog_title": "Clean up old lab results",
-      "dialog_intro": "Files produced by lab runs (scripts, documents, images, source code…) are stored in storage/warehouse. After each evaluation, AgentDev deletes output folders older than 14 days on its own (scores and history are kept; change the days with AGENTDEV_LAB_OUTPUT_RETENTION_DAYS, 0 = keep forever). Use this to clean up sooner.",
+      "dialog_intro": "Files produced by lab runs (scripts, documents, images, source code…) are stored in {path} (one folder per run, code at its root, AgentDev's own files in .agentdev). After each evaluation, AgentDev deletes output folders older than 14 days on its own (scores and history are kept; change the days with AGENTDEV_LAB_OUTPUT_RETENTION_DAYS, 0 = keep forever). Use this to clean up sooner.",
       "option_label": "What to delete",
       "older": "Older than {n} days",
       "orphans": "Only folders no longer linked to any evaluation",

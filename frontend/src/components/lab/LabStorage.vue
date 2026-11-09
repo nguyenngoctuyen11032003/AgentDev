@@ -15,7 +15,7 @@
     </button>
 
     <BaseDialog v-model="open" :title="tr('lab.storage.dialog_title', 'Dọn kết quả thử nghiệm cũ')" width="480px">
-      <p class="dl-intro">{{ tr('lab.storage.dialog_intro', 'File mà các lượt thử nghiệm tạo ra được lưu trong thư mục storage/warehouse. Thư mục cũ hơn 14 ngày được tự xoá sau mỗi lần kiểm định.') }}</p>
+      <p class="dl-intro">{{ tr('lab.storage.dialog_intro', 'File mà các lượt thử nghiệm tạo ra được lưu trong thư mục {path}. Thư mục cũ hơn 14 ngày được tự xoá sau mỗi lần kiểm định.', { path: info?.root || 'AgentDev_lab' }) }}</p>
       <fieldset class="dl-options">
         <legend>{{ tr('lab.storage.option_label', 'Xoá những gì') }}</legend>
         <label v-for="days in [7, 30, 90]" :key="days" class="dl-option">

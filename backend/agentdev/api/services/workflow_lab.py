@@ -14,6 +14,7 @@ import copy
 import functools
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -1466,6 +1467,29 @@ def _pending_plan(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 # while a call hangs still reports what it spent (see ``_run_once``).
 _LIVE_TRACKERS: Dict[str, List[Any]] = {}
 _LIVE_LOCK = threading.Lock()
+# Lab session -> its run folder under AgentDev_lab (code at the root, the engine's files in .agentdev/)
+_RUN_FOLDERS: Dict[str, Path] = {}
+
+
+def _run_folder(session: str, stem: str = "") -> Optional[Path]:
+    """The run's folder ``<PROJECTS_DIR>/AgentDev_lab/<workflow>-<time>-<id>``: made once per Lab session, shared by
+    its turns (a plan turn and the turn that builds it). None when it cannot be made (the run then uses the
+    warehouse, as before)."""
+    with _LIVE_LOCK:
+        known = _RUN_FOLDERS.get(session)
+    if known is not None or not stem:
+        return known
+    try:
+        from agentdev.utils import project_folders
+
+        match = re.match(r"^lab_.+?_(\d{8})(\d{6})_([0-9a-f]{6})$", session)
+        stamp = f"{match[1]}-{match[2]}-{match[3]}" if match else datetime.now().strftime("%Y%m%d-%H%M%S")
+        folder = project_folders.create_project_dir(f"{stem}-{stamp}", root=project_folders.lab_root(), fallback="lab-run")
+    except Exception as exc:  # noqa: BLE001 - the run still works from the warehouse
+        logging.getLogger(__name__).warning("Could not create a Lab run folder for %s: %s", session, exc)
+        return None
+    with _LIVE_LOCK:
+        return _RUN_FOLDERS.setdefault(session, folder)
 
 
 def _tracker_usage(tracker: Any) -> Dict[str, Any]:
@@ -1516,10 +1540,14 @@ def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threadin
     from agentdev.workflow.graph import GraphExecutor
     from agentdev.workflow.graph_context import GraphContext
 
+    from agentdev.utils.project_folders import internal_dir
+
     ensure_schema_registry_populated()
     design = load_config(yaml_path)
+    folder = _run_folder(session, yaml_path.stem)
     graph_config = GraphConfig.from_definition(
-        design.graph, name=session, output_root=OUTPUT_ROOT, source_path=str(yaml_path), vars=design.vars
+        design.graph, name=session, output_root=internal_dir(folder) if folder else OUTPUT_ROOT,
+        source_path=str(yaml_path), vars=design.vars,
     )
     if max_tokens and int(max_tokens) > 0:
         limits = dict(graph_config.run_limits or {})
@@ -1527,7 +1555,7 @@ def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threadin
         limits["max_tokens"] = min(current, int(max_tokens)) if current > 0 else int(max_tokens)
         graph_config.run_limits = limits
     context = GraphContext(config=graph_config)
-    executor = GraphExecutor(context, cancel_event=cancel_event)
+    executor = GraphExecutor(context, cancel_event=cancel_event, workspace_root=folder)
     with _LIVE_LOCK:
         _LIVE_TRACKERS.setdefault(session, []).append(executor.token_tracker)
     channel = AutoAnswerChannel()
@@ -1568,7 +1596,8 @@ def _run_turn(yaml_path: Path, session: str, prompt: str, cancel_event: threadin
         "team": team_digest_from_state(state),
         "exchanges": user_exchanges(state),
         "plan": _pending_plan(state),
-        "output_dir": str(context.directory),
+        # The run's folder (code at its root) when there is one, else this turn's graph folder in the warehouse
+        "output_dir": str(folder or context.directory),
     }
 
 
@@ -1579,6 +1608,7 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
     from agentdev.api.services.conversation_turns import compose_follow_up_prompt, make_turn
 
     session = f"lab_{yaml_path.stem}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    _run_folder(session, yaml_path.stem)  # created up front: a failed or timed-out run keeps its folder too
     started = time.time()
     # A run that loops (e.g. a review cycle that never ends) is stopped after RUN_TIMEOUT_SECONDS.
     job_cancel = cancel_event
@@ -1617,6 +1647,7 @@ def _run_once(yaml_path: Path, scenario: Scenario, cancel_event: threading.Event
         _stop_leftover_processes(session, started)
         with _LIVE_LOCK:
             _LIVE_TRACKERS.pop(session, None)
+            _RUN_FOLDERS.pop(session, None)
 
 
 def _stop_leftover_processes(session: str, started: float) -> None:
@@ -1633,6 +1664,10 @@ def _stop_leftover_processes(session: str, started: float) -> None:
         from agentdev.utils.process_sweep import sweep
 
         folders = [p for p in Path(OUTPUT_ROOT).glob(f"{session}_*") if p.is_dir()]
+        with _LIVE_LOCK:
+            run_folder = _RUN_FOLDERS.get(session)
+        if run_folder is not None and run_folder.is_dir():
+            folders.append(run_folder)
         if folders:
             sweep(folders, started)
     except Exception:  # noqa: BLE001 - housekeeping must not change the run's outcome
@@ -1640,7 +1675,12 @@ def _stop_leftover_processes(session: str, started: float) -> None:
 
 
 def _session_output_dir(session: str) -> str:
-    """The newest folder a run of ``session`` wrote (``<warehouse>/<session>_<timestamp>``), or ""."""
+    """The folder a run of ``session`` wrote: its folder under AgentDev_lab, else the newest
+    ``<warehouse>/<session>_<timestamp>``, or ""."""
+    with _LIVE_LOCK:
+        run_folder = _RUN_FOLDERS.get(session)
+    if run_folder is not None and run_folder.is_dir():
+        return str(run_folder)
     try:
         from agentdev.runtime.sdk import OUTPUT_ROOT
 

@@ -25,12 +25,14 @@ from typing import Any, Union
 
 MAX_FILES = 2000
 MAX_TEXT_BYTES = 2 * 1024 * 1024
+INTERNAL_DIRNAME = ".agentdev"  # AgentDev's own files inside a project folder (utils/project_folders.py)
 CODE_WORKSPACE = "code_workspace"
 RUN_DIR_PREFIX = "lab_"
 
 # Folders that are tooling or caches, never what the user asked the agents to make.
 SKIP_DIR_NAMES = frozenset({
     "node_modules", ".venv", "venv", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".agentdev",  # AgentDev's own files inside a project folder (logs, token usage): not part of the product
 })
 SKIP_DIR_PATHS = frozenset({".next/cache", "dist/.vite"})  # nested caches, matched at the end of a relative path
 # Files the engine writes next to the product in the graph folder (only hidden when there is no code_workspace).
@@ -135,8 +137,16 @@ def _get_job(job_id: str) -> Any:
     return job
 
 
+def lab_projects_root() -> Path:
+    """``<PROJECTS_DIR>/AgentDev_lab``: where Lab runs made since project folders keep their product."""
+    from agentdev.utils.project_folders import lab_root
+
+    return lab_root()
+
+
 def checked_run_dir(raw: Any) -> Path | None:
-    """``raw`` as a run folder when it is a direct ``lab_*`` child of the warehouse (not a link), else None.
+    """``raw`` as a run folder when it is a direct child of ``AgentDev_lab`` (a run since project folders) or a
+    direct ``lab_*`` child of the warehouse (older runs), not a link; else None.
 
     A job file is plain JSON on disk: its ``output_dir`` is not trusted to point anywhere else.
     """
@@ -144,6 +154,7 @@ def checked_run_dir(raw: Any) -> Path | None:
         return None
     try:
         root = warehouse_root().resolve()
+        lab = lab_projects_root().resolve()
         path = Path(raw)
         if not path.is_absolute():
             path = root / path
@@ -152,6 +163,8 @@ def checked_run_dir(raw: Any) -> Path | None:
         resolved = path.resolve()
     except (OSError, ValueError):
         return None
+    if resolved.parent == lab and not resolved.name.startswith("."):
+        return resolved
     if resolved.parent != root or not resolved.name.startswith(RUN_DIR_PREFIX):
         return None
     return resolved
@@ -227,6 +240,27 @@ def resolve_run_dir(job_id: str, run: RunRef) -> Path | None:
 _SESSION_NAME = re.compile(r"^lab_(?P<stem>.+)_(?P<start>\d{14})_[0-9a-f]{6}_\d{14}$")
 
 
+# Run folders since project folders: ``<workflow slug>-<YYYYmmdd>-<HHMMSS>-<6 hex>`` (``-2`` when the name was taken).
+_RUN_FOLDER_NAME = re.compile(r"^(?P<slug>.+)-\d{8}-\d{6}-[0-9a-f]{6}(?:-\d+)?$")
+
+
+def run_folder_workflow(name: str) -> str | None:
+    """The workflow a Lab run folder belongs to, as the stem (older folders) or its slug (newer ones); None for
+    a folder that is not a Lab run."""
+    legacy = _SESSION_NAME.match(name)
+    if legacy:
+        return legacy["stem"]
+    modern = _RUN_FOLDER_NAME.match(name)
+    return modern["slug"] if modern else None
+
+
+def is_run_of_workflow(name: str, stem: str) -> bool:
+    from agentdev.utils.project_folders import slugify
+
+    found = run_folder_workflow(name)
+    return found is not None and (found == stem or found == slugify(stem))
+
+
 def inferred_run_dirs(job: Any, referenced: set[str] | None = None) -> dict[int, Path]:
     """Folders of failed runs that recorded none (older versions dropped ``output_dir`` on an error or timeout).
 
@@ -281,7 +315,7 @@ def job_products(job_id: str) -> dict[str, Any]:
                                  "preview": None}
         if run_dir is not None and run_dir.is_dir():
             root = product_dir(run_dir)
-            is_graph_dir = root == run_dir
+            is_graph_dir = is_graph_root(run_dir, root)
             kinds: dict[str, int] = {}
             for rel, size in _walk(root):
                 if _is_internal(rel, is_graph_dir):
@@ -300,8 +334,15 @@ def job_products(job_id: str) -> dict[str, Any]:
     return {"job_id": job_id, "runs": runs}
 
 
+def is_graph_root(run_dir: Path, root: Path) -> bool:
+    """True when ``root`` (a product folder) is the run's graph folder itself, where the engine's own files sit
+    next to the product. A run folder since project folders keeps those in ``.agentdev/`` instead."""
+    return Path(root) == Path(run_dir) and not (Path(run_dir) / INTERNAL_DIRNAME).is_dir()
+
+
 def product_dir(run_dir: Path) -> Path:
-    """Where the agents' product is: ``code_workspace/`` when the run made one, else the graph folder."""
+    """Where the agents' product is: the run folder itself when it has a ``.agentdev/`` (code at the root),
+    ``code_workspace/`` when an older run made one, else the graph folder."""
     workspace = Path(run_dir) / CODE_WORKSPACE
     try:
         if workspace.is_dir() and not workspace.is_symlink():
@@ -433,7 +474,7 @@ def list_files(job_id: str, run_index: RunRef) -> dict[str, Any]:
     if run_dir is None or not run_dir.is_dir():
         return empty_listing(str(run_dir) if run_dir else "")
     root = product_dir(run_dir)
-    listing = list_dir(root, is_graph_dir=root == run_dir)
+    listing = list_dir(root, is_graph_dir=is_graph_root(run_dir, root))
     found = _find_run(_job_results(_get_job(job_id)), run_index)
     listing["inferred"] = found is None or not checked_run_dir(found[1].get("output_dir"))
     from agentdev.api.services.product_archive import describe
@@ -734,19 +775,20 @@ def session_key(name: str) -> str:
 
 
 def _lab_dirs() -> list[Path]:
-    root = warehouse_root()
-    try:
-        entries = list(os.scandir(root))
-    except OSError:
-        return []
     dirs = []
-    for entry in entries:
+    # Older runs: ``<warehouse>/lab_*``; runs since project folders: every folder of ``AgentDev_lab``.
+    for root, accepts in ((warehouse_root(), lambda name: name.startswith(RUN_DIR_PREFIX)),
+                          (lab_projects_root(), lambda name: not name.startswith("."))):
         try:
-            if (entry.name.startswith(RUN_DIR_PREFIX) and not entry.is_symlink()
-                    and entry.is_dir(follow_symlinks=False)):
-                dirs.append(Path(entry.path).resolve())
+            entries = list(os.scandir(root))
         except OSError:
             continue
+        for entry in entries:
+            try:
+                if accepts(entry.name) and not entry.is_symlink() and entry.is_dir(follow_symlinks=False):
+                    dirs.append(Path(entry.path).resolve())
+            except OSError:
+                continue
     return dirs
 
 
@@ -841,6 +883,7 @@ def storage_stats() -> dict[str, Any]:
     referenced, _running, _oldest = _references()
     mtimes = [_mtime(d) for d in dirs]
     return {
+        "root": str(lab_projects_root()),  # where new Lab runs are saved (shown in the cleanup dialog)
         "total_bytes": sum(dir_size(d) for d in dirs),
         "run_dirs": len(dirs),
         "oldest": _iso(min(mtimes)) if mtimes else None,
