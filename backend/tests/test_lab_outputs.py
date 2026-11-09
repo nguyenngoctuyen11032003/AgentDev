@@ -468,3 +468,19 @@ def test_workflow_cleanup_keeps_current_and_baseline(env, monkeypatch):
     assert done["deleted"] == 1
     assert not old_a.exists() and baseline.exists() and current.exists() and other.exists()
     assert len(list(env.store.glob("*.json"))) == 3  # scores and history stay
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the 260-character path limit is a Windows one")
+def test_remove_tree_deletes_paths_longer_than_260_chars(tmp_path):
+    # node_modules nests deeply: before, shutil.rmtree failed on such paths and the failure was swallowed, so the
+    # folder stayed while the Lab reported it as deleted ("Kết quả thử nghiệm: 483 MB" after "delete all").
+    target = tmp_path / "lab_long"
+    sep = os.sep
+    deep = chr(92) * 2 + "?" + chr(92) + str(target.resolve()) + (sep + "d" * 30) * 12
+    os.makedirs(deep)
+    with open(deep + sep + "x.js", "w", encoding="utf-8") as handle:
+        handle.write("x" * 100)
+    assert len(deep) > 300
+    freed = lab_outputs._remove_tree(target)
+    assert not target.exists()
+    assert freed >= 100

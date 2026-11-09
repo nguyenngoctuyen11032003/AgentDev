@@ -668,7 +668,7 @@ def _has_live_preview(run_dir: Path) -> bool:
 
 def dir_size(path: Path) -> int:
     total = 0
-    pending = [Path(path)]
+    pending = [_long_path(Path(path))]
     while pending:
         current = pending.pop()
         try:
@@ -678,7 +678,7 @@ def dir_size(path: Path) -> int:
                         if entry.is_symlink():
                             continue
                         if entry.is_dir(follow_symlinks=False):
-                            pending.append(Path(entry.path))
+                            pending.append(entry.path)
                         else:
                             total += entry.stat(follow_symlinks=False).st_size
                     except OSError:
@@ -697,14 +697,27 @@ def _make_writable_and_retry(func: Any, path: str, _exc: BaseException) -> None:
         pass
 
 
+def _long_path(path: Path) -> str:
+    """``path`` with the Windows extended-length prefix: node_modules nests past the 260-character limit, and
+    without the prefix ``rmtree`` and ``scandir`` fail on those paths (the folder then stays on disk)."""
+    text = os.path.abspath(str(path))
+    prefix = "\\\\?\\"  # the four characters \\?\
+    if os.name != "nt" or text.startswith(prefix):
+        return text
+    if text.startswith("\\\\"):  # UNC share: \\server\share -> \\?\UNC\server\share
+        return prefix + "UNC" + text[1:]
+    return prefix + text
+
+
 def _remove_tree(path: Path) -> int:
-    """Delete ``path`` (never following links out of it); returns the bytes freed."""
+    """Delete ``path`` (never following links out of it); returns the bytes freed. Whatever could not be removed
+    stays (callers check ``path.exists()``)."""
     before = dir_size(path)
     try:
         if path.is_symlink():
             path.unlink()
             return 0
-        shutil.rmtree(path, onexc=_make_writable_and_retry)
+        shutil.rmtree(_long_path(path), onexc=_make_writable_and_retry)
     except OSError:
         pass
     after = dir_size(path) if path.exists() else 0
