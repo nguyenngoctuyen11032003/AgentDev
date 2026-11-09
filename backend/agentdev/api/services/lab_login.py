@@ -20,16 +20,43 @@ DOC_NAMES = re.compile(r"^(readme|seed|demo|accounts?|credentials?|login|users?)
                        re.IGNORECASE)
 SOURCE_EXTS = {".html", ".htm", ".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".py", ".php", ".rb", ".go", ".java",
                ".cs", ".kt"}
-SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".cache"}
+SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".cache", ".nuxt",
+             ".turbo", "coverage", ".pytest_cache", ".mypy_cache", ".idea", ".vscode",
+             # agent tool folders: .claude/worktrees holds whole copies of the project
+             ".claude", ".codex", ".cursor", "worktrees"}
+WALK_MAX_FILES = 20_000  # files listed per run (bounds the walk of a huge folder)
+# Where login code lives: these files are read first, so a big project's SignInPage.tsx is not past the cap.
+_AUTH_PATH = re.compile(r"auth|login|log-in|signin|sign-in|sign_in|session|account|user|password|middleware|guard",
+                        re.IGNORECASE)
+_TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|e2e|spec|fixtures?|mocks?)(/|$)|\.(test|spec)\.", re.IGNORECASE)
 MAX_CREDENTIALS = 5
 
-# A login form or auth code in the app the run built.
+# A login mentioned in the final answer (with an account next to it, see login_info).
 _AUTH = re.compile(
     r"type\s*=\s*[\"']password[\"']|\b(login|log-in|signin|sign-in|sign_in|đăng nhập|authenticate|bcrypt|passport|"
     r"next-auth|jsonwebtoken|jwt\.(sign|verify)|check_password|password_hash|flask_login|LoginManager|"
     r"createUserWithEmailAndPassword|signInWithPassword)\b",
     re.IGNORECASE,
 )
+# Code that really checks a login in the app's files. The bare word "login" / "Đăng nhập" is NOT enough: a landing
+# page has a "Đăng nhập" button or a /login link and needs no account to try.
+_AUTH_CODE = re.compile(
+    r"\b(bcrypt|bcryptjs|passport|next-auth|jsonwebtoken|jwt\.(sign|verify)|check_password|password_hash|"
+    r"password_verify|flask_login|LoginManager|login_required|login_user|createUserWithEmailAndPassword|"
+    r"signInWithPassword|signInWithEmailAndPassword|express-session|cookie-session|authenticate\s*\()"
+    # a login handler: def login(...), function handleLogin(...), const signIn = async (...), app.post('/login'
+    r"|\b(def|function)\s+(log_?in|sign_?in|handle_?log_?in|do_?log_?in|authenticate)\s*\("
+    # (an object key "login: (v) => play()" of a sound map is not one)
+    r"|\b(const|let|var)\s+(log_?in|sign_?in|handle_?log_?in|do_?log_?in)\s*=\s*(async\s*)?(function\b|\([^)]*\)\s*=>|\w+\s*=>)"
+    r"|\b(sign_?in|handle_?log_?in|do_?log_?in)\s*[:=]\s*(async\s*)?(function\b|\([^)]*\)\s*=>|\w+\s*=>)"
+    r"|\.(post|route|api_route)\(\s*[\"'`]/(api/)?(v\d/)?(auth/)?(login|signin|sign-in|dang-nhap)[\"'`]"
+    # the typed password compared with a stored one: password === 'x', user.password == pw
+    r"|\bpassword\s*[!=]==?\s*[\w\"'`]",
+    re.IGNORECASE,
+)
+_PASSWORD_FIELD = re.compile(r"type\s*=\s*[\"']password[\"']", re.IGNORECASE)
+# Plain pages: a password box there is only a login when some code checks it (a static mock-up form is not).
+_PAGE_EXTS = {".html", ".htm"}
 
 # Whole words only: DB_USER / SMTP_PASS / bypass are not an app login (a database or mail secret must never be
 # shown as the demo account).
@@ -190,10 +217,24 @@ def find_credentials(text: str, source: str = "answer") -> List[Dict[str, str]]:
 
 
 def _walk(root: Path):
+    count = 0
     for folder, dirs, names in os.walk(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for name in names:
+            count += 1
+            if count > WALK_MAX_FILES:
+                return
             yield Path(folder) / name
+
+
+def _scan_order(root: Path, path: Path) -> int:
+    """Docs first (they list the accounts), then files named like login code, then other source, tests last."""
+    if DOC_NAMES.match(path.name):
+        return 0
+    rel = path.relative_to(root).as_posix()
+    if _TEST_PATH.search(rel):
+        return 3
+    return 1 if _AUTH_PATH.search(rel) else 2
 
 
 def _read(path: Path) -> str:
@@ -215,8 +256,9 @@ def login_info(answer: str, output_dir: Any = None) -> Optional[Dict[str, Any]]:
     root = Path(str(output_dir)) if output_dir else None
     refs: Dict[str, str] = {}
     values: Dict[str, Tuple[str, str]] = {}
+    auth_code = False  # code in the app's files that checks a login
     if root and root.is_dir():
-        scanned = 0
+        candidates = []
         for path in _walk(root):
             if _ENV_FILES.match(path.name):
                 rel = path.relative_to(root).as_posix()
@@ -224,19 +266,23 @@ def login_info(answer: str, output_dir: Any = None) -> Optional[Dict[str, Any]]:
                     # a real .env wins over the example
                     if name not in values or not path.name.lower().startswith(".env."):
                         values[name] = (value, rel)
-            if scanned >= SCAN_MAX_FILES:
-                continue
+            if DOC_NAMES.match(path.name) or path.suffix.lower() in SOURCE_EXTS:
+                candidates.append(path)
+        candidates.sort(key=lambda p: (_scan_order(root, p), len(p.parts), str(p)))
+        for path in candidates[:SCAN_MAX_FILES]:
             is_doc = bool(DOC_NAMES.match(path.name))
-            if not is_doc and path.suffix.lower() not in SOURCE_EXTS:
-                continue
-            scanned += 1
             text = _read(path)
             if path.suffix.lower() in SOURCE_EXTS:
                 for name, default in env_refs(text).items():
                     if default or name not in refs:
                         refs[name] = default
-            if not needs_login and path.suffix.lower() in SOURCE_EXTS and _AUTH.search(text):
-                needs_login = True
+            suffix = path.suffix.lower()
+            if not needs_login and suffix in SOURCE_EXTS:
+                if _AUTH_CODE.search(text):
+                    auth_code = True
+                elif _PASSWORD_FIELD.search(text) and suffix not in _PAGE_EXTS:
+                    auth_code = True  # a password box inside an app component (Login.vue, LoginForm.tsx)
+                needs_login = auth_code
             if is_doc and len(credentials) < MAX_CREDENTIALS:
                 rel = path.relative_to(root).as_posix()
                 for item in find_credentials(text, rel):
@@ -246,10 +292,11 @@ def login_info(answer: str, output_dir: Any = None) -> Optional[Dict[str, Any]]:
     if env and env["username"] and env["password"] and len(credentials) < MAX_CREDENTIALS and             all((c["username"], c["password"]) != (env["username"], env["password"]) for c in credentials):
         credentials.append({"username": env["username"], "password": env["password"],
                             "source": env["source"] or env["password_var"]})
-    if not needs_login and not credentials:
+    if not needs_login:
+        # No login to pass (a landing page, a static site): no account to show, even if a README lists one.
         return None
     info: Dict[str, Any] = {"needs_login": needs_login, "credentials": credentials[:MAX_CREDENTIALS],
-                            "login_url": urls[0] if urls else ""}
+                            "login_url": urls[0].rstrip(".,;:!?") if urls else ""}
     if env and not credentials:
         # No full account, but the app says how one is made: name the variables to set.
         info["env"] = env

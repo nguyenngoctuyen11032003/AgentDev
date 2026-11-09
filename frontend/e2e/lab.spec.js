@@ -122,6 +122,7 @@ test('lab: quality per criterion shows for the job and inside a run', async ({ p
   await runJob(page, job)
   await page.route(`**/api/lab/jobs/${JOB.id}/runs/*/files`, (route) => route.fulfill({ json: { available: true, files: [{ path: 'README.md', size: 20 }] } }))
   await page.route(`**/api/lab/jobs/${JOB.id}/runs/*/file?*`, (route) => route.fulfill({ contentType: 'text/plain', body: '# Demo app' }))
+  await page.route(`**/api/lab/jobs/${JOB.id}/runs/*/accounts`, (route) => route.fulfill({ json: { accounts: [] } }))
   const summary = page.locator('.job-quality')
   await expect(summary).toContainText('Chất lượng theo tiêu chí')
   await expect(summary).toContainText('Lập trình')
@@ -132,14 +133,30 @@ test('lab: quality per criterion shows for the job and inside a run', async ({ p
   await expect(inRun).toContainText('Con TODO trong code')
   await expect(inRun).toContainText('Thieu test')
   await expect(inRun).toContainText('Them node kiem thu')
-  const login = page.locator('details.run .login-box')
-  await expect(login).toContainText('Tài khoản đăng nhập để xem thử')
+  // An open run shows its accounts in "Tài khoản dùng thử" next to the product (the login the team reported)
+  const login = page.locator('details.run .acc')
+  await expect(login).toContainText('Tài khoản dùng thử')
   await expect(login).toContainText('admin')
+  await expect(login).toContainText('Từ README.md')
+  await login.getByRole('button', { name: 'Hiện mật khẩu' }).click()
   await expect(login).toContainText('Admin@123')
-  await expect(login).toContainText('lấy từ README.md')
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await login.getByRole('button', { name: 'Chép mật khẩu' }).click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Admin@123')
+})
+
+test('lab: a landing page (no login) shows no test-account block, even with an older stored login', async ({ page }) => {
+  // Stored when the run finished by an older scan; the fresh file listing says the product has no login.
+  const run = { ...JOB.results[0], login: { needs_login: true, credentials: [], login_url: '' } }
+  await runJob(page, { ...JOB, results: [run], findings: [F_SCENARIO], layers: { workflow: 0, platform: 0, environment: 0, scenario: 1 } })
+  await page.route(`**/api/lab/jobs/${JOB.id}/runs/*/files`, (route) => route.fulfill({ json: {
+    available: true, files: [{ path: 'index.html', size: 40 }], project: { type: 'static', can_preview: true, entry: 'index.html' }, login: null
+  } }))
+  await page.route(`**/api/lab/jobs/${JOB.id}/runs/*/file?*`, (route) => route.fulfill({ contentType: 'text/plain', body: '<h1>Landing</h1>' }))
+  await page.route(`**/api/lab/jobs/${JOB.id}/runs/*/accounts`, (route) => route.fulfill({ json: { accounts: [] } }))
+  await page.locator('details.run').first().locator('summary').click()
+  await expect(page.locator('details.run .outputs')).toContainText('index.html')
+  await expect(page.locator('details.run .acc')).toHaveCount(0)
 })
 
 test('lab: without workflow findings there is no assistant fix, only guidance', async ({ page }) => {

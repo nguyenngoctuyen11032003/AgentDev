@@ -1598,6 +1598,8 @@ onBeforeUnmount(() => {
   .panel { padding: 16px; }
   .run-bar { margin: 16px -16px -16px; padding: 14px 16px; }
   .run-bar .btn { width: 100%; }
+  /* the 32px indent lines the body up with the run's icon on wide screens; on a phone it only costs width */
+  .run-body { padding: 2px 10px 12px; }
   .btn, .btn.sm { min-height: 44px; }
   .btn.icon-only { width: 44px; }
   .scenario-name { min-height: 44px; }

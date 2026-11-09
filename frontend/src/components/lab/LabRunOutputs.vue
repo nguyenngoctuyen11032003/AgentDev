@@ -71,12 +71,13 @@
     </div>
 
     <template v-else-if="hasFiles">
-      <!-- Accounts to try an app behind a login: the ones the team reported + the ones the user keeps -->
+      <!-- Accounts to try an app behind a login: the ones the team reported + the ones the user keeps.
+           A landing page / static site has no login: the block stays hidden unless the user saved one. -->
       <ProductAccounts
-        v-if="src.accounts && (data.project?.can_preview || data.login || login)"
+        v-if="src.accounts"
         :key="src.key"
         :api="src.accounts"
-        :login="data.login || login"
+        :login="productLogin"
       />
       <LabRunPreview
         v-if="previewOpen"
@@ -289,6 +290,9 @@ const MAX_LINES = 5000
 const WRAP_KEY = 'agentdev.lab.outputs.wrap'
 
 const data = ref(null)
+// The file listing re-reads the product on every load: its `login` (null = no login, e.g. a landing page) wins
+// over the value the Lab stored when the run finished, which an older scan may have got wrong.
+const productLogin = computed(() => (data.value && 'login' in data.value ? data.value.login : props.login))
 const loading = ref(false)
 const loadError = ref('')
 const selected = ref('')
@@ -680,7 +684,7 @@ watch(() => src.value.key, () => {
 .v-path { font-size: 11.5px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v-tools { display: flex; align-items: center; gap: 2px; }
 .seg { display: inline-flex; margin-right: 4px; padding: 2px; border-radius: 8px; background: var(--tint-2); }
-.seg button { min-height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--fg-muted); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.seg button { min-height: 28px; padding: 0 10px; white-space: nowrap; border: 0; border-radius: 6px; background: transparent; color: var(--fg-muted); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .seg button:hover { color: var(--fg); }
 .seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
 .seg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
@@ -717,6 +721,7 @@ watch(() => src.value.key, () => {
   .out-actions { width: 100%; }
 }
 @media (max-width: 720px) {
+  .outputs { padding: 10px; }
   .tree-row { min-height: 40px; }
   .seg button { min-height: 36px; }
 }

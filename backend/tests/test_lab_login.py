@@ -7,7 +7,7 @@ import pytest
 
 from agentdev.api.services import workflow_lab
 from agentdev.api.services.lab_diagnosis import diagnose_run
-from agentdev.api.services.lab_login import find_credentials, judge_fact, login_info
+from agentdev.api.services.lab_login import SCAN_MAX_FILES, find_credentials, judge_fact, login_info
 from agentdev.api.services.workflow_lab import LabRunner, Scenario
 
 
@@ -168,3 +168,67 @@ def test_env_default_password_with_readme_accounts(tmp_path):
     assert [(c["username"], c["password"]) for c in info["credentials"]] == [
         ("manager@demo.local", "Demo@123"), ("staff@demo.local", "Demo@123")]
     assert "env" not in info
+
+
+# ---------------------------------------------------------------------------- landing pages need no account
+
+
+@pytest.mark.parametrize("html", [
+    '<nav><a href="/login">Đăng nhập</a> <button class="btn">Sign in</button></nav><h1>Landing</h1>',
+    '<form><input type="email"><input type="password"><button>Login</button></form>',  # a static mock-up form
+])
+def test_landing_page_with_login_button_needs_no_account(tmp_path, html):
+    (tmp_path / "index.html").write_text(html, encoding="utf-8")
+    (tmp_path / "main.js").write_text("document.querySelector('.login').addEventListener('click', openMenu)",
+                                      encoding="utf-8")
+    assert login_info("Landing page xong, có nút Đăng nhập ở góc phải.", tmp_path) is None
+
+
+def test_readme_account_without_login_code_is_not_shown(tmp_path):
+    (tmp_path / "index.html").write_text("<h1>Shop</h1>", encoding="utf-8")
+    (tmp_path / "README.md").write_text("## Account\n- user: admin\n- password: Admin123\n", encoding="utf-8")
+    assert login_info("Xong.", tmp_path) is None
+
+
+@pytest.mark.parametrize("code", [
+    "function handleLogin(e) { if (form.password.value === 'Demo@123') location.href = 'app.html' }",
+    "const signIn = async (email, pw) => fetch('/api/auth')",
+    "app.post('/api/auth/login', (req, res) => res.json({}))",
+    "@app.route('/login', methods=['POST'])\ndef login():\n    pass",
+])
+def test_client_or_server_login_code_needs_account(tmp_path, code):
+    (tmp_path / "index.html").write_text('<input type="password">', encoding="utf-8")
+    (tmp_path / ("app.py" if "def login" in code else "app.js")).write_text(code, encoding="utf-8")
+    info = login_info("", tmp_path)
+    assert info and info["needs_login"] is True
+
+
+def test_login_page_of_a_big_project_is_found_past_the_scan_cap(tmp_path):
+    lib = tmp_path / "apps" / "web" / "src" / "lib"
+    lib.mkdir(parents=True)
+    for i in range(SCAN_MAX_FILES + 50):
+        (lib / f"util{i:04d}.ts").write_text("export const x = 1", encoding="utf-8")
+    page = tmp_path / "apps" / "web" / "src" / "features" / "owner-auth"
+    page.mkdir(parents=True)
+    (page / "SignInPage.tsx").write_text("await supabase.auth.signInWithPassword({ email, password })",
+                                        encoding="utf-8")
+    info = login_info("", tmp_path)
+    assert info and info["needs_login"] is True
+
+
+def test_agent_worktree_copies_are_not_scanned(tmp_path):
+    (tmp_path / "index.html").write_text("<h1>Landing</h1>", encoding="utf-8")
+    copy = tmp_path / ".claude" / "worktrees" / "agent-1"
+    copy.mkdir(parents=True)
+    (copy / "server.js").write_text("app.post('/login', passport.authenticate('local'))", encoding="utf-8")
+    assert login_info("", tmp_path) is None
+
+
+def test_sound_map_key_named_login_is_not_login_code(tmp_path):
+    (tmp_path / "sfx.ts").write_text("export const sfx = { login: (v) => play('ding', v) }", encoding="utf-8")
+    assert login_info("", tmp_path) is None
+
+
+def test_login_url_drops_trailing_punctuation():
+    info = login_info("Đăng nhập tại http://localhost:3000/login, tài khoản admin / Admin123.")
+    assert info["login_url"] == "http://localhost:3000/login"
