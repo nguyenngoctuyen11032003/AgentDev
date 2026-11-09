@@ -45,6 +45,7 @@ Locales: `frontend/src/i18n/locales/{vi,en,zh}.json`. Sample workflows: `backend
 - Benchmarks/tests that patch engine globals must restore them (`install_fake()` returns an undo callable).
 - Edge conditions are fail-closed: an erroring condition does not fire the edge and emits a warning.
 - `loop_counter`: an edge inside a loop must point back to the loop-entry step (lint in `proposal_lint.py`).
+- Output folders (like IntelliJ's project folder): a session that opened no project saves in `~/AgentDev/<name>/` (code at the root, AgentDev's own files in `.agentdev/`), a Lab run in `~/AgentDev/AgentDev_lab/<workflow>-<date>-<time>-<id>/` (`AGENTDEV_PROJECTS_DIR` moves the root; `utils/project_folders.py`). Older runs stay in `storage/warehouse` and are still read. Tests must never write to the home folder (conftest redirects `paths.PROJECTS_DIR`).
 - Every child process, timer, listener, WebSocket must be cleaned on cancel/unmount/close.
 - Every path that spends money has a `paid` gate, a pre-run cost estimate, and counts in `cost_usd`.
 - Every UI state needs loading / empty / error (with a fix hint) / success. No endless spinners.

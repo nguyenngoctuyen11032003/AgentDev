@@ -12,14 +12,19 @@ from typing import Dict, Optional
 
 
 def with_git_ceiling(env: Dict[str, str], cwd: Optional[str]) -> Dict[str, str]:
-    """``env`` (modified in place and returned) with the git ceiling set when ``cwd`` is under the warehouse."""
+    """``env`` (modified in place and returned) with the git ceiling set when ``cwd`` is under the warehouse or
+    under the projects folder (``~/AgentDev``: a project there must not reach a repo of the user's home)."""
     try:
+        from agentdev.utils.project_folders import projects_root
         from agentdev.paths import WAREHOUSE_DIR
 
-        ceiling = Path(WAREHOUSE_DIR).resolve()
-        if cwd and ceiling in Path(cwd).resolve().parents:
-            existing = env.get("GIT_CEILING_DIRECTORIES")
-            env["GIT_CEILING_DIRECTORIES"] = os.pathsep.join(filter(None, [str(ceiling), existing]))
+        target = Path(cwd).resolve() if cwd else None
+        for base in (WAREHOUSE_DIR, projects_root()):
+            ceiling = Path(base).resolve()
+            if target is not None and ceiling in target.parents:
+                existing = env.get("GIT_CEILING_DIRECTORIES")
+                env["GIT_CEILING_DIRECTORIES"] = os.pathsep.join(filter(None, [str(ceiling), existing]))
+                break
     except (OSError, ValueError):
         pass
     return env

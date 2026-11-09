@@ -16,7 +16,7 @@ Repository layout::
             templates/       TEMPLATES_DIR
             examples/        EXAMPLES_DIR
         storage/             STORAGE_DIR (everything generated at runtime, gitignored)
-            warehouse/       WAREHOUSE_DIR (per-session workflow output)
+            warehouse/       WAREHOUSE_DIR (per-session workflow output of runs that predate PROJECTS_DIR)
             db/              DATA_DIR (vuegraphs.db)
             memory/          MEMORY_DIR (relative memory_path / index_path in workflows)
             logs/            LOGS_DIR
@@ -94,6 +94,13 @@ if _storage_override:
 else:
     STORAGE_DIR = PROJECT_ROOT / "storage"
 WAREHOUSE_DIR = STORAGE_DIR / "warehouse"
+# Where the work of a session that opened no project folder is saved, like IntelliJ's ~/IdeaProjects:
+# ``<PROJECTS_DIR>/<project-name>/`` (Lab runs: ``<PROJECTS_DIR>/AgentDev_lab/<run-name>/``). Read it at call
+# time through ``agentdev.utils.project_folders`` so tests can redirect it.
+_projects_override = os.environ.get("AGENTDEV_PROJECTS_DIR") or _read_dotenv_value("AGENTDEV_PROJECTS_DIR")
+PROJECTS_DIR = (
+    Path(_projects_override).expanduser().resolve() if _projects_override else Path.home() / "AgentDev"
+)
 DATA_DIR = STORAGE_DIR / "db"
 MEMORY_DIR = STORAGE_DIR / "memory"
 LOGS_DIR = STORAGE_DIR / "logs"

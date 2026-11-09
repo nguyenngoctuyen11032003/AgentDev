@@ -12,6 +12,7 @@ from agentdev.entity.graph_config import GraphConfig
 from agentdev.entity.messages import Message
 from agentdev.entity.enums import LogLevel
 from agentdev.utils.exceptions import ValidationError, WorkflowCancelledError
+from agentdev.utils import project_folders
 from agentdev.utils.structured_logger import get_server_logger, LogType
 from agentdev.utils.task_input import TaskInputBuilder
 from agentdev.utils.workspace_paths import session_directory_name
@@ -183,6 +184,7 @@ class WorkflowRunService:
                 attachments=attachments,
                 title_hint=None if (task_prompt or "").strip() else ", ".join(self._attachment_names(session_id, attachments)),
             )
+            self._ensure_project_folder(session_id, session)
             session.starting = True
             self.session_store.update_session_status(session_id, SessionStatus.RUNNING)
             self._begin_checkpoint(session_id, session, task_prompt, attachments)
@@ -361,9 +363,53 @@ class WorkflowRunService:
             )
         finally:
             self._release(session_id, session)
-            await asyncio.to_thread(_stop_leftover_processes, session_id, run_started)
+            await asyncio.to_thread(_stop_leftover_processes, session_id, run_started, self._managed_folder(session_id))
             if checkpoint_turn:
                 await asyncio.to_thread(git_checkpoint.end_turn, session_id, checkpoint_turn)
+
+    def _managed_folder(self, session_id: str) -> Optional[Path]:
+        session = self.session_store.get_session(session_id)
+        folder = opened_project_folder(session) if session else None
+        return folder if project_folders.is_managed(folder) else None
+
+    def _ensure_project_folder(self, session_id: str, session) -> None:
+        """A session that opened no project folder saves its work in ``<PROJECTS_DIR>/<name>/`` (like IntelliJ's
+        project folder) instead of a ``warehouse/session_<uuid>`` nobody can find. Skipped when the session
+        already has a folder or an uploaded project, or when earlier turns already wrote to the warehouse (one
+        session never splits its files over two places). Falls back to the warehouse when the folder cannot be
+        made (e.g. a read-only home)."""
+        if opened_project_folder(session) is not None or getattr(session, "projects", None):
+            return
+        if self._has_warehouse_workspace(session_id):
+            return
+        try:
+            folder = project_folders.create_project_dir(session.title or session.task_prompt)
+            record = self.attachment_service.open_local_project(session_id, str(folder))
+        except Exception as exc:  # noqa: BLE001 - the run still works from the warehouse
+            logging.getLogger(__name__).warning("Could not create a project folder for %s: %s", session_id, exc)
+            return
+        ref = record.ref
+        self.session_store.register_project(
+            session_id,
+            session.yaml_file,
+            {
+                "name": (ref.name or record.extra.get("project_id") or "").rstrip("/"),
+                "attachment_id": ref.attachment_id,
+                "project_id": record.extra.get("project_id"),
+                "workspace_path": record.extra.get("workspace_path"),
+                "local_path": record.extra.get("local_path"),
+                "file_count": record.extra.get("file_count"),
+            },
+        )
+
+    @staticmethod
+    def _has_warehouse_workspace(session_id: str) -> bool:
+        """True when this session's warehouse workspace already holds files (a session from before project folders)."""
+        workspace = Path(WARE_HOUSE_DIR) / session_directory_name(session_id) / "code_workspace"
+        try:
+            return any(entry.name not in ("attachments", "projects") for entry in workspace.iterdir())
+        except OSError:
+            return False
 
     def _prepare_run(
         self,
@@ -379,10 +425,14 @@ class WorkflowRunService:
     ):
         """Build the graph, the executor and the first task input (blocking; runs in a worker thread)."""
         design = load_config(yaml_path)
+        project = opened_project_folder(session)
+        # A folder AgentDev made for this session keeps its own files (logs, token usage) in <project>/.agentdev/;
+        # a folder the user opened elsewhere stays untouched, so those go to the warehouse as before.
+        internal_root = project_folders.internal_dir(project) if project_folders.is_managed(project) else None
         graph_config = GraphConfig.from_definition(
             design.graph,
             name=session_directory_name(session_id),
-            output_root=WARE_HOUSE_DIR,
+            output_root=internal_root or WARE_HOUSE_DIR,
             source_path=str(yaml_path),
             vars=design.vars,
         )
@@ -670,18 +720,21 @@ def _kill_registered_trees(run_id: str) -> None:
         logging.getLogger(__name__).debug("Registry kill_run failed", exc_info=True)
 
 
-def _stop_leftover_processes(session_id: str, since: float) -> None:
+def _stop_leftover_processes(session_id: str, since: float, project: Optional[Path] = None) -> None:
     """Kill what the agents started in this session's own folder during the run and left running (dev servers,
-    watchers). Only the session folder in the warehouse: an opened project is the user's, where they may run
-    their own servers. The "Chạy thử" previews are protected. The run's registered shell trees die too, wherever
+    watchers): the session folder in the warehouse and the project folder AgentDev made for the session. A
+    project the user opened is theirs, where they may run their own servers. The "Chạy thử" previews are protected. The run's registered shell trees die too, wherever
     their folder is."""
     _kill_registered_trees(session_id)
     try:
         from agentdev.paths import WAREHOUSE_DIR
         from agentdev.utils.process_sweep import sweep
 
-        folder = Path(WAREHOUSE_DIR) / session_directory_name(session_id)
-        if folder.is_dir():
-            sweep([folder], since)
+        folders = [Path(WAREHOUSE_DIR) / session_directory_name(session_id)]
+        if project is not None:
+            folders.append(Path(project))
+        folders = [folder for folder in folders if folder.is_dir()]
+        if folders:
+            sweep(folders, since)
     except Exception:  # noqa: BLE001 - housekeeping must not affect the run
         logging.getLogger(__name__).debug("Leftover process sweep failed", exc_info=True)

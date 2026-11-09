@@ -61,6 +61,8 @@ def _isolate_runtime_dirs(tmp_path, monkeypatch):
     import agentdev.paths as paths_module
 
     monkeypatch.setattr(paths_module, "STORAGE_DIR", tmp_path / "storage")
+    # Project folders (~/AgentDev/<name>): a test must never create folders in the developer's home.
+    monkeypatch.setattr(paths_module, "PROJECTS_DIR", tmp_path / "AgentDev")
     yield
 
 

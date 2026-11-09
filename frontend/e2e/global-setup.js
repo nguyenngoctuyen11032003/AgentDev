@@ -13,6 +13,8 @@ const frontendDir = path.resolve(here, '..')
 const backendDir = path.resolve(frontendDir, '..', 'backend')
 const WEB = process.env.E2E_WEB || 'http://localhost:5173'
 const warehouseDir = path.resolve(frontendDir, '..', 'storage', 'warehouse')
+// A backend this suite starts saves its project folders here, not in the developer's ~/AgentDev
+const projectsDir = path.resolve(frontendDir, '..', 'storage', 'e2e_projects')
 const started = []
 
 async function up(url) {
@@ -56,7 +58,7 @@ function killTree(child) {
 export default async function globalSetup() {
   if (await up(`${API}/health`)) console.log('[e2e] reusing backend')
   else {
-    start('backend', 'uv', ['run', 'python', 'main.py', '--port', new URL(API).port || '6400'], backendDir)
+    start('backend', 'uv', ['run', 'python', 'main.py', '--port', new URL(API).port || '6400'], backendDir, { AGENTDEV_PROJECTS_DIR: projectsDir })
     await waitFor(`${API}/health`, 'backend')
   }
   if (await up(WEB)) console.log('[e2e] reusing frontend')
@@ -75,11 +77,15 @@ export default async function globalSetup() {
       // Sessions the suite made (every one runs the fake workflow). A session still waiting on the gate is active: cancel by deleting later.
       const list = await (await ctx.get(`${API}/api/sessions`)).json().catch(() => ({ sessions: [] }))
       for (const s of (list.sessions || []).filter((x) => x.yaml_file === WORKFLOW_FILE)) {
+        // The folder AgentDev made for the session (~/AgentDev/<name>): removed only when it carries AgentDev's own marker
+        const loc = await ctx.get(`${API}/api/sessions/${s.session_id}/output-location`).then((r) => r.json()).catch(() => null)
+        if (loc?.kind === 'project' && loc.path && fs.existsSync(path.join(loc.path, '.agentdev'))) fs.rmSync(loc.path, { recursive: true, force: true })
         const res = await ctx.delete(`${API}/api/sessions/${s.session_id}`).catch(() => null)
         if (!res || !res.ok()) console.log(`[e2e] could not delete session ${s.session_id} (${res?.status()})`)
         else fs.rmSync(path.join(warehouseDir, `session_${s.session_id}`), { recursive: true, force: true }) // the run's temp files
       }
       await deleteWorkflow(ctx)
+      fs.rmSync(projectsDir, { recursive: true, force: true })
     } finally {
       await ctx.dispose()
       for (const { label, child } of started.reverse()) {

@@ -35,7 +35,7 @@ IGNORED_PROJECT_DIRS = frozenset(
         ".git", ".hg", ".svn", "node_modules", "bower_components", ".venv", "venv",
         "env", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox",
         "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
-        ".cache", "coverage", ".gradle", ".idea", "target", "Pods", "DerivedData",
+        ".cache", "coverage", ".gradle", ".idea", "target", "Pods", "DerivedData", ".agentdev",
     }
 )
 IGNORED_PROJECT_FILES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
