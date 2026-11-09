@@ -1132,7 +1132,11 @@
     "running_placeholder": "运行中… 你可以停止，或等待负责人向你提问",
     "question_card": {
       "asking": "{name} 正在问你",
-      "asking_any": "负责人正在问你"
+      "asking_any": "负责人正在问你",
+      "gate": "等待你审批：{name}",
+      "gate_any": "有一个审批步骤在等你",
+      "paid_badge": "收费",
+      "paid_note": "下一步会产生费用或无法撤销。只有你按下方说明明确同意才会执行；沉默或超时都不算同意。"
     },
     "confirm_new_run": {
       "title": "开始新会话？",
@@ -3266,6 +3270,8 @@
       "delete": "删除",
       "keep": "保存到列表",
       "from_team": "团队提供",
+      "from_file": "来自 {file}",
+      "keep_one": "将账号 {name} 保存到列表",
       "save": "保存",
       "cancel": "取消",
       "need_value": "请至少输入用户名或密码。",

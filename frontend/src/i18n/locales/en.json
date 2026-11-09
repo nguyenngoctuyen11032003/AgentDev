@@ -1174,7 +1174,11 @@
     "running_placeholder": "Running… you can stop it or wait for the lead to ask you",
     "question_card": {
       "asking": "{name} is asking you",
-      "asking_any": "The lead is asking you"
+      "asking_any": "The lead is asking you",
+      "gate": "Waiting for your approval: {name}",
+      "gate_any": "An approval step is waiting for you",
+      "paid_badge": "Paid",
+      "paid_note": "The next step costs money or cannot be undone. It runs only if you approve it explicitly as described below; silence or a timeout never counts as approval."
     },
     "confirm_new_run": {
       "title": "Start a new session?",
@@ -3266,6 +3270,8 @@
       "delete": "Delete",
       "keep": "Save to the list",
       "from_team": "Reported by the team",
+      "from_file": "From {file}",
+      "keep_one": "Save account {name} to the list",
       "save": "Save",
       "cancel": "Cancel",
       "need_value": "Enter at least a username or a password.",

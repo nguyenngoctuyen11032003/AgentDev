@@ -1174,7 +1174,11 @@
     "running_placeholder": "Đang chạy… bạn có thể dừng hoặc chờ trưởng nhóm hỏi",
     "question_card": {
       "asking": "{name} đang hỏi bạn",
-      "asking_any": "Trưởng nhóm đang hỏi bạn"
+      "asking_any": "Trưởng nhóm đang hỏi bạn",
+      "gate": "Chờ bạn duyệt: {name}",
+      "gate_any": "Một bước duyệt đang chờ bạn",
+      "paid_badge": "Có phí",
+      "paid_note": "Bước tiếp theo tính phí hoặc không hoàn tác được. Chỉ chạy khi bạn đồng ý rõ ràng theo hướng dẫn bên dưới; im lặng hay hết giờ chờ đều không được tính là đồng ý."
     },
     "confirm_new_run": {
       "title": "Bắt đầu phiên mới?",
@@ -3553,6 +3557,8 @@
       "delete": "Xoá",
       "keep": "Lưu vào danh sách",
       "from_team": "Nhóm báo",
+      "from_file": "Từ {file}",
+      "keep_one": "Lưu tài khoản {name} vào danh sách",
       "save": "Lưu",
       "cancel": "Huỷ",
       "need_value": "Nhập ít nhất tên đăng nhập hoặc mật khẩu.",
