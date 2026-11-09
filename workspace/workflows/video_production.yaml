@@ -74,6 +74,11 @@ graph:
               tools:
                 - name: create_folder
                 - name: save_file
+        skills:
+          enabled: true
+          allow:
+            - name: video-script
+            - name: product-video-hooks
     - id: Writer
       type: agent
       description: Biên kịch, viết và sửa kịch bản từng tập cho hay và cuốn hút
@@ -128,6 +133,11 @@ graph:
                 - name: create_folder
                 - name: save_file
                 - name: apply_text_edits
+        skills:
+          enabled: true
+          allow:
+            - name: video-script
+            - name: character-passport
       mascot: 13
     - id: Chat Reply
       type: passthrough
@@ -162,6 +172,10 @@ graph:
             config:
               tools:
                 - name: read_file_segment
+        skills:
+          enabled: true
+          allow:
+            - name: video-script
     - id: Script Guard
       type: loop_counter
       description: Dừng vòng sửa kịch bản sau 2 lần
@@ -206,6 +220,13 @@ graph:
                 - name: create_folder
                 - name: save_file
                 - name: apply_text_edits
+        skills:
+          enabled: true
+          allow:
+            - name: character-passport
+            - name: varg-consistent-characters
+            - name: varg-video-prompting
+            - name: video-design
     - id: Voice & Subtitles
       type: agent
       description: Soạn lời thoại theo nhân vật, phụ đề có mốc thời gian, nhạc và hiệu ứng âm thanh
@@ -228,6 +249,12 @@ graph:
               tools:
                 - name: create_folder
                 - name: save_file
+        skills:
+          enabled: true
+          allow:
+            - name: caption-styles
+            - name: video-sound
+            - name: music
     - id: Thumbnail Title
       type: agent
       description: Soạn tiêu đề, mô tả, hashtag và câu lệnh ảnh thumbnail cho tập
@@ -251,6 +278,11 @@ graph:
                 - name: create_folder
                 - name: save_file
                 - name: apply_text_edits
+        skills:
+          enabled: true
+          allow:
+            - name: title-design
+            - name: flux-best-practices
     - id: Production QA
       type: agent
       description: Kiểm tra gói sản xuất (hình ảnh, lời thoại/phụ đề, tiêu đề/thumbnail) so với kịch bản và hồ sơ nhân vật
@@ -279,6 +311,10 @@ graph:
               tools:
                 - name: read_file_segment
                 - name: apply_text_edits
+        skills:
+          enabled: true
+          allow:
+            - name: media-judge
     - id: Video Approval
       type: human
       description: Bạn duyệt gói sản xuất hoặc video trước khi chốt tập

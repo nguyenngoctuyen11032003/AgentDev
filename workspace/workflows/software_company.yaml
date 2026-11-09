@@ -161,6 +161,11 @@ graph:
           tool_loop_limit: 30
 
     # ------------------------------------------------------------------ staff (no edges: called by the CTO)
+        skills:
+          enabled: true
+          allow:
+            - name: brainstorming
+      mascot: 13
     - id: Code Scout
       type: agent
       description: Trinh sát mã nguồn rẻ, chỉ đọc, trả về vị trí file:dòng cho CTO
