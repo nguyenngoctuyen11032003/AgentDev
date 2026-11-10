@@ -1707,7 +1707,8 @@
       "skills_failed": "技能库请求失败",
       "lab_failed": "实验室请求失败",
       "delete_workflow_failed": "无法删除工作流。",
-      "web_reference_failed": "无法读取该网页。请检查地址（仅限公开的 http/https 网页）后重试。"
+      "web_reference_failed": "无法读取该网页。请检查地址（仅限公开的 http/https 网页）后重试。",
+      "flow_prompts_failed": "无法生成 Flow 提示词"
     },
     "backend": {
       "technical": "技术详情：{detail}",
@@ -3072,7 +3073,27 @@
       "download_zip": "下载 (.zip)",
       "download_zip_hint": "将整个项目下载为 .zip（不含 node_modules、.git、.env）",
       "collapse_all": "全部折叠",
-      "project_fallback": "项目"
+      "project_fallback": "项目",
+      "flow": {
+        "tab": "Flow 提示词",
+        "tab_hint": "逐镜头提示词，粘贴到 Google Flow（Google AI 套餐中的 Veo）",
+        "hint": "将每条提示词粘贴到 Google Flow，用你 Google AI 套餐中的 Veo 生成片段（无额外 API 费用）。每个镜头一个片段，按旁边标注的秒数裁剪，再按顺序拼接。",
+        "open_flow": "打开 Google Flow",
+        "copy_all": "全部复制",
+        "download": "下载 .txt",
+        "loading": "正在生成逐镜头提示词…",
+        "error_title": "无法生成提示词",
+        "error_hint": "请确认 AgentDev 服务器仍在运行，然后重试。",
+        "retry": "重试",
+        "empty_title": "未找到镜头",
+        "empty_hint": "制作包需要形如 \"**1.** IMG: … VID: …\" 的行。请让团队重新制作本集的制作包。",
+        "missing_tags": "{tags} 没有外貌描述：这些角色在不同镜头中可能看起来不一样。请在 {file} 中添加 \"Appearance:\" 行。",
+        "shot": "镜头 {n}",
+        "seconds": "{n} 秒",
+        "copy_image": "复制图片提示词",
+        "copy_image_hint": "首帧图片提示词（用于 Frames to Video）",
+        "copy_video": "复制视频提示词"
+      }
     },
     "history": {
       "title": "评估历史",

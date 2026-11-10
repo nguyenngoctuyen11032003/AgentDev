@@ -734,6 +734,21 @@ export async function openOutputLocation(sessionId) {
   return response.json()
 }
 
+/**
+ * Per-shot prompts of a production package (goi_san_xuat.md) to paste into Google Flow, made by code (free).
+ * -> {style, shots: [{number, seconds, prompt, image_prompt}], missing_tags: [tag]}
+ */
+export async function fetchFlowPrompts({ packageText, bibleText = '' }, { signal } = {}) {
+  const response = await fetch(apiUrl('/api/video/flow-prompts'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ package: packageText, bible: bibleText }),
+    signal
+  })
+  if (!response.ok) throw await responseError('errors.api.flow_prompts_failed', response)
+  return response.json()
+}
+
 // --- What a chat session produced (its output folder), browsed and run like a Lab run's product ---
 const sessionOutputsPath = (sessionId) => `/api/sessions/${encodeURIComponent(sessionId)}/outputs`
 const encodeOutputPath = (path) => String(path || '').split('/').map(encodeURIComponent).join('/')

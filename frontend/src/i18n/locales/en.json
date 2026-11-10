@@ -1707,7 +1707,8 @@
       "skills_failed": "Skill library request failed",
       "lab_failed": "Lab request failed",
       "delete_workflow_failed": "Could not delete the workflow.",
-      "web_reference_failed": "Could not read the web page. Check the address (public http/https pages only) and try again."
+      "web_reference_failed": "Could not read the web page. Check the address (public http/https pages only) and try again.",
+      "flow_prompts_failed": "Could not build the Flow prompts"
     },
     "backend": {
       "technical": "Technical details: {detail}",
@@ -3072,7 +3073,27 @@
       "download_zip": "Download (.zip)",
       "download_zip_hint": "Download the whole project as a .zip (without node_modules, .git, .env)",
       "collapse_all": "Collapse all",
-      "project_fallback": "Project"
+      "project_fallback": "Project",
+      "flow": {
+        "tab": "Prompts for Flow",
+        "tab_hint": "Per-shot prompts to paste into Google Flow (Veo in your Google AI plan)",
+        "hint": "Paste each prompt into Google Flow to make the clips with the Veo in your Google AI plan (no extra API cost). One clip per shot: trim each clip to the seconds shown, then join them in order.",
+        "open_flow": "Open Google Flow",
+        "copy_all": "Copy all",
+        "download": "Download .txt",
+        "loading": "Building the per-shot prompts…",
+        "error_title": "Could not build the prompts",
+        "error_hint": "Check that the AgentDev server is still running, then try again.",
+        "retry": "Try again",
+        "empty_title": "No shots found",
+        "empty_hint": "The production package needs lines like \"**1.** IMG: … VID: …\". Ask the team to redo the production package for this episode.",
+        "missing_tags": "No appearance for {tags}: these characters may look different from shot to shot. Add an \"Appearance:\" line to {file}.",
+        "shot": "Shot {n}",
+        "seconds": "{n} s",
+        "copy_image": "Copy image prompt",
+        "copy_image_hint": "First-frame image prompt (for Frames to Video)",
+        "copy_video": "Copy video prompt"
+      }
     },
     "history": {
       "title": "Evaluation history",

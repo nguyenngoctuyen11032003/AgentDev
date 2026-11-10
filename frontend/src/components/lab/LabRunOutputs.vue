@@ -143,8 +143,16 @@
               </div>
               <div class="v-tools">
                 <div v-if="current.kind === 'markdown' && textState === 'ready'" class="seg" role="group" :aria-label="tr('lab.outputs.view_mode', 'Cách xem')">
-                  <button type="button" :class="{ on: !showSource }" :aria-pressed="!showSource" @click="showSource = false">{{ tr('lab.outputs.view_rendered', 'Trình bày') }}</button>
-                  <button type="button" :class="{ on: showSource }" :aria-pressed="showSource" @click="showSource = true">{{ tr('lab.outputs.view_source', 'Mã nguồn') }}</button>
+                  <button type="button" :class="{ on: !showSource && !showFlow }" :aria-pressed="!showSource && !showFlow" @click="showSource = false; showFlow = false">{{ tr('lab.outputs.view_rendered', 'Trình bày') }}</button>
+                  <button type="button" :class="{ on: showSource }" :aria-pressed="showSource" @click="showSource = true; showFlow = false">{{ tr('lab.outputs.view_source', 'Mã nguồn') }}</button>
+                  <button
+                    v-if="flowPackage"
+                    type="button"
+                    :class="{ on: showFlow }"
+                    :aria-pressed="showFlow"
+                    :title="tr('lab.outputs.flow.tab_hint', 'Prompt từng cảnh để dán vào Google Flow (Veo trong gói Google AI)')"
+                    @click="showFlow = true; showSource = false"
+                  >{{ tr('lab.outputs.flow.tab', 'Prompt cho Flow') }}</button>
                 </div>
                 <button
                   v-if="showsCode"
@@ -192,6 +200,13 @@
                   <strong>{{ tr('lab.outputs.file_error', 'Không mở được file') }}</strong>
                   <span>{{ textError }}</span>
                 </div>
+                <FlowPrompts
+                  v-else-if="showFlow && flowPackage"
+                  :source="src"
+                  :package-path="current.path"
+                  :package-text="text"
+                  :has-file="(path) => fileMap.has(path)"
+                />
                 <!-- markdown-it with html:false escapes raw HTML; links/images are checked by its validateLink -->
                 <article
                   v-else-if="current.kind === 'markdown' && !showSource"
@@ -251,6 +266,8 @@ import { useI18n } from 'vue-i18n'
 import MarkdownIt from 'markdown-it'
 import LabRunPreview from './LabRunPreview.vue'
 import ProductAccounts from './ProductAccounts.vue'
+import FlowPrompts from './FlowPrompts.vue'
+import { isFlowPackage } from '@/utils/flowPrompts.js'
 import { toast } from '@/utils/toast.js'
 import { confirmDialog } from '@/utils/confirm.js'
 import {
@@ -400,6 +417,8 @@ const textState = ref('idle') // idle | loading | ready | large | error
 const text = ref('')
 const textError = ref('')
 const showSource = ref(false)
+const showFlow = ref(false) // "Prompt cho Flow" of a production package (goi_san_xuat.md)
+const flowPackage = computed(() => !!current.value && isFlowPackage(current.value.path))
 const copied = ref(false)
 const wrap = ref(readWrap())
 const textCache = new Map()
@@ -430,6 +449,7 @@ watch(current, async (file) => {
   controller?.abort()
   controller = null
   showSource.value = false
+  showFlow.value = false
   copied.value = false
   text.value = ''
   textError.value = ''

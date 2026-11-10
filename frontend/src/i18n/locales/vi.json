@@ -1707,7 +1707,8 @@
       "skills_failed": "Không thể xử lý thư viện skill",
       "lab_failed": "Phòng thí nghiệm gặp lỗi",
       "delete_workflow_failed": "Không thể xoá quy trình.",
-      "web_reference_failed": "Không đọc được trang web. Kiểm tra địa chỉ (chỉ trang công khai http/https) rồi thử lại."
+      "web_reference_failed": "Không đọc được trang web. Kiểm tra địa chỉ (chỉ trang công khai http/https) rồi thử lại.",
+      "flow_prompts_failed": "Không tách được prompt cho Flow"
     },
     "backend": {
       "technical": "Chi tiết kỹ thuật: {detail}",
@@ -3359,7 +3360,27 @@
       "download_zip": "Tải về (.zip)",
       "download_zip_hint": "Tải cả dự án thành file .zip (không kèm node_modules, .git, .env)",
       "collapse_all": "Thu gọn tất cả",
-      "project_fallback": "Dự án"
+      "project_fallback": "Dự án",
+      "flow": {
+        "tab": "Prompt cho Flow",
+        "tab_hint": "Prompt từng cảnh để dán vào Google Flow (Veo trong gói Google AI)",
+        "hint": "Dán từng prompt vào Google Flow để làm clip bằng Veo trong gói Google AI của bạn (không tốn thêm tiền API). Mỗi cảnh một clip, cắt clip cho đúng số giây ghi bên cạnh rồi ghép theo thứ tự.",
+        "open_flow": "Mở Google Flow",
+        "copy_all": "Chép tất cả",
+        "download": "Tải .txt",
+        "loading": "Đang tách prompt từng cảnh…",
+        "error_title": "Không tách được prompt",
+        "error_hint": "Kiểm tra máy chủ AgentDev còn chạy rồi thử lại.",
+        "retry": "Thử lại",
+        "empty_title": "Chưa thấy cảnh nào",
+        "empty_hint": "Gói sản xuất cần các dòng dạng \"**1.** IMG: … VID: …\". Hãy nhờ nhóm làm lại gói sản xuất cho tập này.",
+        "missing_tags": "Chưa có mô tả ngoại hình cho {tags}: nhân vật có thể trông khác nhau giữa các cảnh. Thêm dòng \"Appearance:\" vào {file}.",
+        "shot": "Cảnh {n}",
+        "seconds": "{n} giây",
+        "copy_image": "Chép prompt ảnh",
+        "copy_image_hint": "Prompt ảnh khung đầu (dùng cho Frames to Video)",
+        "copy_video": "Chép prompt video"
+      }
     },
     "history": {
       "title": "Lịch sử thử nghiệm",

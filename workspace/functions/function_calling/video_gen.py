@@ -29,9 +29,12 @@ from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional, Tuple
 
 from agentdev.utils.function_catalog import ParamMeta
+from agentdev.utils.video_package import BIBLE_FILE, PACKAGE_FILE
+from agentdev.utils.video_package import expand_tags as _expand_tags  # noqa: F401 - kept for callers/tests
+from agentdev.utils.video_package import parse_bible as _parse_bible
+from agentdev.utils.video_package import parse_package as _parse_package
+from agentdev.utils.video_package import shot_prompts as _shot_prompts
 
-PACKAGE_FILE = "goi_san_xuat.md"
-BIBLE_FILE = "ho_so_nhan_vat.md"
 SUBTITLES_FILE = "loi_thoai_phu_de.md"
 CLIPS_DIR = "video"
 VEO_DURATIONS = (4, 6, 8)  # seconds Veo accepts
@@ -42,10 +45,6 @@ SHOT_TIMEOUT_SECONDS = 15 * 60
 RETRY_SECONDS = (30, 60, 120)  # waits before retrying a rate limit (429)
 MIN_CLIP_BYTES = 1024
 
-_SHOT_RE = re.compile(r"^\s*\*\*(\d+)\.\*\*\s*IMG:\s*(.*?)\s*VID:\s*(.+?)\s*$", re.MULTILINE)
-_ROW_RE = re.compile(r"^\|\s*(\d+)\s*\|[^|\n]*\|\s*(\d+(?:[.,]\d+)?)\s*\|", re.MULTILINE)
-_STYLE_RE = re.compile(r"^.*?Style(?: chung)?\s*:\s*(.+)$", re.MULTILINE | re.IGNORECASE)
-_TAG_RE = re.compile(r"\[([A-Z0-9_]+-v\d+)\]")
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 _SRT_CUE_RE = re.compile(
     r"(?:^|\n)\s*(\d+)\s*\n(\d\d:\d\d:\d\d,\d{3}\s*-->\s*\d\d:\d\d:\d\d,\d{3})\s*\n(.+?)(?=\n\s*\n|\n```|\Z)",
@@ -59,39 +58,7 @@ class StopRendering(Exception):
 
 # --------------------------------------------------------------------------- reading the package
 
-def _parse_package(text: str) -> Tuple[str, List[Dict[str, Any]]]:
-    """(shared style, shots) from a production package; each shot has number, seconds, img and vid prompts."""
-    style_match = _STYLE_RE.search(text)
-    style = style_match.group(1).strip() if style_match else ""
-    seconds = {int(n): float(s.replace(",", ".")) for n, s in _ROW_RE.findall(text)}
-    shots = []
-    for number, img, vid in _SHOT_RE.findall(text):
-        n = int(number)
-        shots.append({"number": n, "seconds": seconds.get(n, 6.0), "img": img.strip(), "vid": vid.strip()})
-    shots.sort(key=lambda s: s["number"])
-    return style, shots
-
-
-def _parse_bible(text: str) -> Dict[str, str]:
-    """Tag -> appearance, from heading tags followed by an ``Appearance:`` line, or both on one line."""
-    looks: Dict[str, str] = {}
-    current: Optional[str] = None
-    for line in text.splitlines():
-        tags = _TAG_RE.findall(line)
-        lowered = line.lower()
-        if "appearance:" in lowered:
-            look = line[lowered.index("appearance:") + len("appearance:"):]
-            owner = tags[0] if tags else current
-            if owner and look.strip():
-                looks[owner] = look.strip().rstrip(".")
-        elif tags and line.lstrip().startswith("#"):
-            current = tags[0]
-    return looks
-
-
-def _expand_tags(prompt: str, looks: Dict[str, str]) -> str:
-    """Replace each known [TAG] with its appearance (video models know nothing about our tags)."""
-    return _TAG_RE.sub(lambda m: f"({looks[m.group(1)]})" if m.group(1) in looks else m.group(0), prompt)
+# Package, bible and prompts: agentdev/utils/video_package.py (shared with the "Prompt cho Flow" button).
 
 
 def _veo_seconds(seconds: float) -> int:
@@ -220,13 +187,6 @@ def _shot_key(prompt: str, aspect_ratio: str) -> str:
     """What a clip shows: its prompt and ratio. Not whether Imagen was available for a first frame, or a change
     in that (account, use_first_frame) would throw away and pay again for every finished or started clip."""
     return hashlib.sha1(f"{prompt}|{aspect_ratio}".encode("utf-8")).hexdigest()[:16]
-
-
-def _shot_prompts(shot: Dict[str, Any], style: str, looks: Dict[str, str]) -> Tuple[str, str]:
-    """(video prompt, first-frame image prompt) of a shot."""
-    lead = f"{style}. " if style else ""
-    image = f"{lead}{_expand_tags(shot['img'], looks)}"
-    return f"{image} Motion: {_expand_tags(shot['vid'], looks)}", image
 
 
 def _clip_is_current(out_dir: Path, number: int, key: str) -> bool:
