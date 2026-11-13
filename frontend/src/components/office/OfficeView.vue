@@ -455,7 +455,7 @@ const onPanStart = (e) => {
   if (zoom.value <= 1 || e.button !== 0) return
   if (e.target.closest?.('button, [role="button"], .office-roster, .office-hud-dock, .office-zoom')) return
   Object.assign(panState, { active: true, x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y })
-  window.addEventListener('pointermove', onPanMove)
+  window.addEventListener('pointermove', onPanMove, { passive: true })
   window.addEventListener('pointerup', onPanEnd)
   window.addEventListener('pointercancel', onPanEnd)
 }

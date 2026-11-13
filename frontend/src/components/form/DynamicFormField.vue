@@ -861,7 +861,7 @@ const toggleDropdown = () => {
     showDropdown.value = true
     activeIndex.value = selectedOptionIndex()
     // Add escape listener
-    window.addEventListener('scroll', closeOnScroll, true)
+    window.addEventListener('scroll', closeOnScroll, { capture: true, passive: true })
     window.addEventListener('mousedown', handleOutsideClick)
   } else {
     closeDropdown()

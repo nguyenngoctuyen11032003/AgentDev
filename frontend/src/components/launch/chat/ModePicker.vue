@@ -145,8 +145,8 @@ const onOutside = (event) => {
 watch(open, (isOpen) => {
   if (isOpen) {
     document.addEventListener('pointerdown', onOutside, true)
-    window.addEventListener('resize', placeMenu)
-    window.addEventListener('scroll', placeMenu, true)
+    window.addEventListener('resize', placeMenu, { passive: true })
+    window.addEventListener('scroll', placeMenu, { capture: true, passive: true })
   } else {
     document.removeEventListener('pointerdown', onOutside, true)
     window.removeEventListener('resize', placeMenu)

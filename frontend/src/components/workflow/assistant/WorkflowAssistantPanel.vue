@@ -431,7 +431,7 @@ const stopResize = () => {
 const startResize = (event) => {
   resizeStart = { x: event.clientX, width: shownWidth.value }
   document.body.style.userSelect = 'none'
-  window.addEventListener('pointermove', onResizeMove)
+  window.addEventListener('pointermove', onResizeMove, { passive: true })
   window.addEventListener('pointerup', stopResize)
 }
 
